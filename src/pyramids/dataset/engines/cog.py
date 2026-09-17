@@ -1048,6 +1048,37 @@ class COG(_Engine["Dataset"]):
         Returns:
             tuple: The `(origin_x, x_size, x_skew, origin_y, y_skew, y_size)`
             geotransform of the output buffer.
+
+        Examples:
+            - A north-up window snapped to whole pixels and decimated 4 source
+              pixels into 3 output cells (the same window as `read_part`'s
+              transform example): the origin moves to the snapped corner and the
+              cell size grows to 4/3:
+                ```python
+                >>> from pyramids.dataset.engines.cog import COG
+                >>> COG._output_geotransform((0.0, 1.0, 0.0, 8.0, 0.0, -1.0), 1, 3, 4, 4, 3, 3)
+                (1.0, 1.3333333333333333, 0.0, 5.0, 0.0, -1.3333333333333333)
+
+                ```
+            - A south-up source (a positive y-step) keeps its sign instead of
+              being forced north-up:
+                ```python
+                >>> from pyramids.dataset.engines.cog import COG
+                >>> gt = COG._output_geotransform((0.0, 1.0, 0.0, 0.0, 0.0, 1.0), 0, 0, 8, 8, 4, 4)
+                >>> gt[5]  # y-step stays positive
+                2.0
+                >>> gt
+                (0.0, 2.0, 0.0, 0.0, 0.0, 2.0)
+
+                ```
+            - A rotated (skewed) source carries its skew terms through the
+              compose, so the output stays aligned to the same rotated grid:
+                ```python
+                >>> from pyramids.dataset.engines.cog import COG
+                >>> COG._output_geotransform((0.0, 2.0, 1.0, 0.0, 1.0, -2.0), 1, 1, 4, 4, 2, 2)
+                (3.0, 4.0, 2.0, -1.0, 2.0, -4.0)
+
+                ```
         """
         gt0, gt1, gt2, gt3, gt4, gt5 = source_gt
         return (
