@@ -1631,32 +1631,34 @@ class TestGroupStamps:
         stamps = variable.isel(valid_time=[5, 6])._group_stamps("valid_time")
         assert stamps == ["2022-01-02 06:00:00", "2022-01-02 12:00:00"], stamps
 
-    def test_a_container_decodes_its_stored_axis_without_a_second_read(
+    def test_a_container_decodes_its_stored_axis_without_the_strict_reader(
         self, monkeypatch
     ):
-        """The ERA5 container's axis decodes through `get_time_variable`; the fallback is not reached.
+        """The ERA5 container's axis is read once and decoded leniently, never by `get_time_variable`.
 
         Args:
-            monkeypatch: pytest fixture replacing the container's stored-axis read.
+            monkeypatch: pytest fixture replacing the container's strict time reader.
 
         Test scenario:
-            The stored axis already carries CF units, so reading it again for the rebuilt
-            container fallback would only repeat the work.
+            `get_time_variable` converts every stamp strictly, so a stamp that does not convert
+            would raise out of it where a variable's stamps give `None`; the container decodes the
+            axis it reads with `_decode_time_labels` instead.
         """
         container = NetCDF.read_file(str(ERA5_T2M))
 
-        def refuse(name: str) -> None:
-            """A second read of the stored axis, which must not happen.
+        def refuse(var_name: str, time_format: str) -> None:
+            """A strict read of the time axis, which must not happen.
 
             Args:
-                name: The dimension asked for.
+                var_name: The dimension asked for.
+                time_format: The format asked for.
 
             Raises:
                 AssertionError: Always.
             """
-            raise AssertionError(f"the stored axis of {name!r} was read again")
+            raise AssertionError(f"get_time_variable read {var_name!r}")
 
-        monkeypatch.setattr(container, "get_dimension_values", refuse)
+        monkeypatch.setattr(container, "get_time_variable", refuse)
         stamps = container._group_stamps("valid_time")
         assert stamps == _era5_stamps([1, 2, 3], [0, 6, 12, 18]), stamps
 
@@ -1763,15 +1765,6 @@ class TestGroupStamps:
         variable = NetCDF.read_file(path).get_variable("v")
         assert variable._group_stamps("time") is None
 
-    @pytest.mark.xfail(
-        strict=True,
-        raises=ValueError,
-        reason=(
-            "a container's stored axis with declared CF units is decoded by get_time_variable, "
-            "which converts the stamps strictly, so a NaN stamp raises 'cannot convert float NaN "
-            "to integer' instead of giving no stamps; already so before _group_stamps was extracted"
-        ),
-    )
     def test_a_store_with_a_stamp_that_does_not_convert_gives_no_stamps(self, tmp_path):
         """A container declaring hours, whose second stored stamp is NaN, decodes to `None` too.
 

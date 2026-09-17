@@ -7415,11 +7415,15 @@ class NetCDF(Dataset):
         - Coordinates of its own for `dim` (a variable keeps its own, possibly selected, raw
           stamps but not the root group's units) are decoded with the units its store declares,
           or that a derived result carries (`_time_attr_candidates`).
-        - Otherwise `get_time_variable` reads and decodes the stored axis.
-        - A container rebuilt by `reduce` / `coarsen` stores its axis without units and carries
-          them in `_band_dim_time_attrs` instead, so its stored stamps are decoded with those.
-          Only a container: a variable's own stamps are the ones that describe it, and a
-          variable without them has nothing to decode.
+        - A container decodes its stored axis the same way: with the units its own metadata
+          declares, or, for one rebuilt by `reduce` / `coarsen` that stores its axis without
+          units, with the units it carries in `_band_dim_time_attrs`.
+        - A variable without coordinates of its own falls back to `get_time_variable`, which
+          reads its own metadata.
+
+        Every branch but the last decodes leniently, so a stamp that does not convert (a NaN, an
+        infinity) gives `None`, as it does for a variable, rather than raising out of the
+        conversion.
 
         Args:
             dim: The band dimension.
@@ -7434,17 +7438,15 @@ class NetCDF(Dataset):
             times = self._decode_time_labels(
                 dim, list(own_values), instant, strict=False
             )
+        elif not self._band_dim_names:
+            stored = self.get_dimension_values(dim)
+            times = (
+                None
+                if stored is None
+                else self._decode_time_labels(dim, list(stored), instant, strict=False)
+            )
         else:
             times = self.get_time_variable(var_name=dim, time_format=instant)
-            stored = (
-                self.get_dimension_values(dim)
-                if times is None and not self._band_dim_names
-                else None
-            )
-            if stored is not None:
-                times = self._decode_time_labels(
-                    dim, list(stored), instant, strict=False
-                )
         return times
 
     def _reduce_variable_array(
