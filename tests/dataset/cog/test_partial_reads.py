@@ -677,49 +677,45 @@ class TestOutputGeotransform:
             )
 
 
-class TestReadPartOverloadParity:
-    """Guard that the Dataset facade's read_part overloads track the engine's."""
+class TestReadPartFacadeTyping:
+    """Guard that read_part stays narrowed on the engine and type-safe on the facade."""
 
-    @staticmethod
-    def _overload_shapes(func) -> list[tuple[tuple[str, ...], str]]:
-        """The (parameter reprs, return annotation) of each registered overload.
-
-        Args:
-            func: A function decorated with `typing.overload` stubs.
-
-        Returns:
-            list: One `(params_without_self, return_annotation)` pair per
-            overload, in declaration order.
-        """
-        shapes = []
-        for stub in get_overloads(func):
-            signature = inspect.signature(stub)
-            params = tuple(
-                str(param)
-                for name, param in signature.parameters.items()
-                if name != "self"
-            )
-            shapes.append((params, str(signature.return_annotation)))
-        return shapes
-
-    def test_the_facade_overloads_match_the_engine_signature(self):
-        """`Dataset.read_part`'s overloads must stay identical to `COG.read_part`'s.
+    def test_the_engine_keeps_its_narrowing_overloads(self):
+        """`COG.read_part` must keep the three `@overload` stubs that narrow it.
 
         Test scenario:
-            The facade forwards through `*args, **kwargs`, so mypy validates its
-            overload stubs against that permissive body -- never against the
-            engine's real parameters. If the engine signature changes and the
-            facade stubs are not updated in step, the public `Dataset.read_part`
-            would advertise a stale static signature with no type error. Comparing
-            the two overload sets by parameter list and return annotation makes
-            that drift fail loudly here instead.
+            The per-flag narrowing (Literal[False] -> ndarray, Literal[True] ->
+            tuple, bool -> union) lives on the engine, which the facade forwards
+            to. Dropping the engine overloads would silently erase narrowing
+            everywhere `read_part` is called directly, including `read_tile`.
         """
-        engine = self._overload_shapes(COG.read_part)
-        facade = self._overload_shapes(Dataset.read_part)
+        assert len(get_overloads(COG.read_part)) == 3, (
+            "COG.read_part must keep its narrowing @overload stubs"
+        )
 
-        assert engine, "COG.read_part should register @overload stubs"
-        assert facade == engine, (
-            "Dataset.read_part overloads drifted from COG.read_part; keep them in sync"
+    def test_the_facade_advertises_the_engine_union_not_any(self):
+        """`Dataset.read_part` must return the engine's union, never `Any`.
+
+        Test scenario:
+            The facade delegates through `*args, **kwargs`, which erases to `Any`
+            unless the method carries an explicit return annotation. It must
+            declare the same union `COG.read_part` returns -- kept here as a
+            single annotation rather than a duplicated `@overload` block (which
+            only tripped the duplication gate) -- so the public entry point stays
+            type-safe and cannot drift to `Any` or to a different return type
+            than the engine.
+        """
+        engine_return = inspect.signature(COG.read_part).return_annotation
+        facade_return = inspect.signature(Dataset.read_part).return_annotation
+
+        assert facade_return not in (inspect.Signature.empty, "Any", None), (
+            "Dataset.read_part must keep an explicit (non-Any) return annotation"
+        )
+        assert "".join(facade_return.split()) == "".join(engine_return.split()), (
+            "Dataset.read_part must return the same union as COG.read_part"
+        )
+        assert not get_overloads(Dataset.read_part), (
+            "the facade should not re-declare the engine's overloads (duplication)"
         )
 
 
