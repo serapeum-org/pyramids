@@ -170,6 +170,20 @@ def gapped():
     )
 
 
+def xr_weights(exported, values: np.ndarray, dim: str = "lat"):
+    """The weights as the `DataArray` xarray's `weighted` needs, named along `dim`.
+
+    Args:
+        exported: The exported variable, for the coordinate values.
+        values: One weight per step of `dim`.
+        dim: The dimension the weights run along.
+
+    Returns:
+        xarray.DataArray: The weights.
+    """
+    return exported[dim] * 0 + np.asarray(values, dtype=np.float64)
+
+
 def _columns(values) -> np.ndarray:
     """A result's `(time, x)` values as float64.
 
@@ -470,3 +484,58 @@ class TestExtremumOnGaps:
         without_gaps = exported.isel(x=slice(1, None))
         theirs = np.asarray(getattr(without_gaps, member)("time").values).ravel()
         np.testing.assert_array_equal(ours[1:], theirs)
+
+
+class TestWeightedMatchesXarray:
+    """`weighted` agrees with `xds.weighted(w).<how>(dims)`, cos-latitude weights included."""
+
+    @staticmethod
+    def _cos_latitude(exported) -> np.ndarray:
+        """`cos(latitude)` per row of the exported variable, as pyramids computes it.
+
+        Args:
+            exported: The exported variable.
+
+        Returns:
+            numpy.ndarray: One weight per row, north-up.
+        """
+        latitudes = np.asarray(exported["lat"].values, dtype=np.float64)
+        return np.cos(np.deg2rad(latitudes))
+
+    @pytest.mark.parametrize("how", ["mean", "sum", "sum_of_weights", "std", "var"])
+    def test_area_weighted_over_the_grid(self, container, exported, how):
+        """Each statistic over `(lat, lon)` with cos-latitude weights, per step and level.
+
+        Args:
+            container: The opened store.
+            exported: The exported variable.
+            how: The statistic.
+
+        Test scenario:
+            This is the plan's parity statement for weighted reductions:
+            `xds.weighted(np.cos(np.deg2rad(xds.lat))).mean(("lat", "lon"))`.
+        """
+        result = container.weighted("area", how=how)
+        weights = xr_weights(exported, self._cos_latitude(exported))
+        theirs = getattr(exported.weighted(weights), how)(("lat", "lon"))
+        ours = np.asarray(
+            result.get_variable(VARIABLE).read_array(), dtype=np.float64
+        ).reshape(theirs.shape)
+        np.testing.assert_allclose(ours, np.asarray(theirs.values, dtype=np.float64))
+
+    def test_weighted_over_a_band_dimension(self, container, exported):
+        """Weighting `time` with one weight per step matches xarray and keeps the grid."""
+        weights = np.array([1.0, 2.0, 3.0, 4.0])
+        result = container.weighted(weights, "time")
+        theirs = exported.weighted(xr_weights(exported, weights, "time")).mean("time")
+        assert_parity(_pyramids_side(result), _xarray_side(theirs), dtype=np.float64)
+
+    def test_uniform_weights_equal_the_unweighted_mean(self, container, exported):
+        """Equal weights give xarray's plain `mean(("lat", "lon"))`."""
+        rows = exported.sizes["lat"]
+        result = container.weighted(np.ones((rows, 1)), how="mean")
+        theirs = exported.mean(("lat", "lon"))
+        ours = np.asarray(
+            result.get_variable(VARIABLE).read_array(), dtype=np.float64
+        ).reshape(theirs.shape)
+        np.testing.assert_allclose(ours, np.asarray(theirs.values, dtype=np.float64))

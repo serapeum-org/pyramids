@@ -76,6 +76,7 @@ classDiagram
       +argmax()
       +idxmin()
       +idxmax()
+      +weighted()
     }
     Dataset <|-- NetCDF
     NetCDF <|-- Container

@@ -703,13 +703,31 @@ def _apply_to_variable(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
     """
     _assert_band_dimension(nc, dim, caller=op.caller)
     op.start()
-    arr, band_names, values_map, ndv = op.apply(nc, nc, dim)
+    return _variable_from_applied(nc, op.apply(nc, nc, dim))
+
+
+def _variable_from_applied(
+    nc: NetCDF, applied: _Applied, geotransform: tuple | None = None
+) -> NetCDF:
+    """Rebuild a variable from what an operation made of it.
+
+    Args:
+        nc: The source variable, whose name, grid and CRS the result takes.
+        applied: The values and band layout the operation produced.
+        geotransform: The result's geotransform; `nc`'s when `None`, which every operation
+            along a band dimension keeps.
+
+    Returns:
+        NetCDF: The rebuilt variable, named after `nc` or `"variable"` when `nc` has no name of
+        its own, holding the coordinates and the CF time units of the dimensions it kept.
+    """
+    arr, band_names, values_map, ndv = applied
     name = nc._source_var_name or "variable"
     container = nc._stack_reduced_variable(
         None,
         name,
         arr,
-        nc.geotransform,
+        nc.geotransform if geotransform is None else geotransform,
         crs_spec(nc.epsg, nc.crs),
         ndv,
         band_names,
@@ -824,29 +842,63 @@ def _apply_to_container(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
             f"Dimension {dim!r} is not a non-spatial dimension of any "
             f"variable in this container."
         )
-    # Auxiliary variables that span the reduced dimension cannot be carried
-    # verbatim — they would keep the full-length axis while the gridded
-    # variables collapse it, leaving an inconsistent dimension length. Drop
-    # those with a warning; carry the rest unchanged.
+    cast("NetCDF", result)._band_dim_time_attrs = time_attrs
+    _carry_auxiliaries(
+        nc,
+        cast("NetCDF", result),
+        rg,
+        aux_vars,
+        [] if op.keeps_length else [dim],
+        op.caller,
+    )
+    return cast("NetCDF", result)
+
+
+def _carry_auxiliaries(
+    nc: NetCDF,
+    result: NetCDF,
+    rg: Any,
+    aux_vars: list[str],
+    removed: list[str],
+    caller: str,
+) -> None:
+    """Carry a container's auxiliary variables onto `result`, dropping those that cannot come.
+
+    An auxiliary variable spanning a dimension the operation removed or shortened cannot be
+    carried verbatim — it would keep the full-length axis while the gridded variables lose it,
+    leaving an inconsistent dimension length — so it is dropped with a warning. Every other
+    auxiliary variable is carried unchanged.
+
+    Args:
+        nc: The source container.
+        result: The result container, edited in place.
+        rg: The source's working group, already resolved.
+        aux_vars: The carryable auxiliary variable names.
+        removed: The dimensions whose length the operation changed; empty when it changed none.
+        caller: The member the user called, named in the warnings.
+
+    Warns:
+        UserWarning: An auxiliary variable spans a removed dimension and is dropped, or one
+            that is kept cannot be copied over.
+    """
     carry_aux: list[str] = []
     spanning_aux: list[str] = []
     for name in aux_vars:
         var_dims = nc._variable_dim_names(rg, name)
-        spans = dim in var_dims and not op.keeps_length
+        spans = any(dim_name in var_dims for dim_name in removed)
         (spanning_aux if spans else carry_aux).append(name)
     if spanning_aux:
+        named = repr(removed[0]) if len(removed) == 1 else str(removed)
         warnings.warn(
-            f"{op.caller}() dropped auxiliary variable(s) {spanning_aux} that span "
-            f"the reduced dimension {dim!r}; carrying them unchanged would "
-            f"leave an inconsistent {dim!r} length in the result.",
-            # stacklevel=4: the user calls NetCDF.reduce (or NetCDF.coarsen), which
-            # forwards through the one-line façade to the Selection method, which calls
-            # this helper, so the user's call site is four frames up.
-            stacklevel=4,
+            f"{caller}() dropped auxiliary variable(s) {spanning_aux} that span "
+            f"the reduced dimension {named}; carrying them unchanged would "
+            f"leave an inconsistent {named} length in the result.",
+            # stacklevel=5: the user calls NetCDF.reduce (or another member), which forwards
+            # through the one-line façade to the Selection method, which calls the loop, which
+            # calls this helper, so the user's call site is five frames up.
+            stacklevel=5,
         )
-    cast("NetCDF", result)._band_dim_time_attrs = time_attrs
-    nc._carry_aux_variables(cast("NetCDF", result), carry_aux, op.caller)
-    return cast("NetCDF", result)
+    nc._carry_aux_variables(result, carry_aux, caller)
 
 
 def _reduces_as_a_variable(nc: NetCDF) -> bool:

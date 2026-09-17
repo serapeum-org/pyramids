@@ -1,6 +1,6 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 88 in all: 54 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 89 in all: 55 methods, 27 properties,
 6 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). For the full signatures, arguments and examples, see the rendered
 [NetCDF Class](index.md) reference; this page is the index you scan to find the member you want.
@@ -110,6 +110,7 @@ A variable with no raster plane is the exception — see each member's docstring
 | `argmax()`         | The position along `dim` of the largest value; `-1` where there is none.            |
 | `idxmin()`         | The coordinate along `dim` of the smallest value; NaN where there is none.          |
 | `idxmax()`         | The coordinate along `dim` of the largest value; NaN where there is none.           |
+| `weighted()`       | Weighted statistics over the spatial axes or a band dim — `"area"`, `how`.          |
 
 ## Spatial operations
 

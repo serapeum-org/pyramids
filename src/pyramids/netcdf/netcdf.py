@@ -7245,6 +7245,17 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.shift <pyramids.netcdf.engines.selection.Selection.shift>`."""
         return self.selection.shift(dim, periods, fill_value=fill_value)
 
+    def weighted(
+        self,
+        weights: Any,
+        dims: Any = None,
+        *,
+        how: str = "mean",
+        skipna: bool = True,
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.weighted <pyramids.netcdf.engines.selection.Selection.weighted>`."""
+        return self.selection.weighted(weights, dims, how=how, skipna=skipna)
+
     def argmin(self, dim: str, *, skipna: bool = True) -> NetCDF:
         """Facade — :meth:`Selection.argmin <pyramids.netcdf.engines.selection.Selection.argmin>`."""
         return self.selection.argmin(dim, skipna=skipna)

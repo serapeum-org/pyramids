@@ -65,6 +65,7 @@ from pyramids.netcdf.engines._along_dim import (
     _Rolling,
     _Shift,
 )
+from pyramids.netcdf.engines._weighted import _WEIGHTED_HOWS, _weighted_result
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
@@ -2290,6 +2291,132 @@ class Selection(_Engine["NetCDF"]):
         else:
             result = _apply_to_container(nc, dim, op)
         return result
+
+    def weighted(
+        self,
+        weights: Any,
+        dims: Any = None,
+        *,
+        how: str = "mean",
+        skipna: bool = True,
+    ) -> NetCDF:
+        """Weight the cells along one or more dimensions and reduce them.
+
+        The statistic every cell contributes to in proportion to its weight: a weighted mean is
+        `sum(w * x) / sum(w)`. Equal cells of a latitude-longitude grid do not cover equal area,
+        so the common use is a **regional or global mean** — `weights="area"`, which is
+        `cos(latitude)` per row — over the two spatial axes.
+
+        Weighting the spatial axes leaves no cells for the answer to sit in, so the result is a
+        raster of **one cell spanning the source's extent**, keeping the band dimensions and
+        their stamps: `nc.weighted("area")` on a `(valid_time, latitude, longitude)` container
+        answers one value per step, and `sel`, `isel`, `reduce` and `to_file` all still work on
+        it. Weighting one spatial axis leaves the other in place, and weighting a band dimension
+        keeps the grid and removes that dimension, as `reduce` removes it.
+
+        A gap (the declared no-data value or NaN) leaves both sums, so the answer is the
+        statistic of the cells there are. A slice with no valid cell, or whose weights total
+        zero, has no statistic and comes back NaN, the declared no-data value.
+
+        **The single cell's footprint.** The result's cell is centred on the extent it covers,
+        but a spatial axis of one cell carries no spacing in the rebuilt store, so the cell size
+        reads back as one index unit and `lat` / `lon` cannot be told apart on it — the same
+        limit a one-column `reduce` result has. The values, the band dimensions and the CRS are
+        exact; only the cell's reported width is not.
+
+        Args:
+            weights: `"area"` for `cos(latitude)` per row, which needs a geographic CRS; an
+                array broadcastable to the weighted axes — `(rows, 1)`, `(1, columns)` or
+                `(rows, columns)` for the grid, one weight per step for a band dimension; or a
+                `NetCDF` on the same grid, whose first band is read as the weights. Weights may
+                be negative, as xarray allows, but may not hold a gap: replace one with zero to
+                leave that cell out.
+            dims: The dimensions to weight over: `None` (default) for both spatial axes, one
+                name, or a sequence of names. A spatial axis is named as the store names it
+                (`latitude` / `longitude`) or as `y` / `x`. Spatial axes and band dimensions
+                cannot be mixed in one call, since a container cannot hold variables on two
+                grids.
+            how: `"mean"` (default), `"sum"`, `"sum_of_weights"`, `"std"` or `"var"`. The
+                variance is the weighted `sum(w * (x - mean) ** 2) / sum(w)`, as xarray computes
+                it. A weighted quantile is not offered; `reduce(how="quantile")` is the
+                unweighted one.
+            skipna: When `True` (default) gaps are skipped, as described above. When `False`
+                the stored values are weighted as they are, so a gap makes the answer NaN.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, float64 and
+            declaring NaN, on a grid reduced where a spatial axis was weighted.
+
+        Raises:
+            ValueError: `how` is unknown; `dims` is empty, names a dimension the variable does
+                not have, names one twice, or mixes spatial axes with band dimensions;
+                `weights` is an unknown name, holds a gap, does not broadcast onto the weighted
+                axes, or is a raster on another grid; `"area"` is asked of a grid that is not
+                geographic; or the container has no data variables.
+
+        Examples:
+            - The area-weighted mean of each step, on a grid of one cell:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> nc = NetCDF.from_array(
+              ...     np.array([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 60.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... )
+              >>> mean = nc.weighted("area").get_variable("t")
+              >>> (mean.rows, mean.columns)
+              (1, 1)
+              >>> [round(value, 3) for value in mean.read_array().ravel().tolist()]
+              [2.515, 6.515]
+              >>> mean._band_dim_values_map["time"]
+              [0.0, 6.0]
+
+              ```
+            - Equal weights give the plain mean, and the totals are available too:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([[1.0, 2.0], [3.0, 4.0]]),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ... ).get_variable("t")
+              >>> float(var.weighted(np.ones((2, 2))).read_array()[0, 0])
+              2.5
+              >>> float(var.weighted(np.ones((2, 2)), how="sum").read_array()[0, 0])
+              10.0
+              >>> float(
+              ...     var.weighted(np.ones((2, 2)), how="sum_of_weights").read_array()[0, 0]
+              ... )
+              4.0
+
+              ```
+            - Weighting a band dimension keeps the grid and removes the dimension:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([[[1.0, 1.0]], [[3.0, 3.0]]]),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... ).get_variable("t")
+              >>> blended = var.weighted(np.array([3.0, 1.0]), "time")
+              >>> blended.read_array().ravel().tolist()
+              [1.5, 1.5]
+              >>> tuple(blended._band_dim_names)
+              ()
+
+              ```
+        """
+        nc = self._ds
+        _check_how(how, set(_WEIGHTED_HOWS))
+        return _weighted_result(nc, weights, dims, how=how, skipna=bool(skipna))
 
 
 _BOUNDARIES = ("exact", "trim", "pad")
