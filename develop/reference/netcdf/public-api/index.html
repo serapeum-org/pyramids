@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6393,7 +6393,7 @@
 
 
 <h1 id="netcdf-public-api"><a class="toclink" href="#netcdf-public-api"><code>NetCDF</code> — public API</a><a class="headerlink" href="#netcdf-public-api" title="Permanent link">#</a></h1>
-<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 81 in all: 47 methods, 27 properties,
+<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 84 in all: 50 methods, 27 properties,
 6 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
 <code>__len__</code>). For the full signatures, arguments and examples, see the rendered
 <a href="../">NetCDF Class</a> reference; this page is the index you scan to find the member you want.</p>
@@ -6675,6 +6675,18 @@ A variable with no raster plane is the exception — see each member's docstring
 <tr>
 <td><code>rolling()</code></td>
 <td>Reduces a moving window along <code>dim</code>, keeping its length — <code>center</code>, <code>min_periods</code>.</td>
+</tr>
+<tr>
+<td><code>diff()</code></td>
+<td>Differences neighbouring steps along <code>dim</code> — <code>n</code>, <code>label</code>.</td>
+</tr>
+<tr>
+<td><code>cumsum()</code></td>
+<td>Totals the values along <code>dim</code>, step by step — <code>skipna</code>.</td>
+</tr>
+<tr>
+<td><code>shift()</code></td>
+<td>Moves the values along <code>dim</code>, filling the vacated steps — <code>periods</code>, <code>fill_value</code>.</td>
 </tr>
 </tbody>
 </table>
