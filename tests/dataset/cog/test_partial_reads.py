@@ -7,6 +7,9 @@ reprojection of the request window, and out-of-bounds / invalid-arg handling.
 
 from __future__ import annotations
 
+import inspect
+from typing import get_overloads
+
 import numpy as np
 import pytest
 from osgeo import gdal, osr
@@ -14,7 +17,7 @@ from osgeo import gdal, osr
 from pyramids.base._errors import OutOfBoundsError
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
-from pyramids.dataset.engines.cog import _xyz_bounds_3857
+from pyramids.dataset.engines.cog import COG, _xyz_bounds_3857
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
@@ -294,6 +297,428 @@ class TestReadPart:
         )
         assert out[10, 10] == -1.0, (
             f"expected NoData -1 in padded region, got {out[10, 10]}"
+        )
+
+    @pytest.mark.parametrize(
+        "bad", [{"dst_width": 0}, {"dst_height": 0}, {"dst_width": -3}]
+    )
+    def test_a_non_positive_output_size_is_a_clear_error(self, ramp_4326, bad):
+        """A zero or negative dst size is rejected with a message, not a ZeroDivisionError.
+
+        Args:
+            ramp_4326: Fixture ramp Dataset.
+            bad: A single non-positive output dimension.
+
+        Test scenario:
+            The output geotransform divides by the output size, so a zero or
+            negative `dst_*` used to surface as a bare `ZeroDivisionError` -- and,
+            once the transform was computed unconditionally, on the plain-array
+            path too. It must name the offending argument instead.
+        """
+        with pytest.raises(ValueError, match="must be a positive pixel count"):
+            ramp_4326.read_part(tuple(ramp_4326.bbox), bbox_crs=4326, band=0, **bad)
+
+
+class TestReadPartReturnTransform:
+    """`read_part(return_transform=True)` reports the window it actually read."""
+
+    @staticmethod
+    def _col_index_grid() -> Dataset:
+        """An 8x8 EPSG:3857 grid, top-left (0, 8), cell 1, value == column index.
+
+        Returns:
+            Dataset: A grid whose value at a cell equals the source column, so a
+            returned value reveals the source-x it was sampled from.
+        """
+        cols = np.tile(np.arange(8, dtype="float64"), (8, 1))
+        return Dataset.from_array(
+            cols,
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=3857),
+        )
+
+    def test_default_still_returns_the_bare_array(self):
+        """Omitting the flag keeps the original return type.
+
+        Test scenario:
+            The existing contract is a bare ndarray; a caller that never asks for
+            the transform must not start receiving a tuple.
+        """
+        grid = self._col_index_grid()
+
+        result = grid.read_part((1.5, 1.5, 4.5, 4.5), dst_width=3, dst_height=3, band=0)
+
+        assert isinstance(result, np.ndarray), (
+            f"expected a bare array, got {type(result)}"
+        )
+
+    def test_the_transform_places_the_cells_where_the_data_is(self):
+        """The transform labels the snapped window, not the requested bbox.
+
+        Test scenario:
+            bbox (1.5, 1.5, 4.5, 4.5) snaps outward to source x-pixels [1, 5], read
+            to width 3, so the cells sit at world-x centres 1.667 / 3.0 / 4.333 --
+            not the 2.0 / 3.0 / 4.0 a caller labelling from the requested bbox would
+            get. Because value == column index, each returned value names the
+            source column its cell was sampled from, so `value + 0.5` is the
+            world-x the transform must reproduce.
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part(
+            (1.5, 1.5, 4.5, 4.5),
+            dst_width=3,
+            dst_height=3,
+            band=0,
+            return_transform=True,
+        )
+
+        assert gt == pytest.approx((1.0, 4 / 3, 0.0, 5.0, 0.0, -4 / 3))
+        transform_x = [gt[0] + (i + 0.5) * gt[1] for i in range(3)]
+        sampled_x = [value + 0.5 for value in array[0].tolist()]
+        assert transform_x == pytest.approx(sampled_x, abs=0.05), (
+            f"transform {transform_x} must match the data at {sampled_x}"
+        )
+
+    def test_the_transform_round_trips_through_a_dataset(self):
+        """Building a Dataset from `(array, transform)` reproduces the window.
+
+        Test scenario:
+            The whole point is to place the result without redoing the snap, so
+            the transform must be a valid geotransform: a Dataset built from it
+            carries the snapped origin and the decimated cell size.
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part(
+            (1.5, 1.5, 4.5, 4.5),
+            dst_width=3,
+            dst_height=3,
+            band=0,
+            return_transform=True,
+        )
+        placed = Dataset.from_array(array, geo_ref=GeoReference(geo=gt, epsg=3857))
+
+        assert placed.top_left_corner == pytest.approx((1.0, 5.0))
+        assert placed.cell_size == pytest.approx(4 / 3)
+
+    def test_a_partial_overlap_transform_covers_the_padded_buffer(self):
+        """The transform describes the full buffer, padding included.
+
+        Test scenario:
+            A window straddling the left edge is padded with NoData on the outside,
+            and the returned buffer -- padding and all -- is aligned to the snapped
+            window. So the transform's origin is the snapped left edge (x = -2, the
+            floor of the requested -1.5), out to the raster and beyond, not the
+            raster's own edge at x = 0.
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part(
+            (-1.5, 1.5, 1.5, 4.5),
+            dst_width=3,
+            dst_height=3,
+            band=0,
+            return_transform=True,
+        )
+
+        assert array.shape == (3, 3)
+        assert gt[0] == pytest.approx(-2.0), f"origin must snap to -2, got {gt[0]}"
+        assert gt[1] == pytest.approx(4 / 3), "four source pixels read to width three"
+
+    @staticmethod
+    def _worst_cell_offset(array, gt) -> float:
+        """Largest gap between a data cell's source-x and its transform centre.
+
+        Args:
+            array: The returned buffer; value equals source column, so `value +
+                0.5` is the source-x the cell sampled (exact under bilinear on the
+                linear ramp).
+            gt: The returned geotransform.
+
+        Returns:
+            float: The worst offset over the non-NoData cells of the middle row.
+        """
+        row = array if array.ndim == 1 else array[array.shape[0] // 2]
+        worst = 0.0
+        for column in range(array.shape[-1]):
+            value = float(row[column])
+            if np.isnan(value) or value < -1000:
+                continue
+            centre = gt[0] + (column + 0.5) * gt[1]
+            worst = max(worst, abs(centre - (value + 0.5)))
+        return worst
+
+    def test_a_native_resolution_read_places_every_cell_exactly(self):
+        """Native resolution is the only regime the docstring promises is cell-exact.
+
+        Test scenario:
+            A window off the left edge, read at native resolution (no `dst_*`),
+            must land every data cell on its transform centre -- this is the
+            cell-exact escape hatch the docstring points callers at.
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part((-1.0, 5.0, 5.0, 9.0), band=0, return_transform=True)
+
+        assert self._worst_cell_offset(array, gt) == pytest.approx(0.0, abs=1e-9)
+
+    def test_a_decimated_straddle_drifts_within_one_cell_and_keeps_its_extent(self):
+        """A decimated straddle stays under one output cell; the extent is exact.
+
+        Test scenario:
+            A window that both straddles the edge and is *decimated* pads the
+            out-of-raster remainder to whole output cells before decimating, so
+            the sampled cells shift within the buffer -- worst at the padded edge,
+            but still under one output cell for the decimation regime. The outer
+            extent matches the snapped window exactly. This is the milder of the
+            two resampled-straddle regimes; the upsampling one drifts far more
+            (see `test_an_upsampled_straddle_can_drift_several_cells`).
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part(
+            (-1.0, 5.0, 5.0, 9.0),
+            dst_width=3,
+            dst_height=3,
+            band=0,
+            return_transform=True,
+        )
+
+        assert self._worst_cell_offset(array, gt) < abs(gt[1]), (
+            "edge drift exceeds one cell"
+        )
+        left = gt[0]
+        right = gt[0] + array.shape[-1] * gt[1]
+        assert left == pytest.approx(-1.0), "left extent must match the snapped window"
+        assert right == pytest.approx(5.0), "right extent must match the snapped window"
+
+    def test_an_upsampled_straddle_can_drift_several_cells(self):
+        """The transform's outer extent stays exact even where per-cell drift is large.
+
+        Test scenario:
+            Upsampling a window that overruns the raster edge is the regime an
+            earlier draft's "at most about one output cell" bound got wrong: the
+            padded remainder, stretched across many output cells, pushes data
+            several cells off its transform centre. This pins the true contract --
+            per-cell placement is *not* bounded to one cell here (it is measured
+            well above one output cell), yet the buffer's outer extent still
+            matches the snapped window exactly, which is the guarantee callers can
+            rely on for any resampled read.
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part(
+            (-0.6, 1.5, 0.4, 6.5),
+            dst_width=13,
+            dst_height=13,
+            band=0,
+            return_transform=True,
+        )
+
+        assert self._worst_cell_offset(array, gt) > abs(gt[1]), (
+            "an upsampled straddle should breach the one-cell bound the old wording claimed"
+        )
+        left = gt[0]
+        right = gt[0] + array.shape[-1] * gt[1]
+        assert left == pytest.approx(-1.0), "left extent must match the snapped window"
+        assert right == pytest.approx(1.0), "right extent must match the snapped window"
+
+    def test_a_south_up_source_keeps_its_pixel_step_sign(self):
+        """A positive y-step source is not forced north-up.
+
+        Test scenario:
+            `_output_geotransform` composes the source affine rather than assuming
+            a north-up grid, so a south-up source (positive `y_size`) comes back
+            with a positive `y_size`, and a caller placing the cells does not flip
+            the raster.
+        """
+        cols = np.tile(np.arange(8, dtype="float64"), (8, 1))
+        south_up = Dataset.from_array(
+            cols, geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 0.0, 0.0, 1.0), epsg=3857)
+        )
+
+        _, gt = south_up.read_part(
+            (1.5, 1.5, 4.5, 4.5),
+            dst_width=3,
+            dst_height=3,
+            band=0,
+            return_transform=True,
+        )
+
+        assert gt[5] == pytest.approx(4 / 3), f"y-step must stay positive, got {gt[5]}"
+
+    def test_no_decimation_yields_the_source_cell_size(self):
+        """Omitting the output size makes the transform carry the source cell size.
+
+        Test scenario:
+            With no `dst_width`/`dst_height` the buffer is the snapped source
+            window at native resolution (`out_w`/`out_h` default to the source
+            window size), so the transform's pixel step is the source cell size
+            (1.0), not a decimated one, and its origin is the snapped whole-pixel
+            corner. The existing tests always decimate 4 source pixels to width 3,
+            so the identity `out_w == req_xsize` branch is otherwise unexercised.
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part((1.5, 1.5, 4.5, 4.5), band=0, return_transform=True)
+
+        assert array.shape == (4, 4), f"native-size snapped window, got {array.shape}"
+        assert gt == pytest.approx((1.0, 1.0, 0.0, 5.0, 0.0, -1.0)), (
+            f"native-resolution window must carry the source cell size, got {gt}"
+        )
+
+    def test_the_transform_is_in_the_dataset_crs_not_the_bbox_crs(self, tile_3857):
+        """The transform is in the dataset CRS, whatever `bbox_crs` the caller uses.
+
+        Args:
+            tile_3857: Fixture EPSG:3857 dataset covering the zoom-1 NW quadrant.
+
+        Test scenario:
+            The window is asked for in EPSG:4326 degrees while the dataset is
+            EPSG:3857 metres. The transform must describe the buffer in the
+            dataset's own metric CRS -- every component metre-scale, never the
+            degree bbox -- with the origin sitting strictly inside the dataset
+            extent (so it tracks the reprojected window, not the dataset corner)
+            and the north-up y-step kept negative.
+        """
+        west, south, east, north = _xyz_bounds_3857(1, 0, 0)
+
+        _, gt = tile_3857.read_part(
+            (-100.0, 20.0, -80.0, 40.0),
+            dst_width=32,
+            dst_height=32,
+            bbox_crs=4326,
+            band=0,
+            return_transform=True,
+        )
+
+        assert gt[2] == 0.0, f"axis-aligned dataset should have zero row skew, got {gt}"
+        assert gt[4] == 0.0, (
+            f"axis-aligned dataset should have zero column skew, got {gt}"
+        )
+        assert min(abs(gt[0]), abs(gt[1]), abs(gt[3]), abs(gt[5])) > 180, (
+            f"transform must be metres in the dataset CRS, not degrees: {gt}"
+        )
+        assert west < gt[0] < east, (
+            f"origin-x must track the window inside {west}..{east}: {gt[0]}"
+        )
+        assert south < gt[3] < north, (
+            f"origin-y must track the window inside {south}..{north}: {gt[3]}"
+        )
+        assert gt[5] < 0, f"north-up dataset keeps a negative y-step, got {gt[5]}"
+
+    def test_all_bands_read_returns_a_3d_array_with_the_same_transform(self):
+        """`band=None` returns a 3-D buffer, and the transform is band-independent.
+
+        Test scenario:
+            The transform describes the window, not the band selection, so a
+            three-band read with `band=None` returns a `(bands, rows, cols)` array
+            whose transform is identical to the single-band read of the same
+            window -- selecting bands never moves the cells. The existing return
+            transform tests all pass `band=0`, so the all-bands arm pairing a 3-D
+            array with the transform is otherwise untested.
+        """
+        cols = np.tile(np.arange(8, dtype="float64"), (8, 1))
+        multi = np.stack([cols, cols + 10.0, cols + 20.0])
+        dataset = Dataset.from_array(
+            multi,
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=3857),
+        )
+
+        all_bands, gt_all = dataset.read_part(
+            (1.5, 1.5, 4.5, 4.5), dst_width=3, dst_height=3, return_transform=True
+        )
+        _, gt_one = dataset.read_part(
+            (1.5, 1.5, 4.5, 4.5),
+            dst_width=3,
+            dst_height=3,
+            band=0,
+            return_transform=True,
+        )
+
+        assert all_bands.shape == (3, 3, 3), (
+            f"expected (bands, rows, cols), got {all_bands.shape}"
+        )
+        assert gt_all == pytest.approx(gt_one), (
+            f"the transform must not depend on band selection: {gt_all} vs {gt_one}"
+        )
+
+
+class TestOutputGeotransform:
+    """Tests for the COG._output_geotransform static helper."""
+
+    def test_a_rotated_source_carries_its_skew_terms_through(self):
+        """The affine composition holds for a rotated source (non-zero skew).
+
+        Test scenario:
+            A rotated source geotransform has non-zero `gt2`/`gt4` skew that the
+            north-up and south-up cases never exercise. Composing the source
+            affine with the window offset and the output scale must map every
+            output pixel to the same world point the source grid maps its
+            corresponding fractional source pixel to -- checked against GDAL's own
+            `ApplyGeoTransform`. The window and output sizes are deliberately
+            distinct (4x6 read to 2x2) so the x- and y-scalings cannot be swapped
+            unnoticed.
+        """
+        source_gt = (100.0, 2.0, 0.5, 200.0, 0.3, -1.5)
+        req_xoff, req_yoff, req_xsize, req_ysize, out_w, out_h = 5, 7, 4, 6, 2, 2
+
+        out_gt = COG._output_geotransform(
+            source_gt, req_xoff, req_yoff, req_xsize, req_ysize, out_w, out_h
+        )
+
+        assert out_gt == pytest.approx((113.5, 4.0, 1.5, 191.0, 0.6, -4.5)), (
+            f"rotated composition changed, got {out_gt}"
+        )
+        for col, row in [(0, 0), (out_w, 0), (0, out_h), (out_w, out_h)]:
+            source_px = req_xoff + col * req_xsize / out_w
+            source_line = req_yoff + row * req_ysize / out_h
+            expected = gdal.ApplyGeoTransform(list(source_gt), source_px, source_line)
+            got = gdal.ApplyGeoTransform(list(out_gt), col, row)
+            assert got == pytest.approx(expected), (
+                f"output pixel ({col}, {row}) must map to {expected}, got {got}"
+            )
+
+
+class TestReadPartFacadeTyping:
+    """Guard that read_part stays narrowed on the engine and type-safe on the facade."""
+
+    def test_the_engine_keeps_its_narrowing_overloads(self):
+        """`COG.read_part` must keep the three `@overload` stubs that narrow it.
+
+        Test scenario:
+            The per-flag narrowing (Literal[False] -> ndarray, Literal[True] ->
+            tuple, bool -> union) lives on the engine, which the facade forwards
+            to. Dropping the engine overloads would silently erase narrowing
+            everywhere `read_part` is called directly, including `read_tile`.
+        """
+        assert len(get_overloads(COG.read_part)) == 3, (
+            "COG.read_part must keep its narrowing @overload stubs"
+        )
+
+    def test_the_facade_advertises_the_engine_union_not_any(self):
+        """`Dataset.read_part` must return the engine's union, never `Any`.
+
+        Test scenario:
+            The facade delegates through `*args, **kwargs`, which erases to `Any`
+            unless the method carries an explicit return annotation. It must
+            declare the same union `COG.read_part` returns -- kept here as a
+            single annotation rather than a duplicated `@overload` block (which
+            only tripped the duplication gate) -- so the public entry point stays
+            type-safe and cannot drift to `Any` or to a different return type
+            than the engine.
+        """
+        engine_return = inspect.signature(COG.read_part).return_annotation
+        facade_return = inspect.signature(Dataset.read_part).return_annotation
+
+        assert facade_return not in (inspect.Signature.empty, "Any", None), (
+            "Dataset.read_part must keep an explicit (non-Any) return annotation"
+        )
+        assert "".join(facade_return.split()) == "".join(engine_return.split()), (
+            "Dataset.read_part must return the same union as COG.read_part"
+        )
+        assert not get_overloads(Dataset.read_part), (
+            "the facade should not re-declare the engine's overloads (duplication)"
         )
 
 

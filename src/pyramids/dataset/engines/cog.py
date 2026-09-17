@@ -12,7 +12,7 @@ import warnings
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 import numpy as np
 from osgeo import gdal
@@ -735,6 +735,70 @@ class COG(_Engine["Dataset"]):
             return None
         return fn
 
+    @staticmethod
+    def _reject_nonpositive_output_sizes(
+        dst_width: int | None, dst_height: int | None
+    ) -> None:
+        """Reject a zero or negative explicit output size before any read.
+
+        Guards `read_part` up front: a non-positive `dst_width`/`dst_height`
+        otherwise surfaced as a bare `ZeroDivisionError` -- both when the output
+        geotransform divides by the size and, once that transform became
+        unconditional, on the plain-array path too.
+
+        Args:
+            dst_width: Requested output width in pixels, or `None` for native.
+            dst_height: Requested output height in pixels, or `None` for native.
+
+        Raises:
+            ValueError: Either size is given (not `None`) and is `<= 0`.
+        """
+        for name, value in (("dst_width", dst_width), ("dst_height", dst_height)):
+            if value is not None and value <= 0:
+                raise ValueError(f"{name} must be a positive pixel count, not {value}")
+
+    @overload
+    def read_part(
+        self,
+        bbox: tuple[float, float, float, float],
+        *,
+        dst_width: int | None = ...,
+        dst_height: int | None = ...,
+        bbox_crs: int | str | None = ...,
+        resampling: str = ...,
+        band: int | None = ...,
+        return_transform: Literal[False] = ...,
+    ) -> np.typing.NDArray: ...
+
+    @overload
+    def read_part(
+        self,
+        bbox: tuple[float, float, float, float],
+        *,
+        dst_width: int | None = ...,
+        dst_height: int | None = ...,
+        bbox_crs: int | str | None = ...,
+        resampling: str = ...,
+        band: int | None = ...,
+        return_transform: Literal[True],
+    ) -> tuple[np.typing.NDArray, tuple[float, float, float, float, float, float]]: ...
+
+    @overload
+    def read_part(
+        self,
+        bbox: tuple[float, float, float, float],
+        *,
+        dst_width: int | None = ...,
+        dst_height: int | None = ...,
+        bbox_crs: int | str | None = ...,
+        resampling: str = ...,
+        band: int | None = ...,
+        return_transform: bool,
+    ) -> (
+        np.typing.NDArray
+        | tuple[np.typing.NDArray, tuple[float, float, float, float, float, float]]
+    ): ...
+
     @under_gdal_env
     def read_part(
         self,
@@ -745,7 +809,11 @@ class COG(_Engine["Dataset"]):
         bbox_crs: int | str | None = None,
         resampling: str = "bilinear",
         band: int | None = None,
-    ) -> np.typing.NDArray:
+        return_transform: bool = False,
+    ) -> (
+        np.typing.NDArray
+        | tuple[np.typing.NDArray, tuple[float, float, float, float, float, float]]
+    ):
         """Read a geographic window, decimated from the nearest overview.
 
         Requesting a `dst_width`/`dst_height` smaller than the source window
@@ -772,19 +840,43 @@ class COG(_Engine["Dataset"]):
                 `lanczos`, `average`, `mode`, plus `gauss` and `rms` when the
                 GDAL build provides them.
             band: 0-based band index. `None` reads all bands.
+            return_transform: When `True`, return `(array, geotransform)`
+                instead of the bare array, so a caller can place the result
+                without reproducing the pixel-snapping arithmetic. The
+                geotransform is the six-tuple `GetGeoTransform` uses, describing
+                the returned buffer at its output resolution: it maps output
+                pixel coordinates to the **dataset's** CRS, over the window
+                actually read (the requested bbox snapped outward to whole
+                source pixels). Its origin, cell size and orientation place the
+                buffer's outer extent exactly, and that extent always matches the
+                snapped window. Per-cell placement -- each cell's data sitting on
+                its own transform centre -- is exact only for a read at native
+                resolution (`dst_width`/`dst_height` omitted, so the output keeps
+                the snapped window's size). A resampled read can shift a cell's
+                data off its transform centre: by a fraction of a cell in the
+                interior, and by more near the raster edge, where a window that
+                overruns the edge has its out-of-raster remainder padded before
+                resampling -- reaching several output cells when such a window is
+                upsampled. The outer extent stays exact in every case; read at
+                native resolution when you need cell-exact data. Defaults to
+                `False`, which keeps the bare-array return unchanged.
 
         Returns:
             numpy.ndarray: `(rows, cols)` for a single band, or
             `(bands, rows, cols)` for all bands; always sized
             `dst_height x dst_width` (the requested output size). Pixel values
-            only — no transform, bounds, or CRS is attached.
+            only — no transform, bounds, or CRS is attached, unless
+            `return_transform=True`, in which case a
+            `(array, geotransform)` tuple is returned instead (see
+            `return_transform`).
 
         Raises:
             CRSError: An explicit `bbox_crs` was given but the raster has no CRS
                 to transform into. Omit it to read in the raster's own
                 coordinates (ARC-26).
             TypeError: `resampling` is not a string.
-            ValueError: Unknown `resampling`.
+            ValueError: Unknown `resampling`, or `dst_width` / `dst_height` is
+                given as a non-positive pixel count.
             OutOfBoundsError: The window does not intersect the raster at all.
 
         Note:
@@ -847,8 +939,28 @@ class COG(_Engine["Dataset"]):
                 (dtype('float64'), [[-4999.5, 50.0], [-4999.5, 50.0]])
 
                 ```
+            - Ask for the geotransform of the window actually read. The bbox is
+              snapped outward to whole source pixels, so the transform, not the
+              requested bbox, is what places the cells:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> grid = Dataset.from_array(
+                ...     np.tile(np.arange(8, dtype="float64"), (8, 1)),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=3857),
+                ... )
+                >>> arr, gt = grid.read_part(
+                ...     (1.5, 1.5, 4.5, 4.5), dst_width=3, dst_height=3, return_transform=True,
+                ... )
+                >>> arr.shape
+                (3, 3)
+                >>> gt  # origin snapped to x=1, cells 4/3 wide
+                (1.0, 1.3333333333333333, 0.0, 5.0, 0.0, -1.3333333333333333)
+
+                ```
         """
         alg = _resolve_read_resampling(resampling)
+        self._reject_nonpositive_output_sizes(dst_width, dst_height)
         # This serves a decimated window from the source; a NetCDF multidim view can't be window-read
         # by GDAL >= 3.13, so materialise it first (no-op for an ordinary raster).
         self._ds._materialize_md_view()
@@ -881,20 +993,26 @@ class COG(_Engine["Dataset"]):
 
         out_w = dst_width if dst_width is not None else req_xsize
         out_h = dst_height if dst_height is not None else req_ysize
+        # Describes the buffer both arms below return: the snapped window at the
+        # output resolution, in the dataset's CRS. Computed here, before the read,
+        # because it depends only on the window and the output size, not the pixels.
+        out_gt = self._output_geotransform(
+            geotransform, req_xoff, req_yoff, req_xsize, req_ysize, out_w, out_h
+        )
         source = ds if band is None else ds.GetRasterBand(band + 1)
 
-        fully_inside = (
-            ix0 == req_xoff
-            and iy0 == req_yoff
-            and ix1 == req_xoff + req_xsize
-            and iy1 == req_yoff + req_ysize
+        fully_inside = (ix0, iy0, ix1, iy1) == (
+            req_xoff,
+            req_yoff,
+            req_xoff + req_xsize,
+            req_yoff + req_ysize,
         )
         if fully_inside:
             # Physical units, like `read_array`. These are overview-decimated reads
             # of the same band, and a raster that renders at one scale through
             # `plot()` and another through `plot(overview=True)` is a defect a
             # reader can see.
-            return np.asarray(
+            array = np.asarray(
                 self._ds.io._apply_scale_offset(
                     np.asarray(
                         source.ReadAsArray(
@@ -910,6 +1028,7 @@ class COG(_Engine["Dataset"]):
                     band,
                 )
             )
+            return (array, out_gt) if return_transform else array
 
         # Partial overlap: read only the intersection, then place it at its
         # correct offset inside a full-size output buffer padded with NoData,
@@ -944,7 +1063,82 @@ class COG(_Engine["Dataset"]):
         # straddling the raster's edge come back as `int16` counts while a window just
         # inside it came back as physical `float64`, and every edge `read_tile` took
         # this arm.
-        return np.asarray(self._ds.io._apply_scale_offset(out, band))
+        array = np.asarray(self._ds.io._apply_scale_offset(out, band))
+        return (array, out_gt) if return_transform else array
+
+    @staticmethod
+    def _output_geotransform(
+        source_gt: tuple[float, float, float, float, float, float],
+        req_xoff: int,
+        req_yoff: int,
+        req_xsize: int,
+        req_ysize: int,
+        out_w: int,
+        out_h: int,
+    ) -> tuple[float, float, float, float, float, float]:
+        """Geotransform of a `read_part` buffer, from the source grid and the window.
+
+        The buffer covers source pixels `[req_xoff, req_xoff + req_xsize)` by
+        `[req_yoff, req_yoff + req_ysize)` -- the requested bbox snapped outward
+        to whole pixels -- resampled to `out_w` by `out_h`. Composing the source
+        affine with that offset-and-scale gives an affine in the dataset's CRS
+        that maps an output pixel to the same world point the source grid does,
+        so it carries a rotated or south-up source through unchanged (the pixel
+        step keeps its sign) rather than assuming a north-up grid.
+
+        Args:
+            source_gt: The source `GetGeoTransform` six-tuple.
+            req_xoff: Left edge of the window, in source pixels.
+            req_yoff: Top edge of the window, in source pixels.
+            req_xsize: Window width, in source pixels.
+            req_ysize: Window height, in source pixels.
+            out_w: Output width, in pixels.
+            out_h: Output height, in pixels.
+
+        Returns:
+            tuple: The `(origin_x, x_size, x_skew, origin_y, y_skew, y_size)`
+            geotransform of the output buffer.
+
+        Examples:
+            - A north-up window snapped to whole pixels and decimated 4 source
+              pixels into 3 output cells (the same window as `read_part`'s
+              transform example): the origin moves to the snapped corner and the
+              cell size grows to 4/3:
+                ```python
+                >>> from pyramids.dataset.engines.cog import COG
+                >>> COG._output_geotransform((0.0, 1.0, 0.0, 8.0, 0.0, -1.0), 1, 3, 4, 4, 3, 3)
+                (1.0, 1.3333333333333333, 0.0, 5.0, 0.0, -1.3333333333333333)
+
+                ```
+            - A south-up source (a positive y-step) keeps its sign instead of
+              being forced north-up:
+                ```python
+                >>> from pyramids.dataset.engines.cog import COG
+                >>> gt = COG._output_geotransform((0.0, 1.0, 0.0, 0.0, 0.0, 1.0), 0, 0, 8, 8, 4, 4)
+                >>> gt[5]  # y-step stays positive
+                2.0
+                >>> gt
+                (0.0, 2.0, 0.0, 0.0, 0.0, 2.0)
+
+                ```
+            - A rotated (skewed) source carries its skew terms through the
+              compose, so the output stays aligned to the same rotated grid:
+                ```python
+                >>> from pyramids.dataset.engines.cog import COG
+                >>> COG._output_geotransform((0.0, 2.0, 1.0, 0.0, 1.0, -2.0), 1, 1, 4, 4, 2, 2)
+                (3.0, 4.0, 2.0, -1.0, 2.0, -4.0)
+
+                ```
+        """
+        gt0, gt1, gt2, gt3, gt4, gt5 = source_gt
+        return (
+            gt0 + req_xoff * gt1 + req_yoff * gt2,
+            gt1 * req_xsize / out_w,
+            gt2 * req_ysize / out_h,
+            gt3 + req_xoff * gt4 + req_yoff * gt5,
+            gt4 * req_xsize / out_w,
+            gt5 * req_ysize / out_h,
+        )
 
     @staticmethod
     def _nodata_fill(band: Any) -> float:

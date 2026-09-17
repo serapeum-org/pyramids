@@ -775,9 +775,28 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`COG.to_cog_bytes <pyramids.dataset.engines.COG.to_cog_bytes>`."""
         return self.cog.to_cog_bytes(*args, **kwargs)
 
-    def read_part(self, *args, **kwargs):
-        """Facade — delegates to :meth:`COG.read_part <pyramids.dataset.engines.COG.read_part>`."""
-        return self.cog.read_part(*args, **kwargs)
+    def read_part(
+        self, *args, **kwargs
+    ) -> (
+        np.typing.NDArray
+        | tuple[np.typing.NDArray, tuple[float, float, float, float, float, float]]
+    ):
+        """Facade — delegates to :meth:`COG.read_part <pyramids.dataset.engines.COG.read_part>`.
+
+        Typed with the engine's union return -- a bare array, or an
+        `(array, geotransform)` tuple when `return_transform=True` -- so the
+        public entry point stays type-safe instead of erasing to `Any` through
+        the `*args, **kwargs` passthrough. The per-flag narrowing lives on
+        `COG.read_part`; duplicating its `@overload` stubs here bought the facade
+        nothing over this union and only tripped the duplication gate.
+        """
+        # `*args`/`**kwargs` are `Any`, so the overloaded engine call resolves to
+        # `Any`; cast back to the declared union to keep the facade type-safe.
+        return cast(
+            "np.typing.NDArray"
+            " | tuple[np.typing.NDArray, tuple[float, float, float, float, float, float]]",
+            self.cog.read_part(*args, **kwargs),
+        )
 
     def preview(self, *args, **kwargs):
         """Facade — delegates to :meth:`COG.preview <pyramids.dataset.engines.COG.preview>`."""
