@@ -8772,11 +8772,7 @@ class NetCDF(Dataset):
             tuple[str, str] | None: The carried pair, or `None` when there is no owner, it
             carries nothing for `var_name`, or what it carries is not CF time units.
         """
-        carried = (
-            None
-            if owner is None
-            else getattr(owner, "_band_dim_time_attrs", {}).get(var_name)
-        )
+        carried = getattr(owner, "_band_dim_time_attrs", {}).get(var_name)
         return carried if carried is not None and is_cf_time_units(carried[0]) else None
 
     def _resolved_band_dim_time_attrs(self) -> dict[str, tuple[str, str]]:
