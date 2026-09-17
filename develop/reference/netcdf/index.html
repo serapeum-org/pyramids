@@ -19492,13 +19492,13 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-2288" name="__codelineno-0-2288"></a><span class="w">        </span><span class="sd">"""Release every GDAL handle this container holds, then close the base.</span>
 <a id="__codelineno-0-2289" name="__codelineno-0-2289"></a>
 <a id="__codelineno-0-2290" name="__codelineno-0-2290"></a><span class="sd">        A NetCDF container keeps more open GDAL references than the single</span>
-<a id="__codelineno-0-2291" name="__codelineno-0-2291"></a><span class="sd">        ``self._raster`` that :meth:`Dataset.close` drops:</span>
+<a id="__codelineno-0-2291" name="__codelineno-0-2291"></a><span class="sd">        `self._raster` that :meth:`Dataset.close` drops:</span>
 <a id="__codelineno-0-2292" name="__codelineno-0-2292"></a>
 <a id="__codelineno-0-2293" name="__codelineno-0-2293"></a><span class="sd">        * cached per-variable child objects (:attr:`_cached_variables`), each</span>
-<a id="__codelineno-0-2294" name="__codelineno-0-2294"></a><span class="sd">          with its own ``_raster`` and SWIG MDArray / root-group references;</span>
-<a id="__codelineno-0-2295" name="__codelineno-0-2295"></a><span class="sd">        * the ``_gdal_md_arr_ref`` / ``_gdal_rg_ref`` views that keep an</span>
+<a id="__codelineno-0-2294" name="__codelineno-0-2294"></a><span class="sd">          with its own `_raster` and SWIG MDArray / root-group references;</span>
+<a id="__codelineno-0-2295" name="__codelineno-0-2295"></a><span class="sd">        * the `_gdal_md_arr_ref` / `_gdal_rg_ref` views that keep an</span>
 <a id="__codelineno-0-2296" name="__codelineno-0-2296"></a><span class="sd">          extracted variable's C++ backing alive;</span>
-<a id="__codelineno-0-2297" name="__codelineno-0-2297"></a><span class="sd">        * the ``_parent_nc`` back-reference forming a refcount cycle with the</span>
+<a id="__codelineno-0-2297" name="__codelineno-0-2297"></a><span class="sd">        * the `_parent_nc` back-reference forming a refcount cycle with the</span>
 <a id="__codelineno-0-2298" name="__codelineno-0-2298"></a><span class="sd">          parent's variable cache;</span>
 <a id="__codelineno-0-2299" name="__codelineno-0-2299"></a><span class="sd">        * a variable's `_store_raster`, the record of the raster `get_variable` built, which</span>
 <a id="__codelineno-0-2300" name="__codelineno-0-2300"></a><span class="sd">          (unless copied into memory) reads the store and so holds a file-backed store's file</span>
@@ -19506,13 +19506,13 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-2302" name="__codelineno-0-2302"></a>
 <a id="__codelineno-0-2303" name="__codelineno-0-2303"></a><span class="sd">        This override closes the cached children and drops every extra reference</span>
 <a id="__codelineno-0-2304" name="__codelineno-0-2304"></a><span class="sd">        before deferring to :meth:`Dataset.close`. It then runs a single</span>
-<a id="__codelineno-0-2305" name="__codelineno-0-2305"></a><span class="sd">        :func:`gc.collect`: a spatial op (``crop`` / ``to_crs`` / ``reduce``)</span>
-<a id="__codelineno-0-2306" name="__codelineno-0-2306"></a><span class="sd">        extracts variables whose ``AsClassicDataset`` view, MDArray and root</span>
+<a id="__codelineno-0-2305" name="__codelineno-0-2305"></a><span class="sd">        :func:`gc.collect`: a spatial op (`crop` / `to_crs` / `reduce`)</span>
+<a id="__codelineno-0-2306" name="__codelineno-0-2306"></a><span class="sd">        extracts variables whose `AsClassicDataset` view, MDArray and root</span>
 <a id="__codelineno-0-2307" name="__codelineno-0-2307"></a><span class="sd">        group form a **reference cycle among the GDAL SWIG wrappers** that plain</span>
 <a id="__codelineno-0-2308" name="__codelineno-0-2308"></a><span class="sd">        refcounting cannot reclaim. Without the collect those wrappers keep the</span>
-<a id="__codelineno-0-2309" name="__codelineno-0-2309"></a><span class="sd">        source file open, so on Windows a later ``os.replace`` / ``os.remove``</span>
-<a id="__codelineno-0-2310" name="__codelineno-0-2310"></a><span class="sd">        fails with ``PermissionError`` until the caller forces a GC themselves</span>
-<a id="__codelineno-0-2311" name="__codelineno-0-2311"></a><span class="sd">        (#564). Doing it here makes ``close()`` honour its contract — the file is</span>
+<a id="__codelineno-0-2309" name="__codelineno-0-2309"></a><span class="sd">        source file open, so on Windows a later `os.replace` / `os.remove`</span>
+<a id="__codelineno-0-2310" name="__codelineno-0-2310"></a><span class="sd">        fails with `PermissionError` until the caller forces a GC themselves</span>
+<a id="__codelineno-0-2311" name="__codelineno-0-2311"></a><span class="sd">        (#564). Doing it here makes `close()` honour its contract — the file is</span>
 <a id="__codelineno-0-2312" name="__codelineno-0-2312"></a><span class="sd">        unlocked immediately. Safe to call more than once.</span>
 <a id="__codelineno-0-2313" name="__codelineno-0-2313"></a><span class="sd">        """</span>
 <a id="__codelineno-0-2314" name="__codelineno-0-2314"></a>        <span class="c1"># Release handles parked by this container's lazy reads (#727): a lazy dask array can be held</span>
@@ -25844,12 +25844,12 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-8640" name="__codelineno-0-8640"></a><span class="w">        </span><span class="sd">"""Decode already-read raw time values into formatted date strings.</span>
 <a id="__codelineno-0-8641" name="__codelineno-0-8641"></a>
 <a id="__codelineno-0-8642" name="__codelineno-0-8642"></a><span class="sd">        Unlike :meth:`get_time_variable`, which reads the *full* stored axis, this</span>
-<a id="__codelineno-0-8643" name="__codelineno-0-8643"></a><span class="sd">        decodes the specific ``raw_values`` handed to it, using the first `(units, calendar)`</span>
+<a id="__codelineno-0-8643" name="__codelineno-0-8643"></a><span class="sd">        decodes the specific `raw_values` handed to it, using the first `(units, calendar)`</span>
 <a id="__codelineno-0-8644" name="__codelineno-0-8644"></a><span class="sd">        pair for `var_name` whose units parse, in the order `_time_attr_candidates` yields</span>
 <a id="__codelineno-0-8645" name="__codelineno-0-8645"></a><span class="sd">        them: this cube's own dimension metadata, its parent container's, then the units a</span>
 <a id="__codelineno-0-8646" name="__codelineno-0-8646"></a><span class="sd">        result computed in memory carries. A variable subset built</span>
 <a id="__codelineno-0-8647" name="__codelineno-0-8647"></a><span class="sd">        by :meth:`get_variable` keeps its (possibly subsetted) raw coordinate values</span>
-<a id="__codelineno-0-8648" name="__codelineno-0-8648"></a><span class="sd">        in ``_band_dim_values_map`` but loses the root group's dimension attributes,</span>
+<a id="__codelineno-0-8648" name="__codelineno-0-8648"></a><span class="sd">        in `_band_dim_values_map` but loses the root group's dimension attributes,</span>
 <a id="__codelineno-0-8649" name="__codelineno-0-8649"></a><span class="sd">        so its own metadata is empty while the parent still carries the units —</span>
 <a id="__codelineno-0-8650" name="__codelineno-0-8650"></a><span class="sd">        which is why the animate frame labels came back as raw integers (#1013).</span>
 <a id="__codelineno-0-8651" name="__codelineno-0-8651"></a><span class="sd">        Decoding the passed values (not the parent's full axis) keeps the labels</span>
@@ -25859,17 +25859,17 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-8655" name="__codelineno-0-8655"></a><span class="sd">            var_name: Name of the time coordinate / dimension.</span>
 <a id="__codelineno-0-8656" name="__codelineno-0-8656"></a><span class="sd">            raw_values: The raw coordinate values to decode (one per frame).</span>
 <a id="__codelineno-0-8657" name="__codelineno-0-8657"></a><span class="sd">            time_format: strftime format for the output strings. Defaults to</span>
-<a id="__codelineno-0-8658" name="__codelineno-0-8658"></a><span class="sd">                ``"%Y-%m-%d"``.</span>
-<a id="__codelineno-0-8659" name="__codelineno-0-8659"></a><span class="sd">            strict: When ``True`` (the default) a coordinate value the converter</span>
+<a id="__codelineno-0-8658" name="__codelineno-0-8658"></a><span class="sd">                `"%Y-%m-%d"`.</span>
+<a id="__codelineno-0-8659" name="__codelineno-0-8659"></a><span class="sd">            strict: When `True` (the default) a coordinate value the converter</span>
 <a id="__codelineno-0-8660" name="__codelineno-0-8660"></a><span class="sd">                cannot handle propagates, so a malformed axis is not hidden behind</span>
-<a id="__codelineno-0-8661" name="__codelineno-0-8661"></a><span class="sd">                raw labels. When ``False`` it returns ``None`` instead, which is what</span>
+<a id="__codelineno-0-8661" name="__codelineno-0-8661"></a><span class="sd">                raw labels. When `False` it returns `None` instead, which is what</span>
 <a id="__codelineno-0-8662" name="__codelineno-0-8662"></a><span class="sd">                a selection needs: an axis that cannot be decoded simply has no labels</span>
 <a id="__codelineno-0-8663" name="__codelineno-0-8663"></a><span class="sd">                and the stored-value path still answers.</span>
 <a id="__codelineno-0-8664" name="__codelineno-0-8664"></a>
 <a id="__codelineno-0-8665" name="__codelineno-0-8665"></a><span class="sd">        Returns:</span>
-<a id="__codelineno-0-8666" name="__codelineno-0-8666"></a><span class="sd">            list[str] or None: One formatted string per value, or ``None`` when no</span>
-<a id="__codelineno-0-8667" name="__codelineno-0-8667"></a><span class="sd">            candidate's ``units`` parses (a present-but-unparseable one — a non-CF</span>
-<a id="__codelineno-0-8668" name="__codelineno-0-8668"></a><span class="sd">            ``units`` string — degrades to raw labels rather than raising out of a</span>
+<a id="__codelineno-0-8666" name="__codelineno-0-8666"></a><span class="sd">            list[str] or None: One formatted string per value, or `None` when no</span>
+<a id="__codelineno-0-8667" name="__codelineno-0-8667"></a><span class="sd">            candidate's `units` parses (a present-but-unparseable one — a non-CF</span>
+<a id="__codelineno-0-8668" name="__codelineno-0-8668"></a><span class="sd">            `units` string — degrades to raw labels rather than raising out of a</span>
 <a id="__codelineno-0-8669" name="__codelineno-0-8669"></a><span class="sd">            plot), or, with `strict=False`, when a value does not convert.</span>
 <a id="__codelineno-0-8670" name="__codelineno-0-8670"></a><span class="sd">        """</span>
 <a id="__codelineno-0-8671" name="__codelineno-0-8671"></a>        <span class="n">labels</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
@@ -28045,11 +28045,11 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-10841" name="__codelineno-0-10841"></a>
 <a id="__codelineno-0-10842" name="__codelineno-0-10842"></a>    <span class="nd">@staticmethod</span>
 <a id="__codelineno-0-10843" name="__codelineno-0-10843"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_copy_band_dim_metadata</span><span class="p">(</span><span class="n">dst</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">src</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-10844" name="__codelineno-0-10844"></a><span class="w">        </span><span class="sd">"""Copy the band-dimension bookkeeping from ``src`` onto ``dst``.</span>
+<a id="__codelineno-0-10844" name="__codelineno-0-10844"></a><span class="w">        </span><span class="sd">"""Copy the band-dimension bookkeeping from `src` onto `dst`.</span>
 <a id="__codelineno-0-10845" name="__codelineno-0-10845"></a>
-<a id="__codelineno-0-10846" name="__codelineno-0-10846"></a><span class="sd">        Carries the multi-band-dim fields (``_band_dim_names`` / ``_band_dim_values_map``</span>
-<a id="__codelineno-0-10847" name="__codelineno-0-10847"></a><span class="sd">        / ``_band_dim_sizes``) and re-derives the legacy single-band-dim view</span>
-<a id="__codelineno-0-10848" name="__codelineno-0-10848"></a><span class="sd">        (``_band_dim_name`` / ``_band_dim_values``) from them via</span>
+<a id="__codelineno-0-10846" name="__codelineno-0-10846"></a><span class="sd">        Carries the multi-band-dim fields (`_band_dim_names` / `_band_dim_values_map`</span>
+<a id="__codelineno-0-10847" name="__codelineno-0-10847"></a><span class="sd">        / `_band_dim_sizes`) and re-derives the legacy single-band-dim view</span>
+<a id="__codelineno-0-10848" name="__codelineno-0-10848"></a><span class="sd">        (`_band_dim_name` / `_band_dim_values`) from them via</span>
 <a id="__codelineno-0-10849" name="__codelineno-0-10849"></a><span class="sd">        :meth:`_derive_primary_band_view`, so a derived view keeps the same non-spatial</span>
 <a id="__codelineno-0-10850" name="__codelineno-0-10850"></a><span class="sd">        axis layout. The values map is copied together with its coordinate lists</span>
 <a id="__codelineno-0-10851" name="__codelineno-0-10851"></a><span class="sd">        (`copy_band_values_map`), so editing one object's stamps leaves the other's alone, and</span>
@@ -32550,13 +32550,13 @@ unlocked immediately. Safe to call more than once.</p>
 <a id="__codelineno-0-2288" name="__codelineno-0-2288"></a><span class="w">    </span><span class="sd">"""Release every GDAL handle this container holds, then close the base.</span>
 <a id="__codelineno-0-2289" name="__codelineno-0-2289"></a>
 <a id="__codelineno-0-2290" name="__codelineno-0-2290"></a><span class="sd">    A NetCDF container keeps more open GDAL references than the single</span>
-<a id="__codelineno-0-2291" name="__codelineno-0-2291"></a><span class="sd">    ``self._raster`` that :meth:`Dataset.close` drops:</span>
+<a id="__codelineno-0-2291" name="__codelineno-0-2291"></a><span class="sd">    `self._raster` that :meth:`Dataset.close` drops:</span>
 <a id="__codelineno-0-2292" name="__codelineno-0-2292"></a>
 <a id="__codelineno-0-2293" name="__codelineno-0-2293"></a><span class="sd">    * cached per-variable child objects (:attr:`_cached_variables`), each</span>
-<a id="__codelineno-0-2294" name="__codelineno-0-2294"></a><span class="sd">      with its own ``_raster`` and SWIG MDArray / root-group references;</span>
-<a id="__codelineno-0-2295" name="__codelineno-0-2295"></a><span class="sd">    * the ``_gdal_md_arr_ref`` / ``_gdal_rg_ref`` views that keep an</span>
+<a id="__codelineno-0-2294" name="__codelineno-0-2294"></a><span class="sd">      with its own `_raster` and SWIG MDArray / root-group references;</span>
+<a id="__codelineno-0-2295" name="__codelineno-0-2295"></a><span class="sd">    * the `_gdal_md_arr_ref` / `_gdal_rg_ref` views that keep an</span>
 <a id="__codelineno-0-2296" name="__codelineno-0-2296"></a><span class="sd">      extracted variable's C++ backing alive;</span>
-<a id="__codelineno-0-2297" name="__codelineno-0-2297"></a><span class="sd">    * the ``_parent_nc`` back-reference forming a refcount cycle with the</span>
+<a id="__codelineno-0-2297" name="__codelineno-0-2297"></a><span class="sd">    * the `_parent_nc` back-reference forming a refcount cycle with the</span>
 <a id="__codelineno-0-2298" name="__codelineno-0-2298"></a><span class="sd">      parent's variable cache;</span>
 <a id="__codelineno-0-2299" name="__codelineno-0-2299"></a><span class="sd">    * a variable's `_store_raster`, the record of the raster `get_variable` built, which</span>
 <a id="__codelineno-0-2300" name="__codelineno-0-2300"></a><span class="sd">      (unless copied into memory) reads the store and so holds a file-backed store's file</span>
@@ -32564,13 +32564,13 @@ unlocked immediately. Safe to call more than once.</p>
 <a id="__codelineno-0-2302" name="__codelineno-0-2302"></a>
 <a id="__codelineno-0-2303" name="__codelineno-0-2303"></a><span class="sd">    This override closes the cached children and drops every extra reference</span>
 <a id="__codelineno-0-2304" name="__codelineno-0-2304"></a><span class="sd">    before deferring to :meth:`Dataset.close`. It then runs a single</span>
-<a id="__codelineno-0-2305" name="__codelineno-0-2305"></a><span class="sd">    :func:`gc.collect`: a spatial op (``crop`` / ``to_crs`` / ``reduce``)</span>
-<a id="__codelineno-0-2306" name="__codelineno-0-2306"></a><span class="sd">    extracts variables whose ``AsClassicDataset`` view, MDArray and root</span>
+<a id="__codelineno-0-2305" name="__codelineno-0-2305"></a><span class="sd">    :func:`gc.collect`: a spatial op (`crop` / `to_crs` / `reduce`)</span>
+<a id="__codelineno-0-2306" name="__codelineno-0-2306"></a><span class="sd">    extracts variables whose `AsClassicDataset` view, MDArray and root</span>
 <a id="__codelineno-0-2307" name="__codelineno-0-2307"></a><span class="sd">    group form a **reference cycle among the GDAL SWIG wrappers** that plain</span>
 <a id="__codelineno-0-2308" name="__codelineno-0-2308"></a><span class="sd">    refcounting cannot reclaim. Without the collect those wrappers keep the</span>
-<a id="__codelineno-0-2309" name="__codelineno-0-2309"></a><span class="sd">    source file open, so on Windows a later ``os.replace`` / ``os.remove``</span>
-<a id="__codelineno-0-2310" name="__codelineno-0-2310"></a><span class="sd">    fails with ``PermissionError`` until the caller forces a GC themselves</span>
-<a id="__codelineno-0-2311" name="__codelineno-0-2311"></a><span class="sd">    (#564). Doing it here makes ``close()`` honour its contract — the file is</span>
+<a id="__codelineno-0-2309" name="__codelineno-0-2309"></a><span class="sd">    source file open, so on Windows a later `os.replace` / `os.remove`</span>
+<a id="__codelineno-0-2310" name="__codelineno-0-2310"></a><span class="sd">    fails with `PermissionError` until the caller forces a GC themselves</span>
+<a id="__codelineno-0-2311" name="__codelineno-0-2311"></a><span class="sd">    (#564). Doing it here makes `close()` honour its contract — the file is</span>
 <a id="__codelineno-0-2312" name="__codelineno-0-2312"></a><span class="sd">    unlocked immediately. Safe to call more than once.</span>
 <a id="__codelineno-0-2313" name="__codelineno-0-2313"></a><span class="sd">    """</span>
 <a id="__codelineno-0-2314" name="__codelineno-0-2314"></a>    <span class="c1"># Release handles parked by this container's lazy reads (#727): a lazy dask array can be held</span>
