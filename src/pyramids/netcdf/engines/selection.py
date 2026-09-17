@@ -59,6 +59,7 @@ from pyramids.netcdf.engines._along_dim import (
     _assert_band_dimension,
     _CumSum,
     _Diff,
+    _Extremum,
     _reduces_as_a_variable,
     _Reduction,
     _Rolling,
@@ -2085,6 +2086,205 @@ class Selection(_Engine["NetCDF"]):
         steps = _check_periods(periods)
         _check_fill_value(fill_value)
         op = _Shift(periods=steps, fill_value=fill_value)
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def argmin(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Answer the position along a non-spatial dimension where the value is smallest.
+
+        The dimension is removed, as a collapsing `reduce` removes it, and each cell holds the
+        zero-based position of its smallest value — the first of them when several tie. A slice
+        with no valid cell has no minimum, so it holds `-1`, the declared no-data value, where
+        xarray raises `ValueError: All-NaN slice encountered`.
+
+        Works on a container, searching every variable that has `dim`, and on a single variable,
+        returning a variable. A container's auxiliary variable spanning `dim` is dropped with a
+        warning, since the dimension is removed.
+
+        Args:
+            dim: The non-spatial dimension to search along.
+            skipna: When `True` (default), gaps (the declared no-data value and NaN) are skipped.
+                When `False` the stored values are searched as numpy searches them, where NaN
+                wins and a sentinel competes as a value.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, `int64`, declaring
+            `-1`, with `dim` removed and the other dimensions kept.
+
+        Raises:
+            ValueError: The container has no data variables, or `dim` is not a band dimension of
+                any gridded variable (or of this variable, or this variable has none).
+
+        Examples:
+            - Which step is coldest, and a column with nothing to compare:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([[3.0, np.nan], [1.0, np.nan], [2.0, np.nan]]).reshape(3, 1, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=np.nan,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> coldest = var.argmin("time")
+              >>> coldest.read_array().ravel().tolist(), coldest.no_data_value[0]
+              ([1, -1], -1)
+
+              ```
+        """
+        nc = self._ds
+        op = _Extremum(
+            extreme="min", coordinate=False, skipna=bool(skipna), caller="argmin"
+        )
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def argmax(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Answer the position along a non-spatial dimension where the value is largest.
+
+        The mirror of `argmin`: the dimension is removed, each cell holds the zero-based
+        position of its largest value (the first of them when several tie), and a slice with no
+        valid cell holds `-1`, the declared no-data value.
+
+        Args:
+            dim: The non-spatial dimension to search along.
+            skipna: Whether gaps are skipped, as `argmin` documents it.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, `int64`, declaring
+            `-1`, with `dim` removed.
+
+        Raises:
+            ValueError: The container has no data variables, or `dim` is not a band dimension of
+                any gridded variable (or of this variable, or this variable has none).
+
+        Examples:
+            - Which of three steps is warmest per cell:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([[3.0, 1.0], [1.0, 2.0], [2.0, 9.0]]).reshape(3, 1, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> var.argmax("time").read_array().ravel().tolist()
+              [0, 2]
+
+              ```
+        """
+        nc = self._ds
+        op = _Extremum(
+            extreme="max", coordinate=False, skipna=bool(skipna), caller="argmax"
+        )
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def idxmin(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Answer the coordinate value along a non-spatial dimension where the value is smallest.
+
+        `argmin`'s answer read through the dimension's own coordinates: the stamp of the
+        smallest value rather than its position — "when was it coldest", not "which step". The
+        stamps are the raw stored numbers, so a CF time axis answers its offsets, not decoded
+        dates. A slice with no valid cell holds NaN, the declared no-data value, as xarray's
+        `idxmin` answers there.
+
+        Args:
+            dim: The non-spatial dimension to search along. It must carry numeric coordinates.
+            skipna: Whether gaps are skipped, as `argmin` documents it.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, float64, declaring
+            NaN, with `dim` removed.
+
+        Raises:
+            ValueError: `dim` has no coordinate values, or they are not all numbers (use
+                `argmin` for the position); the container has no data variables; or `dim` is not
+                a band dimension of any gridded variable (or of this variable, or this variable
+                has none).
+
+        Examples:
+            - The stamp of the coldest step, and NaN where there is nothing to compare:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([[3.0, np.nan], [1.0, np.nan], [2.0, np.nan]]).reshape(3, 1, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=np.nan,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> var.idxmin("time").read_array().ravel().tolist()
+              [6.0, nan]
+
+              ```
+        """
+        nc = self._ds
+        op = _Extremum(
+            extreme="min", coordinate=True, skipna=bool(skipna), caller="idxmin"
+        )
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def idxmax(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Answer the coordinate value along a non-spatial dimension where the value is largest.
+
+        The mirror of `idxmin`: the stamp of the largest value, NaN for a slice with no valid
+        cell, and the raw stored stamps rather than decoded dates.
+
+        Args:
+            dim: The non-spatial dimension to search along. It must carry numeric coordinates.
+            skipna: Whether gaps are skipped, as `argmin` documents it.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, float64, declaring
+            NaN, with `dim` removed.
+
+        Raises:
+            ValueError: `dim` has no coordinate values, or they are not all numbers (use
+                `argmax` for the position); the container has no data variables; or `dim` is not
+                a band dimension of any gridded variable (or of this variable, or this variable
+                has none).
+
+        Examples:
+            - Which pressure level holds the maximum of each cell:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([[1.0, 9.0], [5.0, 2.0]]).reshape(2, 1, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="level", values=[1000.0, 850.0]),
+              ... ).get_variable("t")
+              >>> var.idxmax("level").read_array().ravel().tolist()
+              [850.0, 1000.0]
+
+              ```
+        """
+        nc = self._ds
+        op = _Extremum(
+            extreme="max", coordinate=True, skipna=bool(skipna), caller="idxmax"
+        )
         if _reduces_as_a_variable(nc):
             result = _apply_to_variable(nc, dim, op)
         else:

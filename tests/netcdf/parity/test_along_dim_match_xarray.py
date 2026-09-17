@@ -11,6 +11,8 @@ Deliberate differences, pinned rather than hidden:
   `lat` / `lon`; the names are mapped back here and the coordinate values under them compared.
 - `rolling(..., how="count")` marks a window with fewer valid cells than `min_periods` `-1`, its
   declared no-data value, where xarray answers NaN: a count is `int64` here.
+- `argmin` / `argmax` answer `-1` for a slice with no valid cell, where xarray raises
+  `ValueError: All-NaN slice encountered`; `idxmin` / `idxmax` answer NaN there, as xarray does.
 - `diff(n=2, label="lower")` labels every order as asked, so it holds the leading stamps and
   equals differencing twice with `label="lower"`. xarray forwards `label` to the first
   difference only and labels the rest `"upper"`, so its `n=2, label="lower"` keeps the stamps
@@ -386,3 +388,85 @@ class TestOrderedOperationsOnGaps:
         assert before.any(), ours
         assert np.all(theirs[before] == 0.0), theirs
         np.testing.assert_allclose(ours[~before], theirs[~before])
+
+
+class TestExtremumMatchesXarray:
+    """`arg*` and `idx*` agree with xarray where every slice has a value."""
+
+    @pytest.mark.parametrize("member", ["argmin", "argmax"])
+    @pytest.mark.parametrize("dim", ["time", "pressure_level"])
+    def test_positions(self, container, exported, member, dim):
+        """The position of the extremum along either band dimension.
+
+        Args:
+            container: The opened store.
+            exported: The exported variable.
+            member: `"argmin"` or `"argmax"`.
+            dim: The dimension searched.
+        """
+        result = getattr(container, member)(dim)
+        assert_parity(
+            _pyramids_side(result),
+            _xarray_side(getattr(exported, member)(dim)),
+            dtype=np.int64,
+        )
+
+    @pytest.mark.parametrize("member", ["idxmin", "idxmax"])
+    @pytest.mark.parametrize("dim", ["time", "pressure_level"])
+    def test_coordinates(self, container, exported, member, dim):
+        """The coordinate at the extremum along either band dimension.
+
+        Args:
+            container: The opened store.
+            exported: The exported variable.
+            member: `"idxmin"` or `"idxmax"`.
+            dim: The dimension searched.
+        """
+        result = getattr(container, member)(dim)
+        assert_parity(
+            _pyramids_side(result),
+            _xarray_side(getattr(exported, member)(dim)),
+            dtype=np.float64,
+        )
+
+
+class TestExtremumOnGaps:
+    """With an all-gap column, `idx*` matches xarray and `arg*` answers where xarray raises."""
+
+    @pytest.mark.parametrize("member", ["idxmin", "idxmax"])
+    def test_a_coordinate_is_nan_on_both_sides(self, gapped, member):
+        """The all-gap column is NaN here and in xarray.
+
+        Args:
+            gapped: The gapped store.
+            member: `"idxmin"` or `"idxmax"`.
+        """
+        exported = gapped.to_xarray(decode_times=False)["v"]
+        ours = np.asarray(
+            getattr(gapped, member)("time").get_variable("v").read_array(),
+            dtype=np.float64,
+        ).ravel()
+        theirs = np.asarray(
+            getattr(exported, member)("time").values, dtype=np.float64
+        ).ravel()
+        np.testing.assert_allclose(ours, theirs, equal_nan=True)
+        assert np.isnan(ours[0]), ours
+
+    @pytest.mark.parametrize("member", ["argmin", "argmax"])
+    def test_a_position_is_minus_one_where_xarray_raises(self, gapped, member):
+        """`arg*` answers `-1` for the all-gap column; xarray refuses the whole array.
+
+        Args:
+            gapped: The gapped store.
+            member: `"argmin"` or `"argmax"`.
+        """
+        exported = gapped.to_xarray(decode_times=False)["v"]
+        ours = np.asarray(
+            getattr(gapped, member)("time").get_variable("v").read_array()
+        ).ravel()
+        assert ours[0] == -1, ours
+        with pytest.raises(ValueError, match="All-NaN slice"):
+            getattr(exported, member)("time")
+        without_gaps = exported.isel(x=slice(1, None))
+        theirs = np.asarray(getattr(without_gaps, member)("time").values).ravel()
+        np.testing.assert_array_equal(ours[1:], theirs)

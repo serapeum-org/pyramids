@@ -7245,6 +7245,22 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.shift <pyramids.netcdf.engines.selection.Selection.shift>`."""
         return self.selection.shift(dim, periods, fill_value=fill_value)
 
+    def argmin(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.argmin <pyramids.netcdf.engines.selection.Selection.argmin>`."""
+        return self.selection.argmin(dim, skipna=skipna)
+
+    def argmax(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.argmax <pyramids.netcdf.engines.selection.Selection.argmax>`."""
+        return self.selection.argmax(dim, skipna=skipna)
+
+    def idxmin(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.idxmin <pyramids.netcdf.engines.selection.Selection.idxmin>`."""
+        return self.selection.idxmin(dim, skipna=skipna)
+
+    def idxmax(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.idxmax <pyramids.netcdf.engines.selection.Selection.idxmax>`."""
+        return self.selection.idxmax(dim, skipna=skipna)
+
     @staticmethod
     def _is_file_backed(var: NetCDF) -> bool:
         """True when the variable's data lives in a reopenable file, so a lazy chunk read is possible.

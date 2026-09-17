@@ -398,6 +398,108 @@ class _Shift(_AlongDim):
         return _Applied(np.asarray(values), band_names, values_map, result_ndv)
 
 
+@dataclass
+class _Extremum(_AlongDim):
+    """`argmin` / `argmax` / `idxmin` / `idxmax`: where along the dimension an extremum sits.
+
+    The dimension is removed, as a collapsing `reduce` removes it. A slice with no valid cell
+    has no extremum, so it is no-data: `-1` for a position, which is never a real one, and NaN
+    for a coordinate. xarray raises `ValueError: All-NaN slice encountered` for `arg*` there.
+
+    Attributes:
+        extreme: `"min"` or `"max"`.
+        coordinate: Whether the answer is the coordinate value at the extremum (`idx*`) rather
+            than its position (`arg*`).
+        skipna: Whether gaps are skipped. Without skipping, the stored values are searched as
+            numpy searches them, where NaN wins and a sentinel competes as a value.
+        caller: The member the user called, named in refusals and warnings.
+    """
+
+    extreme: str
+    coordinate: bool
+    skipna: bool
+    caller: str
+    verb = "search"
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Find the extremum of one variable along `dim`.
+
+        Args:
+            nc: The object the member was called on.
+            var: The variable.
+            dim: The dimension to search along.
+
+        Returns:
+            _Applied: The positions as `int64` declaring `-1`, or the coordinate values as
+            float64 declaring NaN, with `dim` removed.
+
+        Raises:
+            ValueError: `idx*` and `dim` has no coordinate values, or they are not all numbers.
+        """
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        axis = band_names.index(dim)
+        labels = self._labels(values_map.get(dim), dim) if self.coordinate else None
+        arr = nc._materialize_variable_array(var, lazy=True)
+        search = np.argmin if self.extreme == "min" else np.argmax
+        if self.skipna:
+            data = _gaps_as_nan(arr, ndv)
+            beyond = np.inf if self.extreme == "min" else -np.inf
+            positions = np.asarray(
+                search(np.where(np.isnan(data), beyond, data), axis=axis)
+            )
+            missing = np.asarray(np.all(np.isnan(data), axis=axis))
+        else:
+            positions = np.asarray(search(arr, axis=axis))
+            missing = np.zeros(positions.shape, dtype=bool)
+        if labels is None:
+            values: Any = np.where(missing, _INDEX_NO_DATA, positions).astype(np.int64)
+            result_ndv: Any = _INDEX_NO_DATA
+        else:
+            values = np.where(missing, np.nan, labels[positions])
+            result_ndv = np.nan
+        kept = [name for name in band_names if name != dim]
+        return _Applied(
+            values, kept, {name: values_map.get(name) for name in kept}, result_ndv
+        )
+
+    def _labels(self, coords: list | None, dim: str) -> np.ndarray:
+        """The dimension's coordinates as float64, or the refusal saying why they cannot be.
+
+        Args:
+            coords: The coordinate values, or `None` when the dimension has none.
+            dim: The dimension, for the messages.
+
+        Returns:
+            numpy.ndarray: The coordinates as float64.
+
+        Raises:
+            ValueError: There are no coordinates, or they are not all numbers — a text stamp
+                cannot be answered as a band.
+        """
+        if coords is None:
+            raise ValueError(
+                f"{self.caller}() needs the stamps of {dim!r}, which has no coordinate values. "
+                f"Use arg{self.extreme}() for the position instead."
+            )
+        numeric = all(
+            isinstance(value, Real) and not isinstance(value, (bool, np.bool_))
+            for value in coords
+        )
+        if not numeric:
+            raise ValueError(
+                f"{self.caller}() needs a numeric coordinate for {dim!r}; its stamps are "
+                f"{coords[0]!r}... Use arg{self.extreme}() for the position instead."
+            )
+        return np.asarray([float(value) for value in coords], dtype="float64")
+
+
+_INDEX_NO_DATA = -1
+"""The no-data value of a position band: a slice with no valid cell has no extremum, and a
+position is never negative, so it cannot be mistaken for one."""
+
+
 def _gaps_as_nan(arr: Any, ndv: Any) -> Any:
     """A float64 copy of `arr` holding NaN wherever it holds a gap.
 

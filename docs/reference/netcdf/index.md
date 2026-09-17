@@ -72,6 +72,10 @@ classDiagram
       +diff()
       +cumsum()
       +shift()
+      +argmin()
+      +argmax()
+      +idxmin()
+      +idxmax()
     }
     Dataset <|-- NetCDF
     NetCDF <|-- Container
