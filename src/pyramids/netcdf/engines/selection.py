@@ -2470,10 +2470,9 @@ class Selection(_Engine["NetCDF"]):
                 name, or a sequence of names. A spatial axis is named as the store names it
                 (`latitude` / `longitude`) or as `y` / `x`. Spatial axes and band dimensions
                 cannot be mixed in one call, since a container cannot hold variables on two
-                grids. The spatial pair is read off the last two dimensions the store declares,
-                so a store that declares a band dimension between them — CAM's
-                `(time, lat, lev, lon)` — needs `dims=("y", "x")`; the `None` default picks the
-                wrong second-to-last name there and is refused as a mixed call.
+                grids. The spatial pair is the plane the read resolved, so a store that
+                declares a band dimension between its spatial axes — CAM's
+                `(time, lat, lev, lon)` — is handled by the `None` default too.
             how: `"mean"` (default), `"sum"`, `"sum_of_weights"`, `"std"` or `"var"`. The
                 variance is the weighted `sum(w * (x - mean) ** 2) / sum(w)`, as xarray computes
                 it. A weighted quantile is not offered; `reduce(how="quantile")` is the
@@ -2492,9 +2491,10 @@ class Selection(_Engine["NetCDF"]):
                 not have, names one twice, or mixes spatial axes with band dimensions; `weights`
                 is an unknown name, holds a NaN, broadcasts onto neither the weighted axes nor
                 the variable's own shape, or is a raster on another grid; `"area"` is asked of a
-                grid that is not geographic; or the container has no data variables. A container
-                whose gridded variables do not all carry the band dimension being weighted is
-                refused too, where `reduce` would carry the odd one over unchanged.
+                grid that is not geographic; the container has no data variables; or no gridded
+                variable of a container carries the band dimension named, as `reduce` refuses
+                it. A container's gridded variable that does not carry it is carried over
+                unchanged, again as `reduce` carries one it cannot reduce.
 
         Examples:
             - The area-weighted mean of each step, on a grid of one cell:

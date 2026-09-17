@@ -101,10 +101,10 @@ def _weighted_container(
 ) -> NetCDF:
     """Weight every gridded variable of a container.
 
-    Every gridded variable takes part. A spatial axis is one they all have, so weighting the grid
-    always reduces all of them. A band dimension is not: unlike `reduce`, which carries a variable
-    without `dim` over unchanged, weighting a band dimension one gridded variable lacks makes
-    `_weighted_axes` refuse the name for that variable, so the whole call raises.
+    A spatial axis is one every gridded variable has, so weighting the grid reduces them all. A
+    band dimension is not: a variable that does not carry it is carried over unchanged, as
+    `reduce` carries one it cannot reduce (`_takes_part` decides). When no gridded variable
+    carries the dimension, the call is refused, as `reduce` refuses it.
 
     Args:
         nc: The container.
@@ -129,6 +129,7 @@ def _weighted_container(
     spatial_vars = nc._spatial_variable_names(rg)
     aux_vars = nc._carryable_aux_names(rg, spatial_vars)
     result = None
+    found = False
     removed: list[str] = []
     time_attrs: dict[str, tuple[str, str]] = {}
     for var_name in spatial_vars:
@@ -138,7 +139,8 @@ def _weighted_container(
         ndv = _read_no_data(var)
         geotransform = var.geotransform
         names = _weighted_names(var, dims)
-        if all(name in band_names or name not in var._band_dim_names for name in names):
+        if _takes_part(var, names):
+            found = True
             applied, geotransform = _weighted_applied(
                 nc, var, weights, dims, how=how, skipna=skipna
             )
@@ -163,9 +165,39 @@ def _weighted_container(
                 if name in band_names
             }
         )
+    if not found:
+        named = (
+            repr(dims)
+            if isinstance(dims, str)
+            else str(list(_weighted_names(nc, dims)))
+        )
+        raise ValueError(
+            f"Dimension {named} is not a non-spatial dimension of any variable in this "
+            f"container."
+        )
     cast("NetCDF", result)._band_dim_time_attrs = time_attrs
     _carry_auxiliaries(nc, cast("NetCDF", result), rg, aux_vars, removed, "weighted")
     return cast("NetCDF", result)
+
+
+def _takes_part(var: NetCDF, names: tuple[str, ...]) -> bool:
+    """Whether this variable is weighted, or carried over unchanged.
+
+    A spatial axis is one every gridded variable has, so weighting the grid reduces them all. A
+    band dimension is not: a variable that does not carry it is carried over unchanged, as
+    `reduce` carries one it cannot reduce.
+
+    Args:
+        var: The gridded variable.
+        names: The dimensions `weighted` was asked for.
+
+    Returns:
+        bool: `True` when every name is one of this variable's band dimensions or one of its
+        spatial axes.
+    """
+    row, column = _spatial_names(var)
+    known = {*var._band_dim_names, row, column, _ROW_ALIAS, _COLUMN_ALIAS}
+    return all(name in known for name in names)
 
 
 def _weighted_applied(
@@ -212,15 +244,13 @@ def _weighted_applied(
 def _spatial_names(var: NetCDF) -> tuple[str, str]:
     """The names of the variable's row and column axes, as its store declares them.
 
-    The last two of `_md_array_dims` (`latitude` / `longitude`, `y` / `x`, ...). A variable built
-    in memory, or derived by an operator, may declare none, and answers the `y` / `x` a rebuild
-    gives it.
-
-    A store that declares a band dimension *between* its spatial axes — CAM's
-    `(time, lat, lev, lon)` — puts something other than the row axis second-to-last, so this
-    answers that name instead of the real row axis. `_ROW_ALIAS` / `_COLUMN_ALIAS` are accepted
-    beside whatever comes back, so `dims=("y", "x")` still reaches the grid on such a variable
-    while the `dims=None` default does not.
+    `_md_spatial_dims` records which of `_md_array_dims` the read resolved as the `(x, y)` plane,
+    so those two names are the answer whatever order the store declares its dimensions in — a
+    band dimension *between* the spatial axes, as in `(time, lat, lev, lon)`, does not mislead
+    it. Without that record the last two declared dimensions are taken, and a variable that
+    declares none at all — one built in memory, or derived by an operator — answers the
+    `y` / `x` a rebuild gives it. `_ROW_ALIAS` / `_COLUMN_ALIAS` are accepted beside whatever
+    comes back, so `dims=("y", "x")` reaches the grid either way.
 
     Args:
         var: The variable.
@@ -229,11 +259,15 @@ def _spatial_names(var: NetCDF) -> tuple[str, str]:
         tuple[str, str]: The row axis' name and the column axis' name.
     """
     declared = list(var._md_array_dims)
-    return (
-        (declared[-2], declared[-1])
-        if len(declared) >= 2
-        else (_ROW_ALIAS, _COLUMN_ALIAS)
-    )
+    indices = var._md_spatial_dims
+    if indices is not None and len(declared) > max(indices):
+        column, row = indices
+        names = (declared[row], declared[column])
+    elif len(declared) >= 2:
+        names = (declared[-2], declared[-1])
+    else:
+        names = (_ROW_ALIAS, _COLUMN_ALIAS)
+    return names
 
 
 def _weighted_names(var: NetCDF, dims: Any) -> tuple[str, ...]:
@@ -290,7 +324,9 @@ def _weighted_axes(var: NetCDF, dims: Any) -> tuple[tuple[int, ...], tuple[str, 
             axis = len(band_names) + 1
             spatial += 1
         else:
-            available = [*band_names, row_name, column_name]
+            available = list(
+                dict.fromkeys([*band_names, row_name, column_name, _ROW_ALIAS])
+            )
             raise ValueError(
                 f"weighted() cannot weight over {name!r}: this variable has {available}."
             )
