@@ -592,7 +592,10 @@ class TestReadPartReturnTransform:
             return_transform=True,
         )
 
-        assert gt[2] == 0.0 and gt[4] == 0.0, f"axis-aligned dataset, got {gt}"
+        assert gt[2] == 0.0, f"axis-aligned dataset should have zero row skew, got {gt}"
+        assert gt[4] == 0.0, (
+            f"axis-aligned dataset should have zero column skew, got {gt}"
+        )
         assert min(abs(gt[0]), abs(gt[1]), abs(gt[3]), abs(gt[5])) > 180, (
             f"transform must be metres in the dataset CRS, not degrees: {gt}"
         )
