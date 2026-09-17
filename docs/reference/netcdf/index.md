@@ -69,6 +69,9 @@ classDiagram
       +reduce()
       +coarsen()
       +rolling()
+      +diff()
+      +cumsum()
+      +shift()
     }
     Dataset <|-- NetCDF
     NetCDF <|-- Container

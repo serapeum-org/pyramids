@@ -210,6 +210,258 @@ class _Rolling(_AlongDim):
         return _Applied(values, band_names, values_map, result_ndv)
 
 
+@dataclass
+class _Diff(_AlongDim):
+    """`diff`: the difference between neighbouring steps, `n` times over.
+
+    The dimension loses `n` steps and keeps the stamps of the steps each difference is labelled
+    with. A difference touching a gap is a gap.
+
+    Attributes:
+        n: The order — how many times the difference is taken.
+        label: `"upper"` to label each difference with the later of its two steps, `"lower"`
+            with the earlier.
+    """
+
+    n: int
+    label: str
+    caller = "diff"
+    verb = "difference"
+
+    @property
+    def keeps_length(self) -> bool:  # type: ignore[override]
+        """Only the identity, `n=0`, leaves the dimension's length alone."""
+        return self.n == 0
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Difference one variable along `dim`.
+
+        Args:
+            nc: The object `diff` was called on.
+            var: The variable.
+            dim: The dimension to difference along.
+
+        Returns:
+            _Applied: The differences, `dim` shortened by `n` and relabelled. A band whose gaps
+            have to be skipped — a float band, or an integer one declaring a no-data value —
+            answers float64 and declares that value, or NaN when it declares none; an integer
+            band declaring none answers in numpy's own type for the difference.
+
+        Raises:
+            ValueError: `n` is not below the length of `dim`, which would leave no steps.
+        """
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        axis = band_names.index(dim)
+        arr = nc._materialize_variable_array(var, lazy=True)
+        size = arr.shape[axis]
+        if self.n >= size:
+            raise ValueError(
+                f"diff() of order {self.n} would leave nothing of {dim!r}: its length is "
+                f"{size}. Pass n below {size}."
+            )
+        if ndv is None and not np.issubdtype(arr.dtype, np.floating):
+            values = np.diff(arr, n=self.n, axis=axis)
+            result_ndv = None
+        else:
+            fill = np.nan if ndv is None else ndv
+            differences = np.diff(_gaps_as_nan(arr, ndv), n=self.n, axis=axis)
+            values = np.where(np.isnan(differences), fill, differences)
+            result_ndv = fill
+        coords = values_map.get(dim)
+        if coords is not None and self.n:
+            kept = (
+                list(coords[self.n :])
+                if self.label == "upper"
+                else list(coords[: size - self.n])
+            )
+            values_map[dim] = kept
+        return _Applied(np.asarray(values), band_names, values_map, result_ndv)
+
+
+@dataclass
+class _CumSum(_AlongDim):
+    """`cumsum`: the running total along the dimension, which keeps its length and stamps.
+
+    Attributes:
+        skipna: Whether gaps are skipped. Skipping them, a gap adds nothing and holds the total
+            so far, and a step before the first valid cell is a gap — where xarray answers `0.0`,
+            a total of nothing this does not invent. Without skipping, the stored values add up
+            as numpy adds them, sentinel and NaN included.
+    """
+
+    skipna: bool
+    caller = "cumsum"
+    verb = "accumulate"
+    keeps_length = True
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Total one variable along `dim`.
+
+        Args:
+            nc: The object `cumsum` was called on.
+            var: The variable.
+            dim: The dimension to total along.
+
+        Returns:
+            _Applied: The running total, the band layout unchanged. Skipping gaps it is float64
+            and declares the variable's no-data value, or NaN when it declares none; otherwise it
+            is numpy's own type for the total and declares what the variable declares.
+        """
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        axis = band_names.index(dim)
+        arr = nc._materialize_variable_array(var, lazy=True)
+        if self.skipna:
+            data = _gaps_as_nan(arr, ndv)
+            fill = np.nan if ndv is None else ndv
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                total = np.nancumsum(data, axis=axis)
+            seen = np.cumsum(~np.isnan(data), axis=axis) > 0
+            values = np.where(seen, total, fill)
+            result_ndv: Any = fill
+        else:
+            values = np.cumsum(arr, axis=axis)
+            result_ndv = ndv
+        return _Applied(np.asarray(values), band_names, values_map, result_ndv)
+
+
+@dataclass
+class _Shift(_AlongDim):
+    """`shift`: move the values along the dimension, filling the steps that are vacated.
+
+    The dimension keeps its length and its stamps, so a step holds what another step held.
+
+    Attributes:
+        periods: Steps to move; a positive number moves the values towards the end of the
+            dimension, a negative one towards its start.
+        fill_value: What a vacated step holds; `None` asks for the variable's no-data value, or
+            NaN when it declares none.
+    """
+
+    periods: int
+    fill_value: Any
+    caller = "shift"
+    verb = "shift"
+    keeps_length = True
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Shift one variable along `dim`.
+
+        Args:
+            nc: The object `shift` was called on.
+            var: The variable.
+            dim: The dimension to shift along.
+
+        Returns:
+            _Applied: The shifted values, the band layout unchanged. With no `fill_value` a band
+            declaring a no-data value keeps its own type and fills with that value, and one
+            declaring none answers float64 and declares NaN. A `fill_value` is held in the
+            narrowest type that fits it and the band, and leaves the declared no-data value
+            alone.
+
+        Raises:
+            ValueError: The band cannot hold `fill_value`.
+        """
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        axis = band_names.index(dim)
+        data = nc._materialize_variable_array(var, lazy=True)
+        if self.fill_value is None:
+            if ndv is None:
+                data = (
+                    data
+                    if np.issubdtype(data.dtype, np.floating)
+                    else data.astype("float64")
+                )
+                fill: Any = np.nan
+            else:
+                fill = ndv
+            result_ndv = fill
+        else:
+            dtype = np.result_type(data.dtype, self.fill_value)
+            try:
+                np.array(self.fill_value, dtype=dtype)
+            except (OverflowError, ValueError):
+                raise ValueError(
+                    f"shift() cannot hold fill_value={self.fill_value!r} in a "
+                    f"{np.dtype(data.dtype).name} band; pass a value it can hold."
+                ) from None
+            data = data.astype(dtype) if dtype != data.dtype else data
+            fill = self.fill_value
+            result_ndv = ndv
+        values = _shifted(data, axis, self.periods, fill)
+        return _Applied(np.asarray(values), band_names, values_map, result_ndv)
+
+
+def _gaps_as_nan(arr: Any, ndv: Any) -> Any:
+    """A float64 copy of `arr` holding NaN wherever it holds a gap.
+
+    Args:
+        arr: The values, numpy or dask.
+        ndv: The sentinel as it appears in `arr`, or `None`.
+
+    Returns:
+        The float64 values, the sentinel and any NaN both NaN.
+    """
+    data = arr.astype("float64")
+    return data if ndv is None else np.where(data == ndv, np.nan, data)
+
+
+def _slice_axis(arr: Any, axis: int, start: int, stop: int) -> Any:
+    """`arr` cut to `start:stop` along `axis`.
+
+    Args:
+        arr: The values, numpy or dask.
+        axis: The axis to cut.
+        start: First position kept.
+        stop: One past the last position kept.
+
+    Returns:
+        The cut values.
+    """
+    index: list[Any] = [slice(None)] * arr.ndim
+    index[axis] = slice(start, stop)
+    return arr[tuple(index)]
+
+
+def _shifted(arr: Any, axis: int, periods: int, fill: Any) -> Any:
+    """`arr` moved `periods` steps along `axis`, the vacated steps holding `fill`.
+
+    Args:
+        arr: The values, numpy or dask.
+        axis: The axis to move along.
+        periods: Steps to move; negative moves towards the start.
+        fill: What a vacated step holds.
+
+    Returns:
+        The shifted values, the same shape and dtype as `arr`.
+    """
+    size = arr.shape[axis]
+    vacated = min(abs(periods), size)
+    if periods == 0:
+        result = arr
+    else:
+        shape = list(arr.shape)
+        shape[axis] = vacated
+        pad = np.full(shape, fill, dtype=arr.dtype)
+        if vacated == size:
+            result = pad
+        else:
+            kept = (
+                _slice_axis(arr, axis, 0, size - vacated)
+                if periods > 0
+                else _slice_axis(arr, axis, vacated, size)
+            )
+            parts = [pad, kept] if periods > 0 else [kept, pad]
+            result = np.concatenate(parts, axis=axis)
+    return result
+
+
 _COUNT_NO_DATA = -1
 """The no-data value of a rolling `count`: a window with too few valid cells. A count is never
 negative, so it cannot be mistaken for one."""

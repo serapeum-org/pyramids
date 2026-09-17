@@ -1,6 +1,6 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 81 in all: 47 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 84 in all: 50 methods, 27 properties,
 6 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). For the full signatures, arguments and examples, see the rendered
 [NetCDF Class](index.md) reference; this page is the index you scan to find the member you want.
@@ -103,6 +103,9 @@ A variable with no raster plane is the exception — see each member's docstring
 | `reduce()`         | Reduces a container or a variable along `dim` — `how`, `q`, `groupby`, `skipna`.     |
 | `coarsen()`        | Reduces fixed-size windows along `dim` — `window`, `boundary`, `how`.                |
 | `rolling()`        | Reduces a moving window along `dim`, keeping its length — `center`, `min_periods`.   |
+| `diff()`           | Differences neighbouring steps along `dim` — `n`, `label`.                          |
+| `cumsum()`         | Totals the values along `dim`, step by step — `skipna`.                             |
+| `shift()`          | Moves the values along `dim`, filling the vacated steps — `periods`, `fill_value`.  |
 
 ## Spatial operations
 

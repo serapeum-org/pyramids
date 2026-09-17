@@ -11,6 +11,11 @@ Deliberate differences, pinned rather than hidden:
   `lat` / `lon`; the names are mapped back here and the coordinate values under them compared.
 - `rolling(..., how="count")` marks a window with fewer valid cells than `min_periods` `-1`, its
   declared no-data value, where xarray answers NaN: a count is `int64` here.
+- `diff(n=2, label="lower")` labels every order as asked, so it holds the leading stamps and
+  equals differencing twice with `label="lower"`. xarray forwards `label` to the first
+  difference only and labels the rest `"upper"`, so its `n=2, label="lower"` keeps the stamps
+  `[6, 12, 18]` where differencing twice keeps `[0, 6, 12]`. The values agree; the labels are
+  compared for `n=1` and for `label="upper"`, and the difference is pinned below.
 """
 
 from __future__ import annotations
@@ -216,3 +221,168 @@ class TestRollingGapsAgainstXarray:
         assert short.any(), theirs
         assert np.all(ours[short] == -1), ours
         np.testing.assert_array_equal(ours[~short], theirs[~short])
+
+
+class TestDiffMatchesXarray:
+    """`diff` agrees with xarray's `diff`, the labels included."""
+
+    @pytest.mark.parametrize(
+        ("n", "label"),
+        [
+            pytest.param(1, "upper", id="1-upper"),
+            pytest.param(1, "lower", id="1-lower"),
+            pytest.param(2, "upper", id="2-upper"),
+            pytest.param(3, "upper", id="3-upper"),
+        ],
+    )
+    def test_order_and_label(self, container, exported, n, label):
+        """The orders and labels where xarray forwards `label` as asked.
+
+        Args:
+            container: The opened store.
+            exported: The exported variable.
+            n: The order.
+            label: Which step labels each difference.
+        """
+        result = container.diff("time", n, label=label)
+        assert_parity(
+            _pyramids_side(result),
+            _xarray_side(exported.diff("time", n=n, label=label)),
+            dtype=np.float64,
+        )
+
+    def test_a_second_lower_labelled_difference_labels_every_order(
+        self, container, exported
+    ):
+        """`diff(n=2, label="lower")` keeps the leading stamps; xarray labels the second `"upper"`.
+
+        Test scenario:
+            xarray's `diff` passes `label` to the first difference and recurses without it, so
+            its `n=2, label="lower"` disagrees with differencing twice with `label="lower"` —
+            its own `label="lower"`. The values are the same on both sides.
+        """
+        ours = container.diff("time", 2, label="lower")
+        theirs = exported.diff("time", n=2, label="lower")
+        twice = exported.diff("time", label="lower").diff("time", label="lower")
+        stamps = ours.get_variable(VARIABLE)._band_dim_values_map["time"]
+        assert stamps == twice["time"].values.tolist(), stamps
+        assert stamps != theirs["time"].values.tolist(), stamps
+        expected = np.asarray(
+            theirs.isel(lat=slice(None, None, -1)).values, dtype=np.float64
+        )
+        read = np.asarray(
+            ours.get_variable(VARIABLE).read_array(), dtype=np.float64
+        ).reshape(expected.shape)
+        np.testing.assert_allclose(read, expected)
+
+    def test_the_inner_dimension(self, container, exported):
+        """Differencing `pressure_level`, the inner band dimension."""
+        result = container.diff("pressure_level")
+        assert_parity(
+            _pyramids_side(result),
+            _xarray_side(exported.diff("pressure_level")),
+            dtype=np.float64,
+        )
+
+
+class TestCumsumMatchesXarray:
+    """`cumsum` agrees with xarray's on data without gaps."""
+
+    @pytest.mark.parametrize("dim", ["time", "pressure_level"])
+    def test_running_total(self, container, exported, dim):
+        """The running total along either band dimension.
+
+        Args:
+            container: The opened store.
+            exported: The exported variable.
+            dim: The dimension totalled.
+        """
+        result = container.cumsum(dim)
+        assert_parity(
+            _pyramids_side(result), _xarray_side(exported.cumsum(dim)), dtype=np.float64
+        )
+
+
+class TestShiftMatchesXarray:
+    """`shift` agrees with xarray's, the vacated steps included."""
+
+    @pytest.mark.parametrize("periods", [1, -1, 2, 4, -5])
+    def test_every_distance(self, container, exported, periods):
+        """Each distance, including one at and one past the length of `time`.
+
+        Args:
+            container: The opened store.
+            exported: The exported variable.
+            periods: Steps to move.
+        """
+        result = container.shift("time", periods)
+        assert_parity(
+            _pyramids_side(result),
+            _xarray_side(exported.shift(time=periods)),
+            dtype=np.float64,
+        )
+
+    def test_a_fill_value(self, container, exported):
+        """`fill_value=0.0` fills the vacated step on both sides."""
+        result = container.shift("time", 1, fill_value=0.0)
+        assert_parity(
+            _pyramids_side(result),
+            _xarray_side(exported.shift(time=1, fill_value=0.0)),
+            dtype=np.float64,
+        )
+
+
+class TestOrderedOperationsOnGaps:
+    """With gaps, `diff` and `shift` match xarray; `cumsum` differs only before the first value."""
+
+    @pytest.mark.parametrize("n", [1, 2])
+    def test_diff_propagates_gaps_the_same_way(self, gapped, n):
+        """A difference touching a gap is a gap on both sides.
+
+        Args:
+            gapped: The gapped store.
+            n: The order.
+        """
+        exported = gapped.to_xarray(decode_times=False)["v"]
+        ours = _columns(
+            gapped.diff("time", n).get_variable("v").read_array().reshape(5 - n, 1, 4)
+        )
+        theirs = _columns(exported.diff("time", n=n).values)
+        np.testing.assert_allclose(ours, theirs, equal_nan=True)
+
+    @pytest.mark.parametrize("periods", [1, -2])
+    def test_shift_moves_gaps_with_their_data(self, gapped, periods):
+        """The gaps move with the values they belong to, on both sides.
+
+        Args:
+            gapped: The gapped store.
+            periods: Steps to move.
+        """
+        exported = gapped.to_xarray(decode_times=False)["v"]
+        ours = _columns(
+            gapped.shift("time", periods)
+            .get_variable("v")
+            .read_array()
+            .reshape(5, 1, 4)
+        )
+        theirs = _columns(exported.shift(time=periods).values)
+        np.testing.assert_allclose(ours, theirs, equal_nan=True)
+
+    def test_cumsum_is_a_gap_before_the_first_value_where_xarray_answers_zero(
+        self, gapped
+    ):
+        """The totals agree from the first valid cell on; before it xarray answers `0.0`.
+
+        Test scenario:
+            The all-gap column is `0.0` throughout in xarray and no-data throughout here, the
+            same difference `reduce(how="sum")` has on such a column.
+        """
+        exported = gapped.to_xarray(decode_times=False)["v"]
+        ours = _columns(
+            gapped.cumsum("time").get_variable("v").read_array().reshape(5, 1, 4)
+        )
+        theirs = _columns(exported.cumsum("time").values)
+        before = np.isnan(ours)
+        assert before.any(), ours
+        assert np.all(theirs[before] == 0.0), theirs
+        np.testing.assert_allclose(ours[~before], theirs[~before])

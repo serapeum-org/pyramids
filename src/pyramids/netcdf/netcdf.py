@@ -7233,6 +7233,18 @@ class NetCDF(Dataset):
             dim, window, how=how, center=center, min_periods=min_periods, q=q
         )
 
+    def diff(self, dim: str, n: int = 1, *, label: str = "upper") -> NetCDF:
+        """Facade — :meth:`Selection.diff <pyramids.netcdf.engines.selection.Selection.diff>`."""
+        return self.selection.diff(dim, n, label=label)
+
+    def cumsum(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.cumsum <pyramids.netcdf.engines.selection.Selection.cumsum>`."""
+        return self.selection.cumsum(dim, skipna=skipna)
+
+    def shift(self, dim: str, periods: int = 1, *, fill_value: Any = None) -> NetCDF:
+        """Facade — :meth:`Selection.shift <pyramids.netcdf.engines.selection.Selection.shift>`."""
+        return self.selection.shift(dim, periods, fill_value=fill_value)
+
     @staticmethod
     def _is_file_backed(var: NetCDF) -> bool:
         """True when the variable's data lives in a reopenable file, so a lazy chunk read is possible.

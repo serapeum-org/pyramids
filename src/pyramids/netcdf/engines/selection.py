@@ -57,9 +57,12 @@ from pyramids.netcdf.engines._along_dim import (
     _apply_to_container,
     _apply_to_variable,
     _assert_band_dimension,
+    _CumSum,
+    _Diff,
     _reduces_as_a_variable,
     _Reduction,
     _Rolling,
+    _Shift,
 )
 
 if TYPE_CHECKING:
@@ -1852,6 +1855,242 @@ class Selection(_Engine["NetCDF"]):
             result = _apply_to_container(nc, dim, op)
         return result
 
+    def diff(self, dim: str, n: int = 1, *, label: str = "upper") -> NetCDF:
+        """Difference neighbouring steps along a non-spatial dimension.
+
+        Each step becomes the difference between it and the step before it, so the dimension
+        loses one step, and `n` asks for that `n` times over — a second difference is the
+        difference of the differences. A difference that meets a gap (the declared no-data value
+        or NaN) is a gap. `dim` keeps the stamps of the steps the differences are labelled with:
+        the later of each pair by default, as xarray labels them.
+
+        Works on a container, differencing every variable that has `dim`, and on a single
+        variable, returning a variable. A container's auxiliary variable spanning `dim` is
+        dropped with a warning, since the dimension gets shorter — except for `n=0`, the
+        identity, which keeps everything.
+
+        Args:
+            dim: The non-spatial dimension to difference along.
+            n: The order, an integer of at least 0 and below the length of `dim`. `0` is the
+                identity.
+            label: `"upper"` (default) labels each difference with the later of its two steps,
+                `"lower"` with the earlier.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, `dim` shorter by
+            `n` steps. A float band, or an integer band declaring a no-data value, answers
+            float64 and declares that value (NaN when it declares none); an integer band
+            declaring none answers in numpy's own type for the difference, as xarray does.
+
+        Raises:
+            TypeError: `n` is not an integer, or is a boolean.
+            ValueError: `n` is negative or not below the length of `dim`; `label` is neither
+                `"upper"` nor `"lower"`; the container has no data variables; or `dim` is not a
+                band dimension of any gridded variable (or of this variable, or this variable
+                has none).
+
+        Examples:
+            - The change between steps, labelled with the later step:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 4.0, 9.0, 16.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> change = var.diff("time")
+              >>> change.read_array().ravel().tolist()
+              [3.0, 5.0, 7.0]
+              >>> change._band_dim_values_map["time"]
+              [6.0, 12.0, 18.0]
+
+              ```
+            - The second difference, and the leading labels:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 4.0, 9.0, 16.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.diff("time", 2).read_array().ravel().tolist()
+              [2.0, 2.0]
+              >>> var.diff("time", label="lower")._band_dim_values_map["time"]
+              [0.0, 6.0, 12.0]
+
+              ```
+        """
+        nc = self._ds
+        order = _check_order(n)
+        if label not in _DIFF_LABELS:
+            raise ValueError(
+                f"label must be one of {list(_DIFF_LABELS)}, got {label!r}."
+            )
+        op = _Diff(n=order, label=label)
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def cumsum(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Total the values along a non-spatial dimension, step by step.
+
+        Each step holds the sum of itself and every step before it. The dimension keeps its
+        length and its stamps.
+
+        Works on a container, totalling every variable that has `dim`, and on a single variable,
+        returning a variable. A container's auxiliary variables are all carried over, those
+        spanning `dim` included, since its length does not change.
+
+        Args:
+            dim: The non-spatial dimension to total along.
+            skipna: When `True` (default), gaps are skipped: a gap adds nothing and holds the
+                total so far, and a step before the first valid cell is a gap — where xarray
+                answers `0.0`, a total of nothing that is not invented here, just as
+                `reduce(how="sum")` does not invent one for an all-gap slice. When `False` the
+                stored values add up as numpy adds them, the sentinel and NaN included.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, with every dimension
+            unchanged. Skipping gaps the total is float64 and declares the variable's no-data
+            value, or NaN when it declares none; otherwise it is numpy's own type for the total.
+
+        Raises:
+            ValueError: The container has no data variables, or `dim` is not a band dimension of
+                any gridded variable (or of this variable, or this variable has none).
+
+        Examples:
+            - The running total, and the same total ending at `reduce(how="sum")`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 2.0, 3.0, 4.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.cumsum("time").read_array().ravel().tolist()
+              [1.0, 3.0, 6.0, 10.0]
+              >>> float(var.reduce("time", "sum").read_array()[0, 0])
+              10.0
+
+              ```
+            - A gap adds nothing, and a leading gap stays a gap:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([np.nan, 2.0, np.nan, 4.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=np.nan,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.cumsum("time").read_array().ravel().tolist()
+              [nan, 2.0, 2.0, 6.0]
+
+              ```
+        """
+        nc = self._ds
+        op = _CumSum(skipna=bool(skipna))
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def shift(self, dim: str, periods: int = 1, *, fill_value: Any = None) -> NetCDF:
+        """Move the values along a non-spatial dimension, filling the steps that are vacated.
+
+        A positive `periods` moves the values towards the end of the dimension, so each step
+        holds what the step `periods` earlier held; a negative one moves them the other way.
+        The dimension keeps its length and its stamps, so a shift is how a step is compared
+        with an earlier one (`var - var.shift("time", 1)` is `diff`, with the length kept).
+
+        Works on a container, shifting every variable that has `dim`, and on a single variable,
+        returning a variable. A container's auxiliary variables are all carried over, those
+        spanning `dim` included, since its length does not change.
+
+        Args:
+            dim: The non-spatial dimension to shift along.
+            periods: Steps to move, any integer. A shift of at least the length of `dim` leaves
+                every step vacated.
+            fill_value: What a vacated step holds; `None` (default) asks for the variable's
+                no-data value, or NaN when it declares none.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, with every dimension
+            unchanged. With no `fill_value`, a band declaring a no-data value keeps its own type
+            and fills with that value, while one declaring none answers float64 and declares
+            NaN. A `fill_value` is held in the narrowest type that fits it and the band, and
+            leaves the declared no-data value alone.
+
+        Raises:
+            TypeError: `periods` is not an integer, or is a boolean; `fill_value` is neither
+                `None` nor a real number, or is a boolean.
+            ValueError: The band cannot hold `fill_value`; the container has no data variables;
+                or `dim` is not a band dimension of any gridded variable (or of this variable, or
+                this variable has none).
+
+        Examples:
+            - One step forward, the vacated step holding the declared no-data value:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 2.0, 3.0, 4.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=np.nan,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.shift("time", 1).read_array().ravel().tolist()
+              [nan, 1.0, 2.0, 3.0]
+              >>> var.shift("time", -1, fill_value=0.0).read_array().ravel().tolist()
+              [2.0, 3.0, 4.0, 0.0]
+
+              ```
+            - The stamps stay put, so the shifted step can be compared with its own:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 2.0, 4.0, 8.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=np.nan,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> shifted = var.shift("time", 1)
+              >>> shifted._band_dim_values_map["time"]
+              [0.0, 6.0, 12.0, 18.0]
+              >>> (var - shifted).read_array().ravel().tolist()
+              [nan, 1.0, 2.0, 4.0]
+
+              ```
+        """
+        nc = self._ds
+        steps = _check_periods(periods)
+        _check_fill_value(fill_value)
+        op = _Shift(periods=steps, fill_value=fill_value)
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
 
 _BOUNDARIES = ("exact", "trim", "pad")
 """The `boundary` modes of `coarsen`, in xarray's vocabulary."""
@@ -1896,6 +2135,74 @@ def _check_window(window: Any, *, caller: str) -> int:
     if length < 1:
         raise ValueError(f"{caller}() needs a window of at least 1, got {length}.")
     return length
+
+
+_DIFF_LABELS = ("upper", "lower")
+"""Which of a difference's two steps labels it, in xarray's vocabulary."""
+
+
+def _check_order(n: Any) -> int:
+    """A `diff` order as a non-negative `int`, or the refusal saying why it is not one.
+
+    Args:
+        n: The order as passed.
+
+    Returns:
+        int: The order.
+
+    Raises:
+        TypeError: `n` is a boolean or not something `operator.index()` accepts.
+        ValueError: `n` is negative.
+    """
+    if isinstance(n, (bool, np.bool_)):
+        raise TypeError(f"diff() needs an integer order, got {n!r}.")
+    try:
+        order = operator.index(n)
+    except TypeError:
+        raise TypeError(f"diff() needs an integer order, got {n!r}.") from None
+    if order < 0:
+        raise ValueError(f"diff() needs a non-negative order, got {order}.")
+    return order
+
+
+def _check_periods(periods: Any) -> int:
+    """A `shift` distance as an `int`, or the refusal saying why it is not one.
+
+    Args:
+        periods: The distance as passed; any sign is fine.
+
+    Returns:
+        int: The distance.
+
+    Raises:
+        TypeError: `periods` is a boolean or not something `operator.index()` accepts.
+    """
+    if isinstance(periods, (bool, np.bool_)):
+        raise TypeError(f"shift() needs integer periods, got {periods!r}.")
+    try:
+        steps = operator.index(periods)
+    except TypeError:
+        raise TypeError(f"shift() needs integer periods, got {periods!r}.") from None
+    return steps
+
+
+def _check_fill_value(fill_value: Any) -> None:
+    """Refuse a `shift` fill that is not a real number.
+
+    A boolean is refused by name, as `q` refuses one: `True` is a `Real` equal to 1, and a band
+    of flags is not what a boolean fill asks for.
+
+    Args:
+        fill_value: The fill as passed; `None` asks for the no-data value.
+
+    Raises:
+        TypeError: `fill_value` is neither `None` nor a real number, or is a boolean.
+    """
+    unusable = fill_value is not None and (
+        isinstance(fill_value, (bool, np.bool_)) or not isinstance(fill_value, Real)
+    )
+    if unusable:
+        raise TypeError(f"shift() needs a real fill_value or None, got {fill_value!r}.")
 
 
 def _check_min_periods(min_periods: Any, window: int) -> int:
