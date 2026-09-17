@@ -1,12 +1,12 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 78 in all: 44 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 80 in all: 46 methods, 27 properties,
 6 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). For the full signatures, arguments and examples, see the rendered
 [NetCDF Class](index.md) reference; this page is the index you scan to find the member you want.
 
-`NetCDF` extends `Dataset`, so it also inherits a further 134 public members it does not redefine — band
-handling, the COG surface, and the rest of the raster API. 119 of those are declared in `Dataset`'s own body
+`NetCDF` extends `Dataset`, so it also inherits a further 133 public members it does not redefine — band
+handling, the COG surface, and the rest of the raster API. 118 of those are declared in `Dataset`'s own body
 and the remaining 15 come from `RasterBase` above it. They live in the
 [Dataset reference](../dataset/index.md).
 
@@ -100,7 +100,8 @@ A variable with no raster plane is the exception — see each member's docstring
 | `sel()`            | Selects bands by coordinate value, date label, or `method="nearest"`.                |
 | `isel()`           | Selects bands by position along one or more band dims; works without coordinates.    |
 | `open_mfdataset()` | Stacks one variable across many files into a single lazy dask array.                 |
-| `reduce()`         | Reduces every variable along `dim` — `how`, `groupby`, `skipna`.                     |
+| `reduce()`         | Reduces a container or a variable along `dim` — `how`, `q`, `groupby`, `skipna`.     |
+| `coarsen()`        | Reduces fixed-size windows along `dim` — `window`, `boundary`, `how`.                |
 
 ## Spatial operations
 
@@ -151,6 +152,7 @@ A variable with no raster plane is the exception — see each member's docstring
 
 | Member          | What it does                                                                   |
 |-----------------|--------------------------------------------------------------------------------|
+| `combine()`     | Combines two rasters cell by cell, keeping the band dimensions. Variable only. |
 | `plot()`        | Plots a 2-D slice — `selectors`, `facet`, `axes`, `animate`, `chunks`, colour. |
 | `stats()`       | Per-band summary statistics. Variable only.                                    |
 | `slope()`       | Slope raster from an elevation variable. Variable only.                        |

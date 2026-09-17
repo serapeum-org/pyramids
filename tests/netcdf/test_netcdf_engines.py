@@ -487,4 +487,4 @@ class TestSelectionEngine:
             rejected with the list of valid options.
         """
         with pytest.raises(ValueError, match="how must be one of"):
-            mdim_container.reduce("time", how="median")
+            mdim_container.reduce("time", how="mode")

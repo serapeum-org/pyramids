@@ -64,8 +64,10 @@ classDiagram
     class Selection {
       +crop()
       +sel()
+      +isel()
       +subset()
       +reduce()
+      +coarsen()
     }
     Dataset <|-- NetCDF
     NetCDF <|-- Container

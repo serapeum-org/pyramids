@@ -1458,6 +1458,17 @@ class Analysis(_Engine["Dataset"]):
     ) -> Dataset:
         """Shared body of :meth:`combine` and :meth:`_fold`.
 
+        After the refusal checks and before either operand is read, it asks the left operand's
+        `_combine_layout_source` hook about the band layouts, and hands the answer, untouched, to
+        that operand's `_label_combined` once the result is built. A plain `Dataset` checks
+        nothing, answers `None` and labels nothing. A `NetCDF` refuses band dimensions that do not
+        pair up, answers with the operand whose layout describes the result (itself when it has
+        band dimensions, else `other` when that has them, else `None`), the dimensions whose
+        coordinates disagree and the partner to fill missing labels from, and labels the result
+        from those, so `combine`, the operators and `_fold` all keep the layout. A folded call
+        hands the hook `None` as the other operand, since its one layout has nothing to be
+        compared with or filled from.
+
         Args:
             other: The second operand. Ignored as a *source* when `folded` is set — it
                 is this dataset, and reading it again would only cost.
@@ -1473,15 +1484,17 @@ class Analysis(_Engine["Dataset"]):
 
         Returns:
             Dataset: The combined raster, built with the **left** operand's class and
-            carrying this dataset's geotransform, CRS, metadata and band names.
+            carrying this dataset's geotransform, CRS, metadata and band names, plus the band
+            dimensions `_label_combined` puts on a `NetCDF` result.
 
         Raises:
             TypeError: `other` is not a raster, or `func` is not callable.
             AlignmentError: The operands do not share a grid/CRS.
-            ValueError: The band counts differ; `band` is out of range; an explicit
-                `no_data_value` does not fit the result dtype, or no candidate sentinel
-                is both storable and absent from the result; `func` returned the wrong
-                shape, or a dtype GDAL has no band type for.
+            ValueError: The band counts differ; a `NetCDF` left operand's band dimensions do
+                not pair up with `other`'s (raised by `_combine_layout_source`); `band` is out
+                of range; an explicit `no_data_value` does not fit the result dtype, or no
+                candidate sentinel is both storable and absent from the result; `func` returned
+                the wrong shape, or a dtype GDAL has no band type for.
 
         Warns:
             NoDataCollisionWarning: An explicit `no_data_value` occurs among the values
@@ -1491,6 +1504,9 @@ class Analysis(_Engine["Dataset"]):
         if not isinstance(other, RasterBase):
             raise TypeError(f"`other` must be a Dataset, got {type(other).__name__}")
         self._check_combinable(other, func, band)
+        # A fold's second operand is this dataset, as the engine's proxy no identity test can
+        # match, so the hook is told there is no other layout rather than handed one to compare.
+        layout_source = self._ds._combine_layout_source(None if folded else other, band)
 
         left, left_sentinels, left_domain = self._operand_arrays(self._ds, band)
         right_sentinels: list[Any]
@@ -1558,6 +1574,7 @@ class Analysis(_Engine["Dataset"]):
             if band is not None
             else list(self._ds.band_names)
         )
+        self._ds._label_combined(combined, layout_source)
         return combined
 
     def _check_combinable(self, other: Dataset, func: Any, band: int | None) -> None:

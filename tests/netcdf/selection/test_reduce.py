@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -16,6 +17,12 @@ pytestmark = pytest.mark.core
 _GEO = (0.0, 1.0, 0.0, 3.0, 0.0, -1.0)
 _ERA5_T2M = "tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc"
 _ERA5_PL = "tests/data/netcdf/cf__5v__1d4-4d1__geog__y-desc.nc"
+_ERA5_T2M_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "netcdf"
+    / "cf__5v__1d4-3d1__geog__y-desc.nc"
+)
 
 
 def _make_time_nc(arr: np.ndarray, time_values: list) -> NetCDF:
@@ -250,12 +257,13 @@ class TestReduceErrors:
         """An unknown reduction op raises ValueError naming the valid set.
 
         Test scenario:
-            `how='median'` is rejected.
+            `how='mode'` is rejected. (`median` was the example until it became a
+            supported reduction.)
         """
         arr = np.ones((2, 2, 2), dtype="float32")
         nc = _make_time_nc(arr, [0, 1])
         with pytest.raises(ValueError, match="how must be one of"):
-            nc.reduce("time", "median")
+            nc.reduce("time", "mode")
 
     def test_unknown_dimension_raises(self):
         """Reducing a non-existent dimension raises ValueError.
@@ -280,6 +288,24 @@ class TestReduceErrors:
         with pytest.raises(ValueError, match="no decodable time coordinate"):
             nc.reduce("time", "mean", groupby="1MS")
 
+    def test_empty_container_raises(self):
+        """A container with no data variables is refused before any grouping.
+
+        Test scenario:
+            The only variable is removed, so there is nothing to reduce; the frequency
+            `groupby` would itself fail, and must not be what the caller hears about.
+        """
+        nc = _make_time_nc(np.ones((2, 2, 2), dtype="float32"), [0, 1])
+        nc.remove_variable("v")
+        with pytest.raises(ValueError, match="Cannot reduce an empty container"):
+            nc.reduce("time", "mean", groupby="1MS")
+
+    def test_groupby_skipna_and_q_are_keyword_only(self):
+        """A third positional argument is a `TypeError`, not a silently bound `groupby`."""
+        nc = _make_time_nc(np.ones((4, 2, 2), dtype="float32"), [0, 1, 2, 3])
+        with pytest.raises(TypeError, match="positional"):
+            nc.reduce("time", "mean", [0, 0, 1, 1])
+
 
 class TestReduceRealFixtures:
     """Tests against real CF NetCDF fixtures."""
@@ -294,6 +320,22 @@ class TestReduceRealFixtures:
         nc = NetCDF.read_file(_ERA5_T2M)
         result = nc.reduce("valid_time", "mean", groupby="1MS")
         assert result.get_variable("t2m").band_count == 1, "Jan-only data is one month"
+
+    def test_the_dropped_aux_warning_points_at_the_caller(self):
+        """The `expver` drop warning is attributed to the line that called `reduce`.
+
+        Test scenario:
+            The warning is raised in a helper below `Selection.reduce`, below the
+            `NetCDF.reduce` facade, so its `stacklevel` has to climb past both; one frame
+            short names a pyramids source file instead of this test.
+        """
+        nc = NetCDF.read_file(str(_ERA5_T2M_PATH))
+        with pytest.warns(UserWarning, match="span the reduced dimension") as record:
+            nc.reduce("valid_time", "mean")
+        dropped = [w for w in record if "span the reduced dimension" in str(w.message)]
+        assert Path(dropped[0].filename).resolve() == Path(__file__).resolve(), (
+            f"warning attributed to {dropped[0].filename}:{dropped[0].lineno}"
+        )
 
     def test_daily_frequency_on_era5(self):
         """Daily grouping yields one window per distinct calendar day.

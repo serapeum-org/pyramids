@@ -15,7 +15,7 @@ import sys
 import threading
 import warnings
 import weakref
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TextIO, Unpack, cast
 
@@ -54,6 +54,7 @@ from pyramids.dataset.dataset import (
     _invalidate_cached_accessors,
 )
 from pyramids.dataset.engines._read_window import resolve_read_window
+from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA
 from pyramids.dataset.engines.io import _caller_stacklevel
 from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._axis import detect_axis_indices
@@ -62,6 +63,7 @@ from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
 from pyramids.netcdf._mdim import (
     GEOSTATIONARY_PROJECTION,
     axis_flips,
+    copy_band_values_map,
     dataset_is_geostationary,
     needs_x_flip,
     needs_y_flip,
@@ -101,6 +103,7 @@ from pyramids.netcdf.plot_options import CoordinateSpec, FacetSpec, Selectors
 from pyramids.netcdf.utils import (
     _read_attributes,
     create_time_conversion_func,
+    is_cf_time_units,
     read_cf_attributes,
 )
 
@@ -490,8 +493,25 @@ _REDUCERS: dict[str, tuple[Any, Any]] = {
     "max": (np.nanmax, np.max),
     "std": (np.nanstd, np.std),
     "var": (np.nanvar, np.var),
+    "median": (np.nanmedian, np.median),
+    "prod": (np.nanprod, np.prod),
+    "quantile": (np.nanquantile, np.quantile),
 }
-"""Per-operation `(skipna_func, plain_func)` pairs for :meth:`NetCDF.reduce`."""
+"""Per-operation `(skipna_func, plain_func)` pairs for the statistics `NetCDF.reduce` and
+`NetCDF.coarsen` compute. Under `skipna`, `NetCDF._reduce_axis` runs the first on float64, so
+the result is float64; without it, the second runs on the raw values in the dtype numpy gives
+that reduction — the `min` of an `int16` band stays `int16`. `quantile` is the one that takes
+an extra argument, `q`."""
+
+_COUNTING_REDUCERS: frozenset[str] = frozenset({"count", "all", "any"})
+"""Reductions answering a count or a truth flag rather than a float statistic.
+
+They cannot share the float rule in `NetCDF._reduce_axis` — cast to float64, turn gaps into
+NaN, restore the sentinel on an all-gap column — because a count is an integer that is never
+missing and a flag is a boolean GDAL has no band type for."""
+
+_FLAG_NO_DATA = 255
+"""The no-data value of a `uint8` 0/1 flag band: the value the comparison operators declare."""
 
 # GDAL's WKT ``PROJECTION`` node value for the CF geostationary projection
 # (set by ``osr.SpatialReference.SetGEOS`` / reconstructed from a
@@ -935,6 +955,42 @@ def _same_value(left: Any, right: Any) -> bool:
         return bool(left == right) or _both_nan(left, right)
     except (TypeError, ValueError):
         return _both_nan(left, right)
+
+
+def _same_coordinates(left: Any, right: Any) -> bool:
+    """Whether two band dimensions' coordinate values are the same, position by position.
+
+    Compared with `_same_value`, so two `nan` stamps at the same position agree — a
+    variable with a missing stamp must still line up with itself — and text stamps compare
+    by value. `np.array_equal` gets the first wrong without `equal_nan=True` and raises on
+    text with it.
+
+    Args:
+        left: One operand's coordinate values.
+        right: The other operand's.
+
+    Returns:
+        bool: `True` when both have the same length and every position holds the same value.
+
+    Examples:
+        - A `nan` stamp matches itself, and a different stamp does not:
+            ```python
+            >>> _same_coordinates([0.0, float("nan"), 12.0], [0.0, float("nan"), 12.0])
+            True
+            >>> _same_coordinates([0.0, 6.0], [0.0, 12.0])
+            False
+
+            ```
+        - Text stamps and mixed integer/float stamps compare by value:
+            ```python
+            >>> _same_coordinates(["00:00", "06:00"], ["00:00", "06:00"])
+            True
+            >>> _same_coordinates([0, 6], [0.0, 6.0])
+            True
+
+            ```
+    """
+    return len(left) == len(right) and all(map(_same_value, left, right))
 
 
 def _both_nan(left: Any, right: Any) -> bool:
@@ -2181,6 +2237,11 @@ class NetCDF(Dataset):
         # True once the AsClassicDataset view has been replaced by a window-readable MEM raster
         # (see _materialize_md_view). Tracks the raster, so _update_inplace carries it over.
         self._md_view_materialized: bool = False
+        # The raster `get_variable` built from the store, while this variable still holds it (see
+        # `_reads_as_its_store`). Dropped by `close()` and by a swap to another raster through
+        # `_update_inplace` or `_replace_raster`, so it neither keeps the source file open nor keeps
+        # a replaced copy of the values alive; `_materialize_md_view` moves it to its MEM copy.
+        self._store_raster: gdal.Dataset | None = None
         # True once a geostationary scan-angle geotransform has been rescaled to
         # metres on this cube; tells the `geotransform` property to trust the
         # stored geotransform instead of re-deriving radian spacing from x/y.
@@ -2203,6 +2264,11 @@ class NetCDF(Dataset):
         self._band_dim_values: list[Any] | None = None
         self._band_dim_names: tuple[str, ...] = ()
         self._band_dim_values_map: dict[str, list[Any] | None] = {}
+        # `(units, calendar)` of the band dimensions whose units are CF time units (not a level's
+        # `millibar`), carried by a result computed in memory, and by a variable `get_variable`
+        # built, so their stamps still decode without a store to read them from (see
+        # `_time_attr_candidates`).
+        self._band_dim_time_attrs: dict[str, tuple[str, str]] = {}
         self._band_dim_sizes: tuple[int, ...] = ()
         self._variable_attrs: dict[str, Any] = {}
         self._scale: float | None = None
@@ -2222,24 +2288,27 @@ class NetCDF(Dataset):
         """Release every GDAL handle this container holds, then close the base.
 
         A NetCDF container keeps more open GDAL references than the single
-        ``self._raster`` that :meth:`Dataset.close` drops:
+        `self._raster` that :meth:`Dataset.close` drops:
 
         * cached per-variable child objects (:attr:`_cached_variables`), each
-          with its own ``_raster`` and SWIG MDArray / root-group references;
-        * the ``_gdal_md_arr_ref`` / ``_gdal_rg_ref`` views that keep an
+          with its own `_raster` and SWIG MDArray / root-group references;
+        * the `_gdal_md_arr_ref` / `_gdal_rg_ref` views that keep an
           extracted variable's C++ backing alive;
-        * the ``_parent_nc`` back-reference forming a refcount cycle with the
-          parent's variable cache.
+        * the `_parent_nc` back-reference forming a refcount cycle with the
+          parent's variable cache;
+        * a variable's `_store_raster`, the record of the raster `get_variable` built, which
+          (unless copied into memory) reads the store and so holds a file-backed store's file
+          open.
 
         This override closes the cached children and drops every extra reference
         before deferring to :meth:`Dataset.close`. It then runs a single
-        :func:`gc.collect`: a spatial op (``crop`` / ``to_crs`` / ``reduce``)
-        extracts variables whose ``AsClassicDataset`` view, MDArray and root
+        :func:`gc.collect`: a spatial op (`crop` / `to_crs` / `reduce`)
+        extracts variables whose `AsClassicDataset` view, MDArray and root
         group form a **reference cycle among the GDAL SWIG wrappers** that plain
         refcounting cannot reclaim. Without the collect those wrappers keep the
-        source file open, so on Windows a later ``os.replace`` / ``os.remove``
-        fails with ``PermissionError`` until the caller forces a GC themselves
-        (#564). Doing it here makes ``close()`` honour its contract — the file is
+        source file open, so on Windows a later `os.replace` / `os.remove`
+        fails with `PermissionError` until the caller forces a GC themselves
+        (#564). Doing it here makes `close()` honour its contract — the file is
         unlocked immediately. Safe to call more than once.
         """
         # Release handles parked by this container's lazy reads (#727): a lazy dask array can be held
@@ -2264,6 +2333,10 @@ class NetCDF(Dataset):
         self._view_source = None
         self._warp_source = None
         self._parent_nc = None
+        # Unless copied into memory, the raster `get_variable` recorded reads the store (the
+        # `AsClassicDataset` view of a multidimensional open, or the file itself opened classic), so
+        # keeping it would keep a file-backed store's file open.
+        self._store_raster = None
         self._cached_meta_data = None
         # Drop and close the reopened geolocation-source handle (a base Dataset over
         # NETCDF:"<file>":<var>, memoised by `_geolocation_source`). Left open it keeps the source
@@ -2298,6 +2371,10 @@ class NetCDF(Dataset):
         right for a swap that leaves the values alone. An in-place compute
         (`apply` / `fill` with `inplace=True`) writes physical values, so it
         calls `_spend_packing` after this swap to drop them.
+
+        The record of the raster `get_variable` built (`_store_raster`) is kept only when `src`
+        is that raster, as the `epsg` setter passes it. Any other `src` drops it, so the variable
+        stops streaming a reduction from its store and the replaced raster is not kept alive.
         """
         preserved = {
             "_is_md_array": self._is_md_array,
@@ -2318,9 +2395,13 @@ class NetCDF(Dataset):
             "_band_dim_names": self._band_dim_names,
             "_band_dim_values_map": self._band_dim_values_map,
             "_band_dim_sizes": self._band_dim_sizes,
+            "_band_dim_time_attrs": self._band_dim_time_attrs,
             "_variable_attrs": self._variable_attrs,
             "_scale": self._scale,
             "_offset": self._offset,
+            # The record survives only a swap to the raster it names (the `epsg` setter's); any other
+            # raster is not the one `get_variable` built, and the replaced one must not be kept alive.
+            "_store_raster": self._store_raster if src is self._store_raster else None,
         }
         # Rebuild via the concrete subclass (Container / Variable) so an
         # in-place update never downgrades the instance's type back to the base NetCDF.
@@ -5837,12 +5918,12 @@ class NetCDF(Dataset):
     def _preserve_netcdf_metadata(self, result: Dataset) -> NetCDF:
         """Wrap a Dataset result as a NetCDF, preserving variable-subset metadata.
 
-        When spatial operations (crop, to_crs, resample) are called on a
-        NetCDF variable subset, the parent `Dataset` mixin returns a
-        plain `Dataset`. This helper re-wraps the result as a `NetCDF`
-        and copies over the variable-specific attributes so that methods
-        like `sel()`, `read_array(unpack=True)`, and further spatial
-        operations continue to work with consistent return types.
+        Some operations on a variable subset build their result as a plain `Dataset` — a
+        crop, the `sel` / `isel` cut — and this helper re-wraps it as a `Variable`. Others
+        (`to_crs`, `resample`, `warped_view`) already return this class, and that object is
+        labelled in place and returned. Either way the variable-specific attributes are
+        copied over so that methods like `sel()`, `read_array(unpack=True)`, and further
+        spatial operations continue to work with consistent return types.
 
         The canonical multi-band-dim fields (`_band_dim_names`,
         `_band_dim_values_map`, `_band_dim_sizes`) are propagated, and the
@@ -5852,6 +5933,10 @@ class NetCDF(Dataset):
         staleness guard lives: it nullifies the primary coordinate values when
         they are provably stale for the new band count (e.g. after a
         band-shrinking operation outside `sel()`).
+
+        The coordinate lists are copied, not shared (`copy_band_values_map`), and the band
+        dimensions' units are resolved into `_band_dim_time_attrs`, so the result still
+        decodes its time stamps.
 
         Args:
             result: The `Dataset` (or `NetCDF`) returned by a parent
@@ -5878,7 +5963,7 @@ class NetCDF(Dataset):
         wrapped._is_subset = self._is_subset
         wrapped._band_dim_names = self._band_dim_names
         wrapped._band_dim_sizes = self._band_dim_sizes
-        wrapped._band_dim_values_map = dict(self._band_dim_values_map)
+        wrapped._band_dim_values_map = copy_band_values_map(self._band_dim_values_map)
         # Re-derive the legacy primary-dim view from the canonical fields against the
         # wrapped result's live band count: a band-shrinking spatial op may have
         # diverged the band count from the cached coords, so the staleness guard lives
@@ -5896,6 +5981,7 @@ class NetCDF(Dataset):
         wrapped._offset = self._offset
         wrapped._parent_nc = self._parent_nc
         wrapped._source_var_name = self._source_var_name
+        wrapped._band_dim_time_attrs = self._resolved_band_dim_time_attrs()
         # A wrapped subset reopens the parent file on unpickle, so it must carry
         # the parent's captured GDAL open options too (#1025).
         wrapped._open_options = self._open_options
@@ -7105,9 +7191,32 @@ class NetCDF(Dataset):
         mem = self._apply_to_all_variables(operation, op_kwargs, warn_demoted=False)
         return cast("NetCDF", mem._persist_to(path))
 
-    def reduce(self, *args, **kwargs) -> NetCDF:
+    def reduce(
+        self,
+        dim: str,
+        how: str = "mean",
+        *,
+        groupby: list | tuple | str | None = None,
+        skipna: bool = True,
+        q: float | None = None,
+    ) -> NetCDF:
         """Facade — :meth:`Selection.reduce <pyramids.netcdf.engines.selection.Selection.reduce>`."""
-        return self.selection.reduce(*args, **kwargs)
+        return self.selection.reduce(dim, how, groupby=groupby, skipna=skipna, q=q)
+
+    def coarsen(
+        self,
+        dim: str,
+        window: int,
+        *,
+        how: str = "mean",
+        boundary: str = "exact",
+        skipna: bool = True,
+        q: float | None = None,
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.coarsen <pyramids.netcdf.engines.selection.Selection.coarsen>`."""
+        return self.selection.coarsen(
+            dim, window, how=how, boundary=boundary, skipna=skipna, q=q
+        )
 
     @staticmethod
     def _is_file_backed(var: NetCDF) -> bool:
@@ -7137,18 +7246,32 @@ class NetCDF(Dataset):
     def _materialize_variable_array(var: NetCDF, lazy: bool = False) -> Any:
         """Read a variable as `(*band_dim_sizes, rows, cols)` (or `(rows, cols)`).
 
-        With `lazy=True` and dask installed, returns a chunked `dask.array` in that same layout
-        without ever holding the whole variable in RAM — `reduce` streams its reducer over it and
-        computes only the (small) reduced result (ARC-47). The chunked read already keeps each
-        non-spatial dim as its own leading axis, so no reshape is needed. Falls back to the eager
-        read (undoing `read_array`'s singleton-band squeeze and GDAL's row-major band flatten) when
-        `lazy` is False or dask (the `[lazy]` extra) is not installed.
+        With `lazy=True`, dask (the `[lazy]` extra) installed, and a file-backed variable that still
+        reads as its store, returns a chunked `dask.array` in that same layout without ever holding
+        the whole variable in RAM — `reduce` streams its reducer over it and computes only the
+        (small) reduced result (ARC-47). The chunked read already keeps each non-spatial dim as its
+        own leading axis, so no reshape is needed. Otherwise it reads eagerly, undoing
+        `read_array`'s singleton-band squeeze and GDAL's row-major band flatten.
 
         Because the streamed reduce tree-reduces per chunk via dask while the eager path reduces in a
         single pass, a file-backed `mean`/`sum`/`std`/`var` can differ from the same in-memory reduce
         in the last ULPs (floating-point non-associativity) — equal to `np.allclose`, not bit-for-bit.
+
+        Only a variable that still reads as its store is streamed (`_reads_as_its_store`): the
+        chunked read rebuilds the store's variable from the parent file, so anything derived from it
+        — a `sel` / `isel` cut, a crop, `to_crs`, `resample`, `warped_view`, an operator result, an
+        in-place `apply` / `fill` / `change_no_data_value` — is read eagerly from its own raster
+        instead.
+
+        Args:
+            var: The variable to read.
+            lazy: Whether a streamed read may be returned.
+
+        Returns:
+            numpy.ndarray | dask.array.Array: The values, laid out `(*band_dim_sizes, rows, cols)`
+            for a variable with band dimensions.
         """
-        if lazy and NetCDF._is_file_backed(var):
+        if lazy and NetCDF._is_file_backed(var) and NetCDF._reads_as_its_store(var):
             # Only stream a genuinely file-backed variable: an in-memory container has no file for the
             # chunk graph to reopen and is already fully in RAM, so streaming saves nothing. Checking
             # file-backing up front (rather than a broad except) lets a real file-backed read error
@@ -7164,21 +7287,101 @@ class NetCDF(Dataset):
             arr = unflatten_band_axes(arr, var._band_dim_names, var._band_dim_sizes)
         return cast("np.typing.NDArray", arr)
 
+    @staticmethod
+    def _reads_as_its_store(var: NetCDF) -> bool:
+        """Whether `var` still holds the raster `get_variable` built for it from its store.
+
+        The chunked read that streams a reduction rebuilds a variable from its parent file and its
+        name, so it describes `var` only while `var` is that store variable, unchanged.
+        `get_variable` records the raster it built (`_store_raster`), and a variable streams only
+        while it still holds that very object:
+
+        - every derivation returns a new object with no record — a `sel` / `isel` cut, `to_crs`,
+          `warped_view`, `resample`, a crop, an operator result;
+        - an in-place `apply`, `fill` or `change_no_data_value` swaps a new raster in through
+          `_update_inplace`, and `_replace_raster` swaps one in directly; both drop the record
+          (it becomes `None`). The `epsg` setter hands `_update_inplace` the same raster, so the
+          record is kept and still matches;
+        - `close()` drops the record too;
+        - `_materialize_md_view` does carry it, because it copies the view's values unchanged, so
+          a variable whose view a `resample`, `to_crs` or crop copied as a side effect keeps
+          streaming. A geostationary variable is copied by that method while `get_variable`
+          builds it, and streams because `get_variable` records the raster after that copy.
+
+        The GDAL driver alone cannot tell these apart: a warped variable is a `VRT` over the
+        store and must not stream, while a materialized whole variable is `MEM` and may.
+
+        Args:
+            var: The variable about to be read.
+
+        Returns:
+            bool: `True` when `var`'s raster is the one `get_variable` recorded.
+        """
+        store_raster = getattr(var, "_store_raster", None)
+        return store_raster is not None and var._raster is store_raster
+
     def _resolve_group_positions(
         self, dim: str, groupby: list | tuple | str | None
     ) -> list[np.typing.NDArray] | None:
         """Resolve `groupby` into ordered lists of source index positions.
 
-        Returns ``None`` for the collapse case (``groupby is None``).
+        A frequency groups the steps of `dim` by calendar window, skipping empty windows, over the
+        stamps `_group_stamps` decodes. They are decoded through `get_time_variable` when this
+        object holds no coordinates of its own for `dim`, and through `_decode_time_labels` when
+        it does, which finds the units its store declares or those a derived result carries. A
+        container whose stored axis has no units of its own — one rebuilt by `reduce` or
+        `coarsen` — falls back to decoding its dimension's values with the units it carries. A
+        sequence of labels groups equal labels, in first-appearance order.
+
+        Args:
+            dim: The band dimension being grouped.
+            groupby: `None` to collapse `dim`, a pandas offset alias such as `"1D"`, or one label
+                per step of `dim`.
+
+        Returns:
+            list[numpy.ndarray] | None: One ascending array of positions per group, or `None`
+            when `groupby` is `None`.
+
+        Raises:
+            ValueError: `groupby` is a frequency and no time coordinate of `dim` decodes.
+
+        Examples:
+            - Labels group their steps in first-appearance order:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 24.0, 30.0]),
+              ... ).get_variable("t")
+              >>> [p.tolist() for p in var._resolve_group_positions("time", ["b", "a", "b", "a"])]
+              [[0, 2], [1, 3]]
+
+              ```
+            - A frequency needs stamps with time units, which these raw hours lack:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(2.0).reshape(2, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... ).get_variable("t")
+              >>> var._resolve_group_positions("time", "1D")
+              Traceback (most recent call last):
+                ...
+              ValueError: Cannot group dimension 'time' by frequency '1D': no decodable time coordinate found.
+
+              ```
         """
         positions: list[np.ndarray] | None = None
         if isinstance(groupby, str):
-            # Full-resolution timestamps: the default "%Y-%m-%d" truncates to
-            # whole days, which would collapse every sub-daily frequency
-            # ("1H"/"3H"/"6H") into a single per-day bucket.
-            times = self.get_time_variable(
-                var_name=dim, time_format="%Y-%m-%d %H:%M:%S"
-            )
+            times = self._group_stamps(dim)
             if times is None:
                 raise ValueError(
                     f"Cannot group dimension {dim!r} by frequency {groupby!r}: "
@@ -7203,6 +7406,49 @@ class NetCDF(Dataset):
             positions = [np.array(members[label]) for label in order]
         return positions
 
+    def _group_stamps(self, dim: str) -> list[str] | None:
+        """The decoded stamps of `dim`, to the second, that a frequency groups by.
+
+        Full-resolution timestamps: the default `"%Y-%m-%d"` truncates to whole days, which would
+        collapse every sub-daily frequency (`"1H"`, `"3H"`, `"6H"`) into a single per-day bucket.
+
+        - Coordinates of its own for `dim` (a variable keeps its own, possibly selected, raw
+          stamps but not the root group's units) are decoded with the units its store declares,
+          or that a derived result carries (`_time_attr_candidates`).
+        - A container decodes its stored axis the same way: with the units its own metadata
+          declares, or, for one rebuilt by `reduce` / `coarsen` that stores its axis without
+          units, with the units it carries in `_band_dim_time_attrs`.
+        - A variable without coordinates of its own falls back to `get_time_variable`, which
+          reads its own metadata.
+
+        Every branch but the last decodes leniently, so a stamp that does not convert (a NaN, an
+        infinity) gives `None`, as it does for a variable, rather than raising out of the
+        conversion.
+
+        Args:
+            dim: The band dimension.
+
+        Returns:
+            list[str] | None: One `"%Y-%m-%d %H:%M:%S"` stamp per step of `dim`, or `None` when
+            no time coordinate of `dim` decodes.
+        """
+        instant = "%Y-%m-%d %H:%M:%S"
+        own_values = self._band_dim_values_map.get(dim)
+        if own_values is not None:
+            times = self._decode_time_labels(
+                dim, list(own_values), instant, strict=False
+            )
+        elif not self._band_dim_names:
+            stored = self.get_dimension_values(dim)
+            times = (
+                None
+                if stored is None
+                else self._decode_time_labels(dim, list(stored), instant, strict=False)
+            )
+        else:
+            times = self.get_time_variable(var_name=dim, time_format=instant)
+        return times
+
     def _reduce_variable_array(
         self,
         arr,
@@ -7215,10 +7461,11 @@ class NetCDF(Dataset):
         ndv,
         groupby,
         group_positions,
+        q=None,
     ):
         """Reduce one variable's array along `axis`; return new array + dims."""
         if group_positions is None:
-            new_arr = self._reduce_axis(arr, axis, how, skipna, ndv)
+            new_arr = self._reduce_axis(arr, axis, how, skipna, ndv, q)
             new_band_names = [name for name in band_names if name != dim]
             new_values_map = {name: values_map.get(name) for name in new_band_names}
         else:
@@ -7230,7 +7477,7 @@ class NetCDF(Dataset):
                 )
             slices = [
                 self._reduce_axis(
-                    np.take(arr, positions, axis=axis), axis, how, skipna, ndv
+                    np.take(arr, positions, axis=axis), axis, how, skipna, ndv, q
                 )
                 for positions in group_positions
             ]
@@ -7246,25 +7493,98 @@ class NetCDF(Dataset):
         return new_arr, new_band_names, new_values_map
 
     @staticmethod
-    def _reduce_axis(arr, axis, how, skipna, ndv):
-        """Apply one reduction over `axis`, masking NoData when `skipna`."""
-        nan_func, plain_func = _REDUCERS[how]
-        if skipna:
-            data = arr.astype("float64")
-            if ndv is not None:
-                data = np.where(data == ndv, np.nan, data)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", RuntimeWarning)
-                out = nan_func(data, axis=axis)
-            # nansum/nanstd/nanvar return 0 (not NaN) for an all-NoData slice,
-            # so detect fully-masked positions explicitly and restore NoData for
-            # every reducer rather than leaking a spurious 0.
-            all_masked = np.all(np.isnan(data), axis=axis)
-            fill = ndv if ndv is not None else np.nan
-            out = np.where(np.isnan(out) | all_masked, fill, out)
-            result = out
+    def _reduce_axis(arr, axis, how, skipna, ndv, q=None):
+        """Apply one reduction over `axis`, masking no-data when `skipna`.
+
+        `count`, `all` and `any` go to `_count_axis`; every other `how` is looked up in
+        `_REDUCERS`. Under `skipna` the values are cast to float64 and the sentinel and NaN
+        are skipped, and a column with no valid cell, or whose statistic comes out NaN,
+        answers `ndv` (NaN when `ndv` is `None`). Without `skipna` numpy's plain function
+        reduces the raw values, sentinel and NaN included, in the dtype numpy gives it.
+
+        Args:
+            arr: The unflattened array, numpy or dask.
+            axis: The axis to reduce.
+            how: A key of `_REDUCERS`, or `"count"`, `"all"` or `"any"`.
+            skipna: Whether the sentinel and NaN are skipped.
+            ndv: The sentinel as it appears in `arr`, or `None` — unpacked, for a CF-packed
+                variable read unpacked (`_read_no_data`).
+            q: Forwarded as `q=` to the `_REDUCERS` function whenever it is not `None`, so
+                it must stay `None` for every statistic but `quantile`; `Selection.reduce`
+                and `Selection.coarsen` refuse it before calling. The counting reductions
+                ignore it.
+
+        Returns:
+            The reduced array, a dask array when `arr` is one: float64 for a statistic
+            under `skipna`, `int64` for `count`, `uint8` for `all` / `any`.
+
+        Raises:
+            KeyError: `how` is in neither registry.
+            TypeError: `q` is given with a statistic whose numpy function takes no `q`.
+        """
+        if how in _COUNTING_REDUCERS:
+            result = NetCDF._count_axis(arr, axis, how, skipna, ndv)
         else:
-            result = plain_func(arr, axis=axis)
+            nan_func, plain_func = _REDUCERS[how]
+            extra = {} if q is None else {"q": q}
+            if skipna:
+                data = arr.astype("float64")
+                if ndv is not None:
+                    data = np.where(data == ndv, np.nan, data)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    out = nan_func(data, axis=axis, **extra)
+                # nansum and nanprod return a number (0 and 1), not NaN, for an
+                # all-NoData slice, so detect fully-masked positions explicitly and
+                # restore NoData for every reducer rather than leaking a spurious 0 or 1.
+                all_masked = np.all(np.isnan(data), axis=axis)
+                fill = ndv if ndv is not None else np.nan
+                out = np.where(np.isnan(out) | all_masked, fill, out)
+                result = out
+            else:
+                result = plain_func(arr, axis=axis, **extra)
+        return result
+
+    @staticmethod
+    def _count_axis(arr, axis, how, skipna, ndv):
+        """Count the valid cells along `axis`, or test them for truth.
+
+        A cell is valid when it is neither NaN nor `ndv`. `count` answers
+        an `int64` count of them — 0 for a column with none — whatever `skipna` says, since
+        a count has nothing to skip. `all` and `any` answer a `uint8` 0/1 flag: with `skipna`
+        a gap is neutral (true for `all`, false for `any`) and a column with no valid cell
+        answers `_FLAG_NO_DATA`; without it the raw values are tested, where a non-zero
+        sentinel and NaN are both true, as they are to numpy.
+
+        Args:
+            arr: The unflattened array, numpy or dask.
+            axis: The axis to reduce.
+            how: `"count"`, `"all"` or `"any"`.
+            skipna: Whether gaps are skipped, for `all`/`any`.
+            ndv: The sentinel as it appears in `arr`, or `None`. For a CF-packed variable read
+                unpacked that is the unpacked `_FillValue`, not the stored one — the reduce
+                path passes it that way (`_read_no_data`).
+
+        Returns:
+            The reduced array: `int64` for `count`, `uint8` for `all`/`any`.
+        """
+        valid = np.ones_like(arr, dtype=bool)
+        if np.issubdtype(arr.dtype, np.floating):
+            valid = ~np.isnan(arr)
+        if ndv is not None:
+            valid = valid & (arr != ndv)
+        if how == "count":
+            result = np.sum(valid, axis=axis, dtype=np.int64)
+        else:
+            test = np.all if how == "all" else np.any
+            if skipna:
+                gap = how == "all"
+                flags = test(np.where(valid, arr != 0, gap), axis=axis)
+                result = np.where(
+                    np.any(valid, axis=axis), flags.astype(np.uint8), _FLAG_NO_DATA
+                ).astype(np.uint8)
+            else:
+                result = test(arr != 0, axis=axis).astype(np.uint8)
         return result
 
     def _stack_reduced_variable(
@@ -7482,6 +7802,10 @@ class NetCDF(Dataset):
         resolved_crs = self._get_crs()
         if resolved_crs and mem.GetSpatialRef() is None:
             mem.SetProjection(resolved_crs)
+        # The copy holds the view's values unchanged, so a variable that read as its store before
+        # still does; carry the record `_reads_as_its_store` checks across the swap.
+        if self._raster is getattr(self, "_store_raster", None):
+            self._store_raster = mem
         self._raster = mem
         # The MEM copy owns its data; drop the SWIG views that backed the AsClassicDataset.
         self._gdal_md_arr_ref = None
@@ -8316,11 +8640,12 @@ class NetCDF(Dataset):
         """Decode already-read raw time values into formatted date strings.
 
         Unlike :meth:`get_time_variable`, which reads the *full* stored axis, this
-        decodes the specific ``raw_values`` handed to it, using the CF ``units`` /
-        ``calendar`` for ``var_name`` resolved from this cube's own dimension
-        metadata or, failing that, its parent container's. A variable subset built
+        decodes the specific `raw_values` handed to it, using the first `(units, calendar)`
+        pair for `var_name` whose units parse, in the order `_time_attr_candidates` yields
+        them: this cube's own dimension metadata, its parent container's, then the units a
+        result computed in memory carries. A variable subset built
         by :meth:`get_variable` keeps its (possibly subsetted) raw coordinate values
-        in ``_band_dim_values_map`` but loses the root group's dimension attributes,
+        in `_band_dim_values_map` but loses the root group's dimension attributes,
         so its own metadata is empty while the parent still carries the units —
         which is why the animate frame labels came back as raw integers (#1013).
         Decoding the passed values (not the parent's full axis) keeps the labels
@@ -8330,30 +8655,21 @@ class NetCDF(Dataset):
             var_name: Name of the time coordinate / dimension.
             raw_values: The raw coordinate values to decode (one per frame).
             time_format: strftime format for the output strings. Defaults to
-                ``"%Y-%m-%d"``.
-            strict: When ``True`` (the default) a coordinate value the converter
+                `"%Y-%m-%d"`.
+            strict: When `True` (the default) a coordinate value the converter
                 cannot handle propagates, so a malformed axis is not hidden behind
-                raw labels. When ``False`` it returns ``None`` instead, which is what
+                raw labels. When `False` it returns `None` instead, which is what
                 a selection needs: an axis that cannot be decoded simply has no labels
                 and the stored-value path still answers.
 
         Returns:
-            list[str] or None: One formatted string per value, or ``None`` when no
-            parseable ``units`` attribute is available on this cube or its parent
-            (including a present-but-unparseable one — a non-CF ``units`` string
-            degrades to raw labels rather than raising out of a plot).
+            list[str] or None: One formatted string per value, or `None` when no
+            candidate's `units` parses (a present-but-unparseable one — a non-CF
+            `units` string — degrades to raw labels rather than raising out of a
+            plot), or, with `strict=False`, when a value does not convert.
         """
         labels: list[str] | None = None
-        for owner in (self, getattr(self, "_parent_nc", None)):
-            if owner is None:
-                continue
-            time_dim = owner.meta_data.get_dimension(var_name)
-            if time_dim is None:
-                continue
-            units = time_dim.attrs.get("units")
-            if units is None:
-                continue
-            calendar = time_dim.attrs.get("calendar", "standard")
+        for units, calendar in self._time_attr_candidates(var_name):
             try:
                 func = create_time_conversion_func(
                     units, time_format, calendar=calendar
@@ -8385,6 +8701,118 @@ class NetCDF(Dataset):
                     labels = None
             break
         return labels
+
+    def _time_attr_candidates(self, var_name: str) -> Iterator[tuple[str, str]]:
+        """Every `(units, calendar)` this object can find for dimension `var_name`, nearest first.
+
+        The dimension's `units` / `calendar` attributes come first from this object's metadata
+        and then its parent's, which is where a `get_variable` subset finds them. After those
+        come the attributes carried alongside the band labels (`_band_dim_time_attrs`), on this
+        object and then its parent: a result computed in memory — an operator result, a
+        reduction, a coarsening — has no store of its own, and carries its operand's units that
+        way so its stamps still decode. Only CF time units (`<period> since <origin>`, as
+        `is_cf_time_units` decides) are yielded: a pressure level in `millibar` has units, but
+        they neither decode a stamp nor say whether two operands' levels are the same axis.
+
+        A closed owner's metadata is skipped rather than read, since a closed dataset refuses
+        that read: a variable taken inside a `with` block carries the units `get_variable`
+        resolved while its container was open, and finds them that way. A pair already yielded
+        is not yielded again.
+
+        Args:
+            var_name: The dimension.
+
+        Yields:
+            tuple[str, str]: `(units, calendar)`, the calendar defaulting to `"standard"`.
+        """
+        owners = (self, getattr(self, "_parent_nc", None))
+        # Generators, so a caller taking only the nearest pair reads no further owner.
+        found = itertools.chain(
+            (NetCDF._declared_time_attrs(owner, var_name) for owner in owners),
+            (NetCDF._carried_time_attrs(owner, var_name) for owner in owners),
+        )
+        seen: set[tuple[str, str]] = set()
+        for pair in found:
+            if pair is not None and pair not in seen:
+                seen.add(pair)
+                yield pair
+
+    @staticmethod
+    def _declared_time_attrs(owner: Any, var_name: str) -> tuple[str, str] | None:
+        """The CF time `(units, calendar)` `owner`'s metadata declares for `var_name`.
+
+        Args:
+            owner: The object whose metadata is read, or `None`.
+            var_name: The dimension.
+
+        Returns:
+            tuple[str, str] | None: The pair, the calendar defaulting to `"standard"`; `None`
+            when there is no owner, the owner is closed (its metadata cannot be read), it has no
+            such dimension, or the dimension's units are not CF time units.
+        """
+        time_dim = (
+            None
+            if owner is None or owner._raster is None
+            else owner.meta_data.get_dimension(var_name)
+        )
+        pair: tuple[str, str] | None = None
+        if time_dim is not None and is_cf_time_units(time_dim.attrs.get("units")):
+            pair = (time_dim.attrs["units"], time_dim.attrs.get("calendar", "standard"))
+        return pair
+
+    @staticmethod
+    def _carried_time_attrs(owner: Any, var_name: str) -> tuple[str, str] | None:
+        """The CF time `(units, calendar)` `owner` carries for `var_name` in `_band_dim_time_attrs`.
+
+        Args:
+            owner: The object whose carried units are read, or `None`.
+            var_name: The dimension.
+
+        Returns:
+            tuple[str, str] | None: The carried pair, or `None` when there is no owner, it
+            carries nothing for `var_name`, or what it carries is not CF time units.
+        """
+        carried = getattr(owner, "_band_dim_time_attrs", {}).get(var_name)
+        return carried if carried is not None and is_cf_time_units(carried[0]) else None
+
+    def _resolved_band_dim_time_attrs(self) -> dict[str, tuple[str, str]]:
+        """The nearest `(units, calendar)` of each band dimension that has one.
+
+        What a derived result, and a variable `get_variable` builds, carries in
+        `_band_dim_time_attrs`, resolved here from wherever this object finds it, so the carrier
+        does not depend on this object or its parent staying alive, or staying open.
+
+        Returns:
+            dict[str, tuple[str, str]]: `{dimension: (units, calendar)}` for the band dimensions
+            whose units are CF time units; a pressure level in `millibar` is left out.
+
+        Examples:
+            - Time units are resolved, a level's `millibar` is not:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.ones((2, 2, 1, 1)),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(dims=[("time", [0.0, 6.0]), ("level", [1000, 850])]),
+              ... ).get_variable("t")
+              >>> var._band_dim_time_attrs = {
+              ...     "time": ("hours since 2000-01-01", "standard"),
+              ...     "level": ("millibar", "standard"),
+              ... }
+              >>> var._resolved_band_dim_time_attrs()
+              {'time': ('hours since 2000-01-01', 'standard')}
+
+              ```
+        """
+        resolved: dict[str, tuple[str, str]] = {}
+        for name in self._band_dim_names:
+            nearest = next(iter(self._time_attr_candidates(name)), None)
+            if nearest is not None:
+                resolved[name] = nearest
+        return resolved
 
     @property
     def dimension_sizes(self) -> dict[str, int]:
@@ -9786,6 +10214,13 @@ class NetCDF(Dataset):
             cube, md_arr_ref if rg is not None else None, spatial_dim_indices
         )
         cube = self._georeference_index_subset(cube)
+        # Take the band dimensions' time units now, while this container is open, so the variable,
+        # and anything derived from it, still decodes its stamps (a date `sel`, a frequency
+        # `reduce`) after the container is closed.
+        cube._band_dim_time_attrs = cube._resolved_band_dim_time_attrs()
+        # Record the raster built from the store, after every step above that may replace it, so a
+        # streamed read is used only while this variable still reads as its store.
+        cube._store_raster = cube._raster
         return cube
 
     @staticmethod
@@ -10406,24 +10841,466 @@ class NetCDF(Dataset):
 
     @staticmethod
     def _copy_band_dim_metadata(dst: Any, src: Any) -> None:
-        """Copy the band-dimension bookkeeping from ``src`` onto ``dst``.
+        """Copy the band-dimension bookkeeping from `src` onto `dst`.
 
-        Carries the multi-band-dim fields (``_band_dim_names`` / ``_band_dim_values_map``
-        / ``_band_dim_sizes``) and re-derives the legacy single-band-dim view
-        (``_band_dim_name`` / ``_band_dim_values``) from them via
+        Carries the multi-band-dim fields (`_band_dim_names` / `_band_dim_values_map`
+        / `_band_dim_sizes`) and re-derives the legacy single-band-dim view
+        (`_band_dim_name` / `_band_dim_values`) from them via
         :meth:`_derive_primary_band_view`, so a derived view keeps the same non-spatial
-        axis layout. The values map is shallow-copied so the two objects don't share a
-        mutable dict.
+        axis layout. The values map is copied together with its coordinate lists
+        (`copy_band_values_map`), so editing one object's stamps leaves the other's alone, and
+        `src`'s band-dimension units are resolved into `dst._band_dim_time_attrs`, so `dst`
+        still decodes its stamps without a store of its own.
+
+        Args:
+            dst: The object to label, such as an operator result.
+            src: The object whose band layout describes `dst`.
         """
         dst._band_dim_names = src._band_dim_names
-        dst._band_dim_values_map = dict(src._band_dim_values_map)
+        dst._band_dim_values_map = copy_band_values_map(src._band_dim_values_map)
         dst._band_dim_sizes = src._band_dim_sizes
+        dst._band_dim_time_attrs = src._resolved_band_dim_time_attrs()
         dst._band_dim_name, dst._band_dim_values = NetCDF._derive_primary_band_view(
             dst._band_dim_names,
             dst._band_dim_values_map,
             dst._band_dim_sizes,
             dst._band_count,
         )
+
+    def combine(
+        self,
+        other: Dataset,
+        func: Callable[[np.ndarray, np.ndarray], np.ndarray],
+        *,
+        band: int | None = None,
+        no_data_value: Any = _DERIVE_NO_DATA,
+    ) -> Dataset:
+        """Combine two rasters cell by cell, keeping the operands' band dimensions.
+
+        Delegates to `Dataset.combine`. Its engine, `Analysis._combine`, checks the band
+        layouts through `_combine_layout_source` once the grids and band counts are known to
+        agree and before any pixel is read, then labels the result with the band dimensions —
+        names, sizes and coordinates — through `_label_combined`, so a combined
+        `(time, pressure_level)` variable can still be passed to `sel`, `isel` or anything else
+        that reads that layout. The operators `+`, `-`, `*`, `/`, `<`, `<=`, `>` and `>=`
+        between two variables reach this method, so they keep the labels too; `==` and `!=`
+        stay Python's identity comparison and never get here. A scalar operand (`var * 2`,
+        `2 - var`) reaches the same engine without passing through here, and keeps them as well.
+
+        The labels come from this variable when it has them, and from `other` when only it
+        does. What one operand lacks, the other supplies, so no label is lost to the order the
+        operands are written in: a dimension without coordinates on one side takes the other
+        side's coordinates with their time units, and agreeing coordinates without time units
+        take the ones the other side has. Where both sides have agreeing coordinates, this
+        variable's are kept, in its own units: hours `[0, 6]` plus days `[0, 0.25]` since one
+        origin comes back as hours `[0, 6]`, the reverse as days `[0, 0.25]`, the same instants.
+
+        When both carry band dimensions, their names and sizes must match, or the planes do not
+        pair up and the call is refused. Their coordinate values may differ: two cuts of one
+        variable at different steps (`sel(time=6.0) - sel(time=0.0)`, a tendency
+        `isel(time=slice(1, None)) - isel(time=slice(None, -1))`) combine, and a dimension
+        whose coordinates disagree keeps its name and length but comes back without
+        coordinates, since neither operand's stamps describe the result. `isel` still reaches
+        it; `sel` by value on that dimension raises `ValueError`. Where both operands carry CF
+        time units for a dimension and the units differ, the stamps are compared as decoded
+        time instants, to the microsecond — hours `[0, 6]` and days `[0, 0.25]` since the same
+        origin are one axis, while milliseconds `[0, 400]` and seconds `[0, 0.9]` are not. Only CF
+        time units count: levels in `millibar` against levels in `hPa` compare their raw values,
+        as every other case does. A coordinate-less dimension on either side is not compared.
+        The check runs only when `band` is `None` and the two grids and band counts agree.
+
+        Args:
+            other: The second operand, on this variable's grid.
+            func: Binary callable applied to the operands' matching cells.
+            band: Zero-based band to combine, or `None` for every band. A single band
+                cannot carry a multi-band layout, so passing one skips the layout check and
+                leaves the result without band dimensions.
+            no_data_value: Sentinel for the result, as documented on
+                `Analysis.combine`. Left unset it is derived — NaN for a floating result,
+                none at all for an integer result that masked nothing.
+
+        Returns:
+            Dataset: The combined raster, on this variable's grid and of this variable's
+            class. When `band` is `None` it carries the band dimensions of whichever
+            operand supplied them, with the coordinates and time units that operand lacks
+            taken from the other.
+
+        Raises:
+            ValueError: `band` is `None`, both operands carry band dimensions, their grids
+                and band counts agree, and their dimension names or sizes differ. Differing
+                coordinate values are not refused. Operands whose band counts differ skip the
+                check and are refused by `Dataset.combine` with its own message.
+            AlignmentError: The operands do not share a grid, raised by `Dataset.combine`.
+                A grid mismatch is reported as this whether or not the band layouts also
+                disagree, since the layouts are only compared on a shared grid.
+
+        Examples:
+            - The combined variable can still be selected by coordinate:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> nc = NetCDF.from_array(
+              ...     np.ones((2, 3, 4, 5)),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 4.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(dims=[("time", [0.0, 6.0]), ("level", [1, 2, 3])]),
+              ... )
+              >>> var = nc.get_variable("t")
+              >>> total = var.combine(var, np.add)
+              >>> total._band_dim_names, total._band_dim_sizes
+              (('time', 'level'), (2, 3))
+              >>> total.sel(time=6.0).band_count
+              3
+
+              ```
+            - Two steps of one variable subtract, and `time` comes back without coordinates:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(2, 2, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(dims=[("time", [0.0, 6.0]), ("level", [1, 2])]),
+              ... ).get_variable("t")
+              >>> change = var.sel(time=6.0) - var.sel(time=0.0)
+              >>> change._band_dim_values_map
+              {'time': None, 'level': [1, 2]}
+              >>> change.read_array().ravel().tolist()
+              [2.0, 2.0]
+
+              ```
+            - An operand without `time` coordinates takes the other operand's, in either order:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(2, 2, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(dims=[("time", [0.0, 6.0]), ("level", [1, 2])]),
+              ... ).get_variable("t")
+              >>> change = var.sel(time=6.0) - var.sel(time=0.0)
+              >>> later = var.sel(time=6.0)
+              >>> change._band_dim_values_map
+              {'time': None, 'level': [1, 2]}
+              >>> (change + later)._band_dim_values_map
+              {'time': [6.0], 'level': [1, 2]}
+              >>> (later + change)._band_dim_values_map
+              {'time': [6.0], 'level': [1, 2]}
+              >>> (change + later).sel(time=6.0).read_array().ravel().tolist()
+              [4.0, 5.0]
+
+              ```
+            - Operands whose dimension names differ are refused:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 4.0, 0.0, -1.0), epsg=4326)
+              >>> by_time = NetCDF.from_array(
+              ...     np.ones((2, 4, 5)), geo_ref=geo, variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... ).get_variable("t")
+              >>> by_step = NetCDF.from_array(
+              ...     np.ones((2, 4, 5)), geo_ref=geo, variable_name="t",
+              ...     dims=ExtraDimensions(name="step", values=[0.0, 6.0]),
+              ... ).get_variable("t")
+              >>> by_time.combine(by_step, np.add)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                ...
+              ValueError: the operands' band dimensions do not line up
+
+              ```
+        """
+        return super().combine(other, func, band=band, no_data_value=no_data_value)
+
+    def _combine_layout_source(
+        self, other: Any, band: int | None
+    ) -> tuple[NetCDF | None, list[str], NetCDF | None]:
+        """Check the operands' band layouts for `Analysis._combine` and name what to copy.
+
+        Every route to a combined raster ends in `Analysis._combine` — the `combine` facade,
+        `analysis.combine` called directly, and every operator through `combine` or `_fold` — so
+        the check and the labelling live here and in `_label_combined`, not on any one door.
+
+        Args:
+            other: The right operand, or `None` when a scalar operator folds this variable with
+                itself (`Analysis._fold`), which leaves no second layout to compare or fill from.
+            band: The single band being combined, or `None` for all of them.
+
+        Returns:
+            tuple[NetCDF | None, list[str], NetCDF | None]: The operand whose layout describes
+            the result, the dimensions whose coordinates the operands disagree on, and the
+            partner `_label_combined` fills missing labels from: `other`, when this variable
+            describes the result and `other` is a different `NetCDF` object that carries band
+            dimensions too, else `None` (so `var + var` and a fold name none).
+            `(None, [], None)` when a single band is combined, since one band cannot carry a
+            multi-band layout.
+
+        Raises:
+            ValueError: As `_band_layout_source` raises.
+        """
+        layout: tuple[NetCDF | None, list[str], NetCDF | None] = (None, [], None)
+        if band is None:
+            layout_source, disagreeing = self._band_layout_source(other)
+            paired = (
+                layout_source is self
+                and other is not self
+                and isinstance(other, NetCDF)
+                and bool(other._band_dim_names)
+            )
+            layout = (layout_source, disagreeing, other if paired else None)
+        return layout
+
+    def _label_combined(self, result: Any, source: Any) -> None:
+        """Copy the band layout onto the raster `Analysis._combine` built.
+
+        Dimensions the operands disagree on keep their name and length and lose their
+        coordinates, and the units carried for them in `_band_dim_time_attrs`, since neither
+        operand's stamps describe the result. Every other dimension takes its labels from
+        whichever operand has them, so whether it comes back labelled, and which steps its
+        labels name, does not depend on operand order: a dimension without coordinates on the
+        layout source takes the partner's, with the partner's units, and agreeing coordinates
+        without time units take the partner's units (`_fill_band_label`). Where both have
+        agreeing coordinates, the layout source's raw values and units are kept, so hours
+        `[0, 6]` and days `[0, 0.25]` since one origin keep whichever came first.
+
+        Args:
+            result: The combined raster.
+            source: What `_combine_layout_source` returned: the source operand, the
+                disagreeing dimensions, and the partner to fill missing labels from, or `None`.
+        """
+        layout_source, disagreeing, partner = source
+        NetCDF._label_result_bands(result, layout_source)
+        labelled = (
+            (disagreeing or partner is not None)
+            and isinstance(result, NetCDF)
+            and tuple(result._band_dim_names) == tuple(layout_source._band_dim_names)
+        )
+        if labelled:
+            partner_units = (
+                {} if partner is None else partner._resolved_band_dim_time_attrs()
+            )
+            for name in result._band_dim_names:
+                if name in disagreeing:
+                    result._band_dim_values_map[name] = None
+                    result._band_dim_time_attrs.pop(name, None)
+                elif partner is not None:
+                    NetCDF._fill_band_label(result, partner, name, partner_units)
+            result._band_dim_name, result._band_dim_values = (
+                NetCDF._derive_primary_band_view(
+                    result._band_dim_names,
+                    result._band_dim_values_map,
+                    result._band_dim_sizes,
+                    result._band_count,
+                )
+            )
+
+    @staticmethod
+    def _fill_band_label(
+        result: NetCDF,
+        partner: NetCDF,
+        name: str,
+        partner_units: dict[str, tuple[str, str]],
+    ) -> None:
+        """Give `result`'s dimension `name` the labels `partner` has and `result` lacks.
+
+        Coordinates and their units travel together, so one operand's units never describe the
+        other operand's stamps:
+
+        - `result` has no coordinates and `partner` has them: take `partner`'s coordinates and
+          `partner`'s units, or no units when `partner_units` has none for `name`;
+        - both have coordinates (they agree, or `name` would have been unlabelled) and only
+          `partner` carries units: take those units;
+        - `partner` has no coordinates: leave `result` as it is, units included.
+
+        Args:
+            result: The labelled result, edited in place.
+            partner: The operand that did not label `result`.
+            name: The band dimension.
+            partner_units: `partner`'s resolved units, `{dimension: (units, calendar)}`.
+        """
+        theirs = partner._band_dim_values_map.get(name)
+        if theirs is not None and result._band_dim_values_map.get(name) is None:
+            result._band_dim_values_map[name] = list(theirs)
+            result._band_dim_time_attrs.pop(name, None)
+            if name in partner_units:
+                result._band_dim_time_attrs[name] = partner_units[name]
+        elif (
+            theirs is not None
+            and name not in result._band_dim_time_attrs
+            and name in partner_units
+        ):
+            result._band_dim_time_attrs[name] = partner_units[name]
+
+    def _band_layout_source(self, other: Any) -> tuple[NetCDF | None, list[str]]:
+        """The operand whose band dimensions describe a combined result, and where they disagree.
+
+        Args:
+            other: The second operand of `combine`, any raster; only a `NetCDF` carries
+                band dimensions.
+
+        Returns:
+            tuple[NetCDF | None, list[str]]: This variable when it carries band dimensions, else
+            `other` when it is a `NetCDF` that does, else `None`; and the dimensions whose
+            coordinate values the two operands disagree on (empty unless both carry band
+            dimensions on a shared grid with the same band count).
+
+        Raises:
+            ValueError: Both operands carry band dimensions, share a grid and a band count,
+                and their dimension names or sizes differ. With differing grids or band counts
+                the check is skipped, so `Dataset.combine` reports that more basic mismatch
+                with its own error.
+        """
+        theirs = other if isinstance(other, NetCDF) and other._band_dim_names else None
+        mine = self if self._band_dim_names else None
+        disagreeing: list[str] = []
+        if (
+            mine is not None
+            and theirs is not None
+            and self.band_count == other.band_count
+            and self.spatial.same_grid(other)
+        ):
+            difference = NetCDF._band_layout_difference(self, other)
+            if difference is not None:
+                raise ValueError(
+                    f"the operands' band dimensions do not line up: {difference}. "
+                    f"Select or rearrange one operand so both describe the same planes "
+                    f"before combining them."
+                )
+            disagreeing = NetCDF._disagreeing_coordinates(self, other)
+        return (mine if mine is not None else theirs), disagreeing
+
+    @staticmethod
+    def _band_layout_difference(left: NetCDF, right: NetCDF) -> str | None:
+        """Describe how two operands' band dimension names or sizes disagree.
+
+        Coordinate values are not compared here: operands that differ only in them still pair
+        plane for plane, and `_disagreeing_coordinates` decides which dimensions lose them.
+
+        Args:
+            left: The left operand.
+            right: The right operand.
+
+        Returns:
+            str | None: A phrase naming the mismatch — the names first, then the sizes — or
+            `None` when both agree.
+        """
+        left_names, right_names = (
+            tuple(left._band_dim_names),
+            tuple(right._band_dim_names),
+        )
+        left_sizes, right_sizes = (
+            tuple(left._band_dim_sizes),
+            tuple(right._band_dim_sizes),
+        )
+        difference = None
+        if left_names != right_names:
+            difference = f"{list(left_names)} against {list(right_names)}"
+        elif left_sizes != right_sizes:
+            difference = (
+                f"sizes {dict(zip(left_names, left_sizes))} against "
+                f"{dict(zip(right_names, right_sizes))}"
+            )
+        return difference
+
+    @staticmethod
+    def _disagreeing_coordinates(left: NetCDF, right: NetCDF) -> list[str]:
+        """The band dimensions whose coordinate values name different steps on the two operands.
+
+        Expects the two layouts to agree in names and sizes. A dimension without coordinates on
+        either side is skipped. When both operands find CF time units for a dimension (the
+        nearest pair `_time_attr_candidates` yields) and the `(units, calendar)` pairs differ,
+        its stamps are compared as decoded time instants, to the microsecond — hours `[0, 6]`
+        and days `[0, 0.25]` since one origin agree, the same raw hours since two origins do
+        not — and a stamp that will not decode counts as a disagreement. Otherwise — units on one
+        side or neither, the same pair on both, or units that are not time units (`millibar`
+        against `hPa`), which are never candidates — the raw values are compared with
+        `_same_coordinates`. One object passed as both operands (`var + var`) agrees with itself
+        at once, without looking up any units.
+
+        Args:
+            left: The left operand.
+            right: The right operand.
+
+        Returns:
+            list[str]: The disagreeing dimensions, in the operands' order.
+
+        Examples:
+            - Hours and days since one origin name the same instants; other hours do not:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> def variable(stamps, units):
+              ...     var = NetCDF.from_array(
+              ...         np.ones((2, 1, 1)),
+              ...         geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...         variable_name="t",
+              ...         dims=ExtraDimensions(name="time", values=stamps),
+              ...     ).get_variable("t")
+              ...     var._band_dim_time_attrs = {"time": (units, "standard")}
+              ...     return var
+              >>> hours = variable([0.0, 6.0], "hours since 2000-01-01")
+              >>> days = variable([0.0, 0.25], "days since 2000-01-01")
+              >>> NetCDF._disagreeing_coordinates(hours, days)
+              []
+              >>> later = variable([0.0, 12.0], "hours since 2000-01-01")
+              >>> NetCDF._disagreeing_coordinates(hours, later)
+              ['time']
+
+              ```
+        """
+        disagreeing: list[str] = []
+        # An operand agrees with itself: `var + var` and `var.combine(var, ...)` pass one object
+        # twice. A scalar operator's fold never gets here: `Analysis._combine` hands the hook no
+        # other operand.
+        for name in () if left is right else left._band_dim_names:
+            left_values = left._band_dim_values_map.get(name)
+            right_values = right._band_dim_values_map.get(name)
+            if left_values is None or right_values is None:
+                continue
+            left_units = next(iter(left._time_attr_candidates(name)), None)
+            right_units = next(iter(right._time_attr_candidates(name)), None)
+            if left_units is None or right_units is None or left_units == right_units:
+                agree = _same_coordinates(left_values, right_values)
+            else:
+                # To the microsecond, the finest step the converters resolve: sub-second axes are
+                # real (a nanoseconds axis is decoded at microsecond resolution).
+                instant = "%Y-%m-%d %H:%M:%S.%f"
+                left_labels = left._decode_time_labels(
+                    name, list(left_values), instant, strict=False
+                )
+                right_labels = right._decode_time_labels(
+                    name, list(right_values), instant, strict=False
+                )
+                agree = left_labels is not None and left_labels == right_labels
+            if not agree:
+                disagreeing.append(name)
+        return disagreeing
+
+    @staticmethod
+    def _label_result_bands(result: Any, source: NetCDF | None) -> None:
+        """Copy `source`'s band dimensions onto an operator result that can carry them.
+
+        Nothing is copied when `source` is `None`, when `result` is not a `NetCDF` (such as
+        `NotImplemented` or a plain `Dataset`), or when the two band counts differ, so a
+        single-band `combine(..., band=0)` result stays unlabelled.
+
+        Args:
+            result: What the operator or `combine` returned.
+            source: The operand whose layout describes the result, or `None`.
+        """
+        if (
+            source is not None
+            and isinstance(result, NetCDF)
+            and result.band_count == source.band_count
+        ):
+            NetCDF._copy_band_dim_metadata(result, source)
 
     def _replace_raster(self, new_raster: gdal.Dataset):
         """Replace the internal GDAL dataset, flushing the old one if different.
@@ -10440,6 +11317,8 @@ class NetCDF(Dataset):
             old.FlushCache()
         # RasterBase state
         self._raster = new_raster
+        if new_raster is not self._store_raster:
+            self._store_raster = None
         self._derived_geotransform = None
         self._geotransform = new_raster.GetGeoTransform()
         self._cell_size = GeoTransform(*self._geotransform).cell_size
