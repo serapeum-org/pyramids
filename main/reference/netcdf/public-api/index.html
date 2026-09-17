@@ -6393,12 +6393,12 @@
 
 
 <h1 id="netcdf-public-api"><a class="toclink" href="#netcdf-public-api"><code>NetCDF</code> — public API</a><a class="headerlink" href="#netcdf-public-api" title="Permanent link">#</a></h1>
-<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 78 in all: 44 methods, 27 properties,
+<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 80 in all: 46 methods, 27 properties,
 6 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
 <code>__len__</code>). For the full signatures, arguments and examples, see the rendered
 <a href="../">NetCDF Class</a> reference; this page is the index you scan to find the member you want.</p>
-<p><code>NetCDF</code> extends <code>Dataset</code>, so it also inherits a further 134 public members it does not redefine — band
-handling, the COG surface, and the rest of the raster API. 119 of those are declared in <code>Dataset</code>'s own body
+<p><code>NetCDF</code> extends <code>Dataset</code>, so it also inherits a further 133 public members it does not redefine — band
+handling, the COG surface, and the rest of the raster API. 118 of those are declared in <code>Dataset</code>'s own body
 and the remaining 15 come from <code>RasterBase</code> above it. They live in the
 <a href="../../dataset/">Dataset reference</a>.</p>
 <p>Two object shapes share this class, and several members behave differently across them:</p>
@@ -6666,7 +6666,11 @@ A variable with no raster plane is the exception — see each member's docstring
 </tr>
 <tr>
 <td><code>reduce()</code></td>
-<td>Reduces every variable along <code>dim</code> — <code>how</code>, <code>groupby</code>, <code>skipna</code>.</td>
+<td>Reduces a container or a variable along <code>dim</code> — <code>how</code>, <code>q</code>, <code>groupby</code>, <code>skipna</code>.</td>
+</tr>
+<tr>
+<td><code>coarsen()</code></td>
+<td>Reduces fixed-size windows along <code>dim</code> — <code>window</code>, <code>boundary</code>, <code>how</code>.</td>
 </tr>
 </tbody>
 </table>
@@ -6823,6 +6827,10 @@ A variable with no raster plane is the exception — see each member's docstring
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><code>combine()</code></td>
+<td>Combines two rasters cell by cell, keeping the band dimensions. Variable only.</td>
+</tr>
 <tr>
 <td><code>plot()</code></td>
 <td>Plots a 2-D slice — <code>selectors</code>, <code>facet</code>, <code>axes</code>, <code>animate</code>, <code>chunks</code>, colour.</td>
