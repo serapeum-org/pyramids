@@ -825,9 +825,19 @@ class COG(_Engine["Dataset"]):
                 the returned buffer at its output resolution: it maps output
                 pixel coordinates to the **dataset's** CRS, over the window
                 actually read (the requested bbox snapped outward to whole
-                source pixels). It labels every cell of the buffer, the padded
-                NoData cells of a partial-overlap read included. Defaults to
-                `False`, which keeps the bare-array return unchanged.
+                source pixels). Its origin, cell size and orientation place the
+                whole buffer exactly -- the buffer's outer extent always matches
+                the snapped window -- and each cell's data matches its own
+                transform centre for a window that lies fully inside the raster,
+                and for any window read at native resolution. The one inexact
+                case is a window that *both* straddles the raster edge *and* is
+                decimated: the out-of-raster remainder is padded to whole output
+                cells before the decimation, which shifts the sampled cells
+                within the buffer -- most at the padded edge (up to about one
+                output cell) and less toward the interior. The outer extent
+                still matches exactly. Read such a window at native resolution
+                for cell-exact data. Defaults to `False`, which keeps the
+                bare-array return unchanged.
 
         Returns:
             numpy.ndarray: `(rows, cols)` for a single band, or

@@ -422,6 +422,75 @@ class TestReadPartReturnTransform:
         assert gt[0] == pytest.approx(-2.0), f"origin must snap to -2, got {gt[0]}"
         assert gt[1] == pytest.approx(4 / 3), "four source pixels read to width three"
 
+    @staticmethod
+    def _worst_cell_offset(array, gt) -> float:
+        """Largest gap between a data cell's source-x and its transform centre.
+
+        Args:
+            array: The returned buffer; value equals source column, so `value +
+                0.5` is the source-x the cell sampled (exact under bilinear on the
+                linear ramp).
+            gt: The returned geotransform.
+
+        Returns:
+            float: The worst offset over the non-NoData cells of the middle row.
+        """
+        row = array if array.ndim == 1 else array[array.shape[0] // 2]
+        worst = 0.0
+        for column in range(array.shape[-1]):
+            value = float(row[column])
+            if np.isnan(value) or value < -1000:
+                continue
+            centre = gt[0] + (column + 0.5) * gt[1]
+            worst = max(worst, abs(centre - (value + 0.5)))
+        return worst
+
+    def test_a_partial_read_at_native_resolution_is_cell_exact(self):
+        """Without decimation, even a straddling window places every data cell exactly.
+
+        Test scenario:
+            The docstring promises cell-exact placement for any window read at
+            native resolution, straddling ones included -- the escape hatch for
+            the one inexact case. A window off the left edge, read at native
+            resolution (no `dst_*`), must land every data cell on its transform
+            centre.
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part((-1.0, 5.0, 5.0, 9.0), band=0, return_transform=True)
+
+        assert self._worst_cell_offset(array, gt) == pytest.approx(0.0, abs=1e-9)
+
+    def test_a_decimated_partial_edge_drift_is_bounded_but_extent_is_exact(self):
+        """The one inexact case drifts within one output cell, yet the extent is exact.
+
+        Test scenario:
+            A window that both straddles the edge and is decimated pads the
+            out-of-raster remainder to whole output cells before decimating, so
+            the sampled cells shift within the buffer -- worst at the padded edge
+            (up to about one output cell), and not exact even at the interior.
+            The docstring bounds the drift there and promises the buffer's outer
+            extent still matches the snapped window; this pins both so neither can
+            silently regress.
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part(
+            (-1.0, 5.0, 5.0, 9.0),
+            dst_width=3,
+            dst_height=3,
+            band=0,
+            return_transform=True,
+        )
+
+        assert self._worst_cell_offset(array, gt) < abs(gt[1]), (
+            "edge drift exceeds one cell"
+        )
+        left = gt[0]
+        right = gt[0] + array.shape[-1] * gt[1]
+        assert left == pytest.approx(-1.0), "left extent must match the snapped window"
+        assert right == pytest.approx(5.0), "right extent must match the snapped window"
+
     def test_a_south_up_source_keeps_its_pixel_step_sign(self):
         """A positive y-step source is not forced north-up.
 
