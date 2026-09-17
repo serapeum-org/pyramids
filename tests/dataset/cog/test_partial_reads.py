@@ -14,7 +14,7 @@ from osgeo import gdal, osr
 from pyramids.base._errors import OutOfBoundsError
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
-from pyramids.dataset.engines.cog import _xyz_bounds_3857
+from pyramids.dataset.engines.cog import COG, _xyz_bounds_3857
 from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
@@ -426,6 +426,135 @@ class TestReadPartReturnTransform:
         )
 
         assert gt[5] == pytest.approx(4 / 3), f"y-step must stay positive, got {gt[5]}"
+
+    def test_no_decimation_yields_the_source_cell_size(self):
+        """Omitting the output size makes the transform carry the source cell size.
+
+        Test scenario:
+            With no `dst_width`/`dst_height` the buffer is the snapped source
+            window at native resolution (`out_w`/`out_h` default to the source
+            window size), so the transform's pixel step is the source cell size
+            (1.0), not a decimated one, and its origin is the snapped whole-pixel
+            corner. The existing tests always decimate 4 source pixels to width 3,
+            so the identity `out_w == req_xsize` branch is otherwise unexercised.
+        """
+        grid = self._col_index_grid()
+
+        array, gt = grid.read_part((1.5, 1.5, 4.5, 4.5), band=0, return_transform=True)
+
+        assert array.shape == (4, 4), f"native-size snapped window, got {array.shape}"
+        assert gt == pytest.approx((1.0, 1.0, 0.0, 5.0, 0.0, -1.0)), (
+            f"native-resolution window must carry the source cell size, got {gt}"
+        )
+
+    def test_the_transform_is_in_the_dataset_crs_not_the_bbox_crs(self, tile_3857):
+        """The transform is in the dataset CRS, whatever `bbox_crs` the caller uses.
+
+        Args:
+            tile_3857: Fixture EPSG:3857 dataset covering the zoom-1 NW quadrant.
+
+        Test scenario:
+            The window is asked for in EPSG:4326 degrees while the dataset is
+            EPSG:3857 metres. The transform must describe the buffer in the
+            dataset's own metric CRS -- every component metre-scale, never the
+            degree bbox -- with the origin sitting strictly inside the dataset
+            extent (so it tracks the reprojected window, not the dataset corner)
+            and the north-up y-step kept negative.
+        """
+        west, south, east, north = _xyz_bounds_3857(1, 0, 0)
+
+        _, gt = tile_3857.read_part(
+            (-100.0, 20.0, -80.0, 40.0),
+            dst_width=32,
+            dst_height=32,
+            bbox_crs=4326,
+            band=0,
+            return_transform=True,
+        )
+
+        assert gt[2] == 0.0 and gt[4] == 0.0, f"axis-aligned dataset, got {gt}"
+        assert min(abs(gt[0]), abs(gt[1]), abs(gt[3]), abs(gt[5])) > 180, (
+            f"transform must be metres in the dataset CRS, not degrees: {gt}"
+        )
+        assert west < gt[0] < east, (
+            f"origin-x must track the window inside {west}..{east}: {gt[0]}"
+        )
+        assert south < gt[3] < north, (
+            f"origin-y must track the window inside {south}..{north}: {gt[3]}"
+        )
+        assert gt[5] < 0, f"north-up dataset keeps a negative y-step, got {gt[5]}"
+
+    def test_all_bands_read_returns_a_3d_array_with_the_same_transform(self):
+        """`band=None` returns a 3-D buffer, and the transform is band-independent.
+
+        Test scenario:
+            The transform describes the window, not the band selection, so a
+            three-band read with `band=None` returns a `(bands, rows, cols)` array
+            whose transform is identical to the single-band read of the same
+            window -- selecting bands never moves the cells. The existing return
+            transform tests all pass `band=0`, so the all-bands arm pairing a 3-D
+            array with the transform is otherwise untested.
+        """
+        cols = np.tile(np.arange(8, dtype="float64"), (8, 1))
+        multi = np.stack([cols, cols + 10.0, cols + 20.0])
+        dataset = Dataset.from_array(
+            multi,
+            geo_ref=GeoReference(top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=3857),
+        )
+
+        all_bands, gt_all = dataset.read_part(
+            (1.5, 1.5, 4.5, 4.5), dst_width=3, dst_height=3, return_transform=True
+        )
+        _, gt_one = dataset.read_part(
+            (1.5, 1.5, 4.5, 4.5),
+            dst_width=3,
+            dst_height=3,
+            band=0,
+            return_transform=True,
+        )
+
+        assert all_bands.shape == (3, 3, 3), (
+            f"expected (bands, rows, cols), got {all_bands.shape}"
+        )
+        assert gt_all == pytest.approx(gt_one), (
+            f"the transform must not depend on band selection: {gt_all} vs {gt_one}"
+        )
+
+
+class TestOutputGeotransform:
+    """Tests for the COG._output_geotransform static helper."""
+
+    def test_a_rotated_source_carries_its_skew_terms_through(self):
+        """The affine composition holds for a rotated source (non-zero skew).
+
+        Test scenario:
+            A rotated source geotransform has non-zero `gt2`/`gt4` skew that the
+            north-up and south-up cases never exercise. Composing the source
+            affine with the window offset and the output scale must map every
+            output pixel to the same world point the source grid maps its
+            corresponding fractional source pixel to -- checked against GDAL's own
+            `ApplyGeoTransform`. The window and output sizes are deliberately
+            distinct (4x6 read to 2x2) so the x- and y-scalings cannot be swapped
+            unnoticed.
+        """
+        source_gt = (100.0, 2.0, 0.5, 200.0, 0.3, -1.5)
+        req_xoff, req_yoff, req_xsize, req_ysize, out_w, out_h = 5, 7, 4, 6, 2, 2
+
+        out_gt = COG._output_geotransform(
+            source_gt, req_xoff, req_yoff, req_xsize, req_ysize, out_w, out_h
+        )
+
+        assert out_gt == pytest.approx((113.5, 4.0, 1.5, 191.0, 0.6, -4.5)), (
+            f"rotated composition changed, got {out_gt}"
+        )
+        for col, row in [(0, 0), (out_w, 0), (0, out_h), (out_w, out_h)]:
+            source_px = req_xoff + col * req_xsize / out_w
+            source_line = req_yoff + row * req_ysize / out_h
+            expected = gdal.ApplyGeoTransform(list(source_gt), source_px, source_line)
+            got = gdal.ApplyGeoTransform(list(out_gt), col, row)
+            assert got == pytest.approx(expected), (
+                f"output pixel ({col}, {row}) must map to {expected}, got {got}"
+            )
 
 
 class TestPreview:
