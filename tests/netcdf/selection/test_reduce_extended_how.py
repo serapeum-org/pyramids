@@ -21,7 +21,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 from osgeo import gdal
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
-from pyramids.netcdf.engines.selection import _read_no_data, _reduces_as_a_variable
+from pyramids.netcdf.engines._along_dim import _read_no_data, _reduces_as_a_variable
 from pyramids.netcdf.netcdf import Container, Variable
 from tests._marks import requires_dask
 
