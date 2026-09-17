@@ -8,6 +8,7 @@ keep them through an in-place change, or it stops selecting by date.
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +23,7 @@ DATA = Path(__file__).resolve().parents[2] / "data" / "netcdf"
 ERA5_T2M = DATA / "cf__5v__1d4-3d1__geog__y-desc.nc"
 COARDS = DATA / "coards__5v__1d4-4d1__y-desc.nc"
 LEVELS = [1000.0, 850.0, 500.0]
+ERA5_UNITS = ("seconds since 1970-01-01", "proleptic_gregorian")
 
 
 def _levelled(units: str) -> NetCDF:
@@ -182,3 +184,101 @@ class TestAVariableOutlivesItsContainer:
         variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
         candidates = list(variable._time_attr_candidates("valid_time"))
         assert len(candidates) == 1, candidates
+
+    def test_an_equal_operand_that_is_another_object_is_compared(self, monkeypatch):
+        """A copy of the variable is not the variable, so its units are looked up and its stamps compared.
+
+        Args:
+            monkeypatch: pytest fixture recording the copy's units lookups.
+
+        Test scenario:
+            Only the very same object may skip the comparison; a copy equal in every label
+            still has to be compared, and agrees.
+        """
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        copy = variable.copy()
+        asked: list[str] = []
+
+        def record(name: str):
+            """Record the lookup and offer the store's units.
+
+            Args:
+                name: The dimension asked for.
+
+            Returns:
+                Iterator[tuple[str, str]]: The one candidate.
+            """
+            asked.append(name)
+            return iter([ERA5_UNITS])
+
+        monkeypatch.setattr(copy, "_time_attr_candidates", record)
+        assert NetCDF._disagreeing_coordinates(variable, copy) == []
+        assert asked == ["valid_time"], asked
+
+    def test_the_candidates_after_the_block_are_the_carried_units(self, outlived):
+        """With the container closed, the only candidate is the pair `get_variable` carried over.
+
+        Args:
+            outlived: The variable and its values.
+        """
+        variable, _ = outlived
+        candidates = list(variable._time_attr_candidates("valid_time"))
+        assert candidates == [ERA5_UNITS], candidates
+
+
+class TestGetVariableCarriesTheTimeUnits:
+    """`get_variable` resolves its band dimensions' CF time units onto the variable it returns."""
+
+    @pytest.mark.parametrize(
+        ("path", "name", "expected"),
+        [
+            pytest.param(
+                ERA5_T2M, "t2m", {"valid_time": ERA5_UNITS}, id="era5-valid-time"
+            ),
+            pytest.param(
+                COARDS,
+                "rhum",
+                {"time": ("hours since 1-1-1 00:00:0.0", "standard")},
+                id="coards-time-not-level",
+            ),
+        ],
+    )
+    def test_a_store_variable_carries_its_store_s_units(self, path, name, expected):
+        """Each band dimension with CF time units in the store is carried; a millibar level is not.
+
+        Args:
+            path: The store.
+            name: The variable taken from it.
+            expected: The units the variable must carry.
+        """
+        variable = NetCDF.read_file(str(path)).get_variable(name)
+        assert variable._band_dim_time_attrs == expected, variable._band_dim_time_attrs
+
+    def test_a_variable_without_time_units_carries_nothing(self):
+        """An in-memory variable whose `level` has no CF units carries an empty map."""
+        variable = NetCDF.from_array(
+            np.ones((3, 2, 2)),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+            dims=ExtraDimensions(name="level", values=LEVELS),
+        ).get_variable("v")
+        assert variable._band_dim_time_attrs == {}, variable._band_dim_time_attrs
+
+    def test_a_rebuilt_container_s_variable_carries_its_own_copy(self):
+        """A variable of a coarsened container carries the container's units in a map of its own.
+
+        Test scenario:
+            Editing the variable's carried units must not reach the container, whose other
+            variables still decode their stamps with them.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            coarsened = NetCDF.read_file(str(ERA5_T2M)).coarsen("valid_time", 2)
+        variable = coarsened.get_variable("t2m")
+        assert variable._band_dim_time_attrs == {"valid_time": ERA5_UNITS}, (
+            variable._band_dim_time_attrs
+        )
+        variable._band_dim_time_attrs.clear()
+        assert coarsened._band_dim_time_attrs == {"valid_time": ERA5_UNITS}, (
+            coarsened._band_dim_time_attrs
+        )

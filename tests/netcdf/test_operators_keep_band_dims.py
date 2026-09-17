@@ -1190,6 +1190,23 @@ class TestTimeUnitsDecideAgreement:
         candidates = list(result._time_attr_candidates("valid_time"))
         assert candidates == [], candidates
 
+    def test_an_equal_copy_with_other_units_is_still_compared(self):
+        """ERA5 `t2m` and its copy stamped in seconds since 1971 are different objects, and disagree.
+
+        Test scenario:
+            The copy holds the same raw stamps and layout, so only a comparison that decodes
+            both sides finds the year between them; skipping it for equal-looking operands
+            would keep stamps that name the wrong instants.
+        """
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        copy = variable.copy()
+        copy._band_dim_time_attrs = {
+            "valid_time": ("seconds since 1971-01-01", "proleptic_gregorian")
+        }
+        assert copy._band_dim_values_map == variable._band_dim_values_map
+        disagreeing = NetCDF._disagreeing_coordinates(variable, copy)
+        assert disagreeing == ["valid_time"], disagreeing
+
     def test_an_agreeing_dimension_keeps_its_units(self):
         """`t2m + t2m` carries `valid_time`'s units, resolved from the store, on the result."""
         variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
@@ -1464,6 +1481,51 @@ class TestLabelCombined:
         source._label_combined(target, (source, ["time"], partner))
         assert _time_label(target) == (None, None), _time_label(target)
 
+    def test_a_partner_s_units_are_resolved_through_its_parent(self, tmp_path):
+        """A partner carrying no units itself lends the units its parent container carries.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            The source and partner agree on the `time` stamps and the source has no units, so
+            the result takes the partner's nearest units, wherever the partner finds them.
+        """
+        source = _time_level(TIMES)
+        partner = _time_level(TIMES)
+        partner._parent_nc._band_dim_time_attrs = {"time": HOURS_2000}
+        target = _label_less_twin(tmp_path)
+        source._label_combined(target, (source, [], partner))
+        assert partner._band_dim_time_attrs == {}, partner._band_dim_time_attrs
+        assert _time_label(target) == (TIMES, HOURS_2000), _time_label(target)
+
+    def test_a_partner_fills_a_dimension_beside_a_disagreeing_one(self, tmp_path):
+        """`time` disagrees and is unlabelled; `pressure_level`, bare on the source, takes the partner's.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        source = self._labelled()
+        source._band_dim_values_map["pressure_level"] = None
+        partner = _time_level([24.0, 30.0, 36.0, 42.0], HOURS_2000)
+        target = _label_less_twin(tmp_path)
+        source._label_combined(target, (source, ["time"], partner))
+        assert target._band_dim_values_map == {
+            "time": None,
+            "pressure_level": LEVELS,
+        }, target._band_dim_values_map
+        assert target._band_dim_time_attrs == {}, target._band_dim_time_attrs
+
+    def test_a_result_with_another_band_count_is_not_filled_from_a_partner(self):
+        """A one-band result stays unlabelled even when a partner is named."""
+        source = _time_level(None)
+        partner = self._labelled()
+        one_band = source.combine(source, np.add, band=0)
+        source._label_combined(one_band, (source, [], partner))
+        assert tuple(one_band._band_dim_names) == (), one_band._band_dim_names
+        assert one_band._band_dim_values_map == {}, one_band._band_dim_values_map
+        assert one_band._band_dim_time_attrs == {}, one_band._band_dim_time_attrs
+
     def test_no_source_leaves_an_unlabelled_result_unlabelled(self, tmp_path):
         """`(None, [])` — what a one-band combine names — changes nothing on the result.
 
@@ -1519,6 +1581,30 @@ class TestFillBandLabel:
             pytest.param(
                 (None, None), (None, HOURS_2000), (None, None), id="neither-stamped"
             ),
+            pytest.param(
+                (TIMES, DAYS_1990),
+                (None, HOURS_2000),
+                (TIMES, DAYS_1990),
+                id="partner-without-stamps-leaves-own-units",
+            ),
+            pytest.param(
+                (None, DAYS_1990),
+                (None, HOURS_2000),
+                (None, DAYS_1990),
+                id="neither-stamped-leaves-own-units",
+            ),
+            pytest.param(
+                (TIMES, None),
+                (TIMES, None),
+                (TIMES, None),
+                id="no-units-on-either-side",
+            ),
+            pytest.param(
+                (TIMES, DAYS_1990),
+                (TIMES, None),
+                (TIMES, DAYS_1990),
+                id="own-units-and-a-partner-without-units",
+            ),
         ],
     )
     def test_each_case(self, result_label, partner_label, expected):
@@ -1545,6 +1631,61 @@ class TestFillBandLabel:
         assert partner._band_dim_values_map["time"] == TIMES, (
             partner._band_dim_values_map
         )
+
+    @pytest.mark.parametrize(
+        "result_stamps",
+        [
+            pytest.param(None, id="with-the-stamps"),
+            pytest.param(TIMES, id="units-alone"),
+        ],
+    )
+    def test_the_units_handed_in_are_the_ones_taken(self, result_stamps):
+        """The result takes the `partner_units` argument, not what the partner object carries.
+
+        Args:
+            result_stamps: The result's `time` coordinates before the fill.
+
+        Test scenario:
+            `_label_combined` resolves the partner's units once, through its parent as well, and
+            hands them in; the partner's own `_band_dim_time_attrs` may hold less.
+        """
+        result = _time_level(result_stamps)
+        partner = _time_level(TIMES, HOURS_2000)
+        NetCDF._fill_band_label(result, partner, "time", {"time": DAYS_1990})
+        assert _time_label(result) == (TIMES, DAYS_1990), _time_label(result)
+
+    @pytest.mark.parametrize(
+        ("result_stamps", "expected"),
+        [
+            pytest.param(None, (TIMES, None), id="stamps-without-units"),
+            pytest.param(TIMES, (TIMES, None), id="nothing-taken"),
+        ],
+    )
+    def test_units_for_another_dimension_are_not_taken(self, result_stamps, expected):
+        """Units the partner has for `pressure_level` do not label `time`.
+
+        Args:
+            result_stamps: The result's `time` coordinates before the fill.
+            expected: The result's `(coordinates, units)` for `time` after.
+        """
+        result = _time_level(result_stamps)
+        partner = _time_level(TIMES)
+        NetCDF._fill_band_label(result, partner, "time", {"pressure_level": HOURS_2000})
+        assert _time_label(result) == expected, _time_label(result)
+        assert "pressure_level" not in result._band_dim_time_attrs, (
+            result._band_dim_time_attrs
+        )
+
+    def test_only_the_named_dimension_is_filled(self):
+        """Filling `time` leaves the result's coordinate-less `pressure_level` as it is."""
+        result = _time_level(None)
+        result._band_dim_values_map["pressure_level"] = None
+        partner = _time_level(TIMES, HOURS_2000)
+        NetCDF._fill_band_label(result, partner, "time", {"time": HOURS_2000})
+        assert result._band_dim_values_map == {
+            "time": TIMES,
+            "pressure_level": None,
+        }, result._band_dim_values_map
 
 
 class TestCombineLayoutSource:
@@ -1590,6 +1731,23 @@ class TestCombineLayoutSource:
         labelled = _variable([("time", TIMES), ("pressure_level", LEVELS)])
         flat = _flat_variable()
         assert labelled._combine_layout_source(flat, None) == (labelled, [], None)
+
+    def test_a_plain_raster_right_operand_is_no_partner(self):
+        """A plain twelve-band `Dataset` on the right is not a `NetCDF`, so it lends no labels."""
+        labelled = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        plain = Dataset.from_array(
+            np.ones((NT * NL, NY, NX)), geo_ref=GeoReference(geo=GEO, epsg=4326)
+        )
+        assert labelled._combine_layout_source(plain, None) == (labelled, [], None)
+
+    def test_an_equal_operand_that_is_another_object_is_the_partner(self):
+        """Two variables built alike agree, and the right one is still named as the partner."""
+        left = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        right = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        source, disagreeing, partner = left._combine_layout_source(right, None)
+        assert source is left, source
+        assert disagreeing == [], disagreeing
+        assert partner is right, partner
 
     def test_a_plain_dataset_names_nothing_and_labels_nothing(self):
         """`Dataset`'s own hooks answer `None`, and `plain + labelled` stays a plain `Dataset`.

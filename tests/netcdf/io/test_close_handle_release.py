@@ -114,6 +114,24 @@ class TestAClosedVariableReleasesItsFile:
         os.remove(target)
         assert not target.exists(), "source file must be removable after close()"
 
+    def test_remove_with_only_the_container_closed(self, tmp_path):
+        """A variable the container cached is closed with it and, still referenced, releases the file.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        target = tmp_path / "cube.nc"
+        shutil.copy(ERA5, target)
+
+        cube = NetCDF.read_file(str(target))
+        variable = cube.variables["t2m"]
+        variable.read_array()
+        cube.close()
+
+        os.remove(target)
+        assert not target.exists(), "source file must be removable after close()"
+        assert variable._store_raster is None, variable._store_raster
+
     def test_remove_after_coarsening_the_variable(self, tmp_path):
         """A variable coarsened, then closed with its container, releases the file."""
         target = tmp_path / "cube.nc"

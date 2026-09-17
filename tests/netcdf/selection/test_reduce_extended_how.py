@@ -1245,6 +1245,64 @@ class TestReadsAsItsStore:
         variable.close()
         assert variable._store_raster is None, variable._store_raster
 
+    @pytest.mark.parametrize(
+        "build",
+        [
+            pytest.param(lambda: NetCDF.read_file(str(ERA5_T2M)), id="from-a-file"),
+            pytest.param(_container, id="in-memory"),
+        ],
+    )
+    def test_a_container_declares_an_empty_record(self, build):
+        """A container holds `_store_raster` as `None` from the moment it is built.
+
+        Args:
+            build: Builds the container.
+
+        Test scenario:
+            The record is declared in `__init__`, so `_update_inplace` and `_replace_raster`
+            can read it on a container, which `get_variable` never records anything on.
+        """
+        container = build()
+        assert container._store_raster is None, container._store_raster
+
+    def test_a_container_swapping_its_raster_gains_no_record(self):
+        """`rename_variable` swaps an in-memory container's raster through `_replace_raster`."""
+        container = _container()
+        before = container._raster
+        container.varops.rename_variable("v", "w")
+        assert container._raster is not before, "the rename should swap the raster"
+        assert container._store_raster is None, container._store_raster
+
+    def test_writing_to_another_format_drops_the_record(self, tmp_path):
+        """`to_file` to a GeoTIFF reopens the written file through `_update_inplace`, and the record goes.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            The variable now reads the GeoTIFF, a different raster from the store's view, so a
+            read rebuilt from the store no longer describes it and the view must not be kept.
+        """
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        store_view = variable._raster
+        variable.to_file(str(tmp_path / "t2m.tif"))
+        assert variable._raster is not store_view, (
+            "to_file should reopen the written file"
+        )
+        assert variable._store_raster is None, variable._store_raster
+        assert NetCDF._reads_as_its_store(variable) is False
+
+    def test_closing_a_container_drops_its_cached_variables_records(self):
+        """`close()` on the container closes the variables it cached, and each lets its record go."""
+        container = NetCDF.read_file(str(ERA5_T2M))
+        variable = container.variables["t2m"]
+        assert variable._store_raster is variable._raster, (
+            "a cached variable holds its record"
+        )
+        container.close()
+        assert variable._store_raster is None, variable._store_raster
+        assert container._store_raster is None, container._store_raster
+
 
 def _packed_tcw() -> tuple[np.ndarray, np.ndarray]:
     """The packed `tcw` variable's validity mask and physical values, from its stored counts.
@@ -1522,6 +1580,249 @@ class TestTimeUnitsSurviveDerivation:
         assert days.get_variable("t2m").band_count == 3
 
 
+def _dated_container(times: list[float], carried: tuple[str, str] | None) -> Container:
+    """An in-memory `(time, y, x)` container stamped `times`, carrying `carried` for `time`.
+
+    `from_array` writes no CF units, so the container stands for one rebuilt by `reduce` or
+    `coarsen`, whose stored axis has no units and whose units travel in `_band_dim_time_attrs`.
+
+    Args:
+        times: The stored `time` stamps.
+        carried: The `(units, calendar)` carried for `time`, or `None` to carry nothing.
+
+    Returns:
+        Container: The container.
+    """
+    container = NetCDF.from_array(
+        np.arange(len(times) * NY * NX, dtype=np.float64).reshape(len(times), NY, NX),
+        geo_ref=GEO,
+        variable_name="v",
+        dims=ExtraDimensions(name="time", values=times),
+    )
+    container._band_dim_time_attrs = {} if carried is None else {"time": carried}
+    return container
+
+
+def _era5_stamps(days: list[int], hours: list[int]) -> list[str]:
+    """ERA5 `valid_time` stamps, to the second, for the given January 2022 days and hours.
+
+    Args:
+        days: The days of the month, in order.
+        hours: The hours of each day, in order.
+
+    Returns:
+        list[str]: One `"%Y-%m-%d %H:%M:%S"` stamp per day and hour.
+    """
+    return [f"2022-01-{day:02d} {hour:02d}:00:00" for day in days for hour in hours]
+
+
+class TestGroupStamps:
+    """`_group_stamps` decodes the stamps a frequency groups by, to the second, from the right source."""
+
+    def test_a_store_variable_decodes_its_own_coordinates(self):
+        """ERA5 `t2m` decodes its twelve six-hourly stamps with the units its store declares."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        stamps = variable._group_stamps("valid_time")
+        assert stamps == _era5_stamps([1, 2, 3], [0, 6, 12, 18]), stamps
+
+    def test_a_selection_decodes_only_the_steps_it_keeps(self):
+        """`isel(valid_time=[5, 6])` decodes its own two stamps, not the store's whole axis."""
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        stamps = variable.isel(valid_time=[5, 6])._group_stamps("valid_time")
+        assert stamps == ["2022-01-02 06:00:00", "2022-01-02 12:00:00"], stamps
+
+    def test_a_container_decodes_its_stored_axis_without_a_second_read(
+        self, monkeypatch
+    ):
+        """The ERA5 container's axis decodes through `get_time_variable`; the fallback is not reached.
+
+        Args:
+            monkeypatch: pytest fixture replacing the container's stored-axis read.
+
+        Test scenario:
+            The stored axis already carries CF units, so reading it again for the rebuilt
+            container fallback would only repeat the work.
+        """
+        container = NetCDF.read_file(str(ERA5_T2M))
+
+        def refuse(name: str) -> None:
+            """A second read of the stored axis, which must not happen.
+
+            Args:
+                name: The dimension asked for.
+
+            Raises:
+                AssertionError: Always.
+            """
+            raise AssertionError(f"the stored axis of {name!r} was read again")
+
+        monkeypatch.setattr(container, "get_dimension_values", refuse)
+        stamps = container._group_stamps("valid_time")
+        assert stamps == _era5_stamps([1, 2, 3], [0, 6, 12, 18]), stamps
+
+    def test_a_rebuilt_container_decodes_its_stored_axis_with_the_carried_units(self):
+        """The ERA5 container coarsened by 2 decodes its window-mean stamps with the units it carries."""
+        container = NetCDF.read_file(str(ERA5_T2M))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            coarsened = container.coarsen("valid_time", 2)
+        assert coarsened.get_time_variable("valid_time") is None, (
+            "the rebuilt store should declare no units of its own"
+        )
+        stamps = coarsened._group_stamps("valid_time")
+        assert stamps == _era5_stamps([1, 2, 3], [3, 15]), stamps
+
+    @pytest.mark.parametrize(
+        ("carried", "expected"),
+        [
+            pytest.param(None, None, id="no-carried-units"),
+            pytest.param(
+                HOURS_2000,
+                [
+                    "2000-01-01 00:00:00",
+                    "2000-01-01 06:00:00",
+                    "2000-01-01 12:00:00",
+                    "2000-01-01 18:00:00",
+                ],
+                id="carried-units",
+            ),
+        ],
+    )
+    def test_an_in_memory_container_decodes_only_with_carried_units(
+        self, carried, expected
+    ):
+        """A container whose stored hours declare no units decodes them only with carried units.
+
+        Args:
+            carried: The units the container carries for `time`, or `None`.
+            expected: The stamps, or `None` when nothing decodes them.
+        """
+        stamps = _dated_container(TIMES, carried)._group_stamps("time")
+        assert stamps == expected, stamps
+
+    def test_a_variable_without_coordinates_has_no_stamps(self):
+        """A difference of two different ERA5 cuts has no `valid_time` coordinates, so nothing decodes.
+
+        Test scenario:
+            The result carries the store's units, so units alone are not what is missing.
+        """
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        change = variable.isel(valid_time=[1, 2]) - variable.isel(valid_time=[0, 1])
+        change._band_dim_time_attrs = {"valid_time": ERA5_UNITS}
+        assert change._band_dim_values_map["valid_time"] is None, (
+            change._band_dim_values_map
+        )
+        assert change._group_stamps("valid_time") is None
+
+    def test_a_variable_does_not_decode_a_stored_axis(self, monkeypatch):
+        """A variable without coordinates for `valid_time` does not fall back to a stored axis.
+
+        Args:
+            monkeypatch: pytest fixture handing the variable its container's stored axis.
+
+        Test scenario:
+            The stored axis answers `get_dimension_values`, and the store's units would decode
+            it, but those stamps describe the container, not this variable's steps. Only a
+            container falls back to its stored stamps.
+        """
+        container = NetCDF.read_file(str(ERA5_T2M))
+        variable = container.get_variable("t2m")
+        stored = container.get_dimension_values("valid_time")
+        variable._band_dim_values_map["valid_time"] = None
+        monkeypatch.setattr(variable, "get_dimension_values", lambda name: stored)
+        assert variable._group_stamps("valid_time") is None
+
+    def test_coordinates_without_time_units_have_no_stamps(self):
+        """An in-memory variable's raw hours have no CF units anywhere, so nothing decodes."""
+        assert _container().get_variable("v")._group_stamps("time") is None
+
+    def test_a_stored_stamp_that_does_not_convert_gives_no_stamps(self):
+        """A rebuilt-like container whose second stored stamp is NaN decodes to `None`, not an error."""
+        container = _dated_container([0.0, np.nan, 12.0, 18.0], HOURS_2000)
+        assert container._group_stamps("time") is None
+
+    def test_an_own_stamp_that_does_not_convert_gives_no_stamps(self):
+        """A variable whose second own stamp is NaN decodes to `None`, not an error."""
+        variable = _dated_container(TIMES, HOURS_2000).get_variable("v")
+        variable._band_dim_values_map["time"] = [0.0, np.nan, 12.0, 18.0]
+        assert variable._band_dim_time_attrs == {"time": HOURS_2000}, (
+            variable._band_dim_time_attrs
+        )
+        assert variable._group_stamps("time") is None
+
+    def test_a_store_variable_with_a_stamp_that_does_not_convert_gives_no_stamps(
+        self, tmp_path
+    ):
+        """The variable of a store declaring hours, whose second stamp is NaN, decodes to `None`.
+
+        Args:
+            tmp_path: pytest temp directory.
+        """
+        path = str(tmp_path / "nan_stamp.nc")
+        _write_dated_store(path, [0.0, np.nan, 12.0, 18.0])
+        variable = NetCDF.read_file(path).get_variable("v")
+        assert variable._group_stamps("time") is None
+
+    @pytest.mark.xfail(
+        strict=True,
+        raises=ValueError,
+        reason=(
+            "a container's stored axis with declared CF units is decoded by get_time_variable, "
+            "which converts the stamps strictly, so a NaN stamp raises 'cannot convert float NaN "
+            "to integer' instead of giving no stamps; already so before _group_stamps was extracted"
+        ),
+    )
+    def test_a_store_with_a_stamp_that_does_not_convert_gives_no_stamps(self, tmp_path):
+        """A container declaring hours, whose second stored stamp is NaN, decodes to `None` too.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            `_group_stamps` promises `None` when no time coordinate decodes, and its variable
+            and rebuilt-container branches keep that promise with `strict=False`. The declared
+            axis branch raises instead, so `reduce(groupby="1D")` on the container fails with
+            `cannot convert float NaN to integer` where its variable reports "no decodable time
+            coordinate found".
+        """
+        path = str(tmp_path / "nan_stamp.nc")
+        _write_dated_store(path, [0.0, np.nan, 12.0, 18.0])
+        container = NetCDF.read_file(path)
+        assert container._group_stamps("time") is None
+
+
+def _write_dated_store(path: str, stamps: list[float]) -> None:
+    """Write a float `v(time, lat, lon)` store whose `time` axis declares `hours since 2000-01-01`.
+
+    Written with GDAL's multidimensional API, so no third-party writer is needed.
+
+    Args:
+        path: Where to write the file.
+        stamps: The stored `time` stamps.
+    """
+    store = gdal.GetDriverByName("netCDF").CreateMultiDimensional(path)
+    root = store.GetRootGroup()
+    text = gdal.ExtendedDataType.CreateString()
+    dims = {}
+    for name, values, units in (
+        ("time", stamps, "hours since 2000-01-01"),
+        ("lat", [2.5, 1.5, 0.5], "degrees_north"),
+        ("lon", [0.5, 1.5, 2.5, 3.5], "degrees_east"),
+    ):
+        dims[name] = root.CreateDimension(name, None, None, len(values))
+        coordinate = root.CreateMDArray(
+            name, [dims[name]], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+        )
+        coordinate.Write(np.asarray(values, dtype=np.float64))
+        coordinate.CreateAttribute("units", [], text).WriteString(units)
+    array = root.CreateMDArray(
+        "v",
+        [dims["time"], dims["lat"], dims["lon"]],
+        gdal.ExtendedDataType.Create(gdal.GDT_Float64),
+    )
+    array.Write(np.arange(len(stamps) * 3 * 4, dtype=np.float64).reshape(-1, 3, 4))
+
+
 class TestTimeAttrCandidates:
     """`_time_attr_candidates` yields own metadata, parent metadata, then carried units, nearest first."""
 
@@ -1679,6 +1980,189 @@ class TestTimeAttrCandidates:
         variable._band_dim_time_attrs = {"valid_time": HOURS_2000}
         candidates = list(variable._time_attr_candidates("valid_time"))
         assert candidates == [ERA5_UNITS, HOURS_2000], candidates
+
+    def test_an_owner_without_a_parent_attribute_offers_its_own(self):
+        """An owner that has no `_parent_nc` at all yields its own metadata, then what it carries."""
+        owner = self._owner("days since 1990-01-01", "noleap", HOURS_2000)
+        del owner._parent_nc
+        candidates = list(NetCDF._time_attr_candidates(owner, "time"))
+        assert candidates == [("days since 1990-01-01", "noleap"), HOURS_2000], (
+            candidates
+        )
+
+    def test_units_that_are_not_time_units_are_skipped_in_every_source(self):
+        """`millibar` declared on the child and carried on the parent is passed over for the child's hours."""
+        parent = self._owner(carried=("millibar", "standard"))
+        child = self._owner("millibar", carried=HOURS_2000, parent=parent)
+        candidates = list(NetCDF._time_attr_candidates(child, "time"))
+        assert candidates == [HOURS_2000], candidates
+
+    def test_a_pair_declared_on_both_owners_is_yielded_once(self):
+        """The same declared units on the child and the parent come once, before a different carried pair."""
+        parent = self._owner("hours since 2000-01-01")
+        child = self._owner(
+            "hours since 2000-01-01",
+            carried=("days since 1990-01-01", "noleap"),
+            parent=parent,
+        )
+        candidates = list(NetCDF._time_attr_candidates(child, "time"))
+        assert candidates == [HOURS_2000, ("days since 1990-01-01", "noleap")], (
+            candidates
+        )
+
+
+class TestDeclaredTimeAttrs:
+    """`_declared_time_attrs` reads the CF time units one owner's metadata declares for a dimension."""
+
+    @pytest.mark.parametrize(
+        ("make_owner", "dim", "expected"),
+        [
+            pytest.param(lambda: None, "time", None, id="no-owner"),
+            pytest.param(
+                lambda: TestTimeAttrCandidates._owner(
+                    "hours since 2000-01-01", "noleap", is_open=False
+                ),
+                "time",
+                None,
+                id="closed-owner",
+            ),
+            pytest.param(
+                lambda: TestTimeAttrCandidates._owner("hours since 2000-01-01"),
+                "level",
+                None,
+                id="no-such-dimension",
+            ),
+            pytest.param(
+                lambda: TestTimeAttrCandidates._owner(None, "noleap"),
+                "time",
+                None,
+                id="no-units",
+            ),
+            pytest.param(
+                lambda: TestTimeAttrCandidates._owner("millibar", "standard"),
+                "time",
+                None,
+                id="non-cf-units",
+            ),
+            pytest.param(
+                lambda: TestTimeAttrCandidates._owner("days since 1990-01-01"),
+                "time",
+                ("days since 1990-01-01", "standard"),
+                id="missing-calendar",
+            ),
+            pytest.param(
+                lambda: TestTimeAttrCandidates._owner(
+                    "days since 1990-01-01", "noleap"
+                ),
+                "time",
+                ("days since 1990-01-01", "noleap"),
+                id="units-and-calendar",
+            ),
+        ],
+    )
+    def test_each_case(self, make_owner, dim, expected):
+        """The pair an owner declares for `dim`, or `None`.
+
+        Args:
+            make_owner: Builds the owner stand-in, or `None`.
+            dim: The dimension asked for.
+            expected: The `(units, calendar)` pair, or `None`.
+        """
+        pair = NetCDF._declared_time_attrs(make_owner(), dim)
+        assert pair == expected, pair
+
+    def test_a_closed_owner_s_metadata_is_not_read(self):
+        """An owner whose raster is gone answers `None` without asking its metadata anything."""
+
+        def unreadable(name: str) -> None:
+            """Metadata that cannot be read.
+
+            Args:
+                name: The dimension asked for.
+
+            Raises:
+                AssertionError: Always.
+            """
+            raise AssertionError(f"a closed owner's metadata was read for {name!r}")
+
+        owner = SimpleNamespace(
+            meta_data=SimpleNamespace(get_dimension=unreadable), _raster=None
+        )
+        assert NetCDF._declared_time_attrs(owner, "time") is None
+
+    def test_an_open_store_declares_its_units(self):
+        """The ERA5 container declares `seconds since 1970-01-01` on the proleptic Gregorian calendar."""
+        container = NetCDF.read_file(str(ERA5_T2M))
+        pair = NetCDF._declared_time_attrs(container, "valid_time")
+        assert pair == ERA5_UNITS, pair
+
+    def test_a_closed_store_declares_nothing(self):
+        """Once closed, the same container is not read and answers `None` rather than raising."""
+        container = NetCDF.read_file(str(ERA5_T2M))
+        container.close()
+        assert NetCDF._declared_time_attrs(container, "valid_time") is None
+
+
+class TestCarriedTimeAttrs:
+    """`_carried_time_attrs` reads the CF time units one owner carries for a dimension."""
+
+    @pytest.mark.parametrize(
+        ("owner", "expected"),
+        [
+            pytest.param(None, None, id="no-owner"),
+            pytest.param(SimpleNamespace(), None, id="no-carried-attribute"),
+            pytest.param(
+                SimpleNamespace(_band_dim_time_attrs={"level": HOURS_2000}),
+                None,
+                id="another-dimension",
+            ),
+            pytest.param(
+                SimpleNamespace(
+                    _band_dim_time_attrs={"time": ("millibar", "standard")}
+                ),
+                None,
+                id="non-cf-units",
+            ),
+            pytest.param(
+                SimpleNamespace(
+                    _band_dim_time_attrs={"time": ("gregorian", "standard")}
+                ),
+                None,
+                id="a-calendar-name-as-units",
+            ),
+            pytest.param(
+                SimpleNamespace(_band_dim_time_attrs={"time": HOURS_2000}),
+                HOURS_2000,
+                id="cf-units",
+            ),
+        ],
+    )
+    def test_each_case(self, owner, expected):
+        """The pair an owner carries for `time`, or `None`.
+
+        Args:
+            owner: The owner stand-in, or `None`.
+            expected: The `(units, calendar)` pair, or `None`.
+        """
+        pair = NetCDF._carried_time_attrs(owner, "time")
+        assert pair == expected, pair
+
+    @pytest.mark.parametrize(
+        ("dim", "expected"),
+        [
+            pytest.param("time", HOURS_2000, id="time"),
+            pytest.param("level", None, id="level"),
+        ],
+    )
+    def test_a_variable_carries_only_what_it_was_given(self, dim, expected):
+        """A `(time, level)` variable carrying hours for `time` carries nothing for `level`.
+
+        Args:
+            dim: The dimension asked for.
+            expected: The carried pair, or `None`.
+        """
+        pair = NetCDF._carried_time_attrs(_time_level_variable(), dim)
+        assert pair == expected, pair
 
 
 class TestResolvedBandDimTimeAttrs:
