@@ -559,7 +559,7 @@ jobs:
           WHEEL=$(ls dist/pyramids_gis-*-${PYTAG}-${PYTAG}-*${{ matrix.wheel-tag }}*.whl | head -1)
           echo "Installing: $WHEEL"
           pip install "$WHEEL" --only-binary=:all:
-          pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
+          pip install pytest pytest-env pytest-mock pytest-timeout pytest-xdist --only-binary=:all:
 
       - name: Verify GDAL import
         run: python ci/verify-wheel.py
@@ -572,8 +572,14 @@ jobs:
         # timeouts on the runners, intermittently failing the wheel smoke job.
         # The bundled wheel's network path is covered deterministically by
         # verify-wheel.py's /vsicurl CA check; this step stays hermetic.
-        timeout-minutes: 10
-        run: pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m "core and not vfs and not slow" tests/
+        # Run in parallel (`-n auto --dist loadfile`, file-level distribution like
+        # the dev suite): the serial `core` suite had grown past the 10-min budget
+        # on the slower runners (windows-2022, ubuntu 3.12) and was cut off at ~93%.
+        # Parallel finishes in a few minutes, comfortably under the 15-min cap.
+        timeout-minutes: 15
+        run: >-
+          pytest -q -o "pythonpath=" --timeout=60 --timeout-method=thread
+          -n auto --dist loadfile -m "core and not vfs and not slow" tests/
 
   # Old-glibc reach validation — the distros the pre-#332 manylinux_2_39
   # wheel could not install on. seccomp=unconfined: GDAL's netCDF driver
@@ -807,15 +813,18 @@ jobs:
 
       - name: Install test dependencies
         if: matrix.python-version == '3.12'
-        run: "pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:"
+        run: "pip install pytest pytest-env pytest-mock pytest-timeout pytest-xdist --only-binary=:all:"
 
       - name: Run hermetic core test suite
         if: matrix.python-version == '3.12'
         shell: bash
-        timeout-minutes: 15
+        # Parallel (`-n auto --dist loadfile`) — windows-11-arm is the slowest
+        # runner, so the serial suite could exceed the step budget; 20-min cap
+        # leaves headroom even when few cores are available.
+        timeout-minutes: 20
         run: >-
-          pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread
-          -m "core and not vfs and not slow" tests/
+          pytest -q -o "pythonpath=" --timeout=60 --timeout-method=thread
+          -n auto --dist loadfile -m "core and not vfs and not slow" tests/
 
   # The macOS x86_64 wheel is cross-compiled on this arm64 macos-14 host, so
   # cibuildwheel can't run it, and GitHub's macos-13 Intel runners are unusable
