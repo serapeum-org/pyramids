@@ -20,7 +20,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from numbers import Real
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, cast
 
 import numpy as np
 
@@ -60,8 +60,8 @@ class _AlongDim(ABC):
     """
 
     caller: str = ""
-    verb: str = ""
-    keeps_length: bool = False
+    verb: ClassVar[str] = ""
+    keeps_length: ClassVar[bool] = False
 
     def start(self) -> None:
         """Work out what waits for the receiver to pass its own checks. Nothing, by default."""
@@ -164,9 +164,9 @@ class _Rolling(_AlongDim):
     center: bool
     min_periods: int
     q: float | None
-    caller = "rolling"
-    verb = "roll"
-    keeps_length = True
+    caller: str = "rolling"
+    verb: ClassVar[str] = "roll"
+    keeps_length: ClassVar[bool] = True
 
     def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
         """Reduce the window each step of `dim` owns, one step at a time.
@@ -233,8 +233,8 @@ class _Diff(_AlongDim):
 
     n: int
     label: str
-    caller = "diff"
-    verb = "difference"
+    caller: str = "diff"
+    verb: ClassVar[str] = "difference"
 
     @property
     def keeps_length(self) -> bool:  # type: ignore[override]
@@ -300,9 +300,9 @@ class _CumSum(_AlongDim):
     """
 
     skipna: bool
-    caller = "cumsum"
-    verb = "accumulate"
-    keeps_length = True
+    caller: str = "cumsum"
+    verb: ClassVar[str] = "accumulate"
+    keeps_length: ClassVar[bool] = True
 
     def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
         """Total one variable along `dim`.
@@ -355,9 +355,9 @@ class _Shift(_AlongDim):
 
     periods: int
     fill_value: Any
-    caller = "shift"
-    verb = "shift"
-    keeps_length = True
+    caller: str = "shift"
+    verb: ClassVar[str] = "shift"
+    keeps_length: ClassVar[bool] = True
 
     def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
         """Shift one variable along `dim`.
@@ -430,7 +430,7 @@ class _Extremum(_AlongDim):
     coordinate: bool
     skipna: bool
     caller: str
-    verb = "search"
+    verb: ClassVar[str] = "search"
 
     def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
         """Find the extremum of one variable along `dim`.
@@ -611,7 +611,7 @@ def _window_members(position: int, size: int, window: int, center: bool) -> list
           ```
     """
     start = position - window // 2 if center else position - window + 1
-    return [step for step in range(max(start, 0), min(start + window, size))]
+    return list(range(max(start, 0), min(start + window, size)))
 
 
 def _reduced_array(

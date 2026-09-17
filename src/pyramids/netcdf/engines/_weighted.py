@@ -364,35 +364,7 @@ def _weights_for(var: NetCDF, weights: Any, shape: tuple, axes: tuple[int, ...])
             another grid; weights holding a NaN; or weights that broadcast onto neither the
             weighted axes nor the variable's own shape.
     """
-    if isinstance(weights, str):
-        if weights != "area":
-            raise ValueError(
-                f"weighted() knows the weighting 'area' (cos-latitude); got {weights!r}. "
-                f"Pass an array or a NetCDF for anything else."
-            )
-        values = _area_weights(var)
-    elif hasattr(weights, "read_array"):
-        # A container's own raster is a placeholder, not its variables' grid, so compare and read
-        # through its first gridded variable.
-        if not _reduces_as_a_variable(weights) and getattr(
-            weights, "variable_names", None
-        ):
-            weights = weights._require_raster_variable(weights.variable_names[0])
-        if not var.spatial.same_grid(weights):
-            raise ValueError(
-                "weighted() needs weights on the same grid as the variable; the raster passed "
-                "has a different grid."
-            )
-        values = np.asarray(weights.read_array(), dtype="float64")
-        if values.ndim > 2:
-            values = values[0]
-    else:
-        values = np.asarray(weights, dtype="float64")
-    if np.isnan(values).any():
-        raise ValueError(
-            "weighted() weights cannot contain missing values; replace them with zero to "
-            "leave those cells out."
-        )
+    values = _weight_values(var, weights)
     weighted_shape = tuple(shape[axis] for axis in axes)
     try:
         spread = np.asarray(np.broadcast_to(values, weighted_shape)).reshape(
@@ -409,6 +381,67 @@ def _weights_for(var: NetCDF, weights: Any, shape: tuple, axes: tuple[int, ...])
                 f"weighted axes {weighted_shape}, nor onto the variable's {tuple(shape)}."
             ) from None
     return spread
+
+
+def _weight_values(var: NetCDF, weights: Any) -> np.ndarray:
+    """The weights as a float64 array, whatever form they were given in.
+
+    Args:
+        var: The variable being weighted, whose grid a raster of weights must share and whose
+            latitudes `"area"` is computed from.
+        weights: `"area"`, an array, or a `NetCDF` on the same grid.
+
+    Returns:
+        numpy.ndarray: The weights, before any broadcasting.
+
+    Raises:
+        ValueError: An unknown named weighting; a raster on another grid; or weights holding a
+            NaN, which would make every statistic NaN.
+    """
+    if isinstance(weights, str):
+        if weights != "area":
+            raise ValueError(
+                f"weighted() knows the weighting 'area' (cos-latitude); got {weights!r}. "
+                f"Pass an array or a NetCDF for anything else."
+            )
+        values = _area_weights(var)
+    elif hasattr(weights, "read_array"):
+        values = _raster_weights(var, weights)
+    else:
+        values = np.asarray(weights, dtype="float64")
+    if np.isnan(values).any():
+        raise ValueError(
+            "weighted() weights cannot contain missing values; replace them with zero to "
+            "leave those cells out."
+        )
+    return values
+
+
+def _raster_weights(var: NetCDF, weights: Any) -> np.ndarray:
+    """The first band of a raster of weights, once its grid is known to match.
+
+    A container's own raster is a placeholder rather than its variables' grid, so the comparison
+    and the read both go through its first gridded variable.
+
+    Args:
+        var: The variable being weighted.
+        weights: The raster of weights, a container or a variable.
+
+    Returns:
+        numpy.ndarray: The weights as float64.
+
+    Raises:
+        ValueError: The raster is on another grid.
+    """
+    if not _reduces_as_a_variable(weights) and getattr(weights, "variable_names", None):
+        weights = weights._require_raster_variable(weights.variable_names[0])
+    if not var.spatial.same_grid(weights):
+        raise ValueError(
+            "weighted() needs weights on the same grid as the variable; the raster passed "
+            "has a different grid."
+        )
+    values = np.asarray(weights.read_array(), dtype="float64")
+    return values if values.ndim <= 2 else values[0]
 
 
 def _placed_shape(
