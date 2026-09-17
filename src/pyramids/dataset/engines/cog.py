@@ -735,7 +735,6 @@ class COG(_Engine["Dataset"]):
             return None
         return fn
 
-    @under_gdal_env
     @overload
     def read_part(
         self,
@@ -762,6 +761,7 @@ class COG(_Engine["Dataset"]):
         return_transform: Literal[True],
     ) -> tuple[np.typing.NDArray, tuple[float, float, float, float, float, float]]: ...
 
+    @under_gdal_env
     def read_part(
         self,
         bbox: tuple[float, float, float, float],

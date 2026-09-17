@@ -368,6 +368,26 @@ class TestGdalEnvOnEveryReadPath:
         payer = self._payer_during(lambda: ds.cog.preview(max_size=8))
         assert payer == "requester", f"COG preview ran without the config: {payer}"
 
+    def test_cog_read_part_installs_the_env(self, tmp_path):
+        """The COG partial read carries the config too.
+
+        Test scenario:
+            `read_part` is the cloud-native partial-read entry point, so a signed
+            or Requester-Pays remote COG must see the dataset's captured config;
+            it is the read whose `@under_gdal_env` an overload stub can silently
+            steal.
+        """
+        source = Dataset.from_array(
+            np.full((64, 64), 5.0, "float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 64.0), cell_size=1.0, epsg=4326),
+        )
+        cog_path = str(source.to_cog(tmp_path / "c.tif"))
+        ds = Dataset.read_file(cog_path, gdal_env=ENV)
+        payer = self._payer_during(
+            lambda: ds.read_part((10.0, 10.0, 40.0, 40.0), dst_width=8, dst_height=8)
+        )
+        assert payer == "requester", f"COG read_part ran without the config: {payer}"
+
 
 _READDIR = "GDAL_DISABLE_READDIR_ON_OPEN"
 
