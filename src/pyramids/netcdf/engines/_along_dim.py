@@ -137,6 +137,118 @@ class _Reduction(_AlongDim):
         )
 
 
+@dataclass
+class _Rolling(_AlongDim):
+    """`rolling`: each step becomes a statistic of the window of steps it owns.
+
+    A window ends at its step, or is centred on it, and is cut where it would run off the axis.
+    Gaps are always skipped, and a step whose window holds fewer than `min_periods` valid cells
+    is no-data. The dimension keeps its length and coordinates.
+
+    Attributes:
+        window: Steps per window.
+        how: The reduction over each window: a statistic, `count`, or an `all` / `any` flag.
+        center: Whether each window is centred on its step rather than ending at it.
+        min_periods: The valid cells a window needs before its step holds a value.
+        q: The quantile, for `how="quantile"`.
+    """
+
+    window: int
+    how: str
+    center: bool
+    min_periods: int
+    q: float | None
+    caller = "rolling"
+    verb = "roll"
+    keeps_length = True
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Reduce the window each step of `dim` owns, one step at a time.
+
+        Each window is taken out of the variable and reduced along `dim` with the same helper a
+        `reduce` over that window uses, so a step holds exactly what reducing its window holds.
+
+        Args:
+            nc: The object `rolling` was called on.
+            var: The variable.
+            dim: The dimension to roll along.
+
+        Returns:
+            _Applied: The rolled values, the band layout unchanged. A statistic is float64 and
+            declares the variable's no-data value, or NaN when it declares none; `count` is
+            `int64` and declares `-1`, the value of a window with too few valid cells; `all` /
+            `any` are `uint8` and declare `255`.
+        """
+        # Local import breaks the netcdf.py <-> engines import cycle.
+        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _FLAG_NO_DATA
+
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        axis = band_names.index(dim)
+        arr = nc._materialize_variable_array(var, lazy=True)
+        size = arr.shape[axis]
+        if self.how == "count":
+            short: Any = _COUNT_NO_DATA
+            result_ndv: Any = _COUNT_NO_DATA
+        elif self.how in _COUNTING_REDUCERS:
+            short = result_ndv = _FLAG_NO_DATA
+        else:
+            # A short window is a gap the operation makes, so a variable declaring no no-data value
+            # still has to declare one for the result: NaN, which the float64 statistic can hold.
+            short = result_ndv = np.nan if ndv is None else ndv
+        steps = []
+        for position in range(size):
+            members = _window_members(position, size, self.window, self.center)
+            block = np.take(arr, members, axis=axis)
+            value = nc._reduce_axis(block, axis, self.how, True, ndv, self.q)
+            valid = nc._count_axis(block, axis, "count", True, ndv)
+            steps.append(np.where(valid >= self.min_periods, value, short))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            values = np.asarray(np.stack(steps, axis=axis))
+        return _Applied(values, band_names, values_map, result_ndv)
+
+
+_COUNT_NO_DATA = -1
+"""The no-data value of a rolling `count`: a window with too few valid cells. A count is never
+negative, so it cannot be mistaken for one."""
+
+
+def _window_members(position: int, size: int, window: int, center: bool) -> list[int]:
+    """The steps the window at `position` covers, cut to the axis.
+
+    A trailing window covers `position - window + 1 .. position`; a centred one starts
+    `window // 2` steps before `position`, so an even window reaches one step further back than
+    forward, as xarray places it. Both always include `position`, so no window is empty.
+
+    Args:
+        position: The step the window belongs to.
+        size: The axis length.
+        window: Steps per window.
+        center: Whether the window is centred on `position`.
+
+    Returns:
+        list[int]: The positions covered, ascending.
+
+    Examples:
+        - A trailing window of three near the start, and a centred one:
+
+          ```python
+          >>> from pyramids.netcdf.engines._along_dim import _window_members
+          >>> _window_members(1, 6, 3, False)
+          [0, 1]
+          >>> _window_members(1, 6, 3, True)
+          [0, 1, 2]
+          >>> _window_members(5, 6, 4, True)
+          [3, 4, 5]
+
+          ```
+    """
+    start = position - window // 2 if center else position - window + 1
+    return [step for step in range(max(start, 0), min(start + window, size))]
+
+
 def _reduced_array(
     nc: NetCDF,
     var: NetCDF,

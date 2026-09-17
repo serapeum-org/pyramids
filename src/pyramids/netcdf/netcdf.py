@@ -7218,6 +7218,21 @@ class NetCDF(Dataset):
             dim, window, how=how, boundary=boundary, skipna=skipna, q=q
         )
 
+    def rolling(
+        self,
+        dim: str,
+        window: int,
+        *,
+        how: str = "mean",
+        center: bool = False,
+        min_periods: int | None = None,
+        q: float | None = None,
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.rolling <pyramids.netcdf.engines.selection.Selection.rolling>`."""
+        return self.selection.rolling(
+            dim, window, how=how, center=center, min_periods=min_periods, q=q
+        )
+
     @staticmethod
     def _is_file_backed(var: NetCDF) -> bool:
         """True when the variable's data lives in a reopenable file, so a lazy chunk read is possible.

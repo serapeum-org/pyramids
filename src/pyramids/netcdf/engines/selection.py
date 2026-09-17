@@ -59,6 +59,7 @@ from pyramids.netcdf.engines._along_dim import (
     _assert_band_dimension,
     _reduces_as_a_variable,
     _Reduction,
+    _Rolling,
 )
 
 if TYPE_CHECKING:
@@ -1704,7 +1705,7 @@ class Selection(_Engine["NetCDF"]):
         nc = self._ds
         _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
         q = _check_quantile(how, q)
-        length = _check_window(window)
+        length = _check_window(window, caller="coarsen")
         if boundary not in _BOUNDARIES:
             raise ValueError(
                 f"boundary must be one of {list(_BOUNDARIES)}, got {boundary!r}."
@@ -1722,6 +1723,130 @@ class Selection(_Engine["NetCDF"]):
             window_mean_coords=True,
         )
         if is_variable:
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def rolling(
+        self,
+        dim: str,
+        window: int,
+        *,
+        how: str = "mean",
+        center: bool = False,
+        min_periods: int | None = None,
+        q: float | None = None,
+    ) -> NetCDF:
+        """Reduce a moving window along a non-spatial dimension, keeping its length.
+
+        Each step of `dim` becomes the reduction of the `window` steps that end at it, or, with
+        `center=True`, that are centred on it — an even window reaching one step further back
+        than forward. A window is cut where it would run off the axis, so the first and last
+        steps own fewer cells. Gaps (the declared no-data value and NaN) are always skipped,
+        and a step whose window holds fewer than `min_periods` valid cells is no-data, which
+        is what makes the edges no-data under the default `min_periods` of a whole window. The
+        dimension keeps its length and coordinates, so the result selects exactly as the source
+        does.
+
+        Works on a container, rolling every variable that has `dim`, and on a single variable,
+        returning a variable. A container's auxiliary variables are carried over, those that
+        span `dim` included, since its length does not change.
+
+        Args:
+            dim: The non-spatial dimension to roll along.
+            window: Steps per window, an integer of at least 1. A window longer than the axis
+                is allowed; every step then owns the steps the axis has around it.
+            how: The reduction over each window — any `how` that `reduce` accepts. A statistic
+                answers float64 and declares the variable's no-data value, or NaN when it declares
+                none, since the short windows are gaps; `count` answers `int64` and declares `-1`,
+                the value of a window with too few valid cells; `all` / `any` answer a `uint8`
+                flag and declare `255`.
+            center: Centre each window on its step instead of ending it there.
+            min_periods: The valid cells a window needs before its step holds a value, an
+                integer between 1 and `window`; `None` (default) asks for a whole window.
+                xarray accepts a `min_periods` above `window` and answers all NaN; it is
+                refused here, since no window could meet it.
+            q: The quantile, for `how="quantile"`.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, with `dim` and every
+            other dimension unchanged in length and coordinates.
+
+        Raises:
+            TypeError: `window` or `min_periods` is not an integer, or is a boolean.
+            ValueError: `how` or `q` is refused as `reduce` refuses them; `window` is below 1;
+                `min_periods` is below 1 or above `window`; the container has no data
+                variables; or `dim` is not a band dimension of any gridded variable (or of this
+                variable, or this variable has none).
+
+        Examples:
+            - A trailing mean over two steps. The first step owns one cell, too few by default, so
+              it holds the declared no-data value (`from_array` declares `-9999.0`):
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 3.0, 5.0, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.rolling("time", 2).read_array().ravel().tolist()
+              [-9999.0, 2.0, 4.0, 6.0]
+              >>> var.rolling("time", 2, min_periods=1).read_array().ravel().tolist()
+              [1.0, 2.0, 4.0, 6.0]
+
+              ```
+            - A centred window skips a gap, and keeps the dimension's stamps:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> nc = NetCDF.from_array(
+              ...     np.array([1.0, -9999.0, 5.0, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=-9999.0,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... )
+              >>> smooth = nc.rolling("time", 3, center=True, min_periods=1).get_variable("t")
+              >>> smooth.read_array().ravel().tolist()
+              [1.0, 3.0, 6.0, 6.0]
+              >>> smooth._band_dim_values_map["time"]
+              [0.0, 6.0, 12.0, 18.0]
+
+              ```
+            - Count the valid steps in each window; a window with too few is `-1`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, np.nan, 5.0, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> counts = var.rolling("time", 2, how="count")
+              >>> counts.read_array().ravel().tolist(), counts.no_data_value[0]
+              ([-1, -1, -1, 2], -1)
+
+              ```
+        """
+        # Local import breaks the netcdf.py <-> engines.selection import cycle.
+        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS
+
+        nc = self._ds
+        _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
+        q = _check_quantile(how, q)
+        length = _check_window(window, caller="rolling")
+        needed = _check_min_periods(min_periods, length)
+        op = _Rolling(
+            window=length, how=how, center=bool(center), min_periods=needed, q=q
+        )
+        if _reduces_as_a_variable(nc):
             result = _apply_to_variable(nc, dim, op)
         else:
             result = _apply_to_container(nc, dim, op)
@@ -1746,11 +1871,12 @@ def _check_how(how: str, known: set[str]) -> None:
         raise ValueError(f"how must be one of {sorted(known)}; got {how!r}")
 
 
-def _check_window(window: Any) -> int:
-    """The `coarsen` window as a positive `int`, or the refusal saying why it is not one.
+def _check_window(window: Any, *, caller: str) -> int:
+    """A `coarsen` or `rolling` window as a positive `int`, or the refusal saying why it is not one.
 
     Args:
         window: The window as passed.
+        caller: The member named in the message.
 
     Returns:
         int: The window length.
@@ -1760,14 +1886,55 @@ def _check_window(window: Any) -> int:
         ValueError: `window` is below 1.
     """
     if isinstance(window, (bool, np.bool_)):
-        raise TypeError(f"coarsen() needs an integer window, got {window!r}.")
+        raise TypeError(f"{caller}() needs an integer window, got {window!r}.")
     try:
         length = operator.index(window)
     except TypeError:
-        raise TypeError(f"coarsen() needs an integer window, got {window!r}.") from None
+        raise TypeError(
+            f"{caller}() needs an integer window, got {window!r}."
+        ) from None
     if length < 1:
-        raise ValueError(f"coarsen() needs a window of at least 1, got {length}.")
+        raise ValueError(f"{caller}() needs a window of at least 1, got {length}.")
     return length
+
+
+def _check_min_periods(min_periods: Any, window: int) -> int:
+    """The valid cells a `rolling` window needs, or the refusal saying why `min_periods` is unusable.
+
+    Args:
+        min_periods: As passed; `None` asks for a whole window.
+        window: The checked window length.
+
+    Returns:
+        int: `window` for `None`, otherwise `min_periods` as an `int`.
+
+    Raises:
+        TypeError: `min_periods` is a boolean or not something `operator.index()` accepts —
+            a float, NaN included.
+        ValueError: `min_periods` is below 1, or above `window`, which no window could meet.
+    """
+    needed = window
+    if min_periods is not None:
+        if isinstance(min_periods, (bool, np.bool_)):
+            raise TypeError(
+                f"rolling() needs an integer min_periods, got {min_periods!r}."
+            )
+        try:
+            needed = operator.index(min_periods)
+        except TypeError:
+            raise TypeError(
+                f"rolling() needs an integer min_periods, got {min_periods!r}."
+            ) from None
+        if needed < 1:
+            raise ValueError(
+                f"rolling() needs min_periods of at least 1, got {needed}."
+            )
+        if needed > window:
+            raise ValueError(
+                f"rolling() min_periods={needed} can never be met by a window of {window} "
+                f"step(s); pass at most {window}."
+            )
+    return needed
 
 
 def _band_dimension_size(nc: NetCDF, dim: str, *, is_variable: bool) -> int:
