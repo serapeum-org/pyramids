@@ -1053,8 +1053,8 @@ class TestCarryAuxiliaries:
             entirely. The walk makes the helper report whoever called it, however shallow.
         """
         source, rg, aux, result = self._parts()
+        line = inspect.currentframe().f_lineno + 2
         with pytest.warns(UserWarning) as caught:
-            line = inspect.currentframe().f_lineno + 1
             _carry_auxiliaries(source, result, rg, aux, ["valid_time"], "diff")
         assert caught[0].filename == __file__, caught[0].filename
         assert caught[0].lineno == line, (
@@ -1364,8 +1364,9 @@ class TestTheDroppedAuxiliaryWarningNamesTheCaller:
             A stacklevel counted for another path reported the warning against `netcdf.py`,
             where a caller filtering by module never sees it.
         """
+        call = getattr(self._era5(), member)
         with pytest.warns(UserWarning) as caught:
-            getattr(self._era5(), member)("valid_time")
+            call("valid_time")
         dropped = [
             record
             for record in caught

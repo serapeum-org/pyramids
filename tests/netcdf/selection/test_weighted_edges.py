@@ -741,8 +741,9 @@ class TestWeightedAuxiliaries:
             the result carried `tos` at 1x1 beside `lat_bnds` at 170x2 and `lon_bnds` at 180x2
             — one container, three grids — and it survived `to_file`.
         """
+        source = self._bounded()
         with pytest.warns(UserWarning, match="dropped auxiliary variable"):
-            result = self._bounded().weighted("area")
+            result = source.weighted("area")
         assert "lat_bnds" not in result.variable_names, result.variable_names
         assert "lon_bnds" not in result.variable_names, result.variable_names
 
@@ -793,8 +794,9 @@ class TestWeightedAuxiliaries:
 
     def test_weighting_one_axis_drops_only_that_axis_auxiliary(self):
         """Weighting `x` leaves `lat` alone, so `lat_bnds` comes along and `lon_bnds` does not."""
+        source = self._bounded()
         with pytest.warns(UserWarning, match="the reduced dimension 'lon'"):
-            result = self._bounded().weighted(np.ones((170, 180)), "x")
+            result = source.weighted(np.ones((170, 180)), "x")
         assert "lat_bnds" in result.variable_names, result.variable_names
         assert "lon_bnds" not in result.variable_names, result.variable_names
 
@@ -1188,8 +1190,10 @@ class TestWeightsThatAreNotWeights:
         """A raster of weights is read as plain numbers, so its values meet the same guard."""
         values = np.ones((NY, NX))
         values[2, 3] = np.inf
+        raster = Dataset.from_array(values, geo_ref=GEO)
+        variable = _variable()
         with pytest.raises(ValueError, match="infinities"):
-            _variable().weighted(Dataset.from_array(values, geo_ref=GEO))
+            variable.weighted(raster)
 
     def test_rows_that_run_off_the_north_pole_are_refused(self):
         """A grid whose top rows sit above `+90` is as unweightable as one below `-90`.
