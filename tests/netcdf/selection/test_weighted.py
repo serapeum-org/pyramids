@@ -236,19 +236,39 @@ class TestWeightedDimensions:
         assert float(result.get_dimension_values("x")[0]) == pytest.approx(centre_x)
         assert float(result.get_dimension_values("y")[0]) == pytest.approx(centre_y)
 
-    def test_a_single_cell_axis_cannot_carry_its_width(self):
-        """The cell is centred right, but its width reads back as one index unit.
+    def test_the_cell_spans_the_source_extent(self):
+        """The one cell is as wide and as high as everything it was reduced from."""
+        variable = _container().weighted("area").get_variable("v")
+        assert variable.geotransform[1] == pytest.approx(GEO.geo[1] * NX)
+        assert variable.geotransform[5] == pytest.approx(GEO.geo[5] * NY)
+        assert variable.bounds.total_bounds.tolist() == pytest.approx(
+            _container().get_variable("v").bounds.total_bounds.tolist()
+        )
+
+    def test_writing_a_one_cell_axis_loses_its_width(self, tmp_path):
+        """A NetCDF stores coordinate values, and one value carries no spacing.
 
         Test scenario:
-            The rebuilt store keeps a spatial axis as coordinate values, and one value carries no
-            spacing, so `_compute_geotransform` falls back to the index-space cell size — the
-            same limit a one-column `reduce` result has. The weighted values are exact; only the
-            cell's footprint is understated.
+            The result is exact in memory, but the file can only record the cell's centre, so
+            reading it back reports a unit cell around that centre — the same limit
+            `NetCDF.from_array` has for a one-cell axis. The values survive exactly.
+
+        Args:
+            tmp_path: pytest's temporary directory.
         """
-        variable = _container().weighted("area").get_variable("v")
-        assert variable.geotransform[1] == pytest.approx(1.0)
-        assert variable.geotransform[5] == pytest.approx(-1.0)
-        assert float(variable.lat[0]) == pytest.approx(float(variable.lon[0]))
+        result = _container().weighted("area")
+        written = str(tmp_path / "weighted.nc")
+        result.to_file(written)
+        back = NetCDF.read_file(written)
+        assert float(back.get_dimension_values("x")[0]) == pytest.approx(
+            float(result.get_dimension_values("x")[0])
+        )
+        assert back.geotransform[1] == pytest.approx(1.0)
+        assert_allclose(
+            np.asarray(back.get_variable("v").read_array(), dtype="float64"),
+            np.asarray(result.get_variable("v").read_array(), dtype="float64"),
+            equal_nan=True,
+        )
 
     @pytest.mark.parametrize(
         ("dims", "shape"),
@@ -428,3 +448,69 @@ class TestWeightedRefusals:
         container = _container()
         with pytest.raises(ValueError, match="twice"):
             container.weighted("area", ("y", "y"))
+
+
+class TestWeightedGeoreferencing:
+    """A weighted result sits where the source did, on the extent it covered."""
+
+    @staticmethod
+    def _source() -> NetCDF:
+        """A 2x2 cube on a 2-degree grid whose extent is easy to read off.
+
+        Returns:
+            NetCDF: The container, `t(time, y, x)` on `[10, 56, 14, 60]`.
+        """
+        return NetCDF.from_array(
+            np.arange(2 * 2 * 2, dtype="float64").reshape(2, 2, 2),
+            geo_ref=GeoReference(geo=(10.0, 2.0, 0.0, 60.0, 0.0, -2.0), epsg=4326),
+            variable_name="t",
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+        )
+
+    def test_the_one_cell_spans_the_source_extent(self):
+        """Both axes weighted: one cell 4 degrees wide and high, at the source's corner.
+
+        Test scenario:
+            The rebuild derived the geotransform back from the single stored coordinate, which
+            carries no spacing, so the result reported a 1-degree cell at `(11.5, 58.5)` — the
+            wrong place and the wrong size, and `to_file` wrote it that way.
+        """
+        result = self._source().weighted("area")
+        assert result.geotransform == (10.0, 4.0, 0, 60.0, 0, -4.0)
+
+    def test_the_variable_agrees_with_the_container(self):
+        """The variable taken from the result reports the container's geotransform.
+
+        Test scenario:
+            The container reported `(11.5, 1.0, ...)` and the variable `(0.0, 1.0, ...)` — two
+            different answers for one raster, neither of them the source's extent.
+        """
+        result = self._source().weighted("area")
+        variable = result.get_variable("t")
+        assert variable.geotransform == result.geotransform
+        assert variable.bounds.total_bounds.tolist() == [10.0, 56.0, 14.0, 60.0]
+
+    def test_the_cell_holds_the_source_centre(self):
+        """The one cell's coordinates are the centre of the source extent."""
+        variable = self._source().weighted("area").get_variable("t")
+        assert float(variable.lon[0]) == pytest.approx(12.0)
+        assert float(variable.lat[0]) == pytest.approx(58.0)
+
+    def test_a_kept_axis_keeps_its_real_coordinates(self):
+        """Weighting `x` alone leaves `y` on its real latitudes, not on index space.
+
+        Test scenario:
+            The variable reported `lat == [-0.5, -1.5]` — index space — although the container
+            it came from still held `[59.0, 57.0]`.
+        """
+        variable = self._source().get_variable("t")
+        result = variable.weighted(np.ones((2, 2)), "x")
+        assert np.asarray(result.lat).tolist() == [59.0, 57.0]
+        assert result.geotransform == (10.0, 4.0, 0, 60.0, 0, -2.0)
+
+    def test_a_band_dimension_leaves_the_grid_alone(self):
+        """Weighting `time` keeps the source geotransform exactly."""
+        source = self._source()
+        result = source.weighted(np.array([3.0, 1.0]), "time")
+        assert result.geotransform == source.geotransform
+        assert result.get_variable("t").geotransform == source.geotransform

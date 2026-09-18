@@ -25,6 +25,7 @@ from pyramids.netcdf.engines._along_dim import (
     _gaps_as_nan,
     _read_no_data,
     _reduces_as_a_variable,
+    _stamped,
     _variable_from_applied,
 )
 
@@ -131,6 +132,7 @@ def _weighted_container(
     aux_vars = nc._carryable_aux_names(rg, spatial_vars)
     result = None
     found = False
+    grid: tuple | None = None
     removed: list[str] = []
     time_attrs: dict[str, tuple[str, str]] = {}
     for var_name in spatial_vars:
@@ -147,6 +149,7 @@ def _weighted_container(
             )
             arr, band_names, values_map, ndv = applied
             removed = [name for name in names if name in var._band_dim_names]
+            grid = geotransform if grid is None else grid
         else:
             arr = nc._materialize_variable_array(var)
         result = nc._stack_reduced_variable(
@@ -176,6 +179,7 @@ def _weighted_container(
             f"Dimension {named} is not a non-spatial dimension of any variable in this "
             f"container."
         )
+    _stamped(cast("NetCDF", result), cast(tuple, grid))
     cast("NetCDF", result)._band_dim_time_attrs = time_attrs
     _carry_auxiliaries(nc, cast("NetCDF", result), rg, aux_vars, removed, "weighted")
     return cast("NetCDF", result)
@@ -573,10 +577,9 @@ def _weighted_geotransform(var: NetCDF, rows: bool, columns: bool) -> tuple:
     """The geotransform of a result whose spatial axes were reduced.
 
     A reduced axis becomes one cell spanning the source's whole extent along it, so this describes
-    exactly the bounding box the source covered. The rebuild the caller hands it to does not keep
-    it when either axis comes out one cell long: the store carries no spacing to derive it from,
-    and the result reports a unit cell at the axis origin instead (`Selection.weighted` documents
-    what survives).
+    exactly the bounding box the source covered. The rebuild cannot derive this back from the one
+    coordinate value it stores, so `_stamped` puts it on the result instead of letting it be
+    guessed; only a file round trip still loses it (`Selection.weighted` documents that).
 
     Args:
         var: The source variable.

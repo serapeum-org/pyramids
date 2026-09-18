@@ -2213,6 +2213,10 @@ class NetCDF(Dataset):
         # Memoised `geotransform`; see that property. Cleared wherever
         # `_geotransform` is reassigned, so the two cannot disagree.
         self._derived_geotransform: tuple | None = None
+        # The grid a rebuild was told to produce, when its coordinates cannot describe it — a
+        # spatial axis one cell long carries no spacing to derive one from. `get_variable` hands
+        # it to the variables it builds, which have no coordinate arrays of their own.
+        self._stamped_geotransform: tuple | None = None
         # Origin-tracking attributes set by get_variable (RT-4)
         self._parent_nc: NetCDF | None = None
         self._source_var_name: str | None = None
@@ -2396,6 +2400,7 @@ class NetCDF(Dataset):
             "_band_dim_values_map": self._band_dim_values_map,
             "_band_dim_sizes": self._band_dim_sizes,
             "_band_dim_time_attrs": self._band_dim_time_attrs,
+            "_stamped_geotransform": self._stamped_geotransform,
             "_variable_attrs": self._variable_attrs,
             "_scale": self._scale,
             "_offset": self._offset,
@@ -10276,6 +10281,12 @@ class NetCDF(Dataset):
         # and anything derived from it, still decodes its stamps (a date `sel`, a frequency
         # `reduce`) after the container is closed.
         cube._band_dim_time_attrs = cube._resolved_band_dim_time_attrs()
+        # A container rebuilt by an operation knows the grid it produced; a variable of it holds
+        # no coordinate arrays, so it would otherwise fall back to the index space of the view.
+        if self._stamped_geotransform is not None:
+            cube._stamped_geotransform = self._stamped_geotransform
+            cube._geotransform = self._stamped_geotransform
+            cube._derived_geotransform = self._stamped_geotransform
         # Record the raster built from the store, after every step above that may replace it, so a
         # streamed read is used only while this variable still reads as its store.
         cube._store_raster = cube._raster

@@ -2448,15 +2448,14 @@ class Selection(_Engine["NetCDF"]):
         `how="sum_of_weights"`, which answers the total it found, `0.0` included, for any slice
         that has a valid cell at all, where xarray answers NaN for a zero total.
 
-        **The single cell's footprint.** The values, the band dimensions, their stamps and the
-        CRS are exact, but the grid the answer sits on is not. `weighted` hands the rebuild a
-        cell spanning the source's extent, and a rebuilt store whose row or column axis is one
-        cell long carries no spacing to derive a geotransform from, so the result reports a unit
-        cell at the axis origin instead: `cell_size` reads back as `1.0`, `geotransform` and
-        `bounds` describe that unit cell rather than the extent that was reduced, and `lat` /
-        `lon` cannot be told apart on it. Any one-cell-wide raster built in memory has the same
-        limit — `reduce` is not affected, since it never touches the grid. Read the numbers off
-        the result; keep the source (or `source.bounds`) if the extent has to stay on record.
+        **The single cell's footprint.** In memory the result is exact: its `geotransform`
+        and `bounds` describe the extent that was reduced, the cell's `lat` / `lon` are its
+        centre, and a kept spatial axis keeps its own coordinates. **Writing it to a NetCDF
+        loses the reduced axis' width**: the file records coordinate *values*, and one value
+        carries no spacing, so reading the file back reports a unit cell around that centre.
+        The values, the band dimensions, their stamps and the CRS survive the round trip
+        exactly. Any one-cell-wide raster written this way has the same limit; keep the source
+        (or `source.bounds`) if the extent has to stay on record in the file.
 
         Args:
             weights: `"area"` for `cos(latitude)` per row, which needs a geographic CRS; an

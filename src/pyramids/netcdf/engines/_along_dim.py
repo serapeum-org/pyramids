@@ -717,6 +717,34 @@ def _apply_to_variable(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
     return _variable_from_applied(nc, op.apply(nc, nc, dim))
 
 
+def _stamped(nc: NetCDF, geotransform: tuple) -> NetCDF:
+    """Put `geotransform` on a rebuilt raster, and hand the raster back.
+
+    A rebuilt container derives its geotransform back from the coordinate values it stores, and
+    one value carries no spacing, so a spatial axis left one cell long came back as a unit cell
+    at the axis origin — the wrong size *and* the wrong place — taking the other axis' real
+    coordinates with it on the variable. The operation knows the grid it produced, so it says so
+    rather than leaving it to be guessed: both the memoised value and the one `lat` / `lon` fall
+    back to are set, since a variable of a rebuilt container carries no coordinate arrays of its
+    own.
+
+    A raster whose axes are long enough to measure derives exactly this, so stamping it changes
+    nothing there.
+
+    Args:
+        nc: The rebuilt container or variable.
+        geotransform: The grid the operation produced.
+
+    Returns:
+        NetCDF: `nc`.
+    """
+    grid = tuple(geotransform)
+    nc._geotransform = grid
+    nc._derived_geotransform = grid
+    nc._stamped_geotransform = grid
+    return nc
+
+
 def _variable_from_applied(
     nc: NetCDF, applied: _Applied, geotransform: tuple | None = None
 ) -> NetCDF:
@@ -744,7 +772,9 @@ def _variable_from_applied(
         band_names,
         values_map,
     )
-    variable = cast("NetCDF", container.get_variable(name))
+    grid = nc.geotransform if geotransform is None else geotransform
+    _stamped(container, grid)
+    variable = _stamped(cast("NetCDF", container.get_variable(name)), grid)
     # `from_array` numbers a dimension it is given no coordinates for, so a dimension this
     # variable held unlabelled (an operator result's dropped stamps) would come back stamped
     # 0..n-1 and `sel` would match positions as if they were stamps. Put the gap back.
@@ -815,6 +845,7 @@ def _apply_to_container(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
 
     result = None
     found = False
+    grid: tuple | None = None
     time_attrs: dict[str, tuple[str, str]] = {}
     for var_name in spatial_vars:
         var = nc._require_raster_variable(var_name)
@@ -828,6 +859,7 @@ def _apply_to_container(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
         else:
             arr = nc._materialize_variable_array(var)
 
+        grid = var.geotransform if grid is None else grid
         result = nc._stack_reduced_variable(
             result,
             var_name,
@@ -853,6 +885,7 @@ def _apply_to_container(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
             f"Dimension {dim!r} is not a non-spatial dimension of any "
             f"variable in this container."
         )
+    _stamped(cast("NetCDF", result), cast(tuple, grid))
     cast("NetCDF", result)._band_dim_time_attrs = time_attrs
     _carry_auxiliaries(
         nc,
