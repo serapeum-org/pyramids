@@ -288,9 +288,9 @@ class TestReceiversAndRefusals:
         Args:
             member: The member called.
         """
-        variable = _container().get_variable("v")
+        call = getattr(_container().get_variable("v"), member)
         with pytest.raises(ValueError, match="does not match any band dimension"):
-            getattr(variable, member)("level")
+            call("level")
 
     @pytest.mark.parametrize("member", ["argmin", "argmax", "idxmin", "idxmax"])
     def test_a_dimension_no_variable_has(self, member):
@@ -299,9 +299,9 @@ class TestReceiversAndRefusals:
         Args:
             member: The member called.
         """
-        container = _container()
+        call = getattr(_container(), member)
         with pytest.raises(ValueError, match="not a non-spatial dimension"):
-            getattr(container, member)("level")
+            call("level")
 
     @pytest.mark.parametrize("member", ["argmin", "argmax", "idxmin", "idxmax"])
     def test_skipna_is_keyword_only(self, member):
@@ -310,9 +310,9 @@ class TestReceiversAndRefusals:
         Args:
             member: The member called.
         """
-        container = _container()
+        call = getattr(_container(), member)
         with pytest.raises(TypeError):
-            getattr(container, member)("time", False)
+            call("time", False)
 
     def test_an_auxiliary_spanning_the_dimension_is_dropped(self):
         """ERA5's `expver` spans `valid_time`, which is removed, so it is dropped with a warning."""

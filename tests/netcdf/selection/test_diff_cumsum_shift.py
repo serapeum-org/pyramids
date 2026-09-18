@@ -432,9 +432,9 @@ class TestReceiversAndRefusals:
         Args:
             member: The member called.
         """
-        variable = _container().get_variable("v")
+        call = getattr(_container().get_variable("v"), member)
         with pytest.raises(ValueError, match="does not match any band dimension"):
-            getattr(variable, member)("level")
+            call("level")
 
     @pytest.mark.parametrize("member", ["diff", "cumsum", "shift"])
     def test_a_dimension_no_variable_has(self, member):
@@ -443,9 +443,9 @@ class TestReceiversAndRefusals:
         Args:
             member: The member called.
         """
-        container = _container()
+        call = getattr(_container(), member)
         with pytest.raises(ValueError, match="not a non-spatial dimension"):
-            getattr(container, member)("level")
+            call("level")
 
     @pytest.mark.parametrize(
         ("member", "positional"),
@@ -462,6 +462,6 @@ class TestReceiversAndRefusals:
             member: The member called.
             positional: The arguments passed positionally, the option last.
         """
-        container = _container()
+        call = getattr(_container(), member)
         with pytest.raises(TypeError):
-            getattr(container, member)("time", *positional)
+            call("time", *positional)

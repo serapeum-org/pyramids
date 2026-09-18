@@ -266,7 +266,8 @@ class TestWeightedDimensions:
             shape: The expected `(rows, columns)`.
         """
         variable = _container().weighted(np.ones((NY, NX)), dims).get_variable("v")
-        assert (variable.rows, variable.columns) == shape
+        assert variable.rows == shape[0], (variable.rows, shape)
+        assert variable.columns == shape[1], (variable.columns, shape)
 
     def test_weights_over_the_whole_variable(self):
         """Weights shaped like the grid work when only one axis is weighted.

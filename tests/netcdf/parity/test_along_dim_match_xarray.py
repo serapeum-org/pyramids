@@ -479,8 +479,9 @@ class TestExtremumOnGaps:
             getattr(gapped, member)("time").get_variable("v").read_array()
         ).ravel()
         assert ours[0] == -1, ours
+        theirs_call = getattr(exported, member)
         with pytest.raises(ValueError, match="All-NaN slice"):
-            getattr(exported, member)("time")
+            theirs_call("time")
         without_gaps = exported.isel(x=slice(1, None))
         theirs = np.asarray(getattr(without_gaps, member)("time").values).ravel()
         np.testing.assert_array_equal(ours[1:], theirs)
