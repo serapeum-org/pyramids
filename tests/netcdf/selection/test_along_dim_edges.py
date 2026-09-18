@@ -1057,3 +1057,54 @@ class TestCumSumWithoutSkipping:
         """The default keeps gaps as gaps, so it still declares the value they hold."""
         result = self._variable([1.0, NDV, 4.0, 8.0]).cumsum("time")
         assert result.no_data_value[0] == pytest.approx(NDV)
+
+
+class TestNearSentinelIntegers:
+    """A value that merely rounds onto the sentinel in float64 is not a gap.
+
+    GDAL declares a no-data value as a C double, so an `int64` sentinel is exact only up to
+    `2**53`. Above that the values themselves still are — `2**53 + 1` is a different `int64`
+    from `2**53` — and it is the mask, not the arithmetic, that has to tell them apart.
+    """
+
+    @staticmethod
+    def _variable() -> NetCDF:
+        """An `int64` variable holding `2**53 + 1` beside the sentinel `2**53`.
+
+        Returns:
+            NetCDF: The variable, four steps of one cell.
+        """
+        return NetCDF.from_array(
+            np.array([2**53 + 1, 7, 2**53, 9], dtype="int64").reshape(4, 1, 1),
+            geo_ref=GEO,
+            variable_name="v",
+            no_data_value=2**53,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+        ).get_variable("v")
+
+    def test_count_sees_three_valid_cells(self):
+        """`reduce(how="count")` never casts, so it has always counted the real value."""
+        counted = self._variable().reduce("time", "count")
+        assert int(np.asarray(counted.read_array()).ravel()[0]) == 3
+
+    def test_the_running_total_counts_it_too(self):
+        """`cumsum` agrees with `count`: the first step holds a value, not a gap.
+
+        Test scenario:
+            The gap mask was applied after the cast to float64, where `2**53 + 1` rounds onto
+            the sentinel, so the real value was masked away and the total read
+            `[..., 7.0, 7.0, 16.0]` — every step after the first missing it.
+        """
+        totals = np.asarray(self._variable().cumsum("time").read_array()).ravel()
+        assert totals[1] == pytest.approx(float(2**53) + 8.0)
+        assert totals[3] == pytest.approx(float(2**53) + 16.0)
+
+    def test_the_extremum_is_the_real_maximum(self):
+        """The largest value is at step 0; masking it made `argmax` answer the last step."""
+        found = self._variable().argmax("time")
+        assert int(np.asarray(found.read_array()).ravel()[0]) == 0
+
+    def test_the_sentinel_itself_is_still_a_gap(self):
+        """The cell that does hold the sentinel is masked, so it adds nothing."""
+        totals = np.asarray(self._variable().cumsum("time").read_array()).ravel()
+        assert totals[2] == pytest.approx(totals[1])

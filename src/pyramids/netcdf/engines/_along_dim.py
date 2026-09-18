@@ -516,6 +516,12 @@ position is never negative, so it cannot be mistaken for one."""
 def _gaps_as_nan(arr: Any, ndv: Any) -> Any:
     """A float64 copy of `arr` holding NaN wherever it holds a gap.
 
+    The gaps are found in the values **as stored**, before the cast. float64 carries 53 bits of
+    mantissa, so two `int64` values above `2**53` can land on the same float: masking after the
+    cast dropped a real value that merely sat next to the sentinel. The cast still costs those
+    values their exact magnitude — a limit of computing in float64, which `reduce` and every
+    member built on it share — but no longer costs them their existence.
+
     Args:
         arr: The values, numpy or dask.
         ndv: The sentinel as it appears in `arr`, or `None`.
@@ -524,7 +530,7 @@ def _gaps_as_nan(arr: Any, ndv: Any) -> Any:
         The float64 values, the sentinel and any NaN both NaN.
     """
     data = arr.astype("float64")
-    return data if ndv is None else np.where(data == ndv, np.nan, data)
+    return data if ndv is None else np.where(arr == ndv, np.nan, data)
 
 
 def _slice_axis(arr: Any, axis: int, start: int, stop: int) -> Any:
