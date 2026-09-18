@@ -64,6 +64,7 @@ def _weighted_result(
         ValueError: As `_weighted_axes` and `_weights_for` raise, or the container has no data
             variables.
     """
+    dims = _reusable_dims(dims)
     if _reduces_as_a_variable(nc):
         result = _weighted_variable(nc, nc, weights, dims, how=how, skipna=skipna)
     else:
@@ -268,6 +269,22 @@ def _spatial_names(var: NetCDF) -> tuple[str, str]:
     else:
         names = (_ROW_ALIAS, _COLUMN_ALIAS)
     return names
+
+
+def _reusable_dims(dims: Any) -> Any:
+    """`dims` in a form that survives being read more than once.
+
+    A container reads `dims` once to decide which variables take part, and again for each
+    variable's axes, so a one-shot iterable would be exhausted by the first read and the call
+    would be refused for an empty `dims` the caller never passed.
+
+    Args:
+        dims: `None`, one name, or any iterable of names.
+
+    Returns:
+        Any: `None` and a single name unchanged, any other iterable as a tuple.
+    """
+    return dims if dims is None or isinstance(dims, str) else tuple(dims)
 
 
 def _weighted_names(var: NetCDF, dims: Any) -> tuple[str, ...]:
