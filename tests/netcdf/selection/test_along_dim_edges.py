@@ -787,6 +787,37 @@ class TestGapsAsNan:
         arr = np.asarray([[1.0, np.nan]])
         assert np.isnan(_gaps_as_nan(arr, NDV)[0, 1]), "a stored NaN must stay NaN"
 
+    def test_a_value_that_only_rounds_onto_the_sentinel_is_kept(self):
+        """`2**53 + 1` is a different `int64` from the sentinel, so it is not a gap.
+
+        Test scenario:
+            The comparison ran on the float64 copy, where both values are `9007199254740992.0`,
+            so the neighbour was masked away with the sentinel — silently, and for every member
+            built on this helper.
+        """
+        arr = np.asarray([2**53 + 1, 7, 2**53], dtype="int64")
+        masked = _gaps_as_nan(arr, 2**53)
+        assert not np.isnan(masked[0]), (
+            "a value next to the sentinel must survive the mask"
+        )
+
+    def test_the_sentinel_at_that_magnitude_is_still_a_gap(self):
+        """Comparing before the cast still finds the cell that really holds the sentinel."""
+        arr = np.asarray([2**53 + 1, 7, 2**53], dtype="int64")
+        assert np.isnan(_gaps_as_nan(arr, 2**53)[2]), (
+            "the sentinel itself must be masked"
+        )
+
+    def test_the_cast_still_costs_the_magnitude(self):
+        """float64 cannot hold `2**53 + 1`, so the value comes back rounded — only not masked.
+
+        Test scenario:
+            Masking before the cast keeps the cell; it does not make float64 exact, which is a
+            limit every member computing in float64 shares.
+        """
+        arr = np.asarray([2**53 + 1], dtype="int64")
+        assert _gaps_as_nan(arr, None)[0] == float(2**53), "float64 rounds, as it must"
+
 
 class TestSliceAxis:
     """`_slice_axis` cuts one axis and leaves the others whole."""
@@ -852,6 +883,20 @@ class TestDaskHelpers:
         """With no sentinel the widening alone still answers a dask array."""
         arr, values = self._dask_array()
         assert_array_equal(np.asarray(_gaps_as_nan(arr, None)), values)
+
+    def test_gaps_as_nan_masks_before_the_cast_on_dask_too(self):
+        """The streamed mask compares the stored `int64`, as the eager one does.
+
+        Test scenario:
+            The lazy path builds the same expression, so a comparison against the float64 copy
+            would lose `2**53 + 1` on a chunked read exactly as it did on a resident array.
+        """
+        import dask.array as da
+
+        values = np.asarray([2**53 + 1, 7, 2**53], dtype="int64")
+        masked = np.asarray(_gaps_as_nan(da.from_array(values, chunks=2), 2**53))
+        assert not np.isnan(masked[0]), "the neighbour must survive the streamed mask"
+        assert np.isnan(masked[2]), "the sentinel must still be masked"
 
     def test_shifted_stays_lazy(self):
         """A dask shift answers a dask array, so `shift` streams like the other members."""
@@ -1151,3 +1196,174 @@ class TestDiffOnANarrowIntegerBand:
         ).get_variable("v")
         values = np.asarray(variable.diff("time").read_array()).ravel()
         assert values[0] == pytest.approx(200.0)
+
+
+class TestRollingCountIsItsOwnValidCount:
+    """`rolling(how="count")` gates on the count it computed, not on a second pass.
+
+    `_reduce_axis` sends `count` straight to `_count_axis`, so for that statistic the window's
+    value *is* its number of valid cells. The window is then counted once rather than twice —
+    which must not change any answer, and must not leak into the other statistics, whose value
+    is nothing like a count.
+    """
+
+    @staticmethod
+    def _variable(values: list[float]) -> NetCDF:
+        """A one-cell variable over `time`, declaring `NDV`.
+
+        Args:
+            values: One value per step.
+
+        Returns:
+            NetCDF: The variable.
+        """
+        return NetCDF.from_array(
+            np.array(values).reshape(len(values), 1, 1),
+            geo_ref=GEO,
+            variable_name="v",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=list(range(len(values)))),
+        ).get_variable("v")
+
+    @staticmethod
+    def _hand_counted(values: list[float], window: int, center: bool) -> list[int]:
+        """The valid cells of each window, counted by hand from `_window_members`.
+
+        Args:
+            values: The stored values, `NDV` marking a gap.
+            window: Steps per window.
+            center: Whether the window is centred on its step.
+
+        Returns:
+            list[int]: One count per step.
+        """
+        stored = np.array(values)
+        return [
+            int(
+                np.sum(
+                    stored[_window_members(position, len(values), window, center)]
+                    != NDV
+                )
+            )
+            for position in range(len(values))
+        ]
+
+    @pytest.mark.parametrize("center", [False, True], ids=["trailing", "centred"])
+    def test_every_window_holds_its_own_count(self, center):
+        """With `min_periods=1` nothing is gated away, so each step is its window's count.
+
+        Args:
+            center: Whether the window is centred.
+        """
+        values = [1.0, NDV, 3.0, 4.0, NDV, 6.0]
+        result = self._variable(values).rolling(
+            "time", 3, how="count", center=center, min_periods=1
+        )
+        assert np.asarray(result.read_array()).ravel().tolist() == self._hand_counted(
+            values, 3, center
+        ), f"centred={center}"
+
+    def test_a_window_short_of_min_periods_is_marked(self):
+        """The gate reads the count itself: only the window of two valid cells survives it."""
+        values = [1.0, 2.0, NDV, 4.0]
+        result = self._variable(values).rolling("time", 2, how="count", min_periods=2)
+        assert np.asarray(result.read_array()).ravel().tolist() == [-1, 2, -1, -1], (
+            np.asarray(result.read_array()).ravel().tolist()
+        )
+
+    def test_an_all_gap_window_is_marked_even_at_one(self):
+        """A window with nothing valid counts zero, which is below any `min_periods`."""
+        result = self._variable([NDV, NDV, NDV]).rolling(
+            "time", 2, how="count", min_periods=1
+        )
+        assert np.asarray(result.read_array()).ravel().tolist() == [-1, -1, -1], (
+            np.asarray(result.read_array()).ravel().tolist()
+        )
+
+    def test_the_count_declares_its_own_sentinel(self):
+        """A gated count is `-1`, declared, since a real count is never negative."""
+        result = self._variable([1.0, NDV, 3.0]).rolling("time", 2, how="count")
+        assert result.no_data_value[0] == -1, result.no_data_value
+
+    def test_another_statistic_is_still_gated_on_the_count(self):
+        """A mean of `0.0` is not a window of zero valid cells, and must not be gated as one.
+
+        Test scenario:
+            Reusing the value as the count for every statistic — not for `count` alone — would
+            compare the mean against `min_periods`, so a window of zeroes would come back a gap
+            although every cell in it is valid.
+        """
+        result = self._variable([0.0, 0.0, 0.0]).rolling(
+            "time", 2, how="mean", min_periods=1
+        )
+        values = np.asarray(result.read_array()).ravel()
+        assert_allclose(values, np.zeros(3))
+
+    def test_the_count_matches_a_reduce_over_the_same_window(self):
+        """Each step holds what reducing that window with `count` holds, which is the contract."""
+        values = [1.0, NDV, 3.0, 4.0]
+        rolled = np.asarray(
+            self._variable(values)
+            .rolling("time", 2, how="count", min_periods=1)
+            .read_array()
+        ).ravel()
+        for position in range(len(values)):
+            members = _window_members(position, len(values), 2, False)
+            window = self._variable([values[index] for index in members])
+            reduced = np.asarray(window.reduce("time", "count").read_array()).ravel()[0]
+            assert rolled[position] == reduced, f"step {position}"
+
+
+class TestTheDroppedAuxiliaryWarningNamesTheCaller:
+    """A member run through the along-dimension loop reports the warning against the user's line.
+
+    `_carry_auxiliaries` is five frames below the call the user wrote — the member, its façade,
+    the `Selection` method, the loop, the helper — and it is told so rather than assuming it, so
+    the warning can be filtered by module or turned into an error where it was raised.
+    """
+
+    @staticmethod
+    def _era5() -> NetCDF:
+        """The ERA5 container, whose `expver` spans `valid_time`.
+
+        Returns:
+            NetCDF: The container.
+        """
+        return NetCDF.read_file(str(ERA5_T2M))
+
+    @pytest.mark.parametrize("member", ["diff", "argmin", "argmax", "idxmin", "idxmax"])
+    def test_the_warning_is_attributed_to_this_file(self, member):
+        """Every member that removes or shortens `valid_time` drops `expver` against this line.
+
+        Args:
+            member: The member called.
+
+        Test scenario:
+            A stacklevel counted for another path reported the warning against `netcdf.py`,
+            where a caller filtering by module never sees it.
+        """
+        with pytest.warns(UserWarning) as caught:
+            getattr(self._era5(), member)("valid_time")
+        dropped = [
+            record
+            for record in caught
+            if "dropped auxiliary variable" in str(record.message)
+        ]
+        assert dropped, f"{member}() dropped nothing"
+        assert dropped[0].filename == __file__, dropped[0].filename
+
+    @pytest.mark.parametrize("member", ["rolling", "cumsum", "shift"])
+    def test_a_member_that_keeps_the_length_drops_nothing(self, member):
+        """`expver` stays the right length, so it is carried and no warning is raised.
+
+        Args:
+            member: The member called.
+        """
+        container = self._era5()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            if member == "rolling":
+                container.rolling("valid_time", 2)
+            else:
+                getattr(container, member)("valid_time")
+        assert _dropped(caught) == [], _dropped(caught)

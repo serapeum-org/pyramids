@@ -966,3 +966,58 @@ class TestRefusalsSayWhatIsAccepted:
         with pytest.raises(ValueError, match="cannot broadcast") as error:
             variable.weighted(np.ones((3, 3)))
         assert str(error.value).count("(2, 2)") == 1, str(error.value)
+
+
+class TestNearSentinelIntegersAreWeighted:
+    """A value that merely rounds onto the sentinel in float64 is weighted, not skipped.
+
+    `weighted` reaches the same gap mask the along-dimension members use, so the magnitudes an
+    `int64` band can hold above `2**53` — where a GDAL no-data value, a C double, stops being
+    exact — have to be told apart before the values are cast.
+    """
+
+    @staticmethod
+    def _variable() -> NetCDF:
+        """A 2x2 `int64` variable holding `2**53 + 1` beside the sentinel `2**53`.
+
+        Returns:
+            NetCDF: The variable.
+        """
+        return NetCDF.from_array(
+            np.array([[2**53 + 1, 7], [2**53, 9]], dtype="int64"),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+            no_data_value=2**53,
+        ).get_variable("v")
+
+    def test_the_weighted_sum_holds_the_near_sentinel_value(self):
+        """Three cells are valid, so the sum is their total at unit weights.
+
+        Test scenario:
+            The mask ran on the float64 copy, where `2**53 + 1` and `2**53` are the same
+            number, so the largest value in the grid was weighted as a gap and the sum came
+            back `16.0`.
+        """
+        result = self._variable().weighted(np.ones((2, 2)), how="sum")
+        answer = float(np.asarray(result.read_array()).ravel()[0])
+        assert answer == pytest.approx(float(2**53 + 1 + 7 + 9)), answer
+
+    def test_the_weights_total_counts_three_cells(self):
+        """`sum_of_weights` totals the weights of the cells there are, which is three of four."""
+        result = self._variable().weighted(np.ones((2, 2)), how="sum_of_weights")
+        answer = float(np.asarray(result.read_array()).ravel()[0])
+        assert answer == pytest.approx(3.0), answer
+
+    def test_the_sentinel_itself_is_still_left_out(self):
+        """The cell that does hold the sentinel is a gap, so it adds neither value nor weight."""
+        result = self._variable().weighted(np.full((2, 2), 2.0), how="sum_of_weights")
+        answer = float(np.asarray(result.read_array()).ravel()[0])
+        assert answer == pytest.approx(6.0), answer
+
+    def test_not_skipping_gaps_weights_every_cell(self):
+        """`skipna=False` weights the sentinel as an ordinary number, so all four count."""
+        result = self._variable().weighted(
+            np.ones((2, 2)), how="sum_of_weights", skipna=False
+        )
+        answer = float(np.asarray(result.read_array()).ravel()[0])
+        assert answer == pytest.approx(4.0), answer
