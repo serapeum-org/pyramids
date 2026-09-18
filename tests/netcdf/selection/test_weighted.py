@@ -514,3 +514,72 @@ class TestWeightedGeoreferencing:
         result = source.weighted(np.array([3.0, 1.0]), "time")
         assert result.geotransform == source.geotransform
         assert result.get_variable("t").geotransform == source.geotransform
+
+
+class TestWeightsThatCancel:
+    """Weights summing to zero: the sum exists, the statistics that divide by it do not."""
+
+    @staticmethod
+    def _variable() -> NetCDF:
+        """A one-step 2x2 variable holding `[[1, 2], [3, 4]]`.
+
+        Returns:
+            NetCDF: The variable.
+        """
+        return NetCDF.from_array(
+            np.array([[1.0, 2.0], [3.0, 4.0]]),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+        ).get_variable("v")
+
+    @staticmethod
+    def _weights() -> np.ndarray:
+        """Weights `[[1, -1], [1, -1]]`, which cancel to a total of zero.
+
+        Returns:
+            np.ndarray: The weights.
+        """
+        return np.array([[1.0, -1.0], [1.0, -1.0]])
+
+    def test_the_sum_is_the_sum(self):
+        """`1 - 2 + 3 - 4 == -2`, which is what xarray answers too.
+
+        Test scenario:
+            The zero-total guard gated every statistic, so the sum came back NaN although
+            nothing had been divided — while `sum_of_weights` reported `0.0` for the same
+            slice, a defined answer for a total the sum refused to use.
+        """
+        result = self._variable().weighted(self._weights(), how="sum")
+        assert float(np.asarray(result.read_array()).ravel()[0]) == pytest.approx(-2.0)
+
+    def test_the_mean_is_still_no_data(self):
+        """A mean divides by the total, so a zero total leaves it undefined."""
+        result = self._variable().weighted(self._weights(), how="mean")
+        assert np.isnan(float(np.asarray(result.read_array()).ravel()[0]))
+
+    @pytest.mark.parametrize("how", ["std", "var"])
+    def test_the_spread_is_still_no_data(self, how):
+        """`std` and `var` divide by the total as well.
+
+        Args:
+            how: The statistic.
+        """
+        result = self._variable().weighted(self._weights(), how=how)
+        assert np.isnan(float(np.asarray(result.read_array()).ravel()[0]))
+
+    def test_the_total_is_zero(self):
+        """`sum_of_weights` reports the total it found, which is zero."""
+        result = self._variable().weighted(self._weights(), how="sum_of_weights")
+        assert float(np.asarray(result.read_array()).ravel()[0]) == pytest.approx(0.0)
+
+    def test_a_slice_with_no_valid_cell_has_no_sum(self):
+        """An all-gap slice has nothing to add, so the sum is no-data even so."""
+        variable = NetCDF.from_array(
+            np.full((2, 2), NDV),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+            no_data_value=NDV,
+        ).get_variable("v")
+        result = variable.weighted(self._weights(), how="sum")
+        read = np.asarray(result.read_array()).ravel()[0]
+        assert np.isnan(read) or read == result.no_data_value[0]

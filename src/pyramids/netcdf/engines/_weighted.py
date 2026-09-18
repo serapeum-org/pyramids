@@ -568,9 +568,11 @@ def _weighted_statistic(
     """The weighted statistic of `arr` over `axes`, the reduced axes kept as length 1.
 
     A gap leaves both sums, so a weighted mean is the mean of the cells there are. A slice with
-    no valid cell, or whose weights total zero, has no statistic and comes back NaN — the
-    `sum_of_weights` of a slice with valid cells is still its total, zero included, where xarray
-    answers NaN for a zero total.
+    no valid cell has no statistic at all and comes back NaN. A slice whose weights total zero
+    loses only what divides by that total — `mean`, `std` and `var` — while `sum` answers the
+    sum it computed (weights of `[1, -1, 1, -1]` over `[1, 2, 3, 4]` give `-2.0`, as xarray
+    answers) and `sum_of_weights` answers the total it found, `0.0` included, where xarray
+    answers NaN for it.
 
     A NaN is left out of both sums whatever `skipna` says, since the sums are masked on
     `~isnan` either way; `skipna` only decides whether the declared sentinel becomes a NaN
@@ -600,13 +602,14 @@ def _weighted_statistic(
             axis=axes,
             keepdims=True,
         )
+        # A sum needs no non-zero total; only the division by it does.
         usable = anything & (total != 0)
         safe = np.where(total == 0, 1.0, total)
         mean = weighted_sum / safe
         if how == "sum_of_weights":
             values = np.where(anything, total, np.nan)
         elif how == "sum":
-            values = np.where(usable, weighted_sum, np.nan)
+            values = np.where(anything, weighted_sum, np.nan)
         elif how == "mean":
             values = np.where(usable, mean, np.nan)
         else:

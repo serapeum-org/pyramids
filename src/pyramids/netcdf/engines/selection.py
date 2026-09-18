@@ -2443,10 +2443,11 @@ class Selection(_Engine["NetCDF"]):
         keeps the grid and removes that dimension, as `reduce` removes it.
 
         A gap (the declared no-data value or NaN) leaves both sums, so the answer is the
-        statistic of the cells there are. A slice with no valid cell, or whose weights total
-        zero, has no statistic and comes back NaN, the declared no-data value — except
-        `how="sum_of_weights"`, which answers the total it found, `0.0` included, for any slice
-        that has a valid cell at all, where xarray answers NaN for a zero total.
+        statistic of the cells there are. A slice with no valid cell has no statistic and comes
+        back NaN, the declared no-data value. Weights that cancel to a total of zero cost only
+        the statistics that divide by that total — `mean`, `std` and `var` — while `sum`
+        answers the sum it computed and `sum_of_weights` answers `0.0`; xarray answers NaN for
+        that `sum_of_weights`.
 
         **The single cell's footprint.** In memory the result is exact: its `geotransform`
         and `bounds` describe the extent that was reduced, the cell's `lat` / `lon` are its
