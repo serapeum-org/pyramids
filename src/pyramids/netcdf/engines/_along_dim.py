@@ -59,6 +59,13 @@ class _AlongDim(ABC):
             dimension that changes length is dropped with a warning.
     """
 
+    # One contract, declared three ways for reasons outside it. `verb` and `keeps_length` are
+    # class constants, so they are `ClassVar`: an unannotated assignment is invisible to
+    # `dataclass`, and annotating one without `ClassVar` would turn it into a constructor
+    # argument. `caller` is a plain field because two operations take it as one — `_Extremum`
+    # serves four members — and mypy refuses a field that overrides a `ClassVar`. `_Reduction`
+    # and `_Diff` answer `keeps_length` from their own state, so they override it with a
+    # property and carry the `override` waiver that needs.
     caller: str = ""
     verb: ClassVar[str] = ""
     keeps_length: ClassVar[bool] = False
@@ -215,7 +222,14 @@ class _Rolling(_AlongDim):
             members = _window_members(position, size, self.window, self.center)
             block = np.take(arr, members, axis=axis)
             value = nc._reduce_axis(block, axis, self.how, True, ndv, self.q)
-            valid = nc._count_axis(block, axis, "count", True, ndv)
+            # `_reduce_axis` sends `count` straight to `_count_axis`, so for that statistic the
+            # window's valid cells are the value itself — counting them again would be the same
+            # pass over the same block.
+            valid = (
+                value
+                if self.how == "count"
+                else nc._count_axis(block, axis, "count", True, ndv)
+            )
             steps.append(np.where(valid >= self.min_periods, value, short))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
