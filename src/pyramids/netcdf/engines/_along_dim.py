@@ -181,12 +181,12 @@ class _Rolling(_AlongDim):
         Each window is taken out of the variable and reduced along `dim` with the same helper a
         `reduce` over that window uses, so a step holds exactly what reducing its window holds.
 
-        One window at a time, rather than one strided view of all of them: the view costs the
-        same time (every cell of every window is still visited) and holds every window's
-        temporaries at once — 8 GB against 160 MB on a 200-step 200x200 cube with `window=100`
-        — and it would leave the streamed (dask) path reducing a padded overlap graph instead
-        of the store's own chunks. The cost is linear in the window either way, and
-        `Selection.rolling` states it.
+        One window at a time, rather than one strided view of all of them: the view runs the
+        same reduction somewhat faster — 6 s against 11 s on a 200-step 200x200 cube with
+        `window=100` — but holds every window's temporaries at once, 8.3 GB of peak memory
+        against 0.6 GB for the same call, and it would leave the streamed (dask) path reducing
+        a padded overlap graph instead of the store's own chunks. The cost is linear in the
+        window either way, and `Selection.rolling` states it.
 
         Args:
             nc: The object `rolling` was called on.

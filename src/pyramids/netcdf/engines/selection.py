@@ -1770,11 +1770,12 @@ class Selection(_Engine["NetCDF"]):
 
         **Cost.** Every step's window is reduced in full, so the work is the axis length times
         the window times the cell count — a window of 100 costs about ten times a window of 10,
-        not the same. A 200-step 200x200 cube takes roughly 4 s at `window=100` here, and a
-        long window over a large grid is correspondingly slow. Reducing one strided view of all
-        the windows at once does not help: it is no faster (the reduction still visits every
-        cell of every window) and it holds the whole view's temporaries at once — measured at
-        8 GB against 160 MB for the same call — so the windows are taken one at a time on
+        not the same. A 200-step 200x200 in-memory cube measures 1.2 s at `window=10` and 11 s
+        at `window=100` here, so a long window over a large grid is correspondingly slow.
+        Reducing one strided view of all the windows at once buys part of that back — 6 s for
+        the same call — but it holds every window's temporaries at once, 8.3 GB of peak memory
+        against 0.6 GB, and it would leave the streamed (dask) path reducing a padded overlap
+        graph instead of the store's own chunks; so the windows are taken one at a time on
         purpose.
 
         Args:
@@ -2454,9 +2455,10 @@ class Selection(_Engine["NetCDF"]):
         Weighting the spatial axes leaves no cells for the answer to sit in, so the result is a
         raster of **one cell spanning the source's extent**, keeping the band dimensions and
         their stamps: `nc.weighted("area")` on a `(valid_time, latitude, longitude)` container
-        answers one value per step, and `sel`, `isel`, `reduce` and `to_file` all still work on
-        it. Weighting one spatial axis leaves the other in place, and weighting a band dimension
-        keeps the grid and removes that dimension, as `reduce` removes it.
+        answers one value per step, `reduce` and `to_file` still work on the result, and `sel` /
+        `isel` on the variable taken from it, as they do on any container's variable. Weighting
+        one spatial axis leaves the other in place, and weighting a band dimension keeps the
+        grid and removes that dimension, as `reduce` removes it.
 
         A gap (the declared no-data value or NaN) leaves both sums, so the answer is the
         statistic of the cells there are. A slice with no valid cell has no statistic and comes
@@ -2467,12 +2469,16 @@ class Selection(_Engine["NetCDF"]):
 
         **The single cell's footprint.** In memory the result is exact: its `geotransform`
         and `bounds` describe the extent that was reduced, the cell's `lat` / `lon` are its
-        centre, and a kept spatial axis keeps its own coordinates. **Writing it to a NetCDF
-        loses the reduced axis' width**: the file records coordinate *values*, and one value
-        carries no spacing, so reading the file back reports a unit cell around that centre.
-        The values, the band dimensions, their stamps and the CRS survive the round trip
-        exactly. Any one-cell-wide raster written this way has the same limit; keep the source
-        (or `source.bounds`) if the extent has to stay on record in the file.
+        centre, and a kept spatial axis keeps its own coordinates. `cell_size` is the one
+        property that does not follow — it keeps the rebuilt store's index-space `1.0`, whatever
+        the stamped geotransform says — so measure the cell from `geotransform` or `bounds`.
+        **Writing the result to a NetCDF loses the reduced axis' width**: the file records
+        coordinate *values*, and one value carries no spacing, so the reopened container reports
+        a unit cell around that centre, and a variable taken from it falls back to index space
+        altogether, since GDAL declines to georeference a one-pixel-wide subdataset. The values,
+        the band dimensions, their stamps and the CRS survive the round trip exactly. Any
+        one-cell-wide raster written this way has the same limit; keep the source (or
+        `source.bounds`) if the extent has to stay on record in the file.
 
         Args:
             weights: `"area"` for `cos(latitude)` per row, which needs a geographic CRS and
@@ -2542,8 +2548,10 @@ class Selection(_Engine["NetCDF"]):
               [2.515, 6.515]
               >>> mean._band_dim_values_map["time"]
               [0.0, 6.0]
-              >>> float(mean.cell_size)  # a unit cell, not the 2-degree span it reduced
-              1.0
+              >>> mean.geotransform  # the one cell spans the 2 degrees it reduced
+              (0.0, 2.0, 0, 60.0, 0, -2.0)
+              >>> mean.bounds.total_bounds.tolist()
+              [0.0, 58.0, 2.0, 60.0]
 
               ```
             - Equal weights give the plain mean, and the totals are available too:

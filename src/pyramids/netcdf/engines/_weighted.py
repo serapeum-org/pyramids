@@ -4,11 +4,13 @@
 alone, so they share `_along_dim`'s loop. A weighted mean over latitude and longitude instead
 collapses the grid itself — the answer has no cells to sit in — so it runs here, rebuilding the
 result on a grid of one cell. That keeps it a `NetCDF`: it still carries its band dimensions and
-their stamps, and `sel`, `isel`, `reduce` and `to_file` all still work on it.
+their stamps, `reduce` and `to_file` still work on the result, and `sel` / `isel` on the variable
+taken from it.
 
-`_weighted_geotransform` hands the rebuild a cell spanning the source extent, but a rebuilt store
-whose row or column axis is one cell long has no spacing to derive a geotransform from, so the
-footprint does not survive — see `Selection.weighted` for what the result reports instead.
+`_weighted_geotransform` hands the rebuild a cell spanning the source extent. A rebuilt store
+whose row or column axis is one cell long has no spacing to derive that back from, so `_stamped`
+puts the grid on the result rather than letting it be guessed; only a file round trip still loses
+it — see `Selection.weighted` for what the reopened file reports.
 """
 
 from __future__ import annotations
