@@ -148,7 +148,16 @@ def _weighted_container(
                 nc, var, weights, dims, how=how, skipna=skipna
             )
             arr, band_names, values_map, ndv = applied
-            removed = [name for name in names if name in var._band_dim_names]
+            removed = list(
+                dict.fromkeys(
+                    [
+                        *removed,
+                        *_removed_dimensions(
+                            var, names, nc._variable_dim_names(rg, var_name)
+                        ),
+                    ]
+                )
+            )
             grid = geotransform if grid is None else grid
         else:
             arr = nc._materialize_variable_array(var)
@@ -183,6 +192,47 @@ def _weighted_container(
     cast("NetCDF", result)._band_dim_time_attrs = time_attrs
     _carry_auxiliaries(nc, cast("NetCDF", result), rg, aux_vars, removed, "weighted")
     return cast("NetCDF", result)
+
+
+def _removed_dimensions(
+    var: NetCDF, names: tuple[str, ...], declared: list[str]
+) -> list[str]:
+    """The dimensions this weighting leaves no full-length axis of, as the store names them.
+
+    A band dimension weighted over is gone from the result; a spatial axis stays but comes back
+    one cell long. Either way an auxiliary variable spanning it cannot be carried at its old
+    length — the container would declare that dimension as two different sizes — so both count
+    as removed and `_carry_auxiliaries` drops what spans them.
+
+    A spatial axis is answered under the name the **store** declares, which is the name an
+    auxiliary variable's dimensions carry. The variable itself may know it by another: reading a
+    y-ascending store flips the rows through a view, and the view renames that dimension
+    (`lat` becomes `subset_lat_169_-1_170`), so matching the view's name against `lat_bnds`
+    would miss.
+
+    Args:
+        var: The variable being weighted.
+        names: The dimensions `weighted` was asked for, however the caller named them.
+        declared: The store's dimension names for this variable, positionally.
+
+    Returns:
+        list[str]: The removed dimensions, in the order they were named.
+    """
+    row, column = _spatial_names(var)
+    indices = var._md_spatial_dims
+    if indices is not None and len(declared) > max(indices):
+        store_row, store_column = declared[indices[1]], declared[indices[0]]
+    else:
+        store_row, store_column = row, column
+    gone: list[str] = []
+    for name in names:
+        if name in var._band_dim_names:
+            gone.append(name)
+        elif name in (row, _ROW_ALIAS):
+            gone.append(store_row)
+        elif name in (column, _COLUMN_ALIAS):
+            gone.append(store_column)
+    return gone
 
 
 def _takes_part(var: NetCDF, names: tuple[str, ...]) -> bool:

@@ -45,6 +45,12 @@ ERA5_T2M = (
     / "netcdf"
     / "cf__5v__1d4-3d1__geog__y-desc.nc"
 )
+SPATIAL_BOUNDS = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "netcdf"
+    / "cf__7v__1d3-2d3-3d1__y-asc.nc"
+)
 
 
 @pytest.fixture
@@ -709,12 +715,66 @@ class TestWeightedAuxiliaries:
         assert "expver" not in result.variable_names, result.variable_names
 
     def test_weighting_the_grid_keeps_it(self):
-        """A spatial weighting removes no band dimension, so the auxiliary comes along."""
+        """A spatial weighting does not touch `valid_time`, so the auxiliary comes along."""
         container, _ = self._era5()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             result = container.weighted("area")
         assert "expver" in result.variable_names, result.variable_names
+
+    @staticmethod
+    def _bounded() -> NetCDF:
+        """A CF store whose auxiliary variables span its spatial axes.
+
+        Returns:
+            NetCDF: `tos(time, lat, lon)` at 170x180, beside `lat_bnds(lat, bnds)`,
+            `lon_bnds(lon, bnds)` and `time_bnds(time, bnds)`.
+        """
+        return NetCDF.read_file(str(SPATIAL_BOUNDS))
+
+    def test_weighting_the_grid_drops_an_auxiliary_spanning_it(self):
+        """`lat_bnds` spans `lat`, which the weighting leaves one cell long, so it is dropped.
+
+        Test scenario:
+            The dropped list held band dimensions only, so a spatial weighting dropped nothing:
+            the result carried `tos` at 1x1 beside `lat_bnds` at 170x2 and `lon_bnds` at 180x2
+            — one container, three grids — and it survived `to_file`.
+        """
+        with pytest.warns(UserWarning, match="dropped auxiliary variable"):
+            result = self._bounded().weighted("area")
+        assert "lat_bnds" not in result.variable_names, result.variable_names
+        assert "lon_bnds" not in result.variable_names, result.variable_names
+
+    def test_nothing_left_spans_a_reduced_axis(self):
+        """No variable in the result still declares `lat` or `lon`, which are now one cell.
+
+        Test scenario:
+            A carried auxiliary keeps its own shape — `time_bnds(time, bnds)` is untouched, as
+            `reduce` leaves it — so what makes the container consistent is that nothing spans a
+            dimension whose length changed.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = self._bounded().weighted("area")
+        group = result._working_group()
+        for name in result.variable_names:
+            spanned = result._variable_dim_names(group, name)
+            assert "lat" not in spanned, (name, spanned)
+            assert "lon" not in spanned, (name, spanned)
+
+    def test_an_auxiliary_on_an_untouched_dimension_survives(self):
+        """`time_bnds` spans `time`, which a spatial weighting does not touch."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = self._bounded().weighted("area")
+        assert "time_bnds" in result.variable_names, result.variable_names
+
+    def test_weighting_one_axis_drops_only_that_axis_auxiliary(self):
+        """Weighting `x` leaves `lat` alone, so `lat_bnds` comes along and `lon_bnds` does not."""
+        with pytest.warns(UserWarning, match="the reduced dimension 'lon'"):
+            result = self._bounded().weighted(np.ones((170, 180)), "x")
+        assert "lat_bnds" in result.variable_names, result.variable_names
+        assert "lon_bnds" not in result.variable_names, result.variable_names
 
 
 class TestWeightedGeotransform:
