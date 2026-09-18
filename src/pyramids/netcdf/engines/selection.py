@@ -1900,7 +1900,11 @@ class Selection(_Engine["NetCDF"]):
             NetCDF: A container for a container, a variable for a variable, `dim` shorter by
             `n` steps. A float band, or an integer band declaring a no-data value, answers
             float64 and declares that value (NaN when it declares none); an integer band
-            declaring none answers in numpy's own type for the difference, as xarray does.
+            declaring none answers in numpy's own type for the difference, as xarray does —
+            **which means a narrow one wraps**: `int8` `[-100, 100, 0, 0]` differences to
+            `[-56, -100, 0]`, since the true `200` does not fit, exactly as `numpy.diff` and
+            `xarray.DataArray.diff` answer it. Declare a no-data value, or read the band as a
+            wider type, if the differences can leave its range.
 
         Raises:
             TypeError: `n` is not an integer, or is a boolean.

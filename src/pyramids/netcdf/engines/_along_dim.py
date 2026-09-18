@@ -253,7 +253,8 @@ class _Diff(_AlongDim):
             _Applied: The differences, `dim` shortened by `n` and relabelled. A band whose gaps
             have to be skipped — a float band, or an integer one declaring a no-data value —
             answers float64 and declares that value, or NaN when it declares none; an integer
-            band declaring none answers in numpy's own type for the difference.
+            band declaring none answers in numpy's own type for the difference, which a narrow
+            one can overflow — `numpy.diff`'s own answer, kept rather than widened away from it.
 
         Raises:
             ValueError: `n` is not below the length of `dim`, which would leave no steps.

@@ -1108,3 +1108,46 @@ class TestNearSentinelIntegers:
         """The cell that does hold the sentinel is masked, so it adds nothing."""
         totals = np.asarray(self._variable().cumsum("time").read_array()).ravel()
         assert totals[2] == pytest.approx(totals[1])
+
+
+class TestDiffOnANarrowIntegerBand:
+    """An integer band declaring no gap differences as numpy does, overflow included."""
+
+    @staticmethod
+    def _variable() -> NetCDF:
+        """An `int8` variable whose first difference does not fit in `int8`.
+
+        Returns:
+            NetCDF: `[-100, 100, 0, 0]`, declaring no no-data value.
+        """
+        return NetCDF.from_array(
+            np.array([-100, 100, 0, 0], dtype="int8").reshape(4, 1, 1),
+            geo_ref=GEO,
+            variable_name="v",
+            no_data_value=None,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+        ).get_variable("v")
+
+    def test_it_wraps_exactly_as_numpy_does(self):
+        """The true `200` does not fit, so `numpy.diff` answers `-56` and so does this."""
+        values = np.asarray(self._variable().diff("time").read_array()).ravel()
+        assert (
+            values.tolist()
+            == np.diff(np.array([-100, 100, 0, 0], dtype="int8")).tolist()
+        )
+
+    def test_the_band_keeps_its_own_type(self):
+        """Nothing is widened: the differences come back `int8`, as xarray leaves them."""
+        assert np.asarray(self._variable().diff("time").read_array()).dtype == np.int8
+
+    def test_declaring_a_gap_moves_it_onto_float64(self):
+        """A band that declares a no-data value is differenced in float64, which cannot wrap."""
+        variable = NetCDF.from_array(
+            np.array([-100, 100, 0, 0], dtype="int8").reshape(4, 1, 1),
+            geo_ref=GEO,
+            variable_name="v",
+            no_data_value=-128,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+        ).get_variable("v")
+        values = np.asarray(variable.diff("time").read_array()).ravel()
+        assert values[0] == pytest.approx(200.0)
