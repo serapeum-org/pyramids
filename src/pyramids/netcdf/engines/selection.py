@@ -2486,14 +2486,16 @@ class Selection(_Engine["NetCDF"]):
             weights: `"area"` for `cos(latitude)` per row, which needs a geographic CRS and
                 takes each row's latitude from the geotransform — exact on a regular lat/lon
                 grid, an approximation on a curvilinear one, which pyramids reads through a
-                bounding-box affine; an
+                bounding-box affine, and refused when the rows run off the globe, where the
+                cosine turns negative; an
                 array broadcastable to the weighted axes — `(rows, 1)`, `(1, columns)` or
                 `(rows, columns)` for the grid, one weight per step for a band dimension; or a
                 raster on the same grid — a `NetCDF` or a `Dataset`, a GeoTIFF of weights
                 included — whose first band is read as the weights. Weights may
-                be negative, as xarray allows, but may not hold a NaN: replace one with zero to
-                leave that cell out. Only a NaN is refused — a weights raster is read as plain
-                numbers, so its own no-data sentinel would be weighted as an ordinary value.
+                be negative, as xarray allows, but must all be finite: replace a NaN or an
+                infinity with zero to leave that cell out. Only those are refused — a weights
+                raster is read as plain numbers, so its own no-data sentinel would be weighted
+                as an ordinary value.
             dims: The dimensions to weight over: `None` (default) for both spatial axes, one
                 name, or a sequence of names. A spatial axis is named as the store names it
                 (`latitude` / `longitude`) or as `y` / `x`. Spatial axes and band dimensions

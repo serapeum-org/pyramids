@@ -1068,3 +1068,66 @@ class TestTheWarningNamesTheCallerOnEitherRoute:
         with pytest.warns(UserWarning) as caught:
             call(*arguments)
         assert caught[0].filename == __file__, caught[0].filename
+
+
+class TestWeightsThatAreNotWeights:
+    """A weight that cannot be an area is refused rather than quietly used."""
+
+    def test_an_infinite_weight_is_refused(self):
+        """An infinity poisons the sums as silently as a NaN, so it is refused too.
+
+        Test scenario:
+            The guard tested only for NaN, so `[inf, 1.0]` went through and answered
+            `mean=nan, sum=inf` — indistinguishable at the call site from a slice that had no
+            valid cell.
+        """
+        variable = _variable()
+        weights = np.ones((NY, NX))
+        weights[0, 0] = np.inf
+        with pytest.raises(ValueError, match="infinities"):
+            variable.weighted(weights)
+
+    def test_a_missing_weight_is_still_refused_by_name(self):
+        """A NaN keeps its own message, which says what to replace it with."""
+        variable = _variable()
+        weights = np.ones((NY, NX))
+        weights[0, 0] = np.nan
+        with pytest.raises(ValueError, match="missing values"):
+            variable.weighted(weights)
+
+    def test_rows_that_run_off_the_globe_are_refused(self):
+        """`cos(latitude)` below the south pole is negative, which is not an area.
+
+        Test scenario:
+            The latitudes were read off the geotransform and fed to `cos` unchecked, so a grid
+            running past a pole produced negative weights — 20 of 200 rows on this grid — which
+            drag the weight total towards zero and leave `mean` NaN with no explanation.
+        """
+        variable = NetCDF.from_array(
+            np.ones((200, 4)),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 90.0, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+        ).get_variable("v")
+        with pytest.raises(ValueError, match="leave the globe"):
+            variable.weighted("area")
+
+    def test_the_refusal_names_the_first_row_outside(self):
+        """The message names which row left the globe, so the crop is obvious."""
+        variable = NetCDF.from_array(
+            np.ones((200, 4)),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 90.0, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+        ).get_variable("v")
+        with pytest.raises(ValueError, match="row 180 of 200"):
+            variable.weighted("area")
+
+    def test_a_grid_inside_the_globe_is_accepted(self):
+        """The guard does not fire on a grid whose rows all sit on the globe."""
+        variable = NetCDF.from_array(
+            np.ones((180, 4)),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 90.0, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+        ).get_variable("v")
+        assert float(np.asarray(variable.weighted("area").read_array()).ravel()[0]) == (
+            pytest.approx(1.0)
+        )

@@ -493,8 +493,10 @@ def _weight_values(var: NetCDF, weights: Any) -> np.ndarray:
 
     Raises:
         TypeError: `weights` is `None`, which names no weighting.
-        ValueError: An unknown named weighting; a raster on another grid; or weights holding a
-            NaN, which would make every statistic NaN.
+        ValueError: An unknown named weighting; a raster on another grid; or weights that are
+            not all finite — a NaN makes every statistic NaN, and an infinity does the same
+            to the sums it enters, neither distinguishable at the call site from a slice that
+            had no valid cell.
     """
     if weights is None:
         raise TypeError(
@@ -511,10 +513,11 @@ def _weight_values(var: NetCDF, weights: Any) -> np.ndarray:
         values = _raster_weights(var, weights)
     else:
         values = np.asarray(weights, dtype="float64")
-    if np.isnan(values).any():
+    if not np.isfinite(values).all():
+        what = "missing values" if np.isnan(values).any() else "infinities"
         raise ValueError(
-            "weighted() weights cannot contain missing values; replace them with zero to "
-            "leave those cells out."
+            f"weighted() weights cannot contain {what}; replace them with zero to leave "
+            f"those cells out."
         )
     return values
 
@@ -586,7 +589,8 @@ def _area_weights(var: NetCDF) -> np.ndarray:
 
     Raises:
         ValueError: The variable has no CRS, or its CRS is not geographic, where a latitude is
-            not what the rows measure.
+            not what the rows measure; or its rows run off the globe, where the cosine turns
+            negative and a weight stops being an area.
     """
     crs = crs_from_user_input(
         require_crs_spec(var.epsg, var.crs, "compute area weights")
@@ -600,6 +604,14 @@ def _area_weights(var: NetCDF) -> np.ndarray:
     latitudes = np.asarray(
         [geo[3] + (row + 0.5) * geo[5] for row in range(var.rows)], dtype="float64"
     )
+    outside = np.abs(latitudes) > 90.0
+    if outside.any():
+        row = int(np.argmax(outside))
+        raise ValueError(
+            f"weights='area' is cos(latitude), and this raster's rows leave the globe: row "
+            f"{row} of {var.rows} sits at {latitudes[row]:.4f} degrees, whose cosine is "
+            f"negative and is not an area. Crop it to the globe, or pass an array of weights."
+        )
     return np.cos(np.deg2rad(latitudes)).reshape(var.rows, 1)
 
 
