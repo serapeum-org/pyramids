@@ -257,11 +257,17 @@ class TestWhatTheStampIsWorth:
             This is the behaviour the stamp exists to prevent, pinned so the helper cannot be
             removed as a no-op: the container derives `(11.5, 1.0, ...)` and the variable
             `(0.0, 1.0, ...)` — two answers, neither the extent that was reduced.
+
+            The memoised `cell_size` is put back to the store's own as well, because that is
+            the state the stamp replaces: the single-coordinate fallback in
+            `_compute_geotransform` reads `cell_size`, so a stamped width alone is enough to
+            make the derivation right again.
         """
         result = _weighted_source()
         result._stamped_geotransform = None
         result._geotransform = None
         result._derived_geotransform = None
+        result._cell_size = 1.0
         assert result.geotransform != EXTENT_CELL, (
             "the derivation cannot reach the extent"
         )
@@ -294,3 +300,46 @@ class TestTheStampedGridReachesTheCoordinates:
         variable = result.get_variable("v")
         assert float(variable.lon[0]) == pytest.approx(12.0), float(variable.lon[0])
         assert float(variable.lat[0]) == pytest.approx(58.0), float(variable.lat[0])
+
+
+class TestTheStampedCellSize:
+    """`cell_size` is `abs(pixel_width)`, so it has to follow the grid that was stamped."""
+
+    @staticmethod
+    def _source() -> NetCDF:
+        """A 2x2 cube on 5-degree cells.
+
+        Returns:
+            NetCDF: The container, `t(time, y, x)` on `[0, 50, 10, 60]`.
+        """
+        return NetCDF.from_array(
+            np.arange(2 * 2 * 2, dtype="float64").reshape(2, 2, 2),
+            geo_ref=GeoReference(geo=(0.0, 5.0, 0.0, 60.0, 0.0, -5.0), epsg=4326),
+            variable_name="t",
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+        )
+
+    def test_it_matches_the_stamped_geotransform(self):
+        """A weighted result reports the width its own geotransform describes.
+
+        Test scenario:
+            `_stamped` set the geotransform and the value `lat` / `lon` derive from, but not the
+            memoised `cell_size`, which the rebuilt store had already computed from its
+            index-space grid. The result then said `cell_size == 1.0` while its geotransform
+            said the cell was 10 degrees wide — two answers for one raster.
+        """
+        result = self._source().weighted("area")
+        variable = result.get_variable("t")
+        assert float(variable.cell_size) == pytest.approx(abs(variable.geotransform[1]))
+        assert float(result.cell_size) == pytest.approx(abs(result.geotransform[1]))
+
+    def test_the_width_is_the_span_that_was_reduced(self):
+        """Two 5-degree columns reduce to one cell 10 degrees wide."""
+        variable = self._source().weighted("area").get_variable("t")
+        assert float(variable.cell_size) == pytest.approx(10.0)
+
+    def test_a_member_that_keeps_the_grid_keeps_the_width(self):
+        """`rolling` touches no spatial axis, so the cell size is the source's."""
+        source = self._source()
+        result = source.rolling("time", 2)
+        assert float(result.get_variable("t").cell_size) == pytest.approx(5.0)

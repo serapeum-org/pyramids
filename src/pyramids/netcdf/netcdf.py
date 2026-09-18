@@ -10290,6 +10290,7 @@ class NetCDF(Dataset):
             cube._stamped_geotransform = self._stamped_geotransform
             cube._geotransform = self._stamped_geotransform
             cube._derived_geotransform = self._stamped_geotransform
+            cube._cell_size = GeoTransform(*self._stamped_geotransform).cell_size
         # Record the raster built from the store, after every step above that may replace it, so a
         # streamed read is used only while this variable still reads as its store.
         cube._store_raster = cube._raster

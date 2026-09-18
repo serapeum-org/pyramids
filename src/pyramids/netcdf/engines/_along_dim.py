@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, cast
 import numpy as np
 
 from pyramids.base.crs import crs_spec
+from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._mdim import scalar_no_data
 
 if TYPE_CHECKING:
@@ -758,6 +759,11 @@ def _stamped(nc: NetCDF, geotransform: tuple) -> NetCDF:
     back to are set, since a variable of a rebuilt container carries no coordinate arrays of its
     own.
 
+    The memoised `cell_size` goes with it, as it does wherever else a geotransform is replaced
+    (`_correct_flipped_geotransform`, `_georeference_index_subset`): it is `abs(pixel_width)` of
+    the grid, so leaving it behind would have the raster report a width its own geotransform
+    contradicts.
+
     A raster whose axes are long enough to measure derives exactly this, so stamping it changes
     nothing there.
 
@@ -772,6 +778,7 @@ def _stamped(nc: NetCDF, geotransform: tuple) -> NetCDF:
     nc._geotransform = grid
     nc._derived_geotransform = grid
     nc._stamped_geotransform = grid
+    nc._cell_size = GeoTransform(*grid).cell_size
     return nc
 
 
