@@ -769,6 +769,27 @@ class TestWeightedAuxiliaries:
             result = self._bounded().weighted("area")
         assert "time_bnds" in result.variable_names, result.variable_names
 
+    def test_the_warning_names_the_callers_line(self):
+        """The `UserWarning` is attributed to this file, not to a frame inside pyramids.
+
+        Test scenario:
+            `_carry_auxiliaries` counted the frames of the along-dimension loop, and
+            `weighted` reaches it one frame deeper, so the warning was reported against
+            `netcdf.py` — invisible to a user filtering by module or running
+            `-W error::UserWarning`.
+        """
+        container, steps = self._era5()
+        with pytest.warns(UserWarning) as caught:
+            container.weighted(np.ones(steps), "valid_time")
+        assert caught[0].filename == __file__, caught[0].filename
+
+    def test_a_variable_receivers_warning_names_the_callers_line(self):
+        """A weighted container reached through `reduce`'s loop reports the caller too."""
+        container, steps = self._era5()
+        with pytest.warns(UserWarning) as caught:
+            container.reduce("valid_time", "mean")
+        assert caught[0].filename == __file__, caught[0].filename
+
     def test_weighting_one_axis_drops_only_that_axis_auxiliary(self):
         """Weighting `x` leaves `lat` alone, so `lat_bnds` comes along and `lon_bnds` does not."""
         with pytest.warns(UserWarning, match="the reduced dimension 'lon'"):

@@ -894,6 +894,9 @@ def _apply_to_container(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
         aux_vars,
         [] if op.keeps_length else [dim],
         op.caller,
+        # The user calls NetCDF.<member>, which forwards through the one-line façade to the
+        # Selection method, which calls this loop, which calls the helper: five frames up.
+        5,
     )
     return cast("NetCDF", result)
 
@@ -905,6 +908,7 @@ def _carry_auxiliaries(
     aux_vars: list[str],
     removed: list[str],
     caller: str,
+    stacklevel: int,
 ) -> None:
     """Carry a container's auxiliary variables onto `result`, dropping those that cannot come.
 
@@ -920,6 +924,10 @@ def _carry_auxiliaries(
         aux_vars: The carryable auxiliary variable names.
         removed: The dimensions whose length the operation changed; empty when it changed none.
         caller: The member the user called, named in the warnings.
+        stacklevel: How many frames up the user's call sits, counted from this function. Each
+            caller says so itself because they sit at different depths: a member running
+            through the along-dimension loop is one frame shallower than `weighted`, which
+            dispatches to a receiver of its own first.
 
     Warns:
         UserWarning: An auxiliary variable spans a removed dimension and is dropped, or one
@@ -937,10 +945,7 @@ def _carry_auxiliaries(
             f"{caller}() dropped auxiliary variable(s) {spanning_aux} that span "
             f"the reduced dimension {named}; carrying them unchanged would "
             f"leave an inconsistent {named} length in the result.",
-            # stacklevel=5: the user calls NetCDF.reduce (or another member), which forwards
-            # through the one-line façade to the Selection method, which calls the loop, which
-            # calls this helper, so the user's call site is five frames up.
-            stacklevel=5,
+            stacklevel=stacklevel,
         )
     nc._carry_aux_variables(result, carry_aux, caller)
 

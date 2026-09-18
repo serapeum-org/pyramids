@@ -190,7 +190,17 @@ def _weighted_container(
         )
     _stamped(cast("NetCDF", result), cast(tuple, grid))
     cast("NetCDF", result)._band_dim_time_attrs = time_attrs
-    _carry_auxiliaries(nc, cast("NetCDF", result), rg, aux_vars, removed, "weighted")
+    _carry_auxiliaries(
+        nc,
+        cast("NetCDF", result),
+        rg,
+        aux_vars,
+        removed,
+        "weighted",
+        # One frame deeper than the along-dimension loop: NetCDF.weighted forwards to
+        # Selection.weighted, which picks a receiver (`_weighted_result`) before this one.
+        6,
+    )
     return cast("NetCDF", result)
 
 
