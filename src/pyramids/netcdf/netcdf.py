@@ -7307,10 +7307,13 @@ class NetCDF(Dataset):
 
         With `lazy=True`, dask (the `[lazy]` extra) installed, and a file-backed variable that still
         reads as its store, returns a chunked `dask.array` in that same layout without ever holding
-        the whole variable in RAM — every operation along a band dimension (`reduce`, `coarsen`,
-        `rolling`, `diff`, `cumsum`, `shift`, the extremum locators) and `weighted` stream their
-        numpy calls over it and compute only the (small) result (ARC-47). The chunked read already
-        keeps each non-spatial dim as its own leading axis, so no reshape is needed. Otherwise it
+        the whole variable in RAM: every operation along a band dimension runs its numpy calls over
+        the chunks rather than over one resident array (ARC-47). What that saves depends on the
+        member. `reduce`, `coarsen`, the extremum locators and `weighted` collapse the dimension, so
+        only the (small) result is ever held. `rolling`, `cumsum` and `shift` answer a result the
+        size of the input, and `diff` one step shorter, so the chunks are still read a chunk at a
+        time but the answer itself is as large as the variable. The chunked read already keeps each
+        non-spatial dim as its own leading axis, so no reshape is needed. Otherwise it
         reads eagerly, undoing `read_array`'s singleton-band squeeze and GDAL's row-major band
         flatten.
 
