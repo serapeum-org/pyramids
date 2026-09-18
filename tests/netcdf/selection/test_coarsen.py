@@ -21,11 +21,8 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
-from pyramids.netcdf.engines.selection import (
-    _coarsen_windows,
-    _resize_axis,
-    _window_coordinates,
-)
+from pyramids.netcdf.engines._along_dim import _resize_axis, _window_coordinates
+from pyramids.netcdf.engines.selection import _coarsen_windows
 from pyramids.netcdf.netcdf import Variable
 from tests._marks import requires_dask
 

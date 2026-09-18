@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import math
 import operator
-import warnings
 from collections.abc import Callable
 from numbers import Real
 from pathlib import Path
@@ -54,6 +53,19 @@ from pyramids.netcdf._label_select import (
 from pyramids.netcdf._mdim import copy_band_values_map, open_mdarray, scalar_no_data
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.array_options import GeoReference
+from pyramids.netcdf.engines._along_dim import (
+    _apply_to_container,
+    _apply_to_variable,
+    _assert_band_dimension,
+    _CumSum,
+    _Diff,
+    _Extremum,
+    _reduces_as_a_variable,
+    _Reduction,
+    _Rolling,
+    _Shift,
+)
+from pyramids.netcdf.engines._weighted import _WEIGHTED_HOWS, _weighted_result
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
@@ -76,7 +88,11 @@ class Selection(_Engine["NetCDF"]):
     helpers folded in), :meth:`sel` (band selection by coordinate value),
     :meth:`isel` (the same cut by position), :meth:`subset` (windowed
     `(variable, time, bbox)` read), :meth:`reduce` (collapse or group a
-    non-spatial dimension) and :meth:`coarsen` (fixed-size windows along one).
+    non-spatial dimension), :meth:`coarsen` (fixed-size windows along one),
+    :meth:`rolling` (a moving window that keeps the dimension's length),
+    :meth:`diff`, :meth:`cumsum`, :meth:`shift`, the four extremum locators
+    :meth:`argmin` / :meth:`argmax` / :meth:`idxmin` / :meth:`idxmax`, and
+    :meth:`weighted` (the one member that can reduce the spatial axes).
     `NetCDF` wires one instance per container as
     `nc.selection` and exposes thin façades, so `nc.crop(...)` and
     `nc.selection.crop(...)` are equivalent.
@@ -1521,13 +1537,16 @@ class Selection(_Engine["NetCDF"]):
         nc = self._ds
         _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
         q = _check_quantile(how, q)
-        groups = lambda: nc._resolve_group_positions(dim, groupby)  # noqa: E731
+        op = _Reduction(
+            how=how,
+            groups=lambda: nc._resolve_group_positions(dim, groupby),
+            skipna=skipna,
+            q=q,
+        )
         if _reduces_as_a_variable(nc):
-            result = _reduce_variable_subset(
-                nc, dim, how, groups=groups, skipna=skipna, q=q
-            )
+            result = _apply_to_variable(nc, dim, op)
         else:
-            result = _reduce_container(nc, dim, how, groups=groups, skipna=skipna, q=q)
+            result = _apply_to_container(nc, dim, op)
         return result
 
     def coarsen(
@@ -1695,7 +1714,7 @@ class Selection(_Engine["NetCDF"]):
         nc = self._ds
         _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
         q = _check_quantile(how, q)
-        length = _check_window(window)
+        length = _check_window(window, caller="coarsen")
         if boundary not in _BOUNDARIES:
             raise ValueError(
                 f"boundary must be one of {list(_BOUNDARIES)}, got {boundary!r}."
@@ -1703,31 +1722,887 @@ class Selection(_Engine["NetCDF"]):
         is_variable = _reduces_as_a_variable(nc)
         size = _band_dimension_size(nc, dim, is_variable=is_variable)
         resized, positions = _coarsen_windows(dim, size, length, boundary)
-        groups = lambda: positions  # noqa: E731
+        op = _Reduction(
+            how=how,
+            groups=lambda: positions,
+            skipna=skipna,
+            q=q,
+            caller="coarsen",
+            resize=resized,
+            window_mean_coords=True,
+        )
         if is_variable:
-            result = _reduce_variable_subset(
-                nc,
-                dim,
-                how,
-                groups=groups,
-                skipna=skipna,
-                q=q,
-                resize=resized,
-                window_mean_coords=True,
-            )
+            result = _apply_to_variable(nc, dim, op)
         else:
-            result = _reduce_container(
-                nc,
-                dim,
-                how,
-                groups=groups,
-                skipna=skipna,
-                q=q,
-                resize=resized,
-                window_mean_coords=True,
-                caller="coarsen",
-            )
+            result = _apply_to_container(nc, dim, op)
         return result
+
+    def rolling(
+        self,
+        dim: str,
+        window: int,
+        *,
+        how: str = "mean",
+        center: bool = False,
+        min_periods: int | None = None,
+        q: float | None = None,
+    ) -> NetCDF:
+        """Reduce a moving window along a non-spatial dimension, keeping its length.
+
+        Each step of `dim` becomes the reduction of the `window` steps that end at it, or, with
+        `center=True`, that are centred on it — an even window reaching one step further back
+        than forward. A window is cut where it would run off the axis, so the steps at the start
+        of `dim` own fewer cells, and with `center=True` those at its end do too. Gaps (the
+        declared no-data value and NaN) are always skipped, and a step whose window holds fewer
+        than `min_periods` valid cells is no-data, which is what makes those short-window steps
+        no-data under the default `min_periods` of a whole window. The dimension keeps its length
+        and coordinates, so the result selects exactly as the source does.
+
+        Every step holds exactly what a `reduce` over its own window holds, for every `how`. The
+        window placement, the short edges and `min_periods` follow xarray's
+        `rolling(...).mean()` value for value — a centred even window, and a window longer than
+        the axis included; what differs is only how a short window is *marked*, since a band
+        declares one no-data value rather than carrying NaN (see `how` below).
+
+        Works on a container, rolling every variable that has `dim`, and on a single variable,
+        returning a variable. A container's auxiliary variables are carried over, those that
+        span `dim` included, since its length does not change.
+
+        **Cost.** Every step's window is reduced in full, so the work is the axis length times
+        the window times the cell count — a window of 100 costs about ten times a window of 10,
+        not the same. A 200-step 200x200 in-memory cube measures 1.2 s at `window=10` and 11 s
+        at `window=100` here, so a long window over a large grid is correspondingly slow.
+        Reducing one strided view of all the windows at once buys part of that back — 6 s for
+        the same call — but it holds every window's temporaries at once, 8.3 GB of peak memory
+        against 0.6 GB, and it would leave the streamed (dask) path reducing a padded overlap
+        graph instead of the store's own chunks; so the windows are taken one at a time on
+        purpose.
+
+        Args:
+            dim: The non-spatial dimension to roll along.
+            window: Steps per window, an integer of at least 1. A window longer than the axis
+                is allowed; every step then owns the steps the axis has around it.
+            how: The reduction over each window — any `how` that `reduce` accepts. A statistic
+                answers float64 and declares the variable's no-data value, or NaN when it declares
+                none, since the short windows are gaps; `count` answers `int64` and declares `-1`,
+                the value of a window with too few valid cells; `all` / `any` answer a `uint8`
+                flag and declare `255`.
+            center: Centre each window on its step instead of ending it there.
+            min_periods: The valid cells a window needs before its step holds a value, an
+                integer between 1 and `window`; `None` (default) asks for a whole window.
+                xarray accepts a `min_periods` above `window` and answers all NaN; it is
+                refused here, since no window could meet it.
+            q: The quantile, for `how="quantile"`.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, with `dim` and every
+            other dimension unchanged in length and coordinates.
+
+        Raises:
+            TypeError: `window` or `min_periods` is not an integer, or is a boolean.
+            ValueError: `how` or `q` is refused as `reduce` refuses them; `window` is below 1;
+                `min_periods` is below 1 or above `window`; the container has no data
+                variables; or `dim` is not a band dimension of any gridded variable (or of this
+                variable, or this variable has none).
+
+        Examples:
+            - A trailing mean over two steps. The first step owns one cell, too few by default, so
+              it holds the declared no-data value (`from_array` declares `-9999.0`):
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 3.0, 5.0, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.rolling("time", 2).read_array().ravel().tolist()
+              [-9999.0, 2.0, 4.0, 6.0]
+              >>> var.rolling("time", 2, min_periods=1).read_array().ravel().tolist()
+              [1.0, 2.0, 4.0, 6.0]
+
+              ```
+            - A centred window skips a gap, and keeps the dimension's stamps:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> nc = NetCDF.from_array(
+              ...     np.array([1.0, -9999.0, 5.0, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=-9999.0,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... )
+              >>> smooth = nc.rolling("time", 3, center=True, min_periods=1).get_variable("t")
+              >>> smooth.read_array().ravel().tolist()
+              [1.0, 3.0, 6.0, 6.0]
+              >>> smooth._band_dim_values_map["time"]
+              [0.0, 6.0, 12.0, 18.0]
+
+              ```
+            - Count the valid steps in each window; a window with too few is `-1`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, np.nan, 5.0, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> counts = var.rolling("time", 2, how="count")
+              >>> counts.read_array().ravel().tolist(), counts.no_data_value[0]
+              ([-1, -1, -1, 2], -1)
+
+              ```
+        """
+        # Local import breaks the netcdf.py <-> engines.selection import cycle.
+        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS
+
+        nc = self._ds
+        _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
+        q = _check_quantile(how, q)
+        length = _check_window(window, caller="rolling")
+        needed = _check_min_periods(min_periods, length)
+        op = _Rolling(
+            window=length, how=how, center=bool(center), min_periods=needed, q=q
+        )
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def diff(self, dim: str, n: int = 1, *, label: str = "upper") -> NetCDF:
+        """Difference neighbouring steps along a non-spatial dimension.
+
+        Each step becomes the difference between it and the step before it, so the dimension
+        loses one step, and `n` asks for that `n` times over — a second difference is the
+        difference of the differences. A difference that meets a gap (the declared no-data value
+        or NaN) is a gap. `dim` keeps the stamps of the steps the differences are labelled with:
+        the later of each pair by default, as xarray labels them.
+
+        Works on a container, differencing every variable that has `dim`, and on a single
+        variable, returning a variable. A container's auxiliary variable spanning `dim` is
+        dropped with a warning, since the dimension gets shorter — except for `n=0`, the
+        identity, which keeps everything.
+
+        The values match xarray's `diff` for every `n`, and so do the stamps under
+        `label="upper"`. Under `label="lower"` they match at `n=1` only: xarray passes `label`
+        to the first of its `n` passes and lets the rest fall back to `"upper"`, so its
+        `n=2, label="lower"` axis is the second-to-second-last stamp, while here each difference
+        keeps the first of the `n + 1` steps it is built from.
+
+        Args:
+            dim: The non-spatial dimension to difference along.
+            n: The order, an integer of at least 0 and below the length of `dim`. `0` is the
+                identity, values, dtype and declared no-data value alike — every other order
+                answers float64 for a band whose gaps have to be skipped. An `n` equal to the
+                length is refused, where xarray returns an empty result — a variable with no
+                bands cannot be built.
+            label: `"upper"` (default) labels each difference with the last of the `n + 1` steps
+                it is built from, `"lower"` with the first. At `n=1` those are the later and the
+                earlier of its pair.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, `dim` shorter by
+            `n` steps. A float band, or an integer band declaring a no-data value, answers
+            float64 and declares that value (NaN when it declares none); an integer band
+            declaring none answers in numpy's own type for the difference, as xarray does —
+            **which means a narrow one wraps**: `int8` `[-100, 100, 0, 0]` differences to
+            `[-56, -100, 0]`, since the true `200` does not fit, exactly as `numpy.diff` and
+            `xarray.DataArray.diff` answer it. Declare a no-data value, or read the band as a
+            wider type, if the differences can leave its range.
+
+        Raises:
+            TypeError: `n` is not an integer, or is a boolean.
+            ValueError: `n` is negative or not below the length of `dim`; `label` is neither
+                `"upper"` nor `"lower"`; the container has no data variables; or `dim` is not a
+                band dimension of any gridded variable (or of this variable, or this variable
+                has none).
+
+        Examples:
+            - The change between steps, labelled with the later step:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 4.0, 9.0, 16.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> change = var.diff("time")
+              >>> change.read_array().ravel().tolist()
+              [3.0, 5.0, 7.0]
+              >>> change._band_dim_values_map["time"]
+              [6.0, 12.0, 18.0]
+
+              ```
+            - The second difference, and the leading labels:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 4.0, 9.0, 16.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.diff("time", 2).read_array().ravel().tolist()
+              [2.0, 2.0]
+              >>> var.diff("time", label="lower")._band_dim_values_map["time"]
+              [0.0, 6.0, 12.0]
+
+              ```
+            - An integer band that declares no no-data value keeps its own type, and a
+              second-order `"lower"` label keeps the earliest step behind each difference:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1, 4, 9, 16], dtype="int16").reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=None,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> change = var.diff("time")
+              >>> change.read_array().ravel().tolist(), change.read_array().dtype.name
+              ([3, 5, 7], 'int16')
+              >>> change.no_data_value
+              (None, None, None)
+              >>> var.diff("time", 2, label="lower")._band_dim_values_map["time"]
+              [0.0, 6.0]
+
+              ```
+        """
+        nc = self._ds
+        order = _check_order(n)
+        if label not in _DIFF_LABELS:
+            raise ValueError(
+                f"label must be one of {list(_DIFF_LABELS)}, got {label!r}."
+            )
+        op = _Diff(n=order, label=label)
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def cumsum(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Total the values along a non-spatial dimension, step by step.
+
+        Each step holds the sum of itself and every step before it. The dimension keeps its
+        length and its stamps.
+
+        Works on a container, totalling every variable that has `dim`, and on a single variable,
+        returning a variable. A container's auxiliary variables are all carried over, those
+        spanning `dim` included, since its length does not change.
+
+        Args:
+            dim: The non-spatial dimension to total along.
+            skipna: When `True` (default), gaps are skipped: a gap adds nothing and holds the
+                total so far, and a step before the first valid cell is a gap — where xarray
+                answers `0.0`, a total of nothing that is not invented here, just as
+                `reduce(how="sum")` does not invent one for an all-gap slice. When `False` the
+                stored values add up as numpy adds them, the sentinel and NaN included, and the
+                result declares no no-data value at all — the sentinel is part of the totals, so
+                no cell holds it any more and declaring it would mask a total that landed on it.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, with every dimension
+            unchanged. Skipping gaps the total is float64 and declares the variable's no-data
+            value, or NaN when it declares none; otherwise it is numpy's own type for the total
+            and declares none.
+
+        Raises:
+            ValueError: The container has no data variables, or `dim` is not a band dimension of
+                any gridded variable (or of this variable, or this variable has none).
+
+        Examples:
+            - The running total, and the same total ending at `reduce(how="sum")`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 2.0, 3.0, 4.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.cumsum("time").read_array().ravel().tolist()
+              [1.0, 3.0, 6.0, 10.0]
+              >>> float(var.reduce("time", "sum").read_array()[0, 0])
+              10.0
+
+              ```
+            - A gap adds nothing, and a leading gap stays a gap:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([np.nan, 2.0, np.nan, 4.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=np.nan,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.cumsum("time").read_array().ravel().tolist()
+              [nan, 2.0, 2.0, 6.0]
+
+              ```
+            - Without skipping, the stored sentinel is added like any other value, and an
+              integer band totals in the wider type numpy gives a cumulative sum:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1, 2, 3, -1], dtype="int16").reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=-1,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> raw = var.cumsum("time", skipna=False)
+              >>> raw.read_array().ravel().tolist(), raw.read_array().dtype.name
+              ([1, 3, 6, 5], 'int64')
+              >>> var.cumsum("time").read_array().ravel().tolist()
+              [1.0, 3.0, 6.0, 6.0]
+
+              ```
+        """
+        nc = self._ds
+        op = _CumSum(skipna=bool(skipna))
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def shift(self, dim: str, periods: int = 1, *, fill_value: Any = None) -> NetCDF:
+        """Move the values along a non-spatial dimension, filling the steps that are vacated.
+
+        A positive `periods` moves the values towards the end of the dimension, so each step
+        holds what the step `periods` earlier held; a negative one moves them the other way.
+        The dimension keeps its length and its stamps, so a shift is how a step is compared
+        with an earlier one (`var - var.shift("time", 1)` is `diff`, with the length kept).
+
+        Works on a container, shifting every variable that has `dim`, and on a single variable,
+        returning a variable. A container's auxiliary variables are all carried over, those
+        spanning `dim` included, since its length does not change.
+
+        Args:
+            dim: The non-spatial dimension to shift along.
+            periods: Steps to move, any integer. A shift of at least the length of `dim` leaves
+                every step vacated.
+            fill_value: What a vacated step holds; `None` (default) asks for the variable's
+                no-data value, or NaN when it declares none. A plain Python integer never widens
+                an integer band — under NEP 50 it is a weak type — so one the band cannot hold is
+                refused rather than promoted; a fractional fill, NaN, or a numpy scalar widens it
+                as `numpy.result_type` says.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, with every dimension
+            unchanged. With no `fill_value`, a band declaring a no-data value keeps its own type
+            and fills with that value, while one declaring none fills with NaN and declares it —
+            keeping a float band's own floating type, and widening an integer band to float64. A
+            `fill_value` is held in `numpy.result_type` of the band and the fill, and leaves the
+            declared no-data value alone.
+
+        Raises:
+            TypeError: `periods` is not an integer, or is a boolean; `fill_value` is neither
+                `None` nor a real number, or is a boolean.
+            ValueError: The band cannot hold `fill_value`; the container has no data variables;
+                or `dim` is not a band dimension of any gridded variable (or of this variable, or
+                this variable has none).
+
+        Examples:
+            - One step forward, the vacated step holding the declared no-data value:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 2.0, 3.0, 4.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=np.nan,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.shift("time", 1).read_array().ravel().tolist()
+              [nan, 1.0, 2.0, 3.0]
+              >>> var.shift("time", -1, fill_value=0.0).read_array().ravel().tolist()
+              [2.0, 3.0, 4.0, 0.0]
+
+              ```
+            - The stamps stay put, so the shifted step can be compared with its own:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 2.0, 4.0, 8.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=np.nan,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> shifted = var.shift("time", 1)
+              >>> shifted._band_dim_values_map["time"]
+              [0.0, 6.0, 12.0, 18.0]
+              >>> (var - shifted).read_array().ravel().tolist()
+              [nan, 1.0, 2.0, 4.0]
+
+              ```
+            - An explicit fill leaves the declared no-data value alone, and only a fractional
+              one widens an integer band:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1, 2, 3, 4], dtype="int16").reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=-1,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> zeros = var.shift("time", 1, fill_value=0)
+              >>> zeros.read_array().ravel().tolist(), zeros.read_array().dtype.name
+              ([0, 1, 2, 3], 'int16')
+              >>> zeros.no_data_value[0]
+              -1.0
+              >>> halves = var.shift("time", 1, fill_value=0.5)
+              >>> halves.read_array().ravel().tolist(), halves.read_array().dtype.name
+              ([0.5, 1.0, 2.0, 3.0], 'float64')
+
+              ```
+        """
+        nc = self._ds
+        steps = _check_periods(periods)
+        _check_fill_value(fill_value)
+        op = _Shift(periods=steps, fill_value=fill_value)
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def argmin(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Answer the position along a non-spatial dimension where the value is smallest.
+
+        The dimension is removed, as a collapsing `reduce` removes it, and each cell holds the
+        zero-based position of its smallest value — the first of them when several tie. A slice
+        with no valid cell has no minimum, so it holds `-1`, the declared no-data value, where
+        xarray raises `ValueError: All-NaN slice encountered`.
+
+        Works on a container, searching every variable that has `dim`, and on a single variable,
+        returning a variable. A container's auxiliary variable spanning `dim` is dropped with a
+        warning, since the dimension is removed.
+
+        Args:
+            dim: The non-spatial dimension to search along.
+            skipna: When `True` (default), gaps (the declared no-data value and NaN) are skipped.
+                When `False` the stored values are searched as numpy searches them, where NaN
+                wins and a sentinel competes as a value.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, `int64`, declaring
+            `-1`, with `dim` removed and the other dimensions kept.
+
+        Raises:
+            ValueError: The container has no data variables, or `dim` is not a band dimension of
+                any gridded variable (or of this variable, or this variable has none).
+
+        Examples:
+            - Which step is coldest, and a column with nothing to compare:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([[3.0, np.nan], [1.0, np.nan], [2.0, np.nan]]).reshape(3, 1, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=np.nan,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> coldest = var.argmin("time")
+              >>> coldest.read_array().ravel().tolist(), coldest.no_data_value[0]
+              ([1, -1], -1)
+
+              ```
+            - Without skipping, the search is numpy's own, where a NaN wins the comparison:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([3.0, np.nan, 2.0]).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=np.nan,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> var.argmin("time").read_array().ravel().tolist()
+              [2]
+              >>> var.argmin("time", skipna=False).read_array().ravel().tolist()
+              [1]
+
+              ```
+        """
+        nc = self._ds
+        op = _Extremum(
+            extreme="min", coordinate=False, skipna=bool(skipna), caller="argmin"
+        )
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def argmax(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Answer the position along a non-spatial dimension where the value is largest.
+
+        The mirror of `argmin`: the dimension is removed, each cell holds the zero-based
+        position of its largest value (the first of them when several tie), and a slice with no
+        valid cell holds `-1`, the declared no-data value.
+
+        Args:
+            dim: The non-spatial dimension to search along.
+            skipna: Whether gaps are skipped, as `argmin` documents it.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, `int64`, declaring
+            `-1`, with `dim` removed.
+
+        Raises:
+            ValueError: The container has no data variables, or `dim` is not a band dimension of
+                any gridded variable (or of this variable, or this variable has none).
+
+        Examples:
+            - Which of three steps is warmest per cell:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([[3.0, 1.0], [1.0, 2.0], [2.0, 9.0]]).reshape(3, 1, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> var.argmax("time").read_array().ravel().tolist()
+              [0, 2]
+
+              ```
+        """
+        nc = self._ds
+        op = _Extremum(
+            extreme="max", coordinate=False, skipna=bool(skipna), caller="argmax"
+        )
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def idxmin(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Answer the coordinate value along a non-spatial dimension where the value is smallest.
+
+        `argmin`'s answer read through the dimension's own coordinates: the stamp of the
+        smallest value rather than its position — "when was it coldest", not "which step". The
+        stamps are the raw stored numbers, so a CF time axis answers its offsets, not decoded
+        dates. A slice with no valid cell holds NaN, the declared no-data value, as xarray's
+        `idxmin` answers there.
+
+        Args:
+            dim: The non-spatial dimension to search along. It must carry numeric coordinates.
+            skipna: Whether gaps are skipped, as `argmin` documents it.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, float64, declaring
+            NaN, with `dim` removed.
+
+        Raises:
+            ValueError: `dim` has no coordinate values, or they are not all numbers (use
+                `argmin` for the position); the container has no data variables; or `dim` is not
+                a band dimension of any gridded variable (or of this variable, or this variable
+                has none).
+
+        Examples:
+            - The stamp of the coldest step, and NaN where there is nothing to compare:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([[3.0, np.nan], [1.0, np.nan], [2.0, np.nan]]).reshape(3, 1, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=np.nan,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> var.idxmin("time").read_array().ravel().tolist()
+              [6.0, nan]
+
+              ```
+            - A dimension whose stamps were dropped — an operator result's — has no coordinate
+              to answer with, so `argmin` is the member to reach for:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> change = var.isel(time=slice(2, 4)) - var.isel(time=slice(0, 2))
+              >>> change._band_dim_values_map["time"] is None
+              True
+              >>> change.idxmin("time")  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                ...
+              ValueError: idxmin() needs the stamps of 'time'
+              >>> change.argmin("time").read_array().ravel().tolist()
+              [0]
+
+              ```
+        """
+        nc = self._ds
+        op = _Extremum(
+            extreme="min", coordinate=True, skipna=bool(skipna), caller="idxmin"
+        )
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def idxmax(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Answer the coordinate value along a non-spatial dimension where the value is largest.
+
+        The mirror of `idxmin`: the stamp of the largest value, NaN for a slice with no valid
+        cell, and the raw stored stamps rather than decoded dates.
+
+        Args:
+            dim: The non-spatial dimension to search along. It must carry numeric coordinates.
+            skipna: Whether gaps are skipped, as `argmin` documents it.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, float64, declaring
+            NaN, with `dim` removed.
+
+        Raises:
+            ValueError: `dim` has no coordinate values, or they are not all numbers (use
+                `argmax` for the position); the container has no data variables; or `dim` is not
+                a band dimension of any gridded variable (or of this variable, or this variable
+                has none).
+
+        Examples:
+            - Which pressure level holds the maximum of each cell:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([[1.0, 9.0], [5.0, 2.0]]).reshape(2, 1, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="level", values=[1000.0, 850.0]),
+              ... ).get_variable("t")
+              >>> var.idxmax("level").read_array().ravel().tolist()
+              [850.0, 1000.0]
+
+              ```
+        """
+        nc = self._ds
+        op = _Extremum(
+            extreme="max", coordinate=True, skipna=bool(skipna), caller="idxmax"
+        )
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def weighted(
+        self,
+        weights: Any,
+        dims: Any = None,
+        *,
+        how: str = "mean",
+        skipna: bool = True,
+    ) -> NetCDF:
+        """Weight the cells along one or more dimensions and reduce them.
+
+        The statistic every cell contributes to in proportion to its weight: a weighted mean is
+        `sum(w * x) / sum(w)`. Equal cells of a latitude-longitude grid do not cover equal area,
+        so the common use is a **regional or global mean** — `weights="area"`, which is
+        `cos(latitude)` per row — over the two spatial axes.
+
+        Weighting the spatial axes leaves no cells for the answer to sit in, so the result is a
+        raster of **one cell spanning the source's extent**, keeping the band dimensions and
+        their stamps: `nc.weighted("area")` on a `(valid_time, latitude, longitude)` container
+        answers one value per step, `reduce` and `to_file` still work on the result, and `sel` /
+        `isel` on the variable taken from it, as they do on any container's variable. Weighting
+        one spatial axis leaves the other in place, and weighting a band dimension keeps the
+        grid and removes that dimension, as `reduce` removes it.
+
+        A gap (the declared no-data value or NaN) leaves both sums, so the answer is the
+        statistic of the cells there are. A slice with no valid cell has no statistic and comes
+        back NaN, the declared no-data value. Weights that cancel to a total of zero cost only
+        the statistics that divide by that total — `mean`, `std` and `var` — while `sum`
+        answers the sum it computed and `sum_of_weights` answers `0.0`; xarray answers NaN for
+        that `sum_of_weights`.
+
+        **The single cell's footprint.** In memory the result is exact: `geotransform` and
+        `cell_size` describe the extent that was reduced, the cell's `lat` / `lon` are its
+        centre, and a kept spatial axis keeps its own coordinates. On a source of 2-degree cells
+        spanning `[10, 56, 14, 60]`, both the container and the variable report
+        `(10.0, 4.0, 0, 60.0, 0, -4.0)` and a `cell_size` of `4.0`. Read `bounds` off the
+        **variable** (`[10.0, 56.0, 14.0, 60.0]`, the source's own): a container's `bounds` come
+        from its placeholder raster and describe no variable of it, weighted or not.
+        **Writing the result to a NetCDF loses the reduced axis' width**: the file records
+        coordinate *values*, and one value carries no spacing, so the reopened container reports
+        a unit cell around that centre, and a variable taken from it falls back to index space
+        altogether, since GDAL declines to georeference a one-pixel-wide subdataset. The values,
+        the band dimensions, their stamps and the CRS survive the round trip exactly. Any
+        one-cell-wide raster written this way has the same limit; keep the source (or
+        `source.bounds`) if the extent has to stay on record in the file.
+
+        Args:
+            weights: `"area"` for `cos(latitude)` per row, which needs a geographic CRS and
+                takes each row's latitude from the geotransform — exact on a regular lat/lon
+                grid, an approximation on a curvilinear one, which pyramids reads through a
+                bounding-box affine, and refused when the rows run off the globe, where the
+                cosine turns negative; an
+                array broadcastable to the weighted axes — `(rows, 1)`, `(1, columns)` or
+                `(rows, columns)` for the grid, one weight per step for a band dimension; or a
+                raster on the same grid — a `NetCDF` or a `Dataset`, a GeoTIFF of weights
+                included — whose first band is read as the weights. Weights may
+                be negative, as xarray allows, but must all be finite: replace a NaN or an
+                infinity with zero to leave that cell out. Only those are refused — a weights
+                raster is read as plain numbers, so its own no-data sentinel would be weighted
+                as an ordinary value.
+            dims: The dimensions to weight over: `None` (default) for both spatial axes, one
+                name, or a sequence of names. A spatial axis is named as the store names it
+                (`latitude` / `longitude`) or as `y` / `x`. Spatial axes and band dimensions
+                cannot be mixed in one call, since a container cannot hold variables on two
+                grids. The spatial pair is the plane the read resolved, so a store that
+                declares a band dimension between its spatial axes — CAM's
+                `(time, lat, lev, lon)` — is handled by the `None` default too.
+            how: `"mean"` (default), `"sum"`, `"sum_of_weights"`, `"std"` or `"var"`. The
+                variance is the weighted `sum(w * (x - mean) ** 2) / sum(w)`, as xarray computes
+                it. A weighted quantile is not offered; `reduce(how="quantile")` is the
+                unweighted one.
+            skipna: Whether the declared no-data value counts as a gap. A NaN is left out of
+                both sums either way, so `skipna=False` weights the sentinel as an ordinary
+                value but still skips NaN — where xarray's `skipna=False` makes the whole answer
+                NaN.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, float64 and
+            declaring NaN, on a grid reduced where a spatial axis was weighted.
+
+        Raises:
+            TypeError: `weights` is `None`, which names no weighting.
+            ValueError: `how` is unknown; `dims` is empty, names a dimension the variable does
+                not have, names one twice, or mixes spatial axes with band dimensions; `weights`
+                is an unknown name, holds a NaN or an infinity, broadcasts onto neither the
+                weighted axes nor the variable's own shape, or is a raster on another grid;
+                `"area"` is asked of a grid that is not geographic, or of one whose rows run off
+                the globe past 90 degrees; the container has no data variables; or no gridded
+                variable of a container carries the band dimension named, as `reduce` refuses
+                it. A container's gridded variable that does not carry it is carried over
+                unchanged, again as `reduce` carries one it cannot reduce.
+
+        Warns:
+            UserWarning: A container's auxiliary variable spans a dimension this weighting
+                leaves no full-length axis of — a band dimension that goes, or a spatial axis
+                reduced to one cell — so it is dropped rather than carried at a length the rest
+                of the container no longer has.
+
+        Examples:
+            - The area-weighted mean of each step, on a grid of one cell:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> nc = NetCDF.from_array(
+              ...     np.array([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 60.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... )
+              >>> mean = nc.weighted("area").get_variable("t")
+              >>> (mean.rows, mean.columns)
+              (1, 1)
+              >>> [round(value, 3) for value in mean.read_array().ravel().tolist()]
+              [2.515, 6.515]
+              >>> mean._band_dim_values_map["time"]
+              [0.0, 6.0]
+              >>> mean.geotransform  # the one cell spans the 2 degrees it reduced
+              (0.0, 2.0, 0, 60.0, 0, -2.0)
+              >>> mean.bounds.total_bounds.tolist()
+              [0.0, 58.0, 2.0, 60.0]
+
+              ```
+            - Equal weights give the plain mean, and the totals are available too:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([[1.0, 2.0], [3.0, 4.0]]),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ... ).get_variable("t")
+              >>> float(var.weighted(np.ones((2, 2))).read_array()[0, 0])
+              2.5
+              >>> float(var.weighted(np.ones((2, 2)), how="sum").read_array()[0, 0])
+              10.0
+              >>> float(
+              ...     var.weighted(np.ones((2, 2)), how="sum_of_weights").read_array()[0, 0]
+              ... )
+              4.0
+
+              ```
+            - Weighting a band dimension keeps the grid and removes the dimension:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([[[1.0, 1.0]], [[3.0, 3.0]]]),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... ).get_variable("t")
+              >>> blended = var.weighted(np.array([3.0, 1.0]), "time")
+              >>> blended.read_array().ravel().tolist()
+              [1.5, 1.5]
+              >>> tuple(blended._band_dim_names)
+              ()
+
+              ```
+        """
+        nc = self._ds
+        _check_how(how, set(_WEIGHTED_HOWS))
+        return _weighted_result(nc, weights, dims, how=how, skipna=bool(skipna))
 
 
 _BOUNDARIES = ("exact", "trim", "pad")
@@ -1735,11 +2610,15 @@ _BOUNDARIES = ("exact", "trim", "pad")
 
 
 def _check_how(how: str, known: set[str]) -> None:
-    """Refuse a reduction name `reduce` and `coarsen` do not know.
+    """Refuse a reduction name the caller does not know.
+
+    Shared by `reduce`, `coarsen`, `rolling` and `weighted`, which do not all offer the same
+    set — `weighted` passes its own `_WEIGHTED_HOWS` — so the known names come in as an argument
+    rather than being looked up here.
 
     Args:
         how: The requested reduction.
-        known: Every reduction name there is.
+        known: Every reduction name the caller accepts.
 
     Raises:
         ValueError: `how` is not in `known`; the message lists them sorted.
@@ -1748,11 +2627,12 @@ def _check_how(how: str, known: set[str]) -> None:
         raise ValueError(f"how must be one of {sorted(known)}; got {how!r}")
 
 
-def _check_window(window: Any) -> int:
-    """The `coarsen` window as a positive `int`, or the refusal saying why it is not one.
+def _check_window(window: Any, *, caller: str) -> int:
+    """A `coarsen` or `rolling` window as a positive `int`, or the refusal saying why it is not one.
 
     Args:
         window: The window as passed.
+        caller: The member named in the message.
 
     Returns:
         int: The window length.
@@ -1762,14 +2642,123 @@ def _check_window(window: Any) -> int:
         ValueError: `window` is below 1.
     """
     if isinstance(window, (bool, np.bool_)):
-        raise TypeError(f"coarsen() needs an integer window, got {window!r}.")
+        raise TypeError(f"{caller}() needs an integer window, got {window!r}.")
     try:
         length = operator.index(window)
     except TypeError:
-        raise TypeError(f"coarsen() needs an integer window, got {window!r}.") from None
+        raise TypeError(
+            f"{caller}() needs an integer window, got {window!r}."
+        ) from None
     if length < 1:
-        raise ValueError(f"coarsen() needs a window of at least 1, got {length}.")
+        raise ValueError(f"{caller}() needs a window of at least 1, got {length}.")
     return length
+
+
+_DIFF_LABELS = ("upper", "lower")
+"""Which of a difference's two steps labels it, in xarray's vocabulary."""
+
+
+def _check_order(n: Any) -> int:
+    """A `diff` order as a non-negative `int`, or the refusal saying why it is not one.
+
+    Args:
+        n: The order as passed.
+
+    Returns:
+        int: The order.
+
+    Raises:
+        TypeError: `n` is a boolean or not something `operator.index()` accepts.
+        ValueError: `n` is negative.
+    """
+    if isinstance(n, (bool, np.bool_)):
+        raise TypeError(f"diff() needs an integer order, got {n!r}.")
+    try:
+        order = operator.index(n)
+    except TypeError:
+        raise TypeError(f"diff() needs an integer order, got {n!r}.") from None
+    if order < 0:
+        raise ValueError(f"diff() needs a non-negative order, got {order}.")
+    return order
+
+
+def _check_periods(periods: Any) -> int:
+    """A `shift` distance as an `int`, or the refusal saying why it is not one.
+
+    Args:
+        periods: The distance as passed; any sign is fine.
+
+    Returns:
+        int: The distance.
+
+    Raises:
+        TypeError: `periods` is a boolean or not something `operator.index()` accepts.
+    """
+    if isinstance(periods, (bool, np.bool_)):
+        raise TypeError(f"shift() needs integer periods, got {periods!r}.")
+    try:
+        steps = operator.index(periods)
+    except TypeError:
+        raise TypeError(f"shift() needs integer periods, got {periods!r}.") from None
+    return steps
+
+
+def _check_fill_value(fill_value: Any) -> None:
+    """Refuse a `shift` fill that is not a real number.
+
+    A boolean is refused by name, as `q` refuses one: `True` is a `Real` equal to 1, and a band
+    of flags is not what a boolean fill asks for.
+
+    Args:
+        fill_value: The fill as passed; `None` asks for the no-data value.
+
+    Raises:
+        TypeError: `fill_value` is neither `None` nor a real number, or is a boolean.
+    """
+    unusable = fill_value is not None and (
+        isinstance(fill_value, (bool, np.bool_)) or not isinstance(fill_value, Real)
+    )
+    if unusable:
+        raise TypeError(f"shift() needs a real fill_value or None, got {fill_value!r}.")
+
+
+def _check_min_periods(min_periods: Any, window: int) -> int:
+    """The valid cells a `rolling` window needs, or the refusal saying why `min_periods` is unusable.
+
+    Args:
+        min_periods: As passed; `None` asks for a whole window.
+        window: The checked window length.
+
+    Returns:
+        int: `window` for `None`, otherwise `min_periods` as an `int`.
+
+    Raises:
+        TypeError: `min_periods` is a boolean or not something `operator.index()` accepts —
+            a float, NaN included.
+        ValueError: `min_periods` is below 1, or above `window`, which no window could meet.
+    """
+    needed = window
+    if min_periods is not None:
+        if isinstance(min_periods, (bool, np.bool_)):
+            raise TypeError(
+                f"rolling() needs an integer min_periods, got {min_periods!r}."
+            )
+        try:
+            needed = operator.index(min_periods)
+        except TypeError:
+            raise TypeError(
+                f"rolling() needs an integer min_periods, got {min_periods!r}."
+            ) from None
+        if needed < 1:
+            raise ValueError(
+                f"rolling() needs min_periods of at least 1, got {needed}."
+            )
+        if needed > window:
+            raise ValueError(
+                f"rolling() min_periods={needed} can never be met by a window of {window} "
+                f"step(s); pass at most {window}."
+            )
+    return needed
 
 
 def _band_dimension_size(nc: NetCDF, dim: str, *, is_variable: bool) -> int:
@@ -1853,68 +2842,6 @@ def _coarsen_windows(
     return resized, positions
 
 
-def _resize_axis(arr: Any, axis: int, size: int) -> Any:
-    """Cut `axis` down to `size` steps, or pad it out to `size` with NaN gaps.
-
-    Padding casts to float64 first, so an integer band can hold the NaN. Under `skipna`
-    every reducer skips the padding; without it a statistic over a padded window is NaN,
-    `count` still leaves the padding out, and `all` / `any` read it as true. A `size` equal
-    to the current length takes the padding path too and returns a float64 copy. Both paths
-    stay lazy on a dask array.
-
-    Args:
-        arr: The unflattened array, numpy or dask.
-        axis: The axis to resize.
-        size: The length it should have.
-
-    Returns:
-        The resized array.
-    """
-    current = arr.shape[axis]
-    if size < current:
-        index: list[slice] = [slice(None)] * arr.ndim
-        index[axis] = slice(0, size)
-        result = arr[tuple(index)]
-    else:
-        padding_shape = list(arr.shape)
-        padding_shape[axis] = size - current
-        result = np.concatenate(
-            [arr.astype("float64"), np.full(padding_shape, np.nan)], axis=axis
-        )
-    return result
-
-
-def _window_coordinates(
-    coords: list | None, positions: list[np.ndarray], size: int
-) -> list | None:
-    """Label each window with the mean of its real members' coordinates.
-
-    Args:
-        coords: The dimension's coordinate values, or `None`.
-        positions: The positions each window covers, padding included.
-        size: The dimension's real length; positions at or past it are padding.
-
-    Returns:
-        list | None: One float per window when every coordinate is a number (a boolean does
-        not count as one), each window's first coordinate when some are not, and `None`
-        when there are none.
-    """
-    labels = None
-    if coords is not None:
-        numeric = all(
-            isinstance(value, Real) and not isinstance(value, (bool, np.bool_))
-            for value in coords
-        )
-        if numeric:
-            labels = [
-                float(np.mean([coords[int(i)] for i in members if i < size]))
-                for members in positions
-            ]
-        else:
-            labels = [coords[int(members[0])] for members in positions]
-    return labels
-
-
 def _check_quantile(how: str, q: Any) -> float | None:
     """Refuse a `q` that is missing for `"quantile"` or given to any other reducer.
 
@@ -1954,345 +2881,6 @@ def _check_quantile(how: str, q: Any) -> float | None:
     else:
         checked = None
     return checked
-
-
-def _reduces_as_a_variable(nc: NetCDF) -> bool:
-    """Whether `reduce` / `coarsen` treat `nc` as one variable rather than a container.
-
-    A `Variable` is one. So is anything that carries band dimensions: an operator result takes
-    its left operand's class, so a classic-mode NetCDF on the left of a labelled variable gives
-    a `Container`-class raster holding the right operand's layout. A root container, opened
-    multidimensional or classic, has no band dimensions of its own, so this never sends one
-    down the variable path.
-
-    Args:
-        nc: The object `reduce` or `coarsen` was called on.
-
-    Returns:
-        bool: `True` for a `Variable` or anything carrying band dimensions.
-    """
-    # Local import breaks the netcdf.py <-> engines.selection import cycle.
-    from pyramids.netcdf.netcdf import Variable
-
-    return isinstance(nc, Variable) or bool(nc._band_dim_names)
-
-
-def _read_no_data(var: NetCDF) -> Any:
-    """The no-data value as it appears in the values a reduction reads.
-
-    The reduce path reads a variable unpacked, so a CF-packed variable's fill cells hold
-    `_FillValue * scale_factor + add_offset`, never the stored `_FillValue` itself. Masking
-    against the stored value would count every fill cell as data. The sentinel is unpacked the
-    same way the read unpacks the data (`Analysis._physical_no_data`), so the two compare equal.
-    An unpacked variable's sentinel is returned unchanged.
-
-    Args:
-        var: The variable being reduced or carried over.
-
-    Returns:
-        Any: The sentinel in read units, or `None` when the variable declares none.
-    """
-    ndv = scalar_no_data(var.no_data_value)
-    return None if ndv is None else var.analysis._physical_no_data(0)
-
-
-def _reduced_array(
-    nc: NetCDF,
-    var: NetCDF,
-    dim: str,
-    how: str,
-    *,
-    group_positions: list | None,
-    skipna: bool,
-    q: float | None,
-    resize: int | None = None,
-    window_mean_coords: bool = False,
-) -> tuple[np.ndarray, list[str], dict[str, Any], Any]:
-    """Reduce one raster variable along `dim`, the step a container and a variable share.
-
-    A file-backed variable that still reads as its store (`NetCDF._reads_as_its_store`) is read
-    as a chunked dask array when dask is installed, and the `np.*` / `np.nan*` reducers dispatch
-    to dask on it, so the reduction stays lazy until `np.asarray` computes the reduced result
-    (ARC-47); `_reduce_variable_array` needs no dask-specific code. Anything else — an in-memory
-    variable, a cut or other derived variable, or any variable without dask — is read eagerly.
-
-    Args:
-        nc: The object `reduce` was called on, which owns the reduce helpers.
-        var: The variable to reduce; `dim` must be one of its band dimensions.
-        dim: The dimension to reduce.
-        how: The reduction.
-        group_positions: The resolved groups, or `None` to collapse.
-        skipna: Whether gaps are skipped.
-        q: The quantile, for `how="quantile"`.
-        resize: The length to cut or pad `dim` to before grouping, for `coarsen`;
-            `None` leaves it alone.
-        window_mean_coords: Label each group with the mean of its members' coordinates
-            (`coarsen`) instead of its first member's (`reduce`).
-
-    Returns:
-        tuple: The reduced numpy array, its band dimension names, its coordinate map, and
-        the no-data value the reduced band declares — `None` for a count, `255` for a flag,
-        otherwise the variable's sentinel in the units the reduction read (`_read_no_data`).
-
-    Raises:
-        ValueError: `group_positions` does not cover `dim`, after any `resize`, exactly.
-    """
-    # Local import breaks the netcdf.py <-> engines.selection import cycle.
-    from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _FLAG_NO_DATA
-
-    band_names = list(var._band_dim_names)
-    values_map = dict(var._band_dim_values_map)
-    ndv = _read_no_data(var)
-    axis = band_names.index(dim)
-    coords = values_map.get(dim)
-    arr = nc._materialize_variable_array(var, lazy=True)
-    size = arr.shape[axis]
-    if resize is not None and resize != size:
-        arr = _resize_axis(arr, axis, resize)
-    arr, band_names, values_map = nc._reduce_variable_array(
-        arr,
-        axis,
-        dim,
-        band_names,
-        values_map,
-        how,
-        skipna,
-        ndv,
-        None,
-        group_positions,
-        q,
-    )
-    if window_mean_coords and group_positions is not None:
-        values_map[dim] = _window_coordinates(coords, group_positions, size)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        arr = np.asarray(arr)
-    result_ndv = ndv
-    if how == "count":
-        result_ndv = None
-    elif how in _COUNTING_REDUCERS:
-        result_ndv = _FLAG_NO_DATA
-    return arr, band_names, values_map, result_ndv
-
-
-def _reduce_variable_subset(
-    nc: NetCDF,
-    dim: str,
-    how: str,
-    *,
-    groups: Callable[[], list | None],
-    skipna: bool,
-    q: float | None,
-    resize: int | None = None,
-    window_mean_coords: bool = False,
-) -> NetCDF:
-    """Reduce a single variable and hand back a variable.
-
-    The result carries `nc`'s units for the band dimensions it keeps (`_band_dim_time_attrs`),
-    since the container it is rebuilt from has no store to read them from.
-
-    Args:
-        nc: The variable.
-        dim: The dimension to reduce.
-        how: The reduction.
-        groups: Resolves the groups, or `None` to collapse — called after `dim` is
-            checked, so a bad dimension is reported before a grouping is worked out.
-        skipna: Whether gaps are skipped.
-        q: The quantile, for `how="quantile"`.
-        resize: The length to cut or pad `dim` to first, for `coarsen`.
-        window_mean_coords: Label windows with their mean coordinate, for `coarsen`.
-
-    Returns:
-        NetCDF: The reduced variable, named after `nc` or `"variable"` when `nc` has no
-        name of its own.
-
-    Raises:
-        ValueError: `nc` has no band dimensions, or `dim` is not one of them — both checked
-            before `groups` is called — or the grouping `groups` resolves is refused (a
-            frequency with no decodable time coordinate, or labels that do not cover `dim`).
-    """
-    _assert_band_dimension(nc, dim, caller="reduce")
-    arr, band_names, values_map, ndv = _reduced_array(
-        nc,
-        nc,
-        dim,
-        how,
-        group_positions=groups(),
-        skipna=skipna,
-        q=q,
-        resize=resize,
-        window_mean_coords=window_mean_coords,
-    )
-    name = nc._source_var_name or "variable"
-    container = nc._stack_reduced_variable(
-        None,
-        name,
-        arr,
-        nc.geotransform,
-        crs_spec(nc.epsg, nc.crs),
-        ndv,
-        band_names,
-        values_map,
-    )
-    variable = cast("NetCDF", container.get_variable(name))
-    # `from_array` numbers a dimension it is given no coordinates for, so a dimension this
-    # variable held unlabelled (an operator result's dropped stamps) would come back stamped
-    # 0..n-1 and `sel` would match positions as if they were stamps. Put the gap back.
-    unlabelled = [
-        dim_name for dim_name in band_names if values_map.get(dim_name) is None
-    ]
-    for dim_name in unlabelled:
-        variable._band_dim_values_map[dim_name] = None
-    if unlabelled:
-        variable._band_dim_name, variable._band_dim_values = (
-            variable._derive_primary_band_view(
-                variable._band_dim_names,
-                variable._band_dim_values_map,
-                variable._band_dim_sizes,
-                variable._band_count,
-            )
-        )
-    # The rebuilt container has no store to read time units from, so carry the operand's for
-    # the dimensions that kept their stamps.
-    variable._band_dim_time_attrs = {
-        dim_name: attrs
-        for dim_name, attrs in nc._resolved_band_dim_time_attrs().items()
-        if dim_name in variable._band_dim_names and dim_name not in unlabelled
-    }
-    return variable
-
-
-def _reduce_container(
-    nc: NetCDF,
-    dim: str,
-    how: str,
-    *,
-    groups: Callable[[], list | None],
-    skipna: bool,
-    q: float | None,
-    resize: int | None = None,
-    window_mean_coords: bool = False,
-    caller: str = "reduce",
-) -> NetCDF:
-    """Reduce every gridded variable of a container that has `dim`.
-
-    Gridded variables without `dim` are carried over, as are auxiliary variables that do not
-    span it; an auxiliary variable that spans `dim` is dropped with a warning. The result
-    container carries the source variables' units for the band dimensions they keep
-    (`_band_dim_time_attrs`), which `get_variable` finds through the result and copies onto the
-    variable it takes from it.
-
-    Args:
-        nc: The container.
-        dim: The dimension to reduce.
-        how: The reduction.
-        groups: Resolves the groups, or `None` to collapse — called after the container
-            is checked for variables.
-        skipna: Whether gaps are skipped.
-        q: The quantile, for `how="quantile"`.
-        resize: The length to cut or pad `dim` to first, for `coarsen`.
-        window_mean_coords: Label windows with their mean coordinate, for `coarsen`.
-        caller: The member the user called, named in the warnings, so a `coarsen` call is
-            not reported as `reduce()`.
-
-    Returns:
-        NetCDF: The reduced container.
-
-    Raises:
-        ValueError: The container has no data variables (checked before `groups` is
-            called), no gridded variable has `dim`, or the grouping `groups` resolves is
-            refused.
-
-    Warns:
-        UserWarning: An auxiliary variable spans `dim` and is dropped, or one that does not
-            span it cannot be carried over. Both messages name `caller`.
-    """
-    names = nc.variable_names
-    if not names:
-        raise ValueError("Cannot reduce an empty container (no data variables).")
-
-    group_positions = groups()
-
-    # Reduce only the gridded variables; non-spatial auxiliaries (no y/x axes)
-    # can't go through the raster reduce path, so they are carried through
-    # unchanged below — the same split crop / to_crs use (#513). Resolve the root
-    # group once and reuse it for the spanning-aux probe further down.
-    rg = nc._working_group()
-    spatial_vars = nc._spatial_variable_names(rg)
-    aux_vars = nc._carryable_aux_names(rg, spatial_vars)
-
-    result = None
-    found = False
-    time_attrs: dict[str, tuple[str, str]] = {}
-    for var_name in spatial_vars:
-        var = nc._require_raster_variable(var_name)
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
-
-        if dim in band_names:
-            found = True
-            arr, band_names, values_map, ndv = _reduced_array(
-                nc,
-                var,
-                dim,
-                how,
-                group_positions=group_positions,
-                skipna=skipna,
-                q=q,
-                resize=resize,
-                window_mean_coords=window_mean_coords,
-            )
-        else:
-            arr = nc._materialize_variable_array(var)
-
-        result = nc._stack_reduced_variable(
-            result,
-            var_name,
-            arr,
-            var.geotransform,
-            crs_spec(var.epsg, var.crs),
-            ndv,
-            band_names,
-            values_map,
-        )
-        # The rebuilt container has no store to read time units from; carry the source
-        # variables' so a variable taken from it still decodes its stamps.
-        time_attrs.update(
-            {
-                name: attrs
-                for name, attrs in var._resolved_band_dim_time_attrs().items()
-                if name in band_names
-            }
-        )
-
-    if not found:
-        raise ValueError(
-            f"Dimension {dim!r} is not a non-spatial dimension of any "
-            f"variable in this container."
-        )
-    # Auxiliary variables that span the reduced dimension cannot be carried
-    # verbatim — they would keep the full-length axis while the gridded
-    # variables collapse it, leaving an inconsistent dimension length. Drop
-    # those with a warning; carry the rest unchanged.
-    carry_aux: list[str] = []
-    spanning_aux: list[str] = []
-    for name in aux_vars:
-        var_dims = nc._variable_dim_names(rg, name)
-        (spanning_aux if dim in var_dims else carry_aux).append(name)
-    if spanning_aux:
-        warnings.warn(
-            f"{caller}() dropped auxiliary variable(s) {spanning_aux} that span "
-            f"the reduced dimension {dim!r}; carrying them unchanged would "
-            f"leave an inconsistent {dim!r} length in the result.",
-            # stacklevel=4: the user calls NetCDF.reduce (or NetCDF.coarsen), which
-            # forwards through the one-line façade to the Selection method, which calls
-            # this helper, so the user's call site is four frames up.
-            stacklevel=4,
-        )
-    cast("NetCDF", result)._band_dim_time_attrs = time_attrs
-    nc._carry_aux_variables(cast("NetCDF", result), carry_aux, caller)
-    return cast("NetCDF", result)
 
 
 def _curvilinear_coords_2d(
@@ -3052,34 +3640,6 @@ def _refuse_empty_selection(selector: Any, dim_name: str, size: int) -> NoReturn
         f"isel({dim_name}={selector!r}) selects no index of an axis of length {size}. "
         f"A variable with no bands cannot be built."
     )
-
-
-def _assert_band_dimension(nc: NetCDF, dim_name: str, *, caller: str) -> None:
-    """Refuse a name that is not one of this variable's band dimensions.
-
-    Shared by `sel`, `isel`, `reduce` and `coarsen` so they report an unknown dimension
-    identically — the plan for `isel` asks for exactly the `ValueError` `sel` already
-    raises, and the only way to keep that true is to raise it in one place.
-
-    Args:
-        nc: The variable subset being selected from or reduced.
-        dim_name: The dimension the caller named.
-        caller: `"sel"`, `"isel"`, `"reduce"` or `"coarsen"`, named in the message about a
-            variable with no band dimensions.
-
-    Raises:
-        ValueError: The variable tracks no band dimensions, or `dim_name` is not one.
-    """
-    if not nc._band_dim_names:
-        raise ValueError(
-            f"{caller}() requires a variable with at least one non-spatial "
-            f"dimension. This variable has no band dimensions tracked."
-        )
-    if dim_name not in nc._band_dim_names:
-        raise ValueError(
-            f"Dimension {dim_name!r} does not match any band dimension "
-            f"of this variable {list(nc._band_dim_names)!r}."
-        )
 
 
 def _subset_along_dim(nc: NetCDF, dim_name: str, dim_indices: list[int]) -> NetCDF:

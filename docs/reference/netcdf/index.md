@@ -68,6 +68,15 @@ classDiagram
       +subset()
       +reduce()
       +coarsen()
+      +rolling()
+      +diff()
+      +cumsum()
+      +shift()
+      +argmin()
+      +argmax()
+      +idxmin()
+      +idxmax()
+      +weighted()
     }
     Dataset <|-- NetCDF
     NetCDF <|-- Container

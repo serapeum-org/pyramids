@@ -2213,6 +2213,12 @@ class NetCDF(Dataset):
         # Memoised `geotransform`; see that property. Cleared wherever
         # `_geotransform` is reassigned, so the two cannot disagree.
         self._derived_geotransform: tuple | None = None
+        # The grid a rebuild was told to produce, when its coordinates cannot describe it — a
+        # spatial axis one cell long carries no spacing to derive one from. `get_variable` hands
+        # it to the variables it builds, which have no coordinate arrays of their own, the
+        # `geotransform` property answers it ahead of deriving one, and `_restore_stamped_grid`
+        # replays it over whatever `_update_inplace` or `_replace_raster` re-derived.
+        self._stamped_geotransform: tuple | None = None
         # Origin-tracking attributes set by get_variable (RT-4)
         self._parent_nc: NetCDF | None = None
         self._source_var_name: str | None = None
@@ -2375,6 +2381,11 @@ class NetCDF(Dataset):
         The record of the raster `get_variable` built (`_store_raster`) is kept only when `src`
         is that raster, as the `epsg` setter passes it. Any other `src` drops it, so the variable
         stops streaming a reduction from its store and the replaced raster is not kept alive.
+
+        The rebuild measures its geotransform and cell size from `src`, which is not the grid a
+        collapsed spatial axis was stamped with, so `_restore_stamped_grid` runs once the
+        snapshot is back: the stamp itself is in `preserved`, but the cell size derived from it
+        is not.
         """
         preserved = {
             "_is_md_array": self._is_md_array,
@@ -2396,6 +2407,7 @@ class NetCDF(Dataset):
             "_band_dim_values_map": self._band_dim_values_map,
             "_band_dim_sizes": self._band_dim_sizes,
             "_band_dim_time_attrs": self._band_dim_time_attrs,
+            "_stamped_geotransform": self._stamped_geotransform,
             "_variable_attrs": self._variable_attrs,
             "_scale": self._scale,
             "_offset": self._offset,
@@ -2412,6 +2424,7 @@ class NetCDF(Dataset):
         )
         self.__dict__.update(new.__dict__)
         self.__dict__.update(preserved)
+        self._restore_stamped_grid()
         # collaborators in `new.__dict__` point at
         # `new` via `weakref.proxy`; re-bind to a proxy of `self`
         # so callers using `self.spatial.crop(...)` after this update
@@ -2618,6 +2631,13 @@ class NetCDF(Dataset):
         Computes from lon/lat coordinate arrays if available.
         Falls back to the parent GDAL GetGeoTransform() otherwise.
 
+        A stamped grid is the other exception, and takes precedence over every case below: an
+        operation that rebuilt this raster was told what grid it produced
+        (`_stamped_geotransform`), because a spatial axis left one cell long carries no spacing
+        for the coordinates to describe. This is what keeps the grid right after a swap cleared
+        the memoised value; the matching `cell_size`, which no property re-derives, is put back
+        by `_restore_stamped_grid`.
+
         Geostationary scan-angle datasets are the exception: once their
         ``x`` / ``y`` radians have been rescaled to metres on read (see
         :meth:`_normalize_geostationary_geotransform`), re-deriving the
@@ -2632,6 +2652,8 @@ class NetCDF(Dataset):
             a north-up raster. Units follow the dataset CRS (degrees for
             geographic, metres for projected, including rescaled geostationary).
         """
+        if self._stamped_geotransform is not None:
+            return self._stamped_geotransform
         if self._geostationary_scaled:
             return self._geotransform
         if self.lon is not None and self.lat is not None:
@@ -2669,6 +2691,35 @@ class NetCDF(Dataset):
                 -y_cell,
             )
         return self._geotransform
+
+    def _restore_stamped_grid(self) -> None:
+        """Put a stamped grid back after the raster it describes was rebuilt.
+
+        An operation that collapses a spatial axis knows the grid it produced and records it in
+        `_stamped_geotransform`, because the rebuilt store cannot describe it: one coordinate
+        value carries no spacing. The two places that re-derive the raster's state from the
+        raster they were handed call this right after doing so: `_update_inplace` (the `epsg`
+        setter, an in-place `apply`) and `_replace_raster` (a copying `add_variable`). Both
+        compute the geotransform and the cell size from that raster, which is the source's grid
+        and not the stamped one.
+
+        `_cell_size` is what this alone puts back — leave it out and a weighted result reports
+        the replacement raster's width, `1.0` where the stamp says `1.25`, while its variables
+        still say `1.25`. `geotransform` recovers without help, since `_compute_geotransform`
+        answers the stamp before deriving anything.
+
+        Carrying an auxiliary variable onto a result does **not** arrive here:
+        `_carry_aux_variables` uses `add_variable(copy=False)`, which mutates the raster in
+        place. That still drops the memoised `_derived_geotransform`, but `_geotransform` and
+        `_cell_size` survive it and the derivation that follows answers the stamp, so the grid
+        needs no restoring on that path.
+
+        A no-op on any raster that was never stamped, which is every raster read from a file.
+        """
+        if self._stamped_geotransform is not None:
+            self._geotransform = self._stamped_geotransform
+            self._derived_geotransform = self._stamped_geotransform
+            self._cell_size = GeoTransform(*self._stamped_geotransform).cell_size
 
     def _is_geostationary(self) -> bool:
         """True when the dataset CRS is the CF geostationary projection.
@@ -7218,6 +7269,60 @@ class NetCDF(Dataset):
             dim, window, how=how, boundary=boundary, skipna=skipna, q=q
         )
 
+    def rolling(
+        self,
+        dim: str,
+        window: int,
+        *,
+        how: str = "mean",
+        center: bool = False,
+        min_periods: int | None = None,
+        q: float | None = None,
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.rolling <pyramids.netcdf.engines.selection.Selection.rolling>`."""
+        return self.selection.rolling(
+            dim, window, how=how, center=center, min_periods=min_periods, q=q
+        )
+
+    def diff(self, dim: str, n: int = 1, *, label: str = "upper") -> NetCDF:
+        """Facade — :meth:`Selection.diff <pyramids.netcdf.engines.selection.Selection.diff>`."""
+        return self.selection.diff(dim, n, label=label)
+
+    def cumsum(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.cumsum <pyramids.netcdf.engines.selection.Selection.cumsum>`."""
+        return self.selection.cumsum(dim, skipna=skipna)
+
+    def shift(self, dim: str, periods: int = 1, *, fill_value: Any = None) -> NetCDF:
+        """Facade — :meth:`Selection.shift <pyramids.netcdf.engines.selection.Selection.shift>`."""
+        return self.selection.shift(dim, periods, fill_value=fill_value)
+
+    def weighted(
+        self,
+        weights: Any,
+        dims: Any = None,
+        *,
+        how: str = "mean",
+        skipna: bool = True,
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.weighted <pyramids.netcdf.engines.selection.Selection.weighted>`."""
+        return self.selection.weighted(weights, dims, how=how, skipna=skipna)
+
+    def argmin(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.argmin <pyramids.netcdf.engines.selection.Selection.argmin>`."""
+        return self.selection.argmin(dim, skipna=skipna)
+
+    def argmax(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.argmax <pyramids.netcdf.engines.selection.Selection.argmax>`."""
+        return self.selection.argmax(dim, skipna=skipna)
+
+    def idxmin(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.idxmin <pyramids.netcdf.engines.selection.Selection.idxmin>`."""
+        return self.selection.idxmin(dim, skipna=skipna)
+
+    def idxmax(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.idxmax <pyramids.netcdf.engines.selection.Selection.idxmax>`."""
+        return self.selection.idxmax(dim, skipna=skipna)
+
     @staticmethod
     def _is_file_backed(var: NetCDF) -> bool:
         """True when the variable's data lives in a reopenable file, so a lazy chunk read is possible.
@@ -7248,10 +7353,15 @@ class NetCDF(Dataset):
 
         With `lazy=True`, dask (the `[lazy]` extra) installed, and a file-backed variable that still
         reads as its store, returns a chunked `dask.array` in that same layout without ever holding
-        the whole variable in RAM — `reduce` streams its reducer over it and computes only the
-        (small) reduced result (ARC-47). The chunked read already keeps each non-spatial dim as its
-        own leading axis, so no reshape is needed. Otherwise it reads eagerly, undoing
-        `read_array`'s singleton-band squeeze and GDAL's row-major band flatten.
+        the whole variable in RAM: every operation along a band dimension runs its numpy calls over
+        the chunks rather than over one resident array (ARC-47). What that saves depends on the
+        member. `reduce`, `coarsen`, the extremum locators and `weighted` collapse the dimension, so
+        only the (small) result is ever held. `rolling`, `cumsum` and `shift` answer a result the
+        size of the input, and `diff` one step shorter, so the chunks are still read a chunk at a
+        time but the answer itself is as large as the variable. The chunked read already keeps each
+        non-spatial dim as its own leading axis, so no reshape is needed. Otherwise it
+        reads eagerly, undoing `read_array`'s singleton-band squeeze and GDAL's row-major band
+        flatten.
 
         Because the streamed reduce tree-reduces per chunk via dask while the eager path reduces in a
         single pass, a file-backed `mean`/`sum`/`std`/`var` can differ from the same in-memory reduce
@@ -7329,9 +7439,10 @@ class NetCDF(Dataset):
         stamps `_group_stamps` decodes. They are decoded through `get_time_variable` when this
         object holds no coordinates of its own for `dim`, and through `_decode_time_labels` when
         it does, which finds the units its store declares or those a derived result carries. A
-        container whose stored axis has no units of its own — one rebuilt by `reduce` or
-        `coarsen` — falls back to decoding its dimension's values with the units it carries. A
-        sequence of labels groups equal labels, in first-appearance order.
+        container whose stored axis has no units of its own — one rebuilt by any operation along
+        a band dimension, `reduce` and `coarsen` included — falls back to decoding its
+        dimension's values with the units it carries. A sequence of labels groups equal labels,
+        in first-appearance order.
 
         Args:
             dim: The band dimension being grouped.
@@ -7416,8 +7527,9 @@ class NetCDF(Dataset):
           stamps but not the root group's units) are decoded with the units its store declares,
           or that a derived result carries (`_time_attr_candidates`).
         - A container decodes its stored axis the same way: with the units its own metadata
-          declares, or, for one rebuilt by `reduce` / `coarsen` that stores its axis without
-          units, with the units it carries in `_band_dim_time_attrs`.
+          declares, or, for one rebuilt by an operation along a band dimension (`reduce`,
+          `coarsen`, `rolling`, ...) that stores its axis without units, with the units it
+          carries in `_band_dim_time_attrs`.
         - A variable without coordinates of its own falls back to `get_time_variable`, which
           reads its own metadata.
 
@@ -7562,8 +7674,8 @@ class NetCDF(Dataset):
             how: `"count"`, `"all"` or `"any"`.
             skipna: Whether gaps are skipped, for `all`/`any`.
             ndv: The sentinel as it appears in `arr`, or `None`. For a CF-packed variable read
-                unpacked that is the unpacked `_FillValue`, not the stored one — the reduce
-                path passes it that way (`_read_no_data`).
+                unpacked that is the unpacked `_FillValue`, not the stored one — every caller
+                passes it that way (`_read_no_data`).
 
         Returns:
             The reduced array: `int64` for `count`, `uint8` for `all`/`any`.
@@ -10218,6 +10330,13 @@ class NetCDF(Dataset):
         # and anything derived from it, still decodes its stamps (a date `sel`, a frequency
         # `reduce`) after the container is closed.
         cube._band_dim_time_attrs = cube._resolved_band_dim_time_attrs()
+        # A container rebuilt by an operation knows the grid it produced; a variable of it holds
+        # no coordinate arrays, so it would otherwise fall back to the index space of the view.
+        if self._stamped_geotransform is not None:
+            cube._stamped_geotransform = self._stamped_geotransform
+            cube._geotransform = self._stamped_geotransform
+            cube._derived_geotransform = self._stamped_geotransform
+            cube._cell_size = GeoTransform(*self._stamped_geotransform).cell_size
         # Record the raster built from the store, after every step above that may replace it, so a
         # streamed read is used only while this variable still reads as its store.
         cube._store_raster = cube._raster
@@ -11311,6 +11430,10 @@ class NetCDF(Dataset):
         old handle (or a ``get_group()`` view of it) must keep a valid, unmutated
         dataset, which is why the variable-mutation ops copy-and-swap instead of
         mutating in place (#143). Do not change this to close the old raster.
+
+        The geotransform and cell size re-derived here are `new_raster`'s, which is not the grid
+        a collapsed spatial axis was stamped with, so `_restore_stamped_grid` puts a stamp back
+        over them. A copying `add_variable` on a weighted result is the route that needs it.
         """
         old = self._raster
         if old is not None and old is not new_raster:
@@ -11322,6 +11445,7 @@ class NetCDF(Dataset):
         self._derived_geotransform = None
         self._geotransform = new_raster.GetGeoTransform()
         self._cell_size = GeoTransform(*self._geotransform).cell_size
+        self._restore_stamped_grid()
         self._file_name = new_raster.GetDescription()
         # Clear the borrowed container CRS *before* re-deriving the EPSG: it is
         # keyed to the variables behind the OLD raster, and `_get_epsg` reads
