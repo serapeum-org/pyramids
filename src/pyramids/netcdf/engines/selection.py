@@ -1768,6 +1768,15 @@ class Selection(_Engine["NetCDF"]):
         returning a variable. A container's auxiliary variables are carried over, those that
         span `dim` included, since its length does not change.
 
+        **Cost.** Every step's window is reduced in full, so the work is the axis length times
+        the window times the cell count — a window of 100 costs about ten times a window of 10,
+        not the same. A 200-step 200x200 cube takes roughly 4 s at `window=100` here, and a
+        long window over a large grid is correspondingly slow. Reducing one strided view of all
+        the windows at once does not help: it is no faster (the reduction still visits every
+        cell of every window) and it holds the whole view's temporaries at once — measured at
+        8 GB against 160 MB for the same call — so the windows are taken one at a time on
+        purpose.
+
         Args:
             dim: The non-spatial dimension to roll along.
             window: Steps per window, an integer of at least 1. A window longer than the axis
