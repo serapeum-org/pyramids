@@ -9,8 +9,11 @@ taken from it.
 
 `_weighted_geotransform` hands the rebuild a cell spanning the source extent. A rebuilt store
 whose row or column axis is one cell long has no spacing to derive that back from, so `_stamped`
-puts the grid on the result rather than letting it be guessed; only a file round trip still loses
-it — see `Selection.weighted` for what the reopened file reports.
+puts the grid on the result rather than letting it be guessed, and `_restore_stamped_grid` puts
+it back after anything that rebuilds the raster's state — carrying an auxiliary variable onto the
+result does exactly that. In memory the grid then survives every path; a file round trip is what
+still loses it, since a NetCDF records coordinate values and one value carries no spacing. See
+`Selection.weighted` for what the reopened file reports.
 """
 
 from __future__ import annotations
@@ -673,7 +676,9 @@ def _weighted_geotransform(var: NetCDF, rows: bool, columns: bool) -> tuple:
     A reduced axis becomes one cell spanning the source's whole extent along it, so this describes
     exactly the bounding box the source covered. The rebuild cannot derive this back from the one
     coordinate value it stores, so `_stamped` puts it on the result instead of letting it be
-    guessed; only a file round trip still loses it (`Selection.weighted` documents that).
+    guessed, and `NetCDF._restore_stamped_grid` puts it back whenever the raster's state is
+    rebuilt afterwards. A file round trip is what still loses it (`Selection.weighted` documents
+    that).
 
     Args:
         var: The source variable.

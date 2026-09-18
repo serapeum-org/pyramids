@@ -2467,11 +2467,13 @@ class Selection(_Engine["NetCDF"]):
         answers the sum it computed and `sum_of_weights` answers `0.0`; xarray answers NaN for
         that `sum_of_weights`.
 
-        **The single cell's footprint.** In memory the result is exact: its `geotransform`
-        and `bounds` describe the extent that was reduced, the cell's `lat` / `lon` are its
-        centre, and a kept spatial axis keeps its own coordinates. `cell_size` is the one
-        property that does not follow — it keeps the rebuilt store's index-space `1.0`, whatever
-        the stamped geotransform says — so measure the cell from `geotransform` or `bounds`.
+        **The single cell's footprint.** In memory the result is exact: `geotransform` and
+        `cell_size` describe the extent that was reduced, the cell's `lat` / `lon` are its
+        centre, and a kept spatial axis keeps its own coordinates. On a source of 2-degree cells
+        spanning `[10, 56, 14, 60]`, both the container and the variable report
+        `(10.0, 4.0, 0, 60.0, 0, -4.0)` and a `cell_size` of `4.0`. Read `bounds` off the
+        **variable** (`[10.0, 56.0, 14.0, 60.0]`, the source's own): a container's `bounds` come
+        from its placeholder raster and describe no variable of it, weighted or not.
         **Writing the result to a NetCDF loses the reduced axis' width**: the file records
         coordinate *values*, and one value carries no spacing, so the reopened container reports
         a unit cell around that centre, and a variable taken from it falls back to index space
