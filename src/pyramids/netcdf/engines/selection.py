@@ -1900,8 +1900,10 @@ class Selection(_Engine["NetCDF"]):
         Args:
             dim: The non-spatial dimension to difference along.
             n: The order, an integer of at least 0 and below the length of `dim`. `0` is the
-                identity. An `n` equal to the length is refused, where xarray returns an empty
-                result — a variable with no bands cannot be built.
+                identity, values, dtype and declared no-data value alike — every other order
+                answers float64 for a band whose gaps have to be skipped. An `n` equal to the
+                length is refused, where xarray returns an empty result — a variable with no
+                bands cannot be built.
             label: `"upper"` (default) labels each difference with the last of the `n + 1` steps
                 it is built from, `"lower"` with the first. At `n=1` those are the later and the
                 earlier of its pair.

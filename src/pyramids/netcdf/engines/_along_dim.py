@@ -306,7 +306,9 @@ class _Diff(_AlongDim):
             have to be skipped — a float band, or an integer one declaring a no-data value —
             answers float64 and declares that value, or NaN when it declares none; an integer
             band declaring none answers in numpy's own type for the difference, which a narrow
-            one can overflow — `numpy.diff`'s own answer, kept rather than widened away from it.
+            one can overflow — `numpy.diff`'s own answer, kept rather than widened away from
+            it. At `n = 0` nothing is differenced, so the values come back exactly as they
+            are, dtype and declared no-data value included.
 
         Raises:
             ValueError: `n` is not below the length of `dim`, which would leave no steps.
@@ -322,7 +324,13 @@ class _Diff(_AlongDim):
                 f"diff() of order {self.n} would leave nothing of {dim!r}: its length is "
                 f"{size}. Pass n below {size}."
             )
-        if ndv is None and not np.issubdtype(arr.dtype, np.floating):
+        if self.n == 0:
+            # Differencing nothing is the values themselves. The gap handling below exists to
+            # keep a gap from propagating through a subtraction, and no subtraction happens
+            # here, so taking that path would only cost an integer band its own type.
+            values = arr
+            result_ndv = ndv
+        elif ndv is None and not np.issubdtype(arr.dtype, np.floating):
             values = np.diff(arr, n=self.n, axis=axis)
             result_ndv = None
         else:

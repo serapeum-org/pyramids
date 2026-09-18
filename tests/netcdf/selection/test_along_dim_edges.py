@@ -1367,3 +1367,58 @@ class TestTheDroppedAuxiliaryWarningNamesTheCaller:
             else:
                 getattr(container, member)("valid_time")
         assert _dropped(caught) == [], _dropped(caught)
+
+
+class TestTheIdentityDifference:
+    """`diff(dim, 0)` differences nothing, so it gives the values back as they are."""
+
+    @staticmethod
+    def _variable(ndv: float | None) -> NetCDF:
+        """An `int16` variable over `time`, declaring `ndv` or nothing.
+
+        Args:
+            ndv: The no-data value to declare, or `None`.
+
+        Returns:
+            NetCDF: The variable, four steps of one cell.
+        """
+        return NetCDF.from_array(
+            np.array([1, 2, 3, 4], dtype="int16").reshape(4, 1, 1),
+            geo_ref=GEO,
+            variable_name="v",
+            no_data_value=ndv,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+        ).get_variable("v")
+
+    def test_it_keeps_the_band_type(self):
+        """An `int16` band declaring a gap stays `int16`.
+
+        Test scenario:
+            `n=0` still took the gap-masking path, which exists to stop a gap propagating
+            through a subtraction — and at order zero there is no subtraction. The identity
+            came back float64, so a band that declared a no-data value changed type by being
+            differenced zero times.
+        """
+        result = self._variable(-1).diff("time", 0)
+        assert np.asarray(result.read_array()).dtype == np.int16
+
+    def test_it_keeps_the_values(self):
+        """The values are the source's, whatever the type."""
+        result = self._variable(-1).diff("time", 0)
+        assert np.asarray(result.read_array()).ravel().tolist() == [1, 2, 3, 4]
+
+    def test_it_keeps_the_declared_gap(self):
+        """The band still declares what it declared."""
+        result = self._variable(-1).diff("time", 0)
+        assert result.no_data_value[0] == -1
+
+    def test_a_band_declaring_nothing_is_unchanged_too(self):
+        """The branch that never masked keeps behaving as it did."""
+        result = self._variable(None).diff("time", 0)
+        assert np.asarray(result.read_array()).dtype == np.int16
+        assert result.no_data_value[0] is None
+
+    def test_a_real_order_still_answers_float64(self):
+        """Order 1 on the same band does skip gaps, so it answers float64 as documented."""
+        result = self._variable(-1).diff("time", 1)
+        assert np.asarray(result.read_array()).dtype == np.float64
