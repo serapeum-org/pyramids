@@ -2475,7 +2475,10 @@ class Selection(_Engine["NetCDF"]):
         (or `source.bounds`) if the extent has to stay on record in the file.
 
         Args:
-            weights: `"area"` for `cos(latitude)` per row, which needs a geographic CRS; an
+            weights: `"area"` for `cos(latitude)` per row, which needs a geographic CRS and
+                takes each row's latitude from the geotransform — exact on a regular lat/lon
+                grid, an approximation on a curvilinear one, which pyramids reads through a
+                bounding-box affine; an
                 array broadcastable to the weighted axes — `(rows, 1)`, `(1, columns)` or
                 `(rows, columns)` for the grid, one weight per step for a band dimension; or a
                 raster on the same grid — a `NetCDF` or a `Dataset`, a GeoTIFF of weights

@@ -570,6 +570,12 @@ def _placed_shape(
 def _area_weights(var: NetCDF) -> np.ndarray:
     """`cos(latitude)` per row of a geographic grid, shaped `(rows, 1)`.
 
+    The latitudes come from the geotransform, so they are a row's latitude exactly on a regular
+    lat/lon grid. A curvilinear store has no such grid: pyramids reads one through the
+    bounding-box affine over its 2-D coordinates (#1039), and these weights follow that same
+    view, as every other operation on it does. They are then an approximation of the cells' real
+    latitudes, close where the grid is nearly regular and less so where it is not.
+
     Args:
         var: The variable, whose geotransform gives each row's latitude.
 
