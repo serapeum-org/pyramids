@@ -502,11 +502,12 @@ def _raster_weights(var: NetCDF, weights: Any) -> np.ndarray:
     """The first band of a raster of weights, once its grid is known to match.
 
     A container's own raster is a placeholder rather than its variables' grid, so the comparison
-    and the read both go through its first gridded variable.
+    and the read both go through its first gridded variable. A `Dataset` — a GeoTIFF of weights,
+    say — is read as it is: it holds one grid and no variables to choose between.
 
     Args:
         var: The variable being weighted.
-        weights: The raster of weights, a container or a variable.
+        weights: The raster of weights: a container, a variable, or a `Dataset`.
 
     Returns:
         numpy.ndarray: The weights as float64.
@@ -514,7 +515,10 @@ def _raster_weights(var: NetCDF, weights: Any) -> np.ndarray:
     Raises:
         ValueError: The raster is on another grid.
     """
-    if not _reduces_as_a_variable(weights) and getattr(weights, "variable_names", None):
+    # `variable_names` first: a `Dataset` has neither it nor the band dimensions
+    # `_reduces_as_a_variable` reads, and asking it for them raised an `AttributeError` from
+    # inside the engine.
+    if getattr(weights, "variable_names", None) and not _reduces_as_a_variable(weights):
         weights = weights._require_raster_variable(weights.variable_names[0])
     if not var.spatial.same_grid(weights):
         raise ValueError(

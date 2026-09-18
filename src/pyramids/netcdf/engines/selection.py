@@ -2462,7 +2462,8 @@ class Selection(_Engine["NetCDF"]):
             weights: `"area"` for `cos(latitude)` per row, which needs a geographic CRS; an
                 array broadcastable to the weighted axes — `(rows, 1)`, `(1, columns)` or
                 `(rows, columns)` for the grid, one weight per step for a band dimension; or a
-                `NetCDF` on the same grid, whose first band is read as the weights. Weights may
+                raster on the same grid — a `NetCDF` or a `Dataset`, a GeoTIFF of weights
+                included — whose first band is read as the weights. Weights may
                 be negative, as xarray allows, but may not hold a NaN: replace one with zero to
                 leave that cell out. Only a NaN is refused — a weights raster is read as plain
                 numbers, so its own no-data sentinel would be weighted as an ordinary value.

@@ -114,3 +114,64 @@ class TestWhichAxesAreSpatial:
         listed = str(error.value)
         for name in ("time", "lev", "lon", "subset_lat_63_-1_64"):
             assert listed.count(f"'{name}'") == 1, listed
+
+
+class TestARasterOfWeights:
+    """Weights given as a raster: a container, a variable, or a plain `Dataset`."""
+
+    @staticmethod
+    def _parts() -> tuple[NetCDF, np.ndarray, np.ndarray]:
+        """A 2x2 variable and a grid of weights on the same grid.
+
+        Returns:
+            tuple: The variable, its values, and the weights.
+        """
+        geo = GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326)
+        values = np.array([[1.0, 2.0], [3.0, 4.0]])
+        weights = np.array([[1.0, 2.0], [3.0, 1.0]])
+        variable = NetCDF.from_array(
+            values, geo_ref=geo, variable_name="v"
+        ).get_variable("v")
+        return variable, values, weights
+
+    def test_a_dataset_of_weights_is_read(self):
+        """A `Dataset` holds one grid and no variables, so it is read as the weights.
+
+        Test scenario:
+            The dispatch accepted anything with `read_array` and then asked it for the band
+            dimensions only a `NetCDF` has, so a GeoTIFF of weights raised
+            `AttributeError: 'Dataset' object has no attribute '_band_dim_names'` from inside
+            the engine.
+        """
+        variable, values, weights = self._parts()
+        raster = Dataset.from_array(
+            weights,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+        )
+        result = variable.weighted(raster)
+        expected = float(np.sum(values * weights) / np.sum(weights))
+        assert float(np.asarray(result.read_array()).ravel()[0]) == pytest.approx(
+            expected
+        )
+
+    def test_a_dataset_on_another_grid_is_refused(self):
+        """The grid check runs for a `Dataset` as it does for any other raster."""
+        variable, _, _ = self._parts()
+        raster = Dataset.from_array(
+            np.ones((2, 2)),
+            geo_ref=GeoReference(geo=(100.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+        )
+        with pytest.raises(ValueError, match="same grid"):
+            variable.weighted(raster)
+
+    def test_a_dataset_matches_the_same_weights_as_an_array(self):
+        """Reading the weights from a raster answers what passing the array answers."""
+        variable, _, weights = self._parts()
+        raster = Dataset.from_array(
+            weights,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+        )
+        assert_allclose(
+            np.asarray(variable.weighted(raster).read_array(), dtype="float64"),
+            np.asarray(variable.weighted(weights).read_array(), dtype="float64"),
+        )
