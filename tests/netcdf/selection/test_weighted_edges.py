@@ -912,5 +912,57 @@ class TestWeightedContainerMixedVariables:
     def test_a_single_name_is_quoted_not_listed(self):
         """One name is shown as `'level'`, so the message reads as the caller wrote it."""
         container = self._mixed()
-        with pytest.raises(ValueError, match=r"Dimension 'level' is not"):
+        with pytest.raises(ValueError, match=r"cannot weight over 'level'"):
             container.weighted(np.ones(NT), "level")
+
+    def test_the_refusal_lists_the_dimensions_there_are(self):
+        """A container names what its variables do carry, as the variable receiver does."""
+        container = self._mixed()
+        with pytest.raises(ValueError, match=r"\['time'\]"):
+            container.weighted(np.ones(NT), "level")
+
+
+class TestRefusalsSayWhatIsAccepted:
+    """The refusals name what `weighted` would have taken."""
+
+    def test_the_unknown_dimension_refusal_lists_both_aliases(self):
+        """`dims=("y", "x")` works on any store, so both aliases are listed as available.
+
+        Test scenario:
+            The list held `y` and not `x`, so a caller reading it could not tell that `x` is
+            accepted too — invisible on a `from_array` variable, whose axes are named that way
+            already.
+        """
+        variable = NetCDF.read_file(str(ERA5_T2M)).get_variable("t2m")
+        with pytest.raises(ValueError, match="cannot weight over 'depth'") as error:
+            variable.weighted("area", "depth")
+        listed = str(error.value)
+        assert "'y'" in listed, listed
+        assert "'x'" in listed, listed
+
+    def test_no_weights_is_a_type_error(self):
+        """`None` names no weighting, which is a type error rather than a missing value.
+
+        Test scenario:
+            `None` reached `np.asarray(None, dtype="float64")`, becoming a NaN, and the refusal
+            told the caller their weights held a missing value to replace with zero.
+        """
+        variable = _variable()
+        with pytest.raises(TypeError, match="needs weights"):
+            variable.weighted(None)
+
+    def test_the_broadcast_refusal_names_a_shape_once(self):
+        """When the weighted axes are the variable's own shape, it is named once.
+
+        Test scenario:
+            The message read "onto the weighted axes (2, 2), nor onto the variable's (2, 2)" —
+            the same shape twice, which reads as a bug in the message.
+        """
+        variable = NetCDF.from_array(
+            np.ones((2, 2)),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+        ).get_variable("v")
+        with pytest.raises(ValueError, match="cannot broadcast") as error:
+            variable.weighted(np.ones((3, 3)))
+        assert str(error.value).count("(2, 2)") == 1, str(error.value)

@@ -184,9 +184,16 @@ def _weighted_container(
             if isinstance(dims, str)
             else str(list(_weighted_names(nc, dims)))
         )
+        available = list(
+            dict.fromkeys(
+                name
+                for var_name in spatial_vars
+                for name in nc._require_raster_variable(var_name)._band_dim_names
+            )
+        )
         raise ValueError(
-            f"Dimension {named} is not a non-spatial dimension of any variable in this "
-            f"container."
+            f"weighted() cannot weight over {named}: it is not a non-spatial dimension of any "
+            f"variable in this container, which has {available}."
         )
     _stamped(cast("NetCDF", result), cast(tuple, grid))
     cast("NetCDF", result)._band_dim_time_attrs = time_attrs
@@ -406,7 +413,9 @@ def _weighted_axes(var: NetCDF, dims: Any) -> tuple[tuple[int, ...], tuple[str, 
             spatial += 1
         else:
             available = list(
-                dict.fromkeys([*band_names, row_name, column_name, _ROW_ALIAS])
+                dict.fromkeys(
+                    [*band_names, row_name, column_name, _ROW_ALIAS, _COLUMN_ALIAS]
+                )
             )
             raise ValueError(
                 f"weighted() cannot weight over {name!r}: this variable has {available}."
@@ -457,9 +466,14 @@ def _weights_for(var: NetCDF, weights: Any, shape: tuple, axes: tuple[int, ...])
         try:
             spread = np.broadcast_to(values, shape)
         except ValueError:
+            onto = (
+                f"the weighted axes {weighted_shape}"
+                if weighted_shape == tuple(shape)
+                else f"the weighted axes {weighted_shape}, nor onto the variable's "
+                f"{tuple(shape)}"
+            )
             raise ValueError(
-                f"weighted() cannot broadcast weights of shape {values.shape} onto the "
-                f"weighted axes {weighted_shape}, nor onto the variable's {tuple(shape)}."
+                f"weighted() cannot broadcast weights of shape {values.shape} onto {onto}."
             ) from None
     return spread
 
@@ -476,9 +490,14 @@ def _weight_values(var: NetCDF, weights: Any) -> np.ndarray:
         numpy.ndarray: The weights, before any broadcasting.
 
     Raises:
+        TypeError: `weights` is `None`, which names no weighting.
         ValueError: An unknown named weighting; a raster on another grid; or weights holding a
             NaN, which would make every statistic NaN.
     """
+    if weights is None:
+        raise TypeError(
+            "weighted() needs weights: 'area', an array, or a raster on the same grid."
+        )
     if isinstance(weights, str):
         if weights != "area":
             raise ValueError(

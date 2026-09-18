@@ -2504,6 +2504,7 @@ class Selection(_Engine["NetCDF"]):
             declaring NaN, on a grid reduced where a spatial axis was weighted.
 
         Raises:
+            TypeError: `weights` is `None`, which names no weighting.
             ValueError: `how` is unknown; `dims` is empty, names a dimension the variable does
                 not have, names one twice, or mixes spatial axes with band dimensions; `weights`
                 is an unknown name, holds a NaN, broadcasts onto neither the weighted axes nor
@@ -2512,6 +2513,12 @@ class Selection(_Engine["NetCDF"]):
                 variable of a container carries the band dimension named, as `reduce` refuses
                 it. A container's gridded variable that does not carry it is carried over
                 unchanged, again as `reduce` carries one it cannot reduce.
+
+        Warns:
+            UserWarning: A container's auxiliary variable spans a dimension this weighting
+                leaves no full-length axis of — a band dimension that goes, or a spatial axis
+                reduced to one cell — so it is dropped rather than carried at a length the rest
+                of the container no longer has.
 
         Examples:
             - The area-weighted mean of each step, on a grid of one cell:
