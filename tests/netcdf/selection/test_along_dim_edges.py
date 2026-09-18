@@ -9,6 +9,7 @@ the numpy / dask helpers called on their own.
 
 from __future__ import annotations
 
+import inspect
 import warnings
 from pathlib import Path
 
@@ -17,7 +18,9 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+from pyramids.netcdf.engines import _along_dim
 from pyramids.netcdf.engines._along_dim import (
+    _PACKAGE_ROOT,
     _Applied,
     _carry_auxiliaries,
     _CumSum,
@@ -26,9 +29,11 @@ from pyramids.netcdf.engines._along_dim import (
     _gaps_as_nan,
     _Reduction,
     _Rolling,
+    _sentinel_as_stored,
     _Shift,
     _shifted,
     _slice_axis,
+    _user_stacklevel,
     _variable_from_applied,
     _window_members,
 )
@@ -1039,6 +1044,23 @@ class TestCarryAuxiliaries:
             _carry_auxiliaries(source, result, rg, aux, ["level"], "diff")
         assert _dropped(caught) == [], _dropped(caught)
 
+    def test_the_warning_names_the_line_that_called_the_helper(self):
+        """Called directly, one pyramids frame is walked out of, so the test's own line is named.
+
+        Test scenario:
+            The level used to be a literal tuned for the member route, so a direct call to the
+            helper pointed five frames above it — into pytest's own machinery, or off the stack
+            entirely. The walk makes the helper report whoever called it, however shallow.
+        """
+        source, rg, aux, result = self._parts()
+        with pytest.warns(UserWarning) as caught:
+            line = inspect.currentframe().f_lineno + 1
+            _carry_auxiliaries(source, result, rg, aux, ["valid_time"], "diff")
+        assert caught[0].filename == __file__, caught[0].filename
+        assert caught[0].lineno == line, (
+            f"warned at {caught[0].lineno}, called at {line}"
+        )
+
 
 def _dropped(caught: list) -> list[str]:
     """The dropped-auxiliary warnings among the ones recorded.
@@ -1423,6 +1445,37 @@ class TestTheIdentityDifference:
         result = self._variable(-1).diff("time", 1)
         assert np.asarray(result.read_array()).dtype == np.float64
 
+    def test_it_keeps_every_step(self):
+        """Nothing is differenced, so nothing is consumed: the axis keeps all four steps."""
+        result = self._variable(-1).diff("time", 0)
+        assert result.band_count == 4, result.band_count
+
+    def test_an_unsigned_band_keeps_its_type(self):
+        """A `uint8` band declaring a gap is the case a widening cast would be most visible on."""
+        variable = NetCDF.from_array(
+            np.array([1, 2, 3, 4], dtype="uint8").reshape(4, 1, 1),
+            geo_ref=GEO,
+            variable_name="v",
+            no_data_value=255,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+        ).get_variable("v")
+        result = variable.diff("time", 0)
+        assert np.asarray(result.read_array()).dtype == np.uint8
+        assert np.asarray(result.read_array()).ravel().tolist() == [1, 2, 3, 4]
+
+    def test_a_float_band_keeps_its_own_width(self):
+        """`float32` is not widened to float64 either, and its declared gap comes back too."""
+        variable = NetCDF.from_array(
+            np.array([1.5, 2.5, 3.5, 4.5], dtype="float32").reshape(4, 1, 1),
+            geo_ref=GEO,
+            variable_name="v",
+            no_data_value=-1.0,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+        ).get_variable("v")
+        result = variable.diff("time", 0)
+        assert np.asarray(result.read_array()).dtype == np.float32
+        assert result.no_data_value[0] == pytest.approx(-1.0), result.no_data_value
+
 
 class TestTheSentinelIsComparedAsStored:
     """The mask promises a pre-cast comparison, so the sentinel is narrowed to match."""
@@ -1470,3 +1523,68 @@ class TestTheSentinelIsComparedAsStored:
         masked = _gaps_as_nan(values, -9999.0)
         assert np.isnan(masked[1])
         assert not np.isnan(masked[0])
+
+    def test_a_negative_sentinel_is_narrowed_to_the_band_type(self):
+        """`-1.0` on an `int16` band comes back as an `int16`, so the comparison stays integer."""
+        narrowed = _sentinel_as_stored(np.array([1, -1, 3], dtype="int16"), -1.0)
+        assert narrowed.dtype == np.int16, narrowed.dtype
+        assert int(narrowed) == -1, narrowed
+
+    def test_a_sentinel_an_unsigned_band_cannot_hold_is_left_alone(self):
+        """`-1.0` is out of `uint8`'s range, so narrowing it would wrap it onto a real value."""
+        values = np.array([0, 1, 255], dtype="uint8")
+        assert _sentinel_as_stored(values, -1.0) == -1.0, (
+            "the sentinel must come back as given"
+        )
+        assert not np.isnan(_gaps_as_nan(values, -1.0)).any(), (
+            "nothing matches -1 in uint8"
+        )
+
+    def test_a_nan_sentinel_on_an_integer_band_masks_nothing(self):
+        """No integer equals NaN, and narrowing it would have to call `int(nan)`."""
+        assert not np.isnan(
+            _gaps_as_nan(np.array([1, 2, 3], dtype="int32"), np.nan)
+        ).any()
+
+    def test_a_float_band_gets_the_sentinel_as_it_came(self):
+        """A float array already compares in float64, so there is nothing to narrow."""
+        assert _sentinel_as_stored(np.array([1.0, 2.0]), -9999.0) == -9999.0
+
+    def test_no_sentinel_masks_nothing(self):
+        """`ndv=None` is the branch that never builds a mask at all."""
+        masked = _gaps_as_nan(np.array([1, 2, 3], dtype="int64"), None)
+        assert masked.dtype == np.float64, masked.dtype
+        assert not np.isnan(masked).any(), masked
+
+    @requires_dask
+    def test_a_dask_band_masks_only_the_sentinel(self):
+        """The comparison stays in the stored type for a lazy array too.
+
+        Test scenario:
+            `reduce` reads a chunked variable as a dask array, so the narrowing has to work off
+            `arr.dtype` rather than on materialised values.
+        """
+        import dask.array as da
+
+        values = da.from_array(np.array([2**53, 2**53 + 1, 5], dtype="int64"), chunks=2)
+        masked = np.asarray(_gaps_as_nan(values, float(2**53)).compute())
+        assert np.isnan(masked[0]), masked
+        assert not np.isnan(masked[1]), masked
+
+
+class TestUserStacklevel:
+    """The warning attribution walks out of the package instead of counting its own frames."""
+
+    def test_a_caller_outside_the_package_is_the_first_frame(self):
+        """Called from a test, the helper's caller is already outside, so the level is 1.
+
+        Test scenario:
+            `stacklevel=1` names the line of the function that warns — here the test itself,
+            which is what a direct call to a private helper should report.
+        """
+        assert _user_stacklevel() == 1, _user_stacklevel()
+
+    def test_the_package_root_is_the_pyramids_directory(self):
+        """The walk stops at the package, not at the engines subpackage or the repository."""
+        assert Path(_PACKAGE_ROOT).name == "pyramids", _PACKAGE_ROOT
+        assert _along_dim.__file__.startswith(_PACKAGE_ROOT), _along_dim.__file__

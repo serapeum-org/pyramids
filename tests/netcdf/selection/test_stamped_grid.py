@@ -416,3 +416,126 @@ class TestTheStampSurvivesCarryingAnAuxiliary:
             warnings.simplefilter("ignore", UserWarning)
             result = source.weighted("area")
         assert "time_bnds" in result.variable_names, result.variable_names
+
+
+class TestTheStampedGridIsRestoredAfterARebuild:
+    """`_restore_stamped_grid` puts the grid back on every attribute a rebuild recomputed.
+
+    A rebuild (`_update_inplace` for a wrapper swap, `_replace_raster` for a raster swap) reads
+    the geotransform and the cell size off the raster it was handed, which for a reduced result
+    is the index space of the placeholder store. `geotransform` survives that on its own — the
+    stamp outranks the derivation — but `cell_size` is memoised straight from the recomputed
+    geotransform, so without the restore the container says one thing and its own grid another.
+    """
+
+    @staticmethod
+    def _addable() -> NetCDF:
+        """A one-cell container on the extent cell, ready to be added to a weighted result.
+
+        Returns:
+            NetCDF: The container, holding `w(time, y, x)` on `EXTENT_CELL`.
+        """
+        return NetCDF.from_array(
+            np.ones((1, 1, 1)),
+            geo_ref=GeoReference(
+                geo=tuple(float(part) for part in EXTENT_CELL), epsg=4326
+            ),
+            variable_name="w",
+            dims=ExtraDimensions(name="time", values=[0.0]),
+        )
+
+    def test_a_wrapper_swap_keeps_the_cell_size(self):
+        """Setting the EPSG rebuilds the wrapper, and the width must still be the reduced span.
+
+        Test scenario:
+            `_update_inplace` runs `NetCDF.__init__` on the rebuilt raster and memoises
+            `cell_size` from its index-space geotransform. Without the restore the container
+            reported `cell_size == 1.0` beside a geotransform saying the cell is 4 degrees
+            wide — the same split as a stamped grid that was never carried.
+        """
+        result = _weighted_source()
+        result.epsg = 4326
+        assert float(result.cell_size) == pytest.approx(4.0), float(result.cell_size)
+
+    def test_a_wrapper_swap_keeps_every_stored_grid(self):
+        """The stored, the memoised and the reported geotransform all come back to the stamp."""
+        result = _weighted_source()
+        result.epsg = 4326
+        assert result._geotransform == EXTENT_CELL, f"stored {result._geotransform!r}"
+        assert result._derived_geotransform == EXTENT_CELL, (
+            f"memoised {result._derived_geotransform!r}"
+        )
+        assert result.geotransform == EXTENT_CELL, f"read {result.geotransform!r}"
+
+    def test_a_raster_swap_keeps_the_cell_size(self):
+        """`add_variable` copies and swaps the raster, which recomputes the width the same way."""
+        result = _weighted_source()
+        result.add_variable(self._addable(), "w")
+        assert float(result.cell_size) == pytest.approx(4.0), float(result.cell_size)
+        assert result.geotransform == EXTENT_CELL, f"read {result.geotransform!r}"
+
+    def test_a_raster_swap_still_adds_the_variable(self):
+        """The grid is kept without giving up what the swap was for."""
+        result = _weighted_source()
+        result.add_variable(self._addable(), "w")
+        assert "w" in result.variable_names, result.variable_names
+
+    def test_a_variable_taken_after_the_swap_agrees(self):
+        """The container and the variable it hands out report one grid, which is the point."""
+        result = _weighted_source()
+        result.epsg = 4326
+        variable = result.get_variable("v")
+        assert variable.geotransform == EXTENT_CELL, f"read {variable.geotransform!r}"
+        assert float(variable.cell_size) == pytest.approx(4.0), float(
+            variable.cell_size
+        )
+
+    def test_a_container_that_was_never_stamped_is_left_alone(self):
+        """A raster read from a file has no stamp, and the restore must not invent one.
+
+        Test scenario:
+            An unstamped multidimensional container reports the index-space width its store
+            holds (`1.0`) beside the geotransform its coordinates derive — pre-existing
+            behaviour the stamp replaces for a reduced result, and which the restore must not
+            change for a raster that was never reduced.
+        """
+        source = _source()
+        source.epsg = 4326
+        assert source._stamped_geotransform is None, source._stamped_geotransform
+        assert source.geotransform == GEO.geo, f"read {source.geotransform!r}"
+        assert float(source.cell_size) == pytest.approx(1.0), float(source.cell_size)
+        assert float(source.get_variable("v").cell_size) == pytest.approx(2.0), float(
+            source.get_variable("v").cell_size
+        )
+
+
+class TestTheStampOutranksTheOtherDerivations:
+    """`_compute_geotransform` answers the stamp before it derives a grid by any other route."""
+
+    def test_it_outranks_the_coordinate_derivation(self):
+        """A container with coordinates long enough to measure still answers the stamp.
+
+        Test scenario:
+            The derivation runs whenever `lon` and `lat` are both there, which is every
+            container built from an array. Reaching it ahead of the stamp is what gave a
+            rebuilt result the grid its own variables disagreed with.
+        """
+        grid = (1.0, 2.0, 0.0, 3.0, 0.0, -4.0)
+        container = _stamped(_source(), grid)
+        container._derived_geotransform = None
+        assert container.geotransform == grid, f"read {container.geotransform!r}"
+
+    def test_it_outranks_the_rescaled_geostationary_grid(self):
+        """The stamp is answered before the geostationary short-circuit, which comes next.
+
+        Test scenario:
+            A rescaled geostationary raster answers its stored geotransform rather than
+            re-deriving one. A stamped result of such a raster has to answer the stamp instead,
+            so the stamp is checked first.
+        """
+        grid = (1.0, 2.0, 0.0, 3.0, 0.0, -4.0)
+        container = _stamped(_source(), grid)
+        container._geostationary_scaled = True
+        container._geotransform = (0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+        container._derived_geotransform = None
+        assert container.geotransform == grid, f"read {container.geotransform!r}"

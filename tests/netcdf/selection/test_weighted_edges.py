@@ -10,6 +10,7 @@ grid with no CRS, the dropped auxiliary variable, and what the one-cell result's
 
 from __future__ import annotations
 
+import inspect
 import warnings
 from pathlib import Path
 
@@ -1023,6 +1024,24 @@ class TestNearSentinelIntegersAreWeighted:
         assert answer == pytest.approx(4.0), answer
 
 
+def _weighted_from_a_helper(container: NetCDF, steps: int) -> int:
+    """Weight `container` from a frame of this module's own, and say which line did it.
+
+    The frame the warning must name is this one, not the test that called this: the first frame
+    outside the package is what `_user_stacklevel` walks out to.
+
+    Args:
+        container: The ERA5 container, whose `expver` spans the reduced dimension.
+        steps: The number of steps along `valid_time`.
+
+    Returns:
+        int: The line number of the call this function makes, which the warning must report.
+    """
+    line = inspect.currentframe().f_lineno + 1
+    container.weighted(np.ones(steps), "valid_time")
+    return line
+
+
 class TestTheWarningNamesTheCallerOnEitherRoute:
     """The dropped-auxiliary warning points at the user's line through the engine too."""
 
@@ -1068,6 +1087,22 @@ class TestTheWarningNamesTheCallerOnEitherRoute:
         with pytest.warns(UserWarning) as caught:
             call(*arguments)
         assert caught[0].filename == __file__, caught[0].filename
+
+    def test_the_warning_lands_on_the_innermost_frame_outside_the_package(self):
+        """Two frames of the caller's own, and the warning names the one that made the call.
+
+        Test scenario:
+            A literal frame count that happened to reach this module would name whichever of
+            its frames sat that far up. `_user_stacklevel` stops at the first frame outside
+            `pyramids`, so the line reported is the helper's call, not the test's call to the
+            helper — which is what a user sees when they wrap the member in a function.
+        """
+        container, steps = self._era5()
+        with pytest.warns(UserWarning) as caught:
+            line = _weighted_from_a_helper(container, steps)
+        assert caught[0].lineno == line, (
+            f"warned at {caught[0].lineno}, called at {line}"
+        )
 
 
 class TestWeightsThatAreNotWeights:
@@ -1131,3 +1166,59 @@ class TestWeightsThatAreNotWeights:
         assert float(np.asarray(variable.weighted("area").read_array()).ravel()[0]) == (
             pytest.approx(1.0)
         )
+
+    def test_a_negative_infinity_is_refused_too(self):
+        """`-inf` fails the finiteness test the same way `inf` does, and reads the same."""
+        variable = _variable()
+        weights = np.ones((NY, NX))
+        weights[0, 0] = -np.inf
+        with pytest.raises(ValueError, match="infinities"):
+            variable.weighted(weights)
+
+    def test_a_nan_beside_an_infinity_is_named_as_missing(self):
+        """Holding both, the message names the missing value, which is the one to replace first."""
+        variable = _variable()
+        weights = np.ones((NY, NX))
+        weights[0, 0] = np.nan
+        weights[0, 1] = np.inf
+        with pytest.raises(ValueError, match="missing values"):
+            variable.weighted(weights)
+
+    def test_a_weights_raster_holding_an_infinity_is_refused(self):
+        """A raster of weights is read as plain numbers, so its values meet the same guard."""
+        values = np.ones((NY, NX))
+        values[2, 3] = np.inf
+        with pytest.raises(ValueError, match="infinities"):
+            _variable().weighted(Dataset.from_array(values, geo_ref=GEO))
+
+    def test_rows_that_run_off_the_north_pole_are_refused(self):
+        """A grid whose top rows sit above `+90` is as unweightable as one below `-90`.
+
+        Test scenario:
+            The guard tests `abs(latitude) > 90`, and the south side was the only one pinned.
+            `cos` of a latitude above the north pole is positive but describes no area, and
+            the row numbering has to name the first row that left, which is row 0 here.
+        """
+        variable = NetCDF.from_array(
+            np.ones((4, 4)),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 92.0, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+        ).get_variable("v")
+        with pytest.raises(ValueError, match="row 0 of 4 sits at 91.5000 degrees"):
+            variable.weighted("area")
+
+    def test_a_row_centred_exactly_on_the_pole_is_kept(self):
+        """`abs(latitude) > 90` is strict, so a row centred on the pole still weighs in.
+
+        Test scenario:
+            The top row of a grid starting at `90.5` is centred at exactly `90`, whose cosine
+            is zero rather than negative — a cell of no area, not an impossible one — so the
+            guard must not fire on it.
+        """
+        variable = NetCDF.from_array(
+            np.ones((2, 4)),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 90.5, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+        ).get_variable("v")
+        weights = _area_weights(variable)
+        assert_allclose(weights.ravel(), [0.0, np.cos(np.deg2rad(89.0))], atol=1e-12)
