@@ -10,6 +10,7 @@ itself, the members that must keep it, and the in-place swap that must not drop 
 from __future__ import annotations
 
 import warnings
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -24,6 +25,12 @@ GEO = GeoReference(geo=(10.0, 2.0, 0.0, 60.0, 0.0, -2.0), epsg=4326)
 """A 2-degree grid whose 2x2 extent is `[10, 56, 14, 60]`, so the numbers read off by eye."""
 
 EXTENT_CELL = (10.0, 4.0, 0, 60.0, 0, -4.0)
+SPATIAL_BOUNDS = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "netcdf"
+    / "cf__7v__1d3-2d3-3d1__y-asc.nc"
+)
 """The geotransform of the one cell a full spatial weighting of `GEO` leaves."""
 
 TIMES = [0.0, 6.0, 12.0]
@@ -343,3 +350,68 @@ class TestTheStampedCellSize:
         source = self._source()
         result = source.rolling("time", 2)
         assert float(result.get_variable("t").cell_size) == pytest.approx(5.0)
+
+
+class TestTheStampSurvivesCarryingAnAuxiliary:
+    """A real CF store has auxiliary variables to carry, and carrying one rebuilds the wrapper."""
+
+    @staticmethod
+    def _bounded() -> NetCDF:
+        """A CF store with bounds variables, one of which a spatial weighting carries.
+
+        Returns:
+            NetCDF: `tos(time, lat, lon)` beside `time_bnds(time, bnds)`, which survives a
+            spatial weighting, and `lat_bnds` / `lon_bnds`, which do not.
+        """
+        return NetCDF.read_file(str(SPATIAL_BOUNDS))
+
+    @staticmethod
+    def _expected(source: NetCDF) -> tuple:
+        """The one cell the source's whole extent becomes.
+
+        Args:
+            source: The container being weighted.
+
+        Returns:
+            tuple: The geotransform of a result whose two spatial axes were reduced.
+        """
+        variable = source.get_variable("tos")
+        geo = list(variable.geotransform)
+        geo[1] = geo[1] * variable.columns
+        geo[5] = geo[5] * variable.rows
+        return tuple(geo)
+
+    def test_the_container_keeps_the_stamped_grid(self):
+        """Carrying `time_bnds` must not give the container's grid back to the derivation.
+
+        Test scenario:
+            `_carry_auxiliaries` adds the carried variable with `add_variable(copy=False)`, which
+            rebuilds the container's wrapper from its raster. The rebuild recomputed the
+            geotransform from the single stored coordinate, so the container reported
+            `(0.0, 360.0, 0, 185.0, 0, -360.0)` where the stamp had said
+            `(0.0, 360.0, 0, 90.0, 0, -170.0)` — an origin 95 degrees out. Every earlier stamp
+            test built its source with `from_array`, which has no auxiliary to carry, so the
+            path was never exercised.
+        """
+        source = self._bounded()
+        expected = self._expected(source)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = source.weighted("area")
+        assert result.geotransform == expected, f"read {result.geotransform!r}"
+
+    def test_the_container_and_its_variable_still_agree(self):
+        """The split the stamp exists to close stays closed once an auxiliary is carried."""
+        source = self._bounded()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = source.weighted("area")
+        assert result.geotransform == result.get_variable("tos").geotransform
+
+    def test_the_carried_auxiliary_is_still_there(self):
+        """The grid is kept without giving up the variable the rebuild was for."""
+        source = self._bounded()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = source.weighted("area")
+        assert "time_bnds" in result.variable_names, result.variable_names

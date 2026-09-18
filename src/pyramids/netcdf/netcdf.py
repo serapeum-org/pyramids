@@ -2417,6 +2417,7 @@ class NetCDF(Dataset):
         )
         self.__dict__.update(new.__dict__)
         self.__dict__.update(preserved)
+        self._restore_stamped_grid()
         # collaborators in `new.__dict__` point at
         # `new` via `weakref.proxy`; re-bind to a proxy of `self`
         # so callers using `self.spatial.crop(...)` after this update
@@ -2623,6 +2624,11 @@ class NetCDF(Dataset):
         Computes from lon/lat coordinate arrays if available.
         Falls back to the parent GDAL GetGeoTransform() otherwise.
 
+        A stamped grid is the other exception, and takes precedence: an operation that
+        rebuilt this raster was told what grid it produced (`_stamped_geotransform`), because a
+        spatial axis left one cell long carries no spacing for the coordinates to describe. See
+        :meth:`_restore_stamped_grid`.
+
         Geostationary scan-angle datasets are the exception: once their
         ``x`` / ``y`` radians have been rescaled to metres on read (see
         :meth:`_normalize_geostationary_geotransform`), re-deriving the
@@ -2637,6 +2643,8 @@ class NetCDF(Dataset):
             a north-up raster. Units follow the dataset CRS (degrees for
             geographic, metres for projected, including rescaled geostationary).
         """
+        if self._stamped_geotransform is not None:
+            return self._stamped_geotransform
         if self._geostationary_scaled:
             return self._geotransform
         if self.lon is not None and self.lat is not None:
@@ -2674,6 +2682,24 @@ class NetCDF(Dataset):
                 -y_cell,
             )
         return self._geotransform
+
+    def _restore_stamped_grid(self) -> None:
+        """Put a stamped grid back after the raster it describes was rebuilt.
+
+        An operation that collapses a spatial axis knows the grid it produced and records it in
+        `_stamped_geotransform`, because the rebuilt store cannot describe it: one coordinate
+        value carries no spacing. Anything that re-derives the raster's state — a wrapper swap
+        (`set_crs`, `change_no_data_value`, an in-place `apply`, the `add_variable(copy=False)`
+        that carries an auxiliary variable onto a result) or a raster replacement — computes the
+        geotransform and the cell size from the raster it was handed and would drop the stamp,
+        leaving the container on a grid its own variables disagree with.
+
+        A no-op on any raster that was never stamped, which is every raster read from a file.
+        """
+        if self._stamped_geotransform is not None:
+            self._geotransform = self._stamped_geotransform
+            self._derived_geotransform = self._stamped_geotransform
+            self._cell_size = GeoTransform(*self._stamped_geotransform).cell_size
 
     def _is_geostationary(self) -> bool:
         """True when the dataset CRS is the CF geostationary projection.
@@ -11395,6 +11421,7 @@ class NetCDF(Dataset):
         self._derived_geotransform = None
         self._geotransform = new_raster.GetGeoTransform()
         self._cell_size = GeoTransform(*self._geotransform).cell_size
+        self._restore_stamped_grid()
         self._file_name = new_raster.GetDescription()
         # Clear the borrowed container CRS *before* re-deriving the EPSG: it is
         # keyed to the variables behind the OLD raster, and `_get_epsg` reads
