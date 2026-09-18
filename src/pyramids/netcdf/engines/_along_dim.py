@@ -577,11 +577,13 @@ position is never negative, so it cannot be mistaken for one."""
 def _gaps_as_nan(arr: Any, ndv: Any) -> Any:
     """A float64 copy of `arr` holding NaN wherever it holds a gap.
 
-    The gaps are found in the values **as stored**, before the cast. float64 carries 53 bits of
-    mantissa, so two `int64` values above `2**53` can land on the same float: masking after the
-    cast dropped a real value that merely sat next to the sentinel. The cast still costs those
-    values their exact magnitude — a limit of computing in float64, which `reduce` and every
-    member built on it share — but no longer costs them their existence.
+    The gaps are found in the values **as stored**, before the cast, and against a sentinel in
+    the same type (`_sentinel_as_stored`). float64 carries 53 bits of mantissa, so two `int64`
+    values above `2**53` can land on the same float: masking after the cast — or against a
+    sentinel that has been through one — dropped a real value that merely sat next to the
+    sentinel. The cast still costs those values their exact magnitude, a limit of computing in
+    float64 that `reduce` and every member built on it share, but no longer costs them their
+    existence.
 
     Args:
         arr: The values, numpy or dask.
@@ -591,7 +593,35 @@ def _gaps_as_nan(arr: Any, ndv: Any) -> Any:
         The float64 values, the sentinel and any NaN both NaN.
     """
     data = arr.astype("float64")
-    return data if ndv is None else np.where(arr == ndv, np.nan, data)
+    if ndv is None:
+        return data
+    return np.where(arr == _sentinel_as_stored(arr, ndv), np.nan, data)
+
+
+def _sentinel_as_stored(arr: Any, ndv: Any) -> Any:
+    """The no-data value in the array's own type, when that type can hold it exactly.
+
+    A sentinel that arrives as a float is compared against an integer array by promoting the
+    array to float64, which is the very comparison `_gaps_as_nan` avoids: two `int64` values
+    above `2**53` land on the same float, so a real value next to the sentinel would be masked
+    with it. Handing back an integer sentinel keeps the comparison in the stored type.
+
+    Args:
+        arr: The values, numpy or dask.
+        ndv: The sentinel as the variable declares it.
+
+    Returns:
+        The sentinel, narrowed to the array's dtype when it is an integer array holding a
+        whole number in range, and unchanged otherwise — a float array, a fractional or
+        NaN sentinel, or one the integer type could not represent.
+    """
+    sentinel = ndv
+    if np.issubdtype(arr.dtype, np.integer):
+        whole = float(ndv)
+        limits = np.iinfo(arr.dtype)
+        if whole.is_integer() and limits.min <= whole <= limits.max:
+            sentinel = arr.dtype.type(int(ndv))
+    return sentinel
 
 
 def _slice_axis(arr: Any, axis: int, start: int, stop: int) -> Any:

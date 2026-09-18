@@ -1422,3 +1422,51 @@ class TestTheIdentityDifference:
         """Order 1 on the same band does skip gaps, so it answers float64 as documented."""
         result = self._variable(-1).diff("time", 1)
         assert np.asarray(result.read_array()).dtype == np.float64
+
+
+class TestTheSentinelIsComparedAsStored:
+    """The mask promises a pre-cast comparison, so the sentinel is narrowed to match."""
+
+    @staticmethod
+    def _values() -> np.ndarray:
+        """An `int64` array holding the sentinel `2**53` and its neighbour `2**53 + 1`.
+
+        Returns:
+            np.ndarray: `[2**53, 2**53 + 1, 5]`.
+        """
+        return np.array([2**53, 2**53 + 1, 5], dtype="int64")
+
+    def test_a_float_sentinel_still_masks_only_its_own_cell(self):
+        """`float(2**53)` describes the same cell, and must not take its neighbour with it.
+
+        Test scenario:
+            The mask compared the stored values against the sentinel as given, and a float
+            sentinel promotes an `int64` array to float64 — the very comparison the pre-cast
+            mask exists to avoid. `2**53 + 1` was masked along with `2**53`.
+        """
+        masked = _gaps_as_nan(self._values(), float(2**53))
+        assert np.isnan(masked[0])
+        assert not np.isnan(masked[1])
+
+    def test_an_integer_sentinel_behaves_the_same_way(self):
+        """The route that already worked is unchanged."""
+        masked = _gaps_as_nan(self._values(), 2**53)
+        assert np.isnan(masked[0])
+        assert not np.isnan(masked[1])
+
+    def test_a_fractional_sentinel_is_left_alone(self):
+        """A sentinel no integer array can hold exactly is compared as it came."""
+        values = np.array([1, 2, 3], dtype="int16")
+        assert not np.isnan(_gaps_as_nan(values, -0.5)).any()
+
+    def test_a_sentinel_outside_the_band_type_is_left_alone(self):
+        """A value the band's type cannot hold matches nothing, and must not overflow on the way."""
+        values = np.array([1, 2, 3], dtype="int8")
+        assert not np.isnan(_gaps_as_nan(values, 9999.0)).any()
+
+    def test_a_float_band_is_untouched(self):
+        """A float band compares in float64 either way."""
+        values = np.array([1.0, -9999.0, 3.0])
+        masked = _gaps_as_nan(values, -9999.0)
+        assert np.isnan(masked[1])
+        assert not np.isnan(masked[0])

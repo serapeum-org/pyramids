@@ -337,8 +337,9 @@ class TestTheStampedCellSize:
         """
         result = self._source().weighted("area")
         variable = result.get_variable("t")
+        assert float(result.cell_size) == pytest.approx(10.0)
+        assert float(variable.cell_size) == pytest.approx(10.0)
         assert float(variable.cell_size) == pytest.approx(abs(variable.geotransform[1]))
-        assert float(result.cell_size) == pytest.approx(abs(result.geotransform[1]))
 
     def test_the_width_is_the_span_that_was_reduced(self):
         """Two 5-degree columns reduce to one cell 10 degrees wide."""
