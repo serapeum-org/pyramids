@@ -1997,12 +1997,15 @@ class Selection(_Engine["NetCDF"]):
                 total so far, and a step before the first valid cell is a gap — where xarray
                 answers `0.0`, a total of nothing that is not invented here, just as
                 `reduce(how="sum")` does not invent one for an all-gap slice. When `False` the
-                stored values add up as numpy adds them, the sentinel and NaN included.
+                stored values add up as numpy adds them, the sentinel and NaN included, and the
+                result declares no no-data value at all — the sentinel is part of the totals, so
+                no cell holds it any more and declaring it would mask a total that landed on it.
 
         Returns:
             NetCDF: A container for a container, a variable for a variable, with every dimension
             unchanged. Skipping gaps the total is float64 and declares the variable's no-data
-            value, or NaN when it declares none; otherwise it is numpy's own type for the total.
+            value, or NaN when it declares none; otherwise it is numpy's own type for the total
+            and declares none.
 
         Raises:
             ValueError: The container has no data variables, or `dim` is not a band dimension of

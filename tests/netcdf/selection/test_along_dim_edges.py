@@ -1009,3 +1009,51 @@ def _dropped(caught: list) -> list[str]:
         for record in caught
         if "dropped auxiliary variable" in str(record.message)
     ]
+
+
+class TestCumSumWithoutSkipping:
+    """`cumsum(skipna=False)` adds the sentinel, so the result declares no no-data value."""
+
+    @staticmethod
+    def _variable(values: list[float]) -> NetCDF:
+        """A one-cell variable over `time` declaring `NDV`.
+
+        Args:
+            values: One value per step.
+
+        Returns:
+            NetCDF: The variable.
+        """
+        return NetCDF.from_array(
+            np.array(values).reshape(len(values), 1, 1),
+            geo_ref=GEO,
+            variable_name="v",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=list(range(len(values)))),
+        ).get_variable("v")
+
+    def test_the_sentinel_is_added_as_a_number(self):
+        """`[1, NDV, 4, 8]` totals as numpy totals it, sentinel included."""
+        result = self._variable([1.0, NDV, 4.0, 8.0]).cumsum("time", skipna=False)
+        assert np.asarray(result.read_array()).ravel().tolist() == [
+            1.0,
+            -9998.0,
+            -9994.0,
+            -9986.0,
+        ]
+
+    def test_the_result_declares_no_no_data_value(self):
+        """Nothing in the total is a gap any more, so nothing is declared one.
+
+        Test scenario:
+            The result carried the source's `-9999.0` although the sentinel had been added into
+            every later step: the declared value matched no cell, and any total that happened to
+            land on it would have been masked away as a gap.
+        """
+        result = self._variable([1.0, NDV, 4.0, 8.0]).cumsum("time", skipna=False)
+        assert result.no_data_value[0] is None, result.no_data_value
+
+    def test_skipping_gaps_still_declares_the_sentinel(self):
+        """The default keeps gaps as gaps, so it still declares the value they hold."""
+        result = self._variable([1.0, NDV, 4.0, 8.0]).cumsum("time")
+        assert result.no_data_value[0] == pytest.approx(NDV)

@@ -314,8 +314,10 @@ class _CumSum(_AlongDim):
 
         Returns:
             _Applied: The running total, the band layout unchanged. Skipping gaps it is float64
-            and declares the variable's no-data value, or NaN when it declares none; otherwise it
-            is numpy's own type for the total and declares what the variable declares.
+            and declares the variable's no-data value, or NaN when it declares none. Adding them
+            instead (`skipna=False`) it is numpy's own type for the total and declares **no**
+            no-data value: the sentinel went into the running total, so no cell holds it any
+            more and declaring it would mask whatever total happened to land on it.
         """
         band_names = list(var._band_dim_names)
         values_map = dict(var._band_dim_values_map)
@@ -333,7 +335,7 @@ class _CumSum(_AlongDim):
             result_ndv: Any = fill
         else:
             values = np.cumsum(arr, axis=axis)
-            result_ndv = ndv
+            result_ndv = None
         return _Applied(np.asarray(values), band_names, values_map, result_ndv)
 
 
