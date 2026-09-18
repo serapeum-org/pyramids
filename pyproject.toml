@@ -95,6 +95,12 @@ dev = [
     "jupyterlab",
     "notebook",
     "jupyter",
+    # Floored for CVE-2026-86049: before 2.21.0 a 500 response logged the request's
+    # `Referer` header verbatim, so a token carried in that URL — which the normal
+    # token login and launch flows put there — landed in the server log in plain text.
+    # Reached only as a transitive dependency of jupyterlab/notebook, so the floor has
+    # to be stated here; drop it once those pull 2.21.0 or later on their own.
+    "jupyter-server>=2.21.0",
     "commitizen>=4.8.4",
     "mypy>=1.10.0",
     "types-PyYAML>=6.0.0",
