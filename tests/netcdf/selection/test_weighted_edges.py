@@ -47,7 +47,7 @@ ERA5_T2M = (
 )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def era5_latitude_variable() -> NetCDF:
     """The ERA5 `t2m` variable, whose store names its axes `latitude` / `longitude`.
 
