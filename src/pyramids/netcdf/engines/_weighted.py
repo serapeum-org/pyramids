@@ -209,9 +209,6 @@ def _weighted_container(
         aux_vars,
         removed,
         "weighted",
-        # One frame deeper than the along-dimension loop: NetCDF.weighted forwards to
-        # Selection.weighted, which picks a receiver (`_weighted_result`) before this one.
-        6,
     )
     return cast("NetCDF", result)
 

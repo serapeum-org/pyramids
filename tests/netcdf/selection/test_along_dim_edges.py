@@ -1001,34 +1001,34 @@ class TestCarryAuxiliaries:
         """A single removed dimension is named with `repr`, so the message reads `'valid_time'`."""
         source, rg, aux, result = self._parts()
         with pytest.warns(UserWarning, match=r"the reduced dimension 'valid_time'"):
-            _carry_auxiliaries(source, result, rg, aux, ["valid_time"], "diff", 5)
+            _carry_auxiliaries(source, result, rg, aux, ["valid_time"], "diff")
 
     def test_several_removed_dimensions_are_listed(self):
         """Two removed dimensions are named as a list, which `weighted` can ask for."""
         source, rg, aux, result = self._parts()
         with pytest.warns(UserWarning, match=r"\['valid_time', 'level'\]"):
             _carry_auxiliaries(
-                source, result, rg, aux, ["valid_time", "level"], "weighted", 5
+                source, result, rg, aux, ["valid_time", "level"], "weighted"
             )
 
     def test_the_warning_names_the_member(self):
         """The message opens with the member the user called, not the helper's own name."""
         source, rg, aux, result = self._parts()
         with pytest.warns(UserWarning, match=r"^argmin\(\) dropped"):
-            _carry_auxiliaries(source, result, rg, aux, ["valid_time"], "argmin", 5)
+            _carry_auxiliaries(source, result, rg, aux, ["valid_time"], "argmin")
 
     def test_the_dropped_variable_is_named(self):
         """The message lists the auxiliary variables it could not carry."""
         source, rg, aux, result = self._parts()
         with pytest.warns(UserWarning, match=r"\['expver'\]"):
-            _carry_auxiliaries(source, result, rg, aux, ["valid_time"], "diff", 5)
+            _carry_auxiliaries(source, result, rg, aux, ["valid_time"], "diff")
 
     def test_nothing_is_dropped_when_no_dimension_changed(self):
         """With no removed dimension every auxiliary variable is carried, so nothing warns."""
         source, rg, aux, result = self._parts()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            _carry_auxiliaries(source, result, rg, aux, [], "cumsum", 5)
+            _carry_auxiliaries(source, result, rg, aux, [], "cumsum")
         assert _dropped(caught) == [], _dropped(caught)
 
     def test_an_auxiliary_that_does_not_span_the_dimension_is_kept(self):
@@ -1036,7 +1036,7 @@ class TestCarryAuxiliaries:
         source, rg, aux, result = self._parts()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            _carry_auxiliaries(source, result, rg, aux, ["level"], "diff", 5)
+            _carry_auxiliaries(source, result, rg, aux, ["level"], "diff")
         assert _dropped(caught) == [], _dropped(caught)
 
 

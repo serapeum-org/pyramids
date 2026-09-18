@@ -1021,3 +1021,50 @@ class TestNearSentinelIntegersAreWeighted:
         )
         answer = float(np.asarray(result.read_array()).ravel()[0])
         assert answer == pytest.approx(4.0), answer
+
+
+class TestTheWarningNamesTheCallerOnEitherRoute:
+    """The dropped-auxiliary warning points at the user's line through the engine too."""
+
+    @staticmethod
+    def _era5() -> tuple[NetCDF, int]:
+        """The ERA5 store, whose `expver` spans the dimension these calls remove.
+
+        Returns:
+            tuple: The container and its step count.
+        """
+        container = NetCDF.read_file(str(ERA5_T2M))
+        return container, container.get_variable("t2m").band_count
+
+    def test_weighted_through_the_engine(self):
+        """`nc.selection.weighted(...)` is one frame shallower than the facade.
+
+        Test scenario:
+            The frame count was a literal tuned for the facade, so the engine route — which
+            every facade docstring cross-references — reported the caller's caller instead.
+        """
+        container, steps = self._era5()
+        with pytest.warns(UserWarning) as caught:
+            container.selection.weighted(np.ones(steps), "valid_time")
+        assert caught[0].filename == __file__, caught[0].filename
+
+    def test_weighted_through_the_facade(self):
+        """The facade route still names the caller, as it always did."""
+        container, steps = self._era5()
+        with pytest.warns(UserWarning) as caught:
+            container.weighted(np.ones(steps), "valid_time")
+        assert caught[0].filename == __file__, caught[0].filename
+
+    @pytest.mark.parametrize("member", ["reduce", "diff", "argmin"])
+    def test_an_along_dimension_member_through_the_engine(self, member):
+        """The loop's members report the caller through the engine as well.
+
+        Args:
+            member: The member called.
+        """
+        container, _ = self._era5()
+        call = getattr(container.selection, member)
+        arguments = ("valid_time", "mean") if member == "reduce" else ("valid_time",)
+        with pytest.warns(UserWarning) as caught:
+            call(*arguments)
+        assert caught[0].filename == __file__, caught[0].filename
