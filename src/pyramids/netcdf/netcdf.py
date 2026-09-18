@@ -2215,7 +2215,9 @@ class NetCDF(Dataset):
         self._derived_geotransform: tuple | None = None
         # The grid a rebuild was told to produce, when its coordinates cannot describe it — a
         # spatial axis one cell long carries no spacing to derive one from. `get_variable` hands
-        # it to the variables it builds, which have no coordinate arrays of their own.
+        # it to the variables it builds, which have no coordinate arrays of their own, the
+        # `geotransform` property answers it ahead of deriving one, and `_restore_stamped_grid`
+        # replays it over whatever `_update_inplace` or `_replace_raster` re-derived.
         self._stamped_geotransform: tuple | None = None
         # Origin-tracking attributes set by get_variable (RT-4)
         self._parent_nc: NetCDF | None = None
@@ -2379,6 +2381,11 @@ class NetCDF(Dataset):
         The record of the raster `get_variable` built (`_store_raster`) is kept only when `src`
         is that raster, as the `epsg` setter passes it. Any other `src` drops it, so the variable
         stops streaming a reduction from its store and the replaced raster is not kept alive.
+
+        The rebuild measures its geotransform and cell size from `src`, which is not the grid a
+        collapsed spatial axis was stamped with, so `_restore_stamped_grid` runs once the
+        snapshot is back: the stamp itself is in `preserved`, but the cell size derived from it
+        is not.
         """
         preserved = {
             "_is_md_array": self._is_md_array,
@@ -2624,10 +2631,12 @@ class NetCDF(Dataset):
         Computes from lon/lat coordinate arrays if available.
         Falls back to the parent GDAL GetGeoTransform() otherwise.
 
-        A stamped grid is the other exception, and takes precedence: an operation that
-        rebuilt this raster was told what grid it produced (`_stamped_geotransform`), because a
-        spatial axis left one cell long carries no spacing for the coordinates to describe. See
-        :meth:`_restore_stamped_grid`.
+        A stamped grid is the other exception, and takes precedence over every case below: an
+        operation that rebuilt this raster was told what grid it produced
+        (`_stamped_geotransform`), because a spatial axis left one cell long carries no spacing
+        for the coordinates to describe. This is what keeps the grid right after a swap cleared
+        the memoised value; the matching `cell_size`, which no property re-derives, is put back
+        by `_restore_stamped_grid`.
 
         Geostationary scan-angle datasets are the exception: once their
         ``x`` / ``y`` radians have been rescaled to metres on read (see
@@ -2688,11 +2697,20 @@ class NetCDF(Dataset):
 
         An operation that collapses a spatial axis knows the grid it produced and records it in
         `_stamped_geotransform`, because the rebuilt store cannot describe it: one coordinate
-        value carries no spacing. Anything that re-derives the raster's state — a wrapper swap
-        (`set_crs`, `change_no_data_value`, an in-place `apply`, the `add_variable(copy=False)`
-        that carries an auxiliary variable onto a result) or a raster replacement — computes the
-        geotransform and the cell size from the raster it was handed and would drop the stamp,
-        leaving the container on a grid its own variables disagree with.
+        value carries no spacing. The two places that re-derive the raster's state from the
+        raster they were handed call this right after doing so: `_update_inplace` (the `epsg`
+        setter, an in-place `apply`) and `_replace_raster` (a copying `add_variable`). Both
+        compute the geotransform and the cell size from that raster, which is the source's grid
+        and not the stamped one.
+
+        `_cell_size` is what this alone puts back — leave it out and a weighted result reports
+        the replacement raster's width, `1.0` where the stamp says `1.25`, while its variables
+        still say `1.25`. `geotransform` recovers without help, since `_compute_geotransform`
+        answers the stamp before deriving anything.
+
+        Carrying an auxiliary variable onto a result does **not** arrive here:
+        `_carry_aux_variables` uses `add_variable(copy=False)`, which mutates the raster in place
+        and re-derives nothing, so there is nothing to restore.
 
         A no-op on any raster that was never stamped, which is every raster read from a file.
         """
@@ -11410,6 +11428,10 @@ class NetCDF(Dataset):
         old handle (or a ``get_group()`` view of it) must keep a valid, unmutated
         dataset, which is why the variable-mutation ops copy-and-swap instead of
         mutating in place (#143). Do not change this to close the old raster.
+
+        The geotransform and cell size re-derived here are `new_raster`'s, which is not the grid
+        a collapsed spatial axis was stamped with, so `_restore_stamped_grid` puts a stamp back
+        over them. A copying `add_variable` on a weighted result is the route that needs it.
         """
         old = self._raster
         if old is not None and old is not new_raster:

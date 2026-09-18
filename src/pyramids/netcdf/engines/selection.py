@@ -2522,9 +2522,10 @@ class Selection(_Engine["NetCDF"]):
             TypeError: `weights` is `None`, which names no weighting.
             ValueError: `how` is unknown; `dims` is empty, names a dimension the variable does
                 not have, names one twice, or mixes spatial axes with band dimensions; `weights`
-                is an unknown name, holds a NaN, broadcasts onto neither the weighted axes nor
-                the variable's own shape, or is a raster on another grid; `"area"` is asked of a
-                grid that is not geographic; the container has no data variables; or no gridded
+                is an unknown name, holds a NaN or an infinity, broadcasts onto neither the
+                weighted axes nor the variable's own shape, or is a raster on another grid;
+                `"area"` is asked of a grid that is not geographic, or of one whose rows run off
+                the globe past 90 degrees; the container has no data variables; or no gridded
                 variable of a container carries the band dimension named, as `reduce` refuses
                 it. A container's gridded variable that does not carry it is carried over
                 unchanged, again as `reduce` carries one it cannot reduce.

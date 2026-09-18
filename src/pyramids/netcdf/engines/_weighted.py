@@ -9,10 +9,14 @@ taken from it.
 
 `_weighted_geotransform` hands the rebuild a cell spanning the source extent. A rebuilt store
 whose row or column axis is one cell long has no spacing to derive that back from, so `_stamped`
-puts the grid on the result rather than letting it be guessed, and `_restore_stamped_grid` puts
-it back after anything that rebuilds the raster's state — carrying an auxiliary variable onto the
-result does exactly that. In memory the grid then survives every path; a file round trip is what
-still loses it, since a NetCDF records coordinate values and one value carries no spacing. See
+puts the grid on the result rather than letting it be guessed — writing the memoised value, the
+fallback and the stamp at once, so nothing downstream has to derive anything. Carrying an
+auxiliary variable onto that result leaves all three alone: `_carry_aux_variables` adds each one
+with `add_variable(copy=False)`, which mutates the raster in place and re-derives no grid.
+`NetCDF._restore_stamped_grid` covers the routes that do rebuild the raster's state instead — an
+`epsg` setter or an in-place `apply` through `_update_inplace`, a copying `add_variable` through
+`_replace_raster`. In memory the grid survives either way; a file round trip is what still loses
+it, since a NetCDF records coordinate values and one value carries no spacing. See
 `Selection.weighted` for what the reopened file reports.
 """
 
