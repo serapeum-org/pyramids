@@ -2709,8 +2709,10 @@ class NetCDF(Dataset):
         answers the stamp before deriving anything.
 
         Carrying an auxiliary variable onto a result does **not** arrive here:
-        `_carry_aux_variables` uses `add_variable(copy=False)`, which mutates the raster in place
-        and re-derives nothing, so there is nothing to restore.
+        `_carry_aux_variables` uses `add_variable(copy=False)`, which mutates the raster in
+        place. That still drops the memoised `_derived_geotransform`, but `_geotransform` and
+        `_cell_size` survive it and the derivation that follows answers the stamp, so the grid
+        needs no restoring on that path.
 
         A no-op on any raster that was never stamped, which is every raster read from a file.
         """

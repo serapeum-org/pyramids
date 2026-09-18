@@ -10,12 +10,16 @@ taken from it.
 `_weighted_geotransform` hands the rebuild a cell spanning the source extent. A rebuilt store
 whose row or column axis is one cell long has no spacing to derive that back from, so `_stamped`
 puts the grid on the result rather than letting it be guessed — writing the memoised value, the
-fallback and the stamp at once, so nothing downstream has to derive anything. Carrying an
-auxiliary variable onto that result leaves all three alone: `_carry_aux_variables` adds each one
-with `add_variable(copy=False)`, which mutates the raster in place and re-derives no grid.
-`NetCDF._restore_stamped_grid` covers the routes that do rebuild the raster's state instead — an
+fallback and the stamp at once. Carrying an auxiliary variable onto that result then drops the
+memoised one: `_carry_aux_variables` adds each variable with `add_variable(copy=False)`, which
+mutates the raster in place and invalidates the caches over it, so `_derived_geotransform` comes
+back `None` while `_geotransform` and `_cell_size` survive. What keeps the answer right there is
+that `NetCDF._compute_geotransform` answers the stamp before deriving anything — without it the
+container reports the single-coordinate derivation again, `(0.0, 360.0, 0, 185.0, 0, -360.0)`
+against a stamp of `(0.0, 360.0, 0, 90.0, 0, -170.0)` on a y-ascending CF store.
+`NetCDF._restore_stamped_grid` covers the routes that rebuild the raster's state outright — an
 `epsg` setter or an in-place `apply` through `_update_inplace`, a copying `add_variable` through
-`_replace_raster`. In memory the grid survives either way; a file round trip is what still loses
+`_replace_raster` — where the cell size would otherwise go stale. In memory the grid survives either way; a file round trip is what still loses
 it, since a NetCDF records coordinate values and one value carries no spacing. See
 `Selection.weighted` for what the reopened file reports.
 """
