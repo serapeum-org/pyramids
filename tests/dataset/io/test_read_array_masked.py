@@ -403,6 +403,34 @@ class TestMaskedDecimatedReads:
         if resampling == "average":
             assert masked.mask.sum() == 1, "average must absorb the lone no-data cell"
 
+    def test_decimated_masked_read_over_a_sub_window(self):
+        """A decimated masked read over a bbox sub-window masks that window's no-data.
+
+        Test scenario:
+            Decimating only the top-left quarter (which holds a fully-no-data 2x2
+            block) to 2x2 forwards the resolved pixel window through to the mask
+            band read, so the block cell is masked and the mask equals the
+            decimated stored sentinel cells.
+        """
+        arr = np.arange(64, dtype="float32").reshape(8, 8)
+        arr[0:2, 0:2] = -9999.0
+        ds = Dataset.from_array(
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+        )
+        xmin, _, _, ymax = ds.bbox
+        quarter = (xmin, ymax - 4.0, xmin + 4.0, ymax)
+        masked = ds.read_array(
+            bbox=quarter, out_shape=(2, 2), masked=True, resampling="nearest"
+        )
+        stored = ds.read_array(
+            bbox=quarter, out_shape=(2, 2), unpack=False, resampling="nearest"
+        )
+        assert masked.shape == (2, 2), f"unexpected shape {masked.shape}"
+        assert masked.mask.sum() >= 1, "the sub-window's no-data block must be masked"
+        np.testing.assert_array_equal(masked.mask, stored == -9999.0)
+
     def test_integer_band_masks_by_exact_equality(self):
         """An integer band masks the decimated cells equal to the marker.
 
@@ -508,6 +536,28 @@ class TestMaskedBoundlessReads:
         assert masked.mask[:, 2:].all(), "the four out-of-raster columns must be masked"
         assert masked.mask[7, 1], "the in-raster no-data cell (7, 7) must be masked"
         assert not masked.mask[0, 0], "a valid in-raster cell must be unmasked"
+
+    def test_mask_is_independent_of_fill_value(self, ramp8_float):
+        """fill_value sets only the padding's data; the mask is the same either way.
+
+        Test scenario:
+            A boundless masked read with the default fill and with an explicit
+            fill_value produce identical masks — fill_value chooses the padding's
+            value, not what counts as padding — and the padding stays masked.
+        """
+        window = [6, 0, 6, 8]
+        default_fill = ramp8_float.read_array(
+            window=window, boundless=True, masked=True
+        )
+        explicit_fill = ramp8_float.read_array(
+            window=window, boundless=True, masked=True, fill_value=123.0
+        )
+        np.testing.assert_array_equal(
+            default_fill.mask,
+            explicit_fill.mask,
+            err_msg="the mask must not depend on fill_value",
+        )
+        assert explicit_fill.mask[:, 2:].all(), "the padding columns must stay masked"
 
     def test_window_fully_outside_is_all_masked(self, ramp8_float):
         """A window entirely off the raster masks every (all-padding) cell.
