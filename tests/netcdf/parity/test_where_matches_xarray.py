@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-import xarray as xr
 
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.interop
+
+xr = pytest.importorskip("xarray")
 
 GEO_REF = GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326)
 NDV = -9999.0

@@ -7296,6 +7296,20 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.shift <pyramids.netcdf.engines.selection.Selection.shift>`."""
         return self.selection.shift(dim, periods, fill_value=fill_value)
 
+    def ffill(self, dim: str, *, limit: int | None = None) -> NetCDF:
+        """Facade — :meth:`Selection.ffill <pyramids.netcdf.engines.selection.Selection.ffill>`."""
+        return self.selection.ffill(dim, limit=limit)
+
+    def bfill(self, dim: str, *, limit: int | None = None) -> NetCDF:
+        """Facade — :meth:`Selection.bfill <pyramids.netcdf.engines.selection.Selection.bfill>`."""
+        return self.selection.bfill(dim, limit=limit)
+
+    def dropna(
+        self, dim: str, *, how: str = "any", thresh: int | None = None
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.dropna <pyramids.netcdf.engines.selection.Selection.dropna>`."""
+        return self.selection.dropna(dim, how=how, thresh=thresh)
+
     def weighted(
         self,
         weights: Any,

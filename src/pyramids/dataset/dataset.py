@@ -906,6 +906,22 @@ class Dataset(RasterBase):
         """
         return self.analysis.where(*args, **kwargs)
 
+    def fillna(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.fillna <pyramids.dataset.engines.Analysis.fillna>`.
+
+        Writes to the **gaps**, where :meth:`fill` writes to the cells that already hold
+        data. One letter apart, opposite effects.
+        """
+        return self.analysis.fillna(*args, **kwargs)
+
+    def isnull(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.isnull <pyramids.dataset.engines.Analysis.isnull>`."""
+        return self.analysis.isnull(*args, **kwargs)
+
+    def notnull(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.notnull <pyramids.dataset.engines.Analysis.notnull>`."""
+        return self.analysis.notnull(*args, **kwargs)
+
     def extract(self, *args, **kwargs):
         """Facade — delegates to :meth:`Analysis.extract <pyramids.dataset.engines.Analysis.extract>`."""
         return self.analysis.extract(*args, **kwargs)

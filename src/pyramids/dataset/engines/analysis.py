@@ -2111,6 +2111,132 @@ class Analysis(_Engine["Dataset"]):
         self._ds._label_combined(result, layout_source)
         return self._where_trimmed(result) if drop else result
 
+    def fillna(self, value: float | int) -> Dataset:
+        """Give every gap a value, so the raster has no missing cells left.
+
+        The inverse of :meth:`fill`, which writes to the cells that already hold data and
+        leaves the gaps alone. `fillna` writes only to the gaps. The names are one letter
+        apart and the behaviours are opposite, so check which one you meant.
+
+        Args:
+            value: What each gap takes, in physical units.
+
+        Returns:
+            Dataset: A new raster on this one's grid, holding `value` wherever this one held
+            its no-data value. It declares the same no-data value, which now marks nothing —
+            as a filled raster's does.
+
+        Examples:
+            - Fill the gaps with zero:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, -9999.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.fillna(0.0).read_array().tolist()
+              [[1.0, 0.0], [3.0, 4.0]]
+
+              ```
+        """
+        values, sentinels, domain = self._operand_arrays(self._ds, None)
+        declared = next((one for one in sentinels if one is not None), None)
+        out = np.asarray(np.where(domain, values, value))
+        return self._ds.__class__._build_dataset(
+            self._ds.columns,
+            self._ds.rows,
+            1 if out.ndim == 2 else out.shape[0],
+            numpy_to_gdal_dtype(out),
+            self._ds.geotransform,
+            self._ds.crs,
+            declared,
+            array=out,
+        )
+
+    def isnull(self) -> Dataset:
+        """Flag the gaps: `1` where a cell is missing, `0` where it holds data.
+
+        The flags come back in the `uint8` a comparison returns, so the result reads as a
+        condition: `raster.where(raster.notnull())` is a no-op and
+        `raster.where(raster.isnull(), 0.0)` zeroes exactly the gaps. xarray answers a
+        boolean array, which GDAL has no band type for.
+
+        Returns:
+            Dataset: A `uint8` raster on this one's grid, `1` at each gap. It declares no
+            no-data value: every cell is either missing or not, so there is nothing a flag
+            could fail to judge.
+
+        Examples:
+            - Flag the one gap:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, -9999.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.isnull().read_array().tolist()
+              [[0, 1], [0, 0]]
+
+              ```
+        """
+        return self._null_flags(missing=True)
+
+    def notnull(self) -> Dataset:
+        """Flag the data: `1` where a cell holds a value, `0` where it is missing.
+
+        The complement of :meth:`isnull`, in the same `uint8` flags, so it reads as a
+        condition for :meth:`where`.
+
+        Returns:
+            Dataset: A `uint8` raster on this one's grid, `1` at each cell that holds data,
+            declaring no no-data value.
+
+        Examples:
+            - Flag the cells that hold data:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, -9999.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.notnull().read_array().tolist()
+              [[1, 0], [1, 1]]
+
+              ```
+        """
+        return self._null_flags(missing=False)
+
+    def _null_flags(self, *, missing: bool) -> Dataset:
+        """The `uint8` gap flags, one way round or the other.
+
+        Args:
+            missing: `True` to flag the gaps (`isnull`), `False` to flag the data
+                (`notnull`).
+
+        Returns:
+            Dataset: The flags, declaring no no-data value.
+        """
+        _, _, domain = self._operand_arrays(self._ds, None)
+        flags = np.asarray(
+            (~domain if missing else domain).astype("uint8"), dtype="uint8"
+        )
+        return self._ds.__class__._build_dataset(
+            self._ds.columns,
+            self._ds.rows,
+            1 if flags.ndim == 2 else flags.shape[0],
+            numpy_to_gdal_dtype(flags),
+            self._ds.geotransform,
+            self._ds.crs,
+            None,
+            array=flags,
+        )
+
     def _where_layout_source(self, cond: Any) -> Any:
         """Check a raster condition's grid and band layout, and say what labels the result.
 
