@@ -681,6 +681,132 @@ class _DropNa(_AlongDim):
         return _Applied(np.asarray(values), band_names, values_map, ndv)
 
 
+@dataclass
+class _Interpolate(_AlongDim):
+    """`interpolate_na`: fill each interior gap from the valid cells on either side of it.
+
+    The temporal counterpart of the spatial `fill_gaps`. A gap with a valid cell on both
+    sides is interpolated between them; a leading or trailing gap has only one side and is
+    left alone, which is what xarray answers.
+
+    Attributes:
+        method: `"linear"` weights the two neighbours by distance; `"nearest"` takes the
+            closer one.
+        limit: How many consecutive gaps one run may fill, counted from the valid cell
+            before it, as `ffill`'s is; `None` for no limit.
+        use_coordinate: Measure the distance along the dimension's coordinate values, so an
+            uneven axis interpolates by how far apart the steps really are. `False` measures
+            by position, which is what an axis without coordinates falls back to.
+    """
+
+    method: str
+    limit: int | None
+    use_coordinate: bool
+    caller: str = "interpolate_na"
+    verb: ClassVar[str] = "interpolate"
+    keeps_length: ClassVar[bool] = True
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Interpolate one variable's interior gaps along `dim`.
+
+        Args:
+            nc: The object `interpolate_na` was called on.
+            var: The variable.
+            dim: The dimension to interpolate along.
+
+        Returns:
+            _Applied: The filled values, the band layout unchanged. The result is float64 and
+            declares the variable's no-data value, or NaN when it declares none, since a gap
+            the interpolation could not reach is still a gap.
+        """
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        axis = band_names.index(dim)
+        arr = nc._materialize_variable_array(var, lazy=True)
+        data = _gaps_as_nan(arr, ndv)
+        positions = self._axis_positions(values_map.get(dim), data.shape[axis], dim)
+        filled = _interpolated(data, axis, positions, self.method, self.limit)
+        fill: Any = np.nan if ndv is None else ndv
+        values = np.where(np.isnan(filled), fill, filled)
+        return _Applied(np.asarray(values), band_names, values_map, fill)
+
+    def _axis_positions(self, coords: Any, size: int, dim: str) -> np.ndarray:
+        """What the distance between two steps is measured along.
+
+        Args:
+            coords: The dimension's coordinate values, or `None` when it has none.
+            size: The dimension's length.
+            dim: The dimension's name, for the refusal.
+
+        Returns:
+            numpy.ndarray: One float64 position per step.
+
+        Raises:
+            ValueError: `use_coordinate` was asked for and the coordinates are not numeric,
+                so a distance between two of them is not defined.
+        """
+        if not self.use_coordinate or coords is None:
+            return np.arange(size, dtype="float64")
+        numeric = all(
+            isinstance(value, Real) and not isinstance(value, (bool, np.bool_))
+            for value in coords
+        )
+        if not numeric:
+            raise ValueError(
+                f"interpolate_na() cannot measure distance along {dim!r}: its stamps are "
+                f"{coords[0]!r}... Pass use_coordinate=False to interpolate by position."
+            )
+        return np.asarray([float(value) for value in coords], dtype="float64")
+
+
+def _interpolated(
+    data: Any, axis: int, positions: np.ndarray, method: str, limit: int | None
+) -> Any:
+    """`data` with each interior gap filled from the valid cells on either side.
+
+    Both neighbours are found the way `_pushed` finds one — a running maximum of the last
+    valid position forwards, and the same backwards — so the whole array is filled in a
+    handful of vectorised passes rather than a loop over the cells.
+
+    Args:
+        data: The values as float64 with NaN gaps, numpy or dask.
+        axis: The axis to interpolate along.
+        positions: What distance is measured along, one per step.
+        method: `"linear"` or `"nearest"`.
+        limit: How many consecutive gaps a run may fill, or `None` for no limit.
+
+    Returns:
+        The values with the reachable interior gaps filled, the rest still NaN.
+    """
+    size = data.shape[axis]
+    shape = [size if index == axis else 1 for index in range(data.ndim)]
+    steps = np.arange(size).reshape(shape)
+    axis_x = positions.reshape(shape)
+    valid = ~np.isnan(data)
+    before = np.maximum.accumulate(np.asarray(np.where(valid, steps, -1)), axis=axis)
+    flipped = np.flip(np.asarray(np.where(valid, steps, size)), axis=axis)
+    after = np.flip(np.minimum.accumulate(flipped, axis=axis), axis=axis)
+    inner = (before >= 0) & (after < size)
+    left = np.clip(before, 0, size - 1)
+    right = np.clip(after, 0, size - 1)
+    values = np.asarray(data)
+    low = np.take_along_axis(values, left, axis=axis)
+    high = np.take_along_axis(values, right, axis=axis)
+    low_x = np.take_along_axis(np.broadcast_to(axis_x, values.shape), left, axis=axis)
+    high_x = np.take_along_axis(np.broadcast_to(axis_x, values.shape), right, axis=axis)
+    span = np.where(high_x == low_x, 1.0, high_x - low_x)
+    weight = (np.broadcast_to(axis_x, values.shape) - low_x) / span
+    if method == "nearest":
+        between = np.where(weight <= 0.5, low, high)
+    else:
+        between = low + (high - low) * weight
+    reachable = inner
+    if limit is not None:
+        reachable = reachable & ((steps - before) <= limit)
+    return np.where(valid, values, np.where(reachable, between, np.nan))
+
+
 def _pushed(data: Any, axis: int, limit: int | None, backward: bool) -> Any:
     """`data` with each gap taking the nearest valid value before it along `axis`.
 

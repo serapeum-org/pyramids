@@ -61,6 +61,7 @@ from pyramids.netcdf.engines._along_dim import (
     _Diff,
     _DropNa,
     _Extremum,
+    _Interpolate,
     _Push,
     _reduces_as_a_variable,
     _Reduction,
@@ -2769,6 +2770,100 @@ class Selection(_Engine["NetCDF"]):
         op = _DropNa(how=how, thresh=_check_limit(thresh, caller="dropna"))
         return _along_either(self._ds, dim, op)
 
+    def interpolate_na(
+        self,
+        dim: str,
+        method: str = "linear",
+        *,
+        limit: int | None = None,
+        use_coordinate: bool = True,
+    ) -> NetCDF:
+        """Fill the gaps along a non-spatial dimension from the valid cells around them.
+
+        The temporal counterpart of the spatial `fill_gaps`: where `ffill` carries one
+        neighbour forwards, this reads both sides of a gap and places it between them. A gap
+        with a valid cell on only one side — a leading or trailing one — is left alone, as
+        xarray leaves it.
+
+        Works on a container, interpolating every variable that has `dim`, and on a single
+        variable, returning a variable. A container's auxiliary variables are all carried
+        over, those spanning `dim` included, since its length does not change.
+
+        Args:
+            dim: The non-spatial dimension to interpolate along.
+            method: `"linear"` (default) places a gap between its neighbours in proportion to
+                its distance from each; `"nearest"` gives it the closer neighbour's value,
+                the earlier one when the distances are equal. The spline methods xarray
+                offers are not implemented.
+            limit: How many consecutive gaps one run may fill, counted from the valid cell
+                before it exactly as `ffill`'s limit is, an integer of at least 1. `None`
+                (default) fills a run of any length.
+            use_coordinate: Measure the distance between steps along the dimension's own
+                coordinate values (default), so an unevenly spaced axis interpolates by how
+                far apart its steps really are. `False` measures by position, which is also
+                what a dimension carrying no coordinates falls back to.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, float64, with
+            every dimension unchanged in length and coordinates. It declares the variable's
+            no-data value, or NaN when it declares none, since a gap that could not be
+            reached is still a gap.
+
+        Raises:
+            TypeError: `limit` is not an integer, or is a boolean.
+            ValueError: `method` is neither `"linear"` nor `"nearest"`; `limit` is below 1;
+                `use_coordinate` was asked for and `dim`'s stamps are not numeric; the
+                container has no data variables; or `dim` is not a band dimension of any
+                gridded variable.
+
+        Examples:
+            - An interior gap is placed between its neighbours; the edges are left alone:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, np.nan, np.nan, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=None,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0, 3.0]),
+              ... ).get_variable("t")
+              >>> var.interpolate_na("time").read_array().ravel().tolist()
+              [1.0, 3.0, 5.0, 7.0]
+
+              ```
+            - On an uneven axis the distance is the coordinate's, not the position's:
+
+              ```python
+              >>> uneven = NetCDF.from_array(
+              ...     np.array([1.0, np.nan, np.nan, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=None,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 5.0, 6.0]),
+              ... ).get_variable("t")
+              >>> uneven.interpolate_na("time").read_array().ravel().tolist()
+              [1.0, 2.0, 6.0, 7.0]
+
+              ```
+        """
+        if method not in _INTERPOLATION_METHODS:
+            raise ValueError(
+                f"interpolate_na() takes method="
+                f"{' or '.join(repr(one) for one in _INTERPOLATION_METHODS)}, got "
+                f"{method!r}."
+            )
+        op = _Interpolate(
+            method=method,
+            limit=_check_limit(limit, caller="interpolate_na"),
+            use_coordinate=bool(use_coordinate),
+        )
+        return _along_either(self._ds, dim, op)
+
+
+_INTERPOLATION_METHODS = ("linear", "nearest")
+"""The interpolations `interpolate_na` offers; xarray's spline methods are not implemented."""
 
 _DROPNA_HOWS = ("any", "all")
 """The `how` modes of `dropna`, in xarray's vocabulary."""

@@ -1,6 +1,6 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 92 in all: 58 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 93 in all: 59 methods, 27 properties,
 6 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). For the full signatures, arguments and examples, see the rendered
 [NetCDF Class](index.md) reference; this page is the index you scan to find the member you want.
@@ -109,6 +109,7 @@ A variable with no raster plane is the exception — see each member's docstring
 | `ffill()`          | Carries the last valid value along `dim` into the gaps after it — `limit`.           |
 | `bfill()`          | Carries the next valid value along `dim` back into the gaps before it — `limit`.     |
 | `dropna()`         | Removes the steps of `dim` whose cells are missing — `how`, `thresh`.                |
+| `interpolate_na()` | Fills the interior gaps along `dim` from both sides — `method`, `limit`.            |
 | `argmin()`         | The position along `dim` of the smallest value; `-1` where there is none.            |
 | `argmax()`         | The position along `dim` of the largest value; `-1` where there is none.             |
 | `idxmin()`         | The coordinate along `dim` of the smallest value; NaN where there is none.           |

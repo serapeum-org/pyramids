@@ -7310,6 +7310,19 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.dropna <pyramids.netcdf.engines.selection.Selection.dropna>`."""
         return self.selection.dropna(dim, how=how, thresh=thresh)
 
+    def interpolate_na(
+        self,
+        dim: str,
+        method: str = "linear",
+        *,
+        limit: int | None = None,
+        use_coordinate: bool = True,
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.interpolate_na <pyramids.netcdf.engines.selection.Selection.interpolate_na>`."""
+        return self.selection.interpolate_na(
+            dim, method, limit=limit, use_coordinate=use_coordinate
+        )
+
     def weighted(
         self,
         weights: Any,
