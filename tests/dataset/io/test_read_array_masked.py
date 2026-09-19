@@ -301,7 +301,7 @@ class TestMaskedReads:
             nodata_dataset.read_array(band=0, chunks=2, masked=True)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def ramp8_float() -> Dataset:
     """An 8x8 float32 ramp (value == row*8 + col), nodata -9999 in two corners.
 
@@ -318,7 +318,7 @@ def ramp8_float() -> Dataset:
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def mask_band_8x8(tmp_path) -> Dataset:
     """An 8x8 GTiff whose PER_DATASET mask band zeroes the top two rows.
 
