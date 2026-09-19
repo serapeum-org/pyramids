@@ -89,6 +89,8 @@ from pyramids.netcdf.cf import (
 )
 from pyramids.netcdf.engines import interop as _interop
 from pyramids.netcdf.engines import variables as _variables
+from pyramids.netcdf.engines.combine import concat as _concat
+from pyramids.netcdf.engines.combine import merge as _merge
 from pyramids.netcdf.engines.interop import Interop
 from pyramids.netcdf.engines.selection import Selection
 from pyramids.netcdf.engines.variables import Variables
@@ -7295,6 +7297,128 @@ class NetCDF(Dataset):
     def shift(self, dim: str, periods: int = 1, *, fill_value: Any = None) -> NetCDF:
         """Facade — :meth:`Selection.shift <pyramids.netcdf.engines.selection.Selection.shift>`."""
         return self.selection.shift(dim, periods, fill_value=fill_value)
+
+    def ffill(self, dim: str, *, limit: int | None = None) -> NetCDF:
+        """Facade — :meth:`Selection.ffill <pyramids.netcdf.engines.selection.Selection.ffill>`."""
+        return self.selection.ffill(dim, limit=limit)
+
+    def bfill(self, dim: str, *, limit: int | None = None) -> NetCDF:
+        """Facade — :meth:`Selection.bfill <pyramids.netcdf.engines.selection.Selection.bfill>`."""
+        return self.selection.bfill(dim, limit=limit)
+
+    def dropna(
+        self, dim: str, *, how: str = "any", thresh: int | None = None
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.dropna <pyramids.netcdf.engines.selection.Selection.dropna>`."""
+        return self.selection.dropna(dim, how=how, thresh=thresh)
+
+    def interpolate_na(
+        self,
+        dim: str,
+        method: str = "linear",
+        *,
+        limit: int | None = None,
+        use_coordinate: bool = True,
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.interpolate_na <pyramids.netcdf.engines.selection.Selection.interpolate_na>`."""
+        return self.selection.interpolate_na(
+            dim, method, limit=limit, use_coordinate=use_coordinate
+        )
+
+    def to_dataframe(self, *, variables: Any = None, dropna: bool = False):
+        """Facade — :meth:`Interop.to_dataframe <pyramids.netcdf.engines.interop.Interop.to_dataframe>`."""
+        return self.interop.to_dataframe(variables=variables, dropna=dropna)
+
+    @classmethod
+    def concat(cls, objs: Any, dim: str) -> NetCDF:
+        """Join cubes end to end along one of their dimensions.
+
+        Two halves of a time series becoming the whole. Every cube must be on the same
+        grid, carry the same variables, and agree on every dimension but `dim`; the joined
+        dimension's coordinates are laid end to end in the order the cubes were given.
+
+        See :meth:`merge` for the other join — several variables on one grid, rather than
+        one set of variables over a longer axis.
+
+        Args:
+            objs: The cubes, containers or variables, in the order they are joined.
+            dim: The non-spatial dimension to join along.
+
+        Returns:
+            NetCDF: One container holding the joined cubes.
+
+        Raises:
+            ValueError: `objs` is empty, the cubes carry different variables, or a variable
+                lacks `dim` or disagrees on another dimension.
+            AlignmentError: The cubes are not on the same grid.
+
+        Examples:
+            - Two halves of a four-step cube, joined back into it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo_ref = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> first = NetCDF.from_array(
+              ...     np.array([1.0, 2.0]).reshape(2, 1, 1), geo_ref=geo_ref,
+              ...     variable_name="t", dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... )
+              >>> second = NetCDF.from_array(
+              ...     np.array([3.0, 4.0]).reshape(2, 1, 1), geo_ref=geo_ref,
+              ...     variable_name="t", dims=ExtraDimensions(name="time", values=[12.0, 18.0]),
+              ... )
+              >>> whole = NetCDF.concat([first, second], "time")
+              >>> whole.get_variable("t").read_array().ravel().tolist()
+              [1.0, 2.0, 3.0, 4.0]
+              >>> whole.get_variable("t")._band_dim_values_map["time"]
+              [0.0, 6.0, 12.0, 18.0]
+
+              ```
+        """
+        return _concat(objs, dim)
+
+    @classmethod
+    def merge(cls, objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
+        """Put the variables of several cubes side by side on the grid they share.
+
+        **Not** `DatasetCollection.merge`, which means a *spatial mosaic written to a
+        destination file* — several rasters covering neighbouring ground becoming one. This
+        is the other operation: one grid, several variables. See :meth:`concat` for joining
+        along a dimension instead.
+
+        Args:
+            objs: The cubes, containers or variables, all on the same grid.
+            compat: What to do with a variable more than one cube carries.
+                `"no_conflicts"` (default) accepts it only when the cubes agree on its
+                values; `"override"` takes the first cube's copy without comparing.
+
+        Returns:
+            NetCDF: One container holding the union of the variables.
+
+        Raises:
+            ValueError: `objs` is empty, `compat` is unknown, or two cubes disagree about a
+                variable they both carry.
+            AlignmentError: The cubes are not on the same grid.
+
+        Examples:
+            - Two single-variable cubes becoming one container of both:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo_ref = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> rain = NetCDF.from_array(
+              ...     np.ones((1, 1)), geo_ref=geo_ref, variable_name="rain"
+              ... )
+              >>> temp = NetCDF.from_array(
+              ...     np.zeros((1, 1)), geo_ref=geo_ref, variable_name="temp"
+              ... )
+              >>> sorted(NetCDF.merge([rain, temp]).variable_names)
+              ['rain', 'temp']
+
+              ```
+        """
+        return _merge(objs, compat=compat)
 
     def weighted(
         self,
