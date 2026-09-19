@@ -601,16 +601,19 @@ class IO(_Engine["Dataset"]):
                 and pulls from a matching overview level when one exists, so
                 previews of pyramided rasters never touch the full-resolution
                 pixels. Composes with `window=` or `bbox=` (decimate a
-                sub-window). Not supported together with `chunks=` or
-                `masked=True` (:class:`NotImplementedError`). Default
-                `None` (native resolution, unchanged).
+                sub-window) and with `masked=True`, which builds the mask from
+                the decimated read. Not supported together with `chunks=`
+                (:class:`NotImplementedError`; decimate eagerly, or coarsen the
+                dask array). Default `None` (native resolution, unchanged).
             resampling (str, keyword-only):
                 Decimation algorithm for `out_shape` reads (`"nearest"`,
                 `"bilinear"`, `"cubic"`, `"cubicspline"`,
-                `"lanczos"`, `"average"`, `"mode"`, ...). Averaging
-                algorithms mix no-data into edge cells — prefer
-                `"nearest"` (the default) on rasters with a no-data
-                marker. Ignored when `out_shape` is `None`.
+                `"lanczos"`, `"average"`, `"mode"`, ...). GDAL excludes a
+                band's no-data from every algorithm, so the sentinel never
+                contaminates a valid output cell; but decimation still
+                loses no-data from a `masked=True` result (blenders erode
+                no-data regions, `nearest` subsamples them) — see `masked`.
+                Ignored when `out_shape` is `None`.
             boundless (bool, keyword-only):
                 Allow the window to extend past the raster extent. The output
                 keeps the full requested window shape; pixels outside the
@@ -644,10 +647,28 @@ class IO(_Engine["Dataset"]):
                   Windowed reads (including `bbox`) slice the mask band
                   with the same resolved pixel window as the data.
 
-                Only supported on the eager, non-`threadsafe` path;
-                combining it with `chunks` or `threadsafe=True` raises
-                :class:`NotImplementedError`. Default is `False` (plain
-                array, unchanged behaviour).
+                Supported on the eager, decimated (`out_shape=`) and boundless
+                (`boundless=True`) read paths. A decimated masked read builds the
+                mask from the decimated read: the no-data comparison on the
+                decimated values, plus the mask band decimated to the same shape
+                with nearest-neighbour (kept binary regardless of `resampling`).
+                Because a blending `resampling` (`average`, `bilinear`, ...) makes
+                GDAL drop no-data from the result, the mask reflects only output
+                cells that remain the sentinel — an `average` cell is masked only
+                where its whole source footprint is no-data, and `bilinear` can
+                blend even a fully-no-data block into a valid value. `nearest`
+                subsamples instead, so whether a given no-data cell survives
+                depends on the decimation ratio and phase, not on its presence —
+                it too drops small or scattered no-data at many `out_shape`
+                values. The mask of a decimated read is therefore approximate
+                (no resampler preserves it faithfully); read at native resolution
+                for a mask that reflects every no-data cell. A boundless masked
+                read masks the padding outside the raster as well as the invalid
+                pixels inside it. The mask is built from **stored**
+                values, before `unpack` applies scale/offset, so a packed band
+                masks by its stored sentinel. Combining it with `chunks` or
+                `threadsafe=True` raises :class:`NotImplementedError`. Default is
+                `False` (plain array, unchanged behaviour).
             unpack (bool, keyword-only):
                 Return real-world values by applying each band's CF packing
                 — `real = raw * scale + offset`, with the pair resolved by
@@ -738,12 +759,10 @@ class IO(_Engine["Dataset"]):
             NotImplementedError: If `out_shape` is combined with `chunks`
                 (decimate eagerly instead) or with `boundless=True`
                 (decimated boundless reads are not combined yet), or if
-                `masked=True` is combined
-                with `chunks` (lazy masked reads are not supported yet),
-                `out_shape` (decimation and masking are not combined yet),
-                `boundless=True` (boundless fills and masking are not
-                combined yet), or `threadsafe=True` (the mask band would
-                be read from the shared handle).
+                `masked=True` is combined with `chunks` (lazy masked reads
+                are not supported yet) or `threadsafe=True` (the mask band
+                would be read from the shared handle). `masked=True` composes
+                with `out_shape=` and `boundless=True`.
             OutOfBoundsError: If a `bbox` / geometry `window` does not
                 overlap the raster extent at all, or (for a foreign-CRS
                 bbox) reprojects outside the target CRS's valid domain.
@@ -884,6 +903,30 @@ class IO(_Engine["Dataset"]):
               [[2.5, 3.5], [4.5, None]]
               >>> round(float(packed.read_array()[1, 1]), 2)
               -98.49
+
+              ```
+
+            - `masked=True` composes with `out_shape=` and `boundless=True`: a
+              decimated masked read masks the no-data cells of the decimated
+              read, and a boundless masked read masks the padding outside the
+              raster too:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference, Window
+              >>> grid = Dataset.from_array(
+              ...     np.array(
+              ...         [[0.0, 1.0, 2.0, 3.0], [4.0, -9.0, 6.0, 7.0],
+              ...          [8.0, 9.0, 10.0, 11.0], [12.0, 13.0, 14.0, 15.0]],
+              ...         dtype="float32",
+              ...     ),
+              ...     no_data_value=-9.0,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
+              ... )
+              >>> grid.read_array(out_shape=(2, 2), masked=True, resampling="nearest").mask.tolist()
+              [[True, False], [False, False]]
+              >>> grid.read_array(window=Window(3, 0, 2, 2), boundless=True, masked=True).mask.tolist()
+              [[False, True], [False, True]]
 
               ```
 
@@ -1266,9 +1309,15 @@ class IO(_Engine["Dataset"]):
         (alpha / internal masks). ``GMF_NODATA``-derived mask bands are
         skipped — they duplicate the no-data comparison already applied.
 
+        The mask band is read into a buffer the size of ``data`` — so a
+        decimated read (``data`` already at the target ``out_shape``) gets a
+        mask band decimated to the same shape, while a native read (``data``
+        the size of ``window``) reads it 1:1, an implicit no-op.
+
         Args:
             index: Zero-based band index.
-            data: The band's 2-D data array.
+            data: The band's 2-D data array — the values that were read,
+                already decimated to the output shape on a decimated read.
             window: The resolved ``[xoff, yoff, xsize, ysize]`` pixel
                 window of the read, or ``None`` for a full read.
 
@@ -1297,11 +1346,22 @@ class IO(_Engine["Dataset"]):
         gdal_band = self._ds._iloc(index)
         if gdal_band.GetMaskFlags() not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA):
             mask_band = gdal_band.GetMaskBand()
+            # Size the mask-band read to the data buffer so a decimated read's
+            # mask lines up cell-for-cell; when the buffer matches the source
+            # window (a native read) buf_xsize/buf_ysize are a 1:1 no-op.
+            buf_rows, buf_cols = data.shape[-2], data.shape[-1]
             if window is None:
-                band_mask = mask_band.ReadAsArray()
+                band_mask = mask_band.ReadAsArray(
+                    buf_xsize=buf_cols, buf_ysize=buf_rows
+                )
             else:
                 band_mask = mask_band.ReadAsArray(
-                    window[0], window[1], window[2], window[3]
+                    window[0],
+                    window[1],
+                    window[2],
+                    window[3],
+                    buf_xsize=buf_cols,
+                    buf_ysize=buf_rows,
                 )
             mask = mask | (band_mask == 0)
         return mask
@@ -1458,9 +1518,10 @@ class IO(_Engine["Dataset"]):
                 :data:`pyramids.dataset.engines.cog._RESAMPLING_ALG`
                 (``"nearest"``, ``"bilinear"``, ``"cubic"``,
                 ``"cubicspline"``, ``"lanczos"``, ``"average"``,
-                ``"mode"``, ...). ``average``-style algorithms mix no-data
-                into edge cells — prefer ``nearest`` on rasters with a
-                no-data marker.
+                ``"mode"``, ...). GDAL excludes a band's no-data from every
+                algorithm, so the sentinel never contaminates a valid cell;
+                blending algorithms instead erode no-data regions at their
+                edges, so a decimated read shrinks no-data coverage.
 
         Returns:
             np.ndarray: ``out_shape`` for a single band,
@@ -1551,7 +1612,8 @@ class IO(_Engine["Dataset"]):
         band: int | None,
         window: Window | list[int] | tuple[int, ...],
         fill_value: float | None,
-    ) -> np.typing.NDArray:
+        masked: bool = False,
+    ) -> np.typing.NDArray | np.ma.MaskedArray:
         """Read a window that may extend past the raster, filling the outside.
 
         The output always has the full requested window shape. The part of the
@@ -1559,6 +1621,12 @@ class IO(_Engine["Dataset"]):
         to ``fill_value`` (or, when that is ``None``, the band's no-data value
         when it fits the band dtype, falling back to the dtype's zero otherwise
         — e.g. a float ``-9999`` marker on a ``uint8`` band).
+
+        With ``masked=True`` the result is a :class:`numpy.ma.MaskedArray` whose
+        mask is ``True`` for the padding outside the raster *and* for the
+        invalid pixels inside it (the same no-data / mask-band test
+        :meth:`_band_mask` applies to a native read), so a caller never has to
+        tell padding from data by value.
 
         Args:
             band: Band index, or ``None`` for all bands.
@@ -1568,10 +1636,14 @@ class IO(_Engine["Dataset"]):
             fill_value: Explicit fill for outside pixels; ``None`` defers to
                 the band's no-data value when it is representable in the band
                 dtype, otherwise to the dtype zero.
+            masked: When ``True``, return a ``MaskedArray`` masking the padding
+                and the invalid pixels; when ``False`` (default), return the
+                plain filled array.
 
         Returns:
-            np.ndarray: ``(rows, cols)`` for a single band, ``(bands, rows,
-                cols)`` for an all-bands read — always the full window shape.
+            np.ndarray | np.ma.MaskedArray: ``(rows, cols)`` for a single band,
+                ``(bands, rows, cols)`` for an all-bands read — always the full
+                window shape; a ``MaskedArray`` when ``masked=True``.
 
         Raises:
             ValueError: ``band`` is out of range, or ``fill_value`` cannot be
@@ -1586,31 +1658,95 @@ class IO(_Engine["Dataset"]):
         raster_window = Window(0, 0, self._ds.columns, self._ds.rows)
         inside = window.intersection(raster_window)
         planes = []
+        masks: list[np.typing.NDArray] = []
         for index in band_indices:
-            dtype = np.dtype(self._ds.numpy_dtype[index])
-            marker = self._ds.no_data_value[index]
-            if fill_value is not None:
-                _validate_fill_value(fill_value, dtype)
-                fill = fill_value
-            elif marker is not None and _fill_value_fits(marker, dtype):
-                # Use the band's no-data marker only when it fits the dtype;
-                # a float marker like -9999.0 on a uint8 band would otherwise
-                # wrap silently, so fall through to the dtype zero instead.
-                fill = marker
-            else:
-                fill = 0
-            plane = np.full(window.shape, fill, dtype=dtype)
-            if inside is not None:
-                data = self._ds._iloc(index).ReadAsArray(*inside.to_read_args())
-                row_start = inside.row_off - window.row_off
-                col_start = inside.col_off - window.col_off
-                plane[
+            plane, plane_mask = self._boundless_plane(
+                index, window, inside, fill_value, masked
+            )
+            planes.append(plane)
+            if plane_mask is not None:
+                masks.append(plane_mask)
+        result = planes[0] if not all_bands else np.stack(planes, axis=0)
+        if not masked:
+            return result
+        full_mask = masks[0] if not all_bands else np.stack(masks, axis=0)
+        return np.ma.MaskedArray(result, mask=full_mask)
+
+    def _boundless_plane(
+        self,
+        index: int,
+        window: Window,
+        inside: Window | None,
+        fill_value: float | None,
+        masked: bool,
+    ) -> tuple[np.typing.NDArray, np.typing.NDArray | None]:
+        """Build one band's boundless plane and, when masked, its mask.
+
+        Args:
+            index: Zero-based band index.
+            window: The full requested window (the plane's shape).
+            inside: The window's intersection with the raster, or ``None`` when
+                the window lies entirely outside it (an all-padding plane).
+            fill_value: Explicit fill for the padding, or ``None`` to defer to
+                the band's no-data value / dtype zero (see
+                :meth:`_resolve_boundless_fill`).
+            masked: When ``True``, also build the padding + invalid-pixel mask.
+
+        Returns:
+            tuple: ``(plane, plane_mask)`` where ``plane_mask`` is ``None`` when
+            ``masked`` is ``False``.
+        """
+        dtype = np.dtype(self._ds.numpy_dtype[index])
+        fill = self._resolve_boundless_fill(
+            fill_value, self._ds.no_data_value[index], dtype
+        )
+        plane = np.full(window.shape, fill, dtype=dtype)
+        # Every cell starts masked, so the padding outside the raster stays
+        # masked; the in-raster block below unmasks its own cells down to the
+        # band's real invalid-pixel mask.
+        plane_mask = np.ones(window.shape, dtype=bool) if masked else None
+        if inside is not None:
+            data = np.asarray(self._ds._iloc(index).ReadAsArray(*inside.to_read_args()))
+            row_start = inside.row_off - window.row_off
+            col_start = inside.col_off - window.col_off
+            plane[
+                row_start : row_start + inside.rows,
+                col_start : col_start + inside.cols,
+            ] = data
+            if plane_mask is not None:
+                plane_mask[
                     row_start : row_start + inside.rows,
                     col_start : col_start + inside.cols,
-                ] = data
-            planes.append(plane)
-        result = planes[0] if not all_bands else np.stack(planes, axis=0)
-        return result
+                ] = self._band_mask(index, data, list(inside.to_read_args()))
+        return plane, plane_mask
+
+    @staticmethod
+    def _resolve_boundless_fill(
+        fill_value: float | None, marker: float | None, dtype: np.dtype
+    ) -> float:
+        """Pick the padding fill for a boundless read.
+
+        Args:
+            fill_value: Explicit caller fill, or ``None`` to defer.
+            marker: The band's no-data value, or ``None``.
+            dtype: The band's NumPy dtype (the fill must fit it).
+
+        Returns:
+            float: ``fill_value`` when given; otherwise the band's no-data
+            marker when it fits ``dtype`` (a float ``-9999.0`` marker would
+            wrap silently on a ``uint8`` band, so it is skipped); otherwise the
+            dtype's zero.
+
+        Raises:
+            ValueError: ``fill_value`` is given but cannot be represented in
+                ``dtype``.
+        """
+        if fill_value is not None:
+            _validate_fill_value(fill_value, dtype)
+            return fill_value
+        if marker is not None and _fill_value_fits(marker, dtype):
+            return marker
+        return 0
 
     def _read_block(
         self,
