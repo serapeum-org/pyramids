@@ -194,8 +194,9 @@ class TestConditionForms:
     def test_a_condition_of_the_wrong_shape_is_refused(self):
         """An array condition has to describe this raster's cells."""
         raster = _raster()
+        wrong_shape = np.ones((2, 2), dtype=bool)
         with pytest.raises(ValueError, match="shape"):
-            raster.where(np.ones((2, 2), dtype=bool))
+            raster.where(wrong_shape)
 
 
 class TestDrop:

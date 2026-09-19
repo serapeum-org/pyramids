@@ -281,11 +281,11 @@ class TestFfillAndBfill:
         Args:
             member: The member called.
         """
-        variable = _column(self.COLUMN)
+        call = getattr(_column(self.COLUMN), member)
         with pytest.raises(TypeError):
-            getattr(variable, member)("time", limit=1.5)
+            call("time", limit=1.5)
         with pytest.raises(ValueError):
-            getattr(variable, member)("time", limit=0)
+            call("time", limit=0)
 
     @pytest.mark.parametrize("member", ["ffill", "bfill"])
     def test_a_boolean_limit_is_refused(self, member):
@@ -300,8 +300,9 @@ class TestFfillAndBfill:
             instead of saying the argument makes no sense.
         """
         variable = _column(self.COLUMN)
+        call = getattr(variable, member)
         with pytest.raises(TypeError, match="needs an integer"):
-            getattr(variable, member)("time", limit=True)
+            call("time", limit=True)
 
     @pytest.mark.parametrize("member", ["ffill", "bfill"])
     def test_the_refusal_names_the_member_that_was_called(self, member):
@@ -317,10 +318,11 @@ class TestFfillAndBfill:
             naming a member the caller never called.
         """
         variable = _column(self.COLUMN)
+        call = getattr(variable, member)
         with pytest.raises(ValueError, match=rf"^{member}\(\) needs a value"):
-            getattr(variable, member)("time", limit=0)
+            call("time", limit=0)
         with pytest.raises(TypeError, match=rf"^{member}\(\) needs an integer"):
-            getattr(variable, member)("time", limit=1.5)
+            call("time", limit=1.5)
 
 
 class TestDropna:

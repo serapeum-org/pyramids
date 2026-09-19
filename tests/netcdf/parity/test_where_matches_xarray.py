@@ -145,7 +145,8 @@ class TestDropMatchesXarray:
         exported = _exported()
         theirs = exported.where(exported > threshold, drop=True)
         ours = _raster().where(VALUES > threshold, drop=True)
-        assert (ours.rows, ours.columns) == theirs.shape
+        assert ours.rows == theirs.shape[0], (ours.rows, theirs.shape)
+        assert ours.columns == theirs.shape[1], (ours.columns, theirs.shape)
         np.testing.assert_allclose(_read(ours), theirs.values, equal_nan=True)
 
     def test_the_trimmed_grid_holds_the_same_coordinates(self):

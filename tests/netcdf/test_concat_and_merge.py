@@ -167,30 +167,23 @@ class TestConcatRefusals:
             no_data_value=NDV,
             dims=ExtraDimensions(name="time", values=[12.0, 18.0]),
         )
+        mine = _cube(np.ones((2, 2, 2)), [0.0, 6.0])
         with pytest.raises(AlignmentError, match="same grid"):
-            NetCDF.concat([_cube(np.ones((2, 2, 2)), [0.0, 6.0]), other], "time")
+            NetCDF.concat([mine, other], "time")
 
     def test_different_variables(self):
         """Cubes carrying different variables are a `merge`, not a `concat`."""
+        rain = _cube(np.ones((2, 2, 2)), [0.0, 6.0], name="rain")
+        temp = _cube(np.ones((2, 2, 2)), [12.0, 18.0], name="temp")
         with pytest.raises(ValueError, match="same variables"):
-            NetCDF.concat(
-                [
-                    _cube(np.ones((2, 2, 2)), [0.0, 6.0], name="rain"),
-                    _cube(np.ones((2, 2, 2)), [12.0, 18.0], name="temp"),
-                ],
-                "time",
-            )
+            NetCDF.concat([rain, temp], "time")
 
     def test_a_dimension_the_cubes_lack(self):
         """The joined dimension has to be one they have."""
+        first = _cube(np.ones((2, 2, 2)), [0.0, 6.0])
+        second = _cube(np.ones((2, 2, 2)), [12.0, 18.0])
         with pytest.raises(ValueError, match="not among them"):
-            NetCDF.concat(
-                [
-                    _cube(np.ones((2, 2, 2)), [0.0, 6.0]),
-                    _cube(np.ones((2, 2, 2)), [12.0, 18.0]),
-                ],
-                "level",
-            )
+            NetCDF.concat([first, second], "level")
 
     def test_an_unlabelled_axis_joins_without_coordinates(self):
         """A cube with no stamps for the dimension leaves the joined axis unlabelled.
