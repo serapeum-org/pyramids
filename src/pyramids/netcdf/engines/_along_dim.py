@@ -662,11 +662,11 @@ class _DropNa(_AlongDim):
         per_step = int(
             np.prod([valid.shape[i] for i in range(valid.ndim) if i != axis])
         )
-        needed = (
-            self.thresh
-            if self.thresh is not None
-            else (per_step if self.how == "any" else 1)
-        )
+        # `how` says how many valid cells a step needs: every one of them for `"any"`, since a
+        # single gap drops the step, and one for `"all"`. An explicit `thresh` says it outright
+        # and xarray lets it win over `how`.
+        by_how = per_step if self.how == "any" else 1
+        needed = by_how if self.thresh is None else self.thresh
         kept = np.flatnonzero(np.asarray(counted) >= needed)
         if kept.size == 0:
             raise ValueError(
