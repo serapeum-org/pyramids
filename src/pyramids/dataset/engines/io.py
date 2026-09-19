@@ -646,15 +646,22 @@ class IO(_Engine["Dataset"]):
                   with the same resolved pixel window as the data.
 
                 Supported on the eager, decimated (`out_shape=`) and boundless
-                (`boundless=True`) read paths: a decimated masked read builds the
-                mask from the decimated read (the mask band is decimated to the
-                same shape), and a boundless masked read masks the padding
-                outside the raster as well as the invalid pixels inside it. The
-                mask is built from **stored** values, before `unpack` applies
-                scale/offset, so a packed band masks by its stored sentinel.
-                Combining it with `chunks` or `threadsafe=True` raises
-                :class:`NotImplementedError`. Default is `False` (plain array,
-                unchanged behaviour).
+                (`boundless=True`) read paths. A decimated masked read builds the
+                mask from the decimated read: the no-data comparison on the
+                decimated values, plus the mask band decimated to the same shape
+                with nearest-neighbour (kept binary regardless of `resampling`).
+                Because a blending `resampling` (`average`, `bilinear`, ...) makes
+                GDAL drop no-data from the result, the mask reflects only output
+                cells that remain the sentinel — an `average` cell is masked only
+                where its whole source footprint is no-data, and `bilinear` can
+                blend even a fully-no-data block into a valid value. Prefer
+                `nearest` (the default) to keep no-data regions in the mask. A
+                boundless masked read masks the padding outside the raster as well
+                as the invalid pixels inside it. The mask is built from **stored**
+                values, before `unpack` applies scale/offset, so a packed band
+                masks by its stored sentinel. Combining it with `chunks` or
+                `threadsafe=True` raises :class:`NotImplementedError`. Default is
+                `False` (plain array, unchanged behaviour).
             unpack (bool, keyword-only):
                 Return real-world values by applying each band's CF packing
                 — `real = raw * scale + offset`, with the pair resolved by
