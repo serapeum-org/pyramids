@@ -114,6 +114,28 @@ class TestFillna:
             np.asarray(raster.fillna(0.0).read_array(), dtype="float64"), values
         )
 
+    def test_a_raster_declaring_no_sentinel_has_no_gaps_to_fill(self):
+        """With nothing declared to mean "missing", every cell holds data.
+
+        Test scenario:
+            `fillna` derives the gaps from the declared sentinel, so a raster declaring
+            none must come back untouched rather than having a sentinel invented for it.
+        """
+        values = np.array([[1.0, 2.0], [3.0, 4.0]])
+        raster = Dataset.from_array(values, geo_ref=RASTER_GEO, no_data_value=None)
+        result = raster.fillna(0.0)
+        assert_allclose(np.asarray(result.read_array(), dtype="float64"), values)
+        assert result.no_data_value[0] is None
+
+    def test_every_band_of_a_stack_is_filled(self):
+        """A gap in the second band is filled as one in the first is."""
+        stack = np.array([[[1.0, NDV], [3.0, 4.0]], [[5.0, 6.0], [NDV, 8.0]]])
+        raster = Dataset.from_array(stack, geo_ref=RASTER_GEO, no_data_value=NDV)
+        read = np.asarray(raster.fillna(0.0).read_array(), dtype="float64")
+        assert read.shape == (2, 2, 2)
+        assert_allclose(read[0], np.array([[1.0, 0.0], [3.0, 4.0]]))
+        assert_allclose(read[1], np.array([[5.0, 6.0], [0.0, 8.0]]))
+
 
 class TestNullFlags:
     """`isnull` and `notnull` answer the `uint8` flags a comparison answers."""
@@ -166,6 +188,28 @@ class TestNullFlags:
         )
         assert read[0, 1] == pytest.approx(NDV)
         assert read[0, 0] == pytest.approx(0.0)
+
+    def test_the_flags_are_answered_band_by_band(self):
+        """A stack is flagged plane by plane, keeping its band count."""
+        stack = np.array([[[1.0, NDV], [3.0, 4.0]], [[5.0, 6.0], [NDV, 8.0]]])
+        raster = Dataset.from_array(stack, geo_ref=RASTER_GEO, no_data_value=NDV)
+        flags = raster.isnull()
+        assert flags.band_count == 2
+        assert_array_equal(
+            np.asarray(flags.read_array()),
+            np.array([[[0, 1], [0, 0]], [[0, 0], [1, 0]]], dtype="uint8"),
+        )
+
+    def test_a_raster_declaring_no_sentinel_is_null_nowhere(self):
+        """Nothing is declared missing, so `isnull` flags nothing and `notnull` flags all."""
+        values = np.array([[1.0, 2.0], [3.0, 4.0]])
+        raster = Dataset.from_array(values, geo_ref=RASTER_GEO, no_data_value=None)
+        assert_array_equal(
+            np.asarray(raster.isnull().read_array()), np.zeros((2, 2), dtype="uint8")
+        )
+        assert_array_equal(
+            np.asarray(raster.notnull().read_array()), np.ones((2, 2), dtype="uint8")
+        )
 
 
 class TestFfillAndBfill:
@@ -243,6 +287,41 @@ class TestFfillAndBfill:
         with pytest.raises(ValueError):
             getattr(variable, member)("time", limit=0)
 
+    @pytest.mark.parametrize("member", ["ffill", "bfill"])
+    def test_a_boolean_limit_is_refused(self, member):
+        """`True` is an `int` in Python and would quietly mean a limit of one step.
+
+        Args:
+            member: The member called.
+
+        Test scenario:
+            `operator.index(True)` is `1`, so a boolean slips through an integer check
+            that does not look for it first, and `limit=True` would carry one step
+            instead of saying the argument makes no sense.
+        """
+        variable = _column(self.COLUMN)
+        with pytest.raises(TypeError, match="needs an integer"):
+            getattr(variable, member)("time", limit=True)
+
+    @pytest.mark.parametrize("member", ["ffill", "bfill"])
+    def test_the_refusal_names_the_member_that_was_called(self, member):
+        """A bad limit is reported against the member the caller used.
+
+        Args:
+            member: The member called.
+
+        Test scenario:
+            Pins a defect: `bfill` handed its limit to the shared checker without saying
+            who was asking, and the checker's default is `"ffill"` — so
+            `bfill("time", limit=0)` answered "ffill() needs a value of at least 1",
+            naming a member the caller never called.
+        """
+        variable = _column(self.COLUMN)
+        with pytest.raises(ValueError, match=rf"^{member}\(\) needs a value"):
+            getattr(variable, member)("time", limit=0)
+        with pytest.raises(TypeError, match=rf"^{member}\(\) needs an integer"):
+            getattr(variable, member)("time", limit=1.5)
+
 
 class TestDropna:
     """`dropna` removes the steps that hold too little data."""
@@ -308,6 +387,62 @@ class TestDropna:
         variable = _column(self.COLUMN)
         with pytest.raises(ValueError, match="how="):
             variable.dropna("time", how="some")
+
+    def test_a_dimension_carrying_no_coordinates_still_drops(self):
+        """There are no stamps to cut, and dropping steps must work all the same.
+
+        Test scenario:
+            Every other `dropna` case cuts the coordinates alongside the steps. A
+            dimension that carries none has nothing to cut, and the result must keep
+            saying it has none rather than acquiring a list the store never held.
+        """
+        variable = _column(self.COLUMN)
+        variable._band_dim_values_map["time"] = None
+        result = variable.dropna("time")
+        assert_allclose(_read(result), [1.0, 3.0])
+        assert result.band_count == 2
+        assert result._band_dim_values_map["time"] is None
+
+    def test_a_boolean_thresh_is_refused(self):
+        """`thresh=True` would quietly mean "at least one valid cell"."""
+        variable = _column(self.COLUMN)
+        with pytest.raises(TypeError, match=r"^dropna\(\) needs an integer"):
+            variable.dropna("time", thresh=True)
+
+    @pytest.mark.parametrize("thresh", [0, -1])
+    def test_a_thresh_below_one_is_refused(self, thresh):
+        """A step holding at least zero valid cells is every step, which means nothing.
+
+        Args:
+            thresh: The refused threshold.
+        """
+        variable = _column(self.COLUMN)
+        with pytest.raises(
+            ValueError, match=r"^dropna\(\) needs a value of at least 1"
+        ):
+            variable.dropna("time", thresh=thresh)
+
+    def test_thresh_overrides_how(self):
+        """`how` is ignored once `thresh` is given, as xarray ignores it.
+
+        Test scenario:
+            `how="all"` on its own keeps the half-empty step; with `thresh=2` beside it
+            the step is dropped, so the threshold decided and `how` did not.
+        """
+        values = np.array([[[1.0, np.nan]], [[np.nan, np.nan]], [[3.0, 4.0]]])
+        variable = NetCDF.from_array(
+            values,
+            geo_ref=GEO,
+            variable_name="t",
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+        ).get_variable("t")
+        assert variable.dropna("time", how="all")._band_dim_values_map["time"] == [
+            0.0,
+            12.0,
+        ]
+        assert variable.dropna("time", how="all", thresh=2)._band_dim_values_map[
+            "time"
+        ] == [12.0]
 
     def test_the_values_keep_their_own_type(self):
         """Nothing is computed, only selected, so an integer band stays an integer band."""

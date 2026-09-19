@@ -2663,7 +2663,9 @@ class Selection(_Engine["NetCDF"]):
 
               ```
         """
-        op = _Push(backward=False, limit=_check_limit(limit), caller="ffill")
+        op = _Push(
+            backward=False, limit=_check_limit(limit, caller="ffill"), caller="ffill"
+        )
         return _along_either(self._ds, dim, op)
 
     def bfill(self, dim: str, *, limit: int | None = None) -> NetCDF:
@@ -2709,7 +2711,9 @@ class Selection(_Engine["NetCDF"]):
 
               ```
         """
-        op = _Push(backward=True, limit=_check_limit(limit), caller="bfill")
+        op = _Push(
+            backward=True, limit=_check_limit(limit, caller="bfill"), caller="bfill"
+        )
         return _along_either(self._ds, dim, op)
 
     def dropna(
@@ -2885,12 +2889,14 @@ def _along_either(nc: NetCDF, dim: str, op: Any) -> NetCDF:
     return _apply_to_container(nc, dim, op)
 
 
-def _check_limit(limit: Any, *, caller: str = "ffill") -> int | None:
+def _check_limit(limit: Any, *, caller: str) -> int | None:
     """A `limit` or `thresh` as a positive `int`, or the refusal saying why it is not one.
 
     Args:
         limit: As passed; `None` asks for no limit.
-        caller: The member named in the message.
+        caller: The member named in the message. Required rather than defaulted, because a
+            default is silently wrong for every member but one — `bfill` inherited `ffill`'s
+            and reported a bad limit against a member the caller never called.
 
     Returns:
         int | None: `None` unchanged, otherwise the value as an `int`.

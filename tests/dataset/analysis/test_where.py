@@ -21,6 +21,8 @@ pytestmark = pytest.mark.core
 GEO_REF = GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326)
 NDV = -9999.0
 VALUES = np.array([[1.0, 2.0, 3.0, 4.0], [5.0, NDV, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]])
+CLEAN = np.arange(1.0, 13.0).reshape(3, 4)
+"""`VALUES` with the gap filled in, for the rasters that declare no sentinel at all."""
 
 
 def _raster(
@@ -98,6 +100,37 @@ class TestWhereMasks:
         assert result.geotransform == source.geotransform
         assert result.epsg == source.epsg
         assert (result.rows, result.columns) == (source.rows, source.columns)
+
+    def test_a_raster_declaring_no_sentinel_masks_to_nan_and_declares_it(self):
+        """With nothing declared to mean "missing", the mask writes NaN and says so.
+
+        Test scenario:
+            `where` derives `other` from the raster's own no-data value, and a raster that
+            declares none has nothing to derive. The masked cells must still read as gaps,
+            so NaN is written *and* declared — a result holding NaN while declaring no
+            sentinel would say those cells hold data.
+        """
+        raster = _raster(CLEAN, no_data_value=None)
+        assert raster.no_data_value[0] is None
+        result = raster.where(CLEAN > 9)
+        read = np.asarray(result.read_array(), dtype="float64")
+        assert np.isnan(result.no_data_value[0])
+        assert np.isnan(read[0, 0])
+        assert read[2, 1] == pytest.approx(10.0)
+
+    def test_a_raster_declaring_no_sentinel_keeps_declaring_none_under_other(self):
+        """Writing a number into the masked cells leaves the result with no gaps at all.
+
+        Test scenario:
+            The companion of the test above: the derived NaN is declared only because the
+            masked cells really are missing. Once `other` fills them with a number there is
+            nothing missing, so no sentinel is invented.
+        """
+        result = _raster(CLEAN, no_data_value=None).where(CLEAN > 9, 0.0)
+        read = np.asarray(result.read_array(), dtype="float64")
+        assert result.no_data_value[0] is None
+        assert read[0, 0] == pytest.approx(0.0)
+        assert read[2, 1] == pytest.approx(10.0)
 
 
 class TestConditionForms:
@@ -251,3 +284,30 @@ class TestBandsAndLayout:
         """Masking never adds or drops a band."""
         raster = Dataset.from_array(self._stack(), geo_ref=GEO_REF, no_data_value=NDV)
         assert raster.where(VALUES > 9).band_count == 2
+
+    def test_drop_trims_a_stack_to_the_block_that_survived_in_any_band(self):
+        """A row or column is kept when *any* band still holds data there.
+
+        Test scenario:
+            The trim reads one plane, folded across the bands, so a cell surviving in the
+            second band alone keeps its row and column. Every band is cut to the same
+            rectangle, since they share one grid.
+        """
+        raster = Dataset.from_array(self._stack(), geo_ref=GEO_REF, no_data_value=NDV)
+        mask = np.zeros((3, 4), dtype=bool)
+        mask[1, 2] = True
+        result = raster.where(mask, drop=True)
+        assert (result.band_count, result.rows, result.columns) == (2, 1, 1)
+        read = np.asarray(result.read_array(), dtype="float64")
+        assert read.ravel().tolist() == [7.0, 17.0]
+
+    def test_drop_on_a_stack_keeps_the_grid_of_what_it_kept(self):
+        """The origin moves to the surviving cell and the cell size is untouched."""
+        raster = Dataset.from_array(self._stack(), geo_ref=GEO_REF, no_data_value=NDV)
+        mask = np.zeros((3, 4), dtype=bool)
+        mask[1, 2] = True
+        result = raster.where(mask, drop=True)
+        assert result.geotransform[0] == pytest.approx(2.0)
+        assert result.geotransform[3] == pytest.approx(2.0)
+        assert result.geotransform[1] == pytest.approx(1.0)
+        assert result.geotransform[5] == pytest.approx(-1.0)

@@ -46,6 +46,26 @@ def _cube(values: np.ndarray, stamps: list[float], name: str = "t") -> NetCDF:
     )
 
 
+def _four_dimensional(times: list[float], levels: list[float], fill: float) -> NetCDF:
+    """A `(time, level, y, x)` container holding one constant variable.
+
+    Args:
+        times: The `time` coordinate values.
+        levels: The `level` coordinate values.
+        fill: The value every cell holds.
+
+    Returns:
+        NetCDF: The container.
+    """
+    return NetCDF.from_array(
+        np.full((len(times), len(levels), 2, 2), fill),
+        geo_ref=GEO,
+        variable_name="t",
+        no_data_value=NDV,
+        dims=ExtraDimensions(dims=[("time", times), ("level", levels)]),
+    )
+
+
 def _read(cube: NetCDF, name: str = "t") -> np.ndarray:
     """One variable's cells as float64 with its gaps as NaN.
 
@@ -176,30 +196,100 @@ class TestConcatRefusals:
         """A cube with no stamps for the dimension leaves the joined axis unlabelled.
 
         Test scenario:
-            Half the stamps would describe cells the other half does not, so the result
-            says it has none rather than claiming a partial axis.
+            Half the stamps would describe cells the other half does not, so no part's
+            stamps are carried and the rebuilt axis falls back to positions. The
+            unlabelled cube is held as one object on purpose: `get_variable` hands back a
+            fresh view each call, so mutating one view and passing another would leave the
+            stamps in place and test nothing, which the precondition below pins.
         """
-        first = NetCDF.from_array(
-            np.ones((2, 2, 2)),
-            geo_ref=GEO,
-            variable_name="t",
-            no_data_value=NDV,
-            dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+        first = _cube(np.ones((2, 2, 2)), [0.0, 6.0])
+        second = _cube(np.full((2, 2, 2), 3.0), [12.0, 18.0])
+        unlabelled = second.get_variable("t")
+        unlabelled._band_dim_values_map["time"] = None
+        assert second.get_variable("t")._band_dim_values_map["time"] == [12.0, 18.0], (
+            "precondition: `get_variable` answers a fresh view, so the unlabelled cube "
+            "must be the very object handed to concat"
         )
-        second = NetCDF.from_array(
-            np.ones((2, 2, 2)),
-            geo_ref=GEO,
-            variable_name="t",
-            no_data_value=NDV,
-            dims=ExtraDimensions(name="time", values=[12.0, 18.0]),
+        joined = NetCDF.concat([first, unlabelled], "time")
+        variable = joined.get_variable("t")
+        assert variable.band_count == 4
+        assert variable._band_dim_values_map["time"] == [0, 1, 2, 3]
+        assert_allclose(_read(joined)[:, 0, 0], [1.0, 1.0, 3.0, 3.0])
+
+    def test_a_disagreement_on_a_dimension_that_is_not_joined(self):
+        """Cubes joined along `time` still have to agree about `level`.
+
+        Test scenario:
+            The values are concatenated on one axis, so every other axis has to line up
+            cell for cell. Three levels and two levels describe different cubes, and
+            numpy would refuse the concatenation with a shape message that names no
+            dimension.
+        """
+        first = _four_dimensional([0.0, 6.0], [1.0, 2.0, 3.0], 1.0)
+        second = _four_dimensional([12.0, 18.0], [1.0, 2.0], 5.0)
+        with pytest.raises(ValueError, match="agree on every dimension but 'time'"):
+            NetCDF.concat([first, second], "time")
+
+
+class TestConcatOnAFourDimensionalCube:
+    """Only the joined axis grows; the others come through untouched."""
+
+    def test_the_joined_axis_grows_and_the_other_is_unchanged(self):
+        """`time` doubles in length, `level` keeps its three steps and its stamps."""
+        joined = NetCDF.concat(
+            [
+                _four_dimensional([0.0, 6.0], [1.0, 2.0, 3.0], 1.0),
+                _four_dimensional([12.0, 18.0], [1.0, 2.0, 3.0], 5.0),
+            ],
+            "time",
         )
-        second.get_variable("t")._band_dim_values_map["time"] = None
-        joined = NetCDF.concat([first, second.get_variable("t")], "time")
-        assert joined.get_variable("t").band_count == 4
+        variable = joined.get_variable("t")
+        assert tuple(variable._band_dim_names) == ("time", "level")
+        assert tuple(variable._band_dim_sizes) == (4, 3)
+        assert variable._band_dim_values_map["time"] == [0.0, 6.0, 12.0, 18.0]
+        assert variable._band_dim_values_map["level"] == [1.0, 2.0, 3.0]
+
+    def test_each_part_keeps_its_own_values(self):
+        """The first two steps are the first cube's, the last two the second's."""
+        joined = NetCDF.concat(
+            [
+                _four_dimensional([0.0, 6.0], [1.0, 2.0, 3.0], 1.0),
+                _four_dimensional([12.0, 18.0], [1.0, 2.0, 3.0], 5.0),
+            ],
+            "time",
+        )
+        values = _read(joined).reshape(4, 3, 2, 2)
+        assert_allclose(values[:2], np.ones((2, 3, 2, 2)))
+        assert_allclose(values[2:], np.full((2, 3, 2, 2), 5.0))
+
+    def test_joining_along_the_inner_dimension(self):
+        """`level` is as joinable as `time`; nothing privileges the outermost axis."""
+        joined = NetCDF.concat(
+            [
+                _four_dimensional([0.0, 6.0], [1.0, 2.0], 1.0),
+                _four_dimensional([0.0, 6.0], [3.0], 5.0),
+            ],
+            "level",
+        )
+        variable = joined.get_variable("t")
+        assert tuple(variable._band_dim_sizes) == (2, 3)
+        assert variable._band_dim_values_map["level"] == [1.0, 2.0, 3.0]
+        assert variable._band_dim_values_map["time"] == [0.0, 6.0]
 
 
 class TestMerge:
     """Variables side by side on one grid."""
+
+    def test_an_empty_sequence(self):
+        """There is nothing to merge, and an empty container is not the answer."""
+        with pytest.raises(ValueError, match="at least one cube"):
+            NetCDF.merge([])
+
+    def test_a_single_cube_comes_back_as_itself(self):
+        """Merging one cube is the identity on its variables and values."""
+        merged = NetCDF.merge([_cube(np.ones((2, 2, 2)), [0.0, 6.0])])
+        assert merged.variable_names == ["t"]
+        assert_allclose(_read(merged), np.ones((2, 2, 2)))
 
     def test_two_cubes_become_one_container(self):
         """Each cube contributes its variable."""

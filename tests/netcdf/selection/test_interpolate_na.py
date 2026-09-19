@@ -221,6 +221,30 @@ class TestRefusals:
         with pytest.raises(ValueError, match="does not match any band dimension"):
             variable.interpolate_na("level")
 
+    def test_a_boolean_limit_is_refused(self):
+        """`True` is an `int` in Python and would quietly mean a limit of one step."""
+        variable = _variable(GAPPED, EVEN)
+        with pytest.raises(TypeError, match=r"^interpolate_na\(\) needs an integer"):
+            variable.interpolate_na("time", limit=True)
+
+    def test_text_stamps_cannot_be_measured_along(self):
+        """A distance between two labels is not defined, so the default is refused.
+
+        Test scenario:
+            `use_coordinate=True` is the default and asks for the distance between two
+            stamps. Text stamps have none, and falling back to position silently would
+            answer a different interpolation than the one that was asked for.
+        """
+        variable = _variable(GAPPED, EVEN)
+        variable._band_dim_values_map["time"] = ["a", "b", "c", "d"]
+        with pytest.raises(
+            ValueError, match="cannot measure distance along 'time'"
+        ) as raised:
+            variable.interpolate_na("time")
+        assert "use_coordinate=False" in str(raised.value), (
+            f"the refusal must name the way through, got: {raised.value}"
+        )
+
 
 class TestTheReceivers:
     """Both receivers answer, and they agree."""

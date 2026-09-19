@@ -13,9 +13,8 @@ import pytest
 
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
-from pyramids.netcdf import ExtraDimensions
+from pyramids.netcdf import ExtraDimensions, NetCDF
 from pyramids.netcdf import GeoReference as NCGeoReference
-from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -69,6 +68,29 @@ class TestTheVerdictsMatchXarray:
         relabelled.band_names = ["reflectance"]
         assert raster.equals(relabelled)
         assert not raster.identical(relabelled)
+
+    def test_a_metadata_only_difference_also_separates_the_two_methods(self):
+        """The dataset tags are attributes too, not only the band names.
+
+        Test scenario:
+            The band-name case above would pass an `identical` that read the names and
+            ignored the tags. The same rasters under different dataset-level metadata are
+            equal and not identical, which is xarray's verdict for differing `attrs`.
+        """
+        raster = _raster()
+        tagged = _raster()
+        tagged.meta_data = {"units": "mm"}
+        assert raster.meta_data == {}, "precondition: the tags start out empty"
+        assert raster.equals(tagged)
+        assert not raster.identical(tagged)
+
+    def test_the_same_tags_on_both_sides_are_identical(self):
+        """Metadata only separates the two verdicts when it actually differs."""
+        raster = _raster()
+        raster.meta_data = {"units": "mm"}
+        same = _raster()
+        same.meta_data = {"units": "mm"}
+        assert raster.identical(same)
 
     def test_a_different_grid_is_neither(self):
         """Same numbers somewhere else on the globe is a different raster."""

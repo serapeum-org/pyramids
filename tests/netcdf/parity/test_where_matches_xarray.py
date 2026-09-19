@@ -18,6 +18,8 @@ import pytest
 
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
+from pyramids.netcdf import ExtraDimensions, NetCDF
+from pyramids.netcdf import GeoReference as NCGeoReference
 
 pytestmark = pytest.mark.interop
 
@@ -168,12 +170,6 @@ class TestTheReceivers:
         Returns:
             NetCDF: The container.
         """
-        from pyramids.netcdf import (
-            ExtraDimensions,
-            GeoReference as NCGeoReference,
-            NetCDF,
-        )
-
         return NetCDF.from_array(
             np.arange(24.0).reshape(2, 3, 4),
             geo_ref=NCGeoReference(geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=4326),
