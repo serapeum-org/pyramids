@@ -601,9 +601,10 @@ class IO(_Engine["Dataset"]):
                 and pulls from a matching overview level when one exists, so
                 previews of pyramided rasters never touch the full-resolution
                 pixels. Composes with `window=` or `bbox=` (decimate a
-                sub-window). Not supported together with `chunks=` or
-                `masked=True` (:class:`NotImplementedError`). Default
-                `None` (native resolution, unchanged).
+                sub-window) and with `masked=True`, which builds the mask from
+                the decimated read. Not supported together with `chunks=`
+                (:class:`NotImplementedError`; decimate eagerly, or coarsen the
+                dask array). Default `None` (native resolution, unchanged).
             resampling (str, keyword-only):
                 Decimation algorithm for `out_shape` reads (`"nearest"`,
                 `"bilinear"`, `"cubic"`, `"cubicspline"`,
@@ -644,10 +645,16 @@ class IO(_Engine["Dataset"]):
                   Windowed reads (including `bbox`) slice the mask band
                   with the same resolved pixel window as the data.
 
-                Only supported on the eager, non-`threadsafe` path;
-                combining it with `chunks` or `threadsafe=True` raises
-                :class:`NotImplementedError`. Default is `False` (plain
-                array, unchanged behaviour).
+                Supported on the eager, decimated (`out_shape=`) and boundless
+                (`boundless=True`) read paths: a decimated masked read builds the
+                mask from the decimated read (the mask band is decimated to the
+                same shape), and a boundless masked read masks the padding
+                outside the raster as well as the invalid pixels inside it. The
+                mask is built from **stored** values, before `unpack` applies
+                scale/offset, so a packed band masks by its stored sentinel.
+                Combining it with `chunks` or `threadsafe=True` raises
+                :class:`NotImplementedError`. Default is `False` (plain array,
+                unchanged behaviour).
             unpack (bool, keyword-only):
                 Return real-world values by applying each band's CF packing
                 — `real = raw * scale + offset`, with the pair resolved by
@@ -738,12 +745,10 @@ class IO(_Engine["Dataset"]):
             NotImplementedError: If `out_shape` is combined with `chunks`
                 (decimate eagerly instead) or with `boundless=True`
                 (decimated boundless reads are not combined yet), or if
-                `masked=True` is combined
-                with `chunks` (lazy masked reads are not supported yet),
-                `out_shape` (decimation and masking are not combined yet),
-                `boundless=True` (boundless fills and masking are not
-                combined yet), or `threadsafe=True` (the mask band would
-                be read from the shared handle).
+                `masked=True` is combined with `chunks` (lazy masked reads
+                are not supported yet) or `threadsafe=True` (the mask band
+                would be read from the shared handle). `masked=True` composes
+                with `out_shape=` and `boundless=True`.
             OutOfBoundsError: If a `bbox` / geometry `window` does not
                 overlap the raster extent at all, or (for a foreign-CRS
                 bbox) reprojects outside the target CRS's valid domain.
@@ -884,6 +889,30 @@ class IO(_Engine["Dataset"]):
               [[2.5, 3.5], [4.5, None]]
               >>> round(float(packed.read_array()[1, 1]), 2)
               -98.49
+
+              ```
+
+            - `masked=True` composes with `out_shape=` and `boundless=True`: a
+              decimated masked read masks the no-data cells of the decimated
+              read, and a boundless masked read masks the padding outside the
+              raster too:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference, Window
+              >>> grid = Dataset.from_array(
+              ...     np.array(
+              ...         [[0.0, 1.0, 2.0, 3.0], [4.0, -9.0, 6.0, 7.0],
+              ...          [8.0, 9.0, 10.0, 11.0], [12.0, 13.0, 14.0, 15.0]],
+              ...         dtype="float32",
+              ...     ),
+              ...     no_data_value=-9.0,
+              ...     geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
+              ... )
+              >>> grid.read_array(out_shape=(2, 2), masked=True, resampling="nearest").mask.tolist()
+              [[True, False], [False, False]]
+              >>> grid.read_array(window=Window(3, 0, 2, 2), boundless=True, masked=True).mask.tolist()
+              [[False, True], [False, True]]
 
               ```
 
