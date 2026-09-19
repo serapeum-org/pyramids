@@ -2111,6 +2111,155 @@ class Analysis(_Engine["Dataset"]):
         self._ds._label_combined(result, layout_source)
         return self._where_trimmed(result) if drop else result
 
+    def equals(self, other: Any) -> bool:
+        """Whether two rasters hold the same values on the same grid.
+
+        What :meth:`Dataset.same_grid <pyramids.dataset.Dataset.same_grid>` does not answer:
+        that says the two *could* be combined cell by cell, this says they actually agree.
+        A gap equals a gap — comparing the sentinels as ordinary numbers would call two
+        rasters different for marking the same missing cell with a different value, and
+        would call a NaN unequal to itself.
+
+        Attributes are ignored, as xarray ignores them here; :meth:`identical` is the one
+        that reads them.
+
+        The cheap invariants are checked first — the band count, the grid, and a NetCDF's
+        band dimensions and their coordinates — so two rasters that cannot possibly agree
+        are refused without reading a cell of either.
+
+        Args:
+            other: The raster to compare with. Anything that is not one answers `False`
+                rather than raising, so `nc == something_else` is usable in a filter.
+
+        Returns:
+            bool: `True` when every cell agrees and every gap lines up.
+
+        Examples:
+            - A raster equals its own copy, and stops equalling it after one cell changes:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, 2.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.equals(raster.copy())
+              True
+              >>> raster.equals(Dataset.from_array(values * 2, geo_ref=geo_ref))
+              False
+
+              ```
+        """
+        return self._compares_equal(other, attributes=False)
+
+    def identical(self, other: Any) -> bool:
+        """Whether two rasters are equal **and** carry the same attributes.
+
+        :meth:`equals` with the metadata read too: the dataset-level tags and the band
+        names. Two rasters holding identical numbers but describing different things are
+        equal and not identical, which is the distinction xarray draws.
+
+        Args:
+            other: The raster to compare with; anything else answers `False`.
+
+        Returns:
+            bool: `True` when `equals` holds and the attributes match as well.
+
+        Examples:
+            - The same numbers under a different description:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, 2.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> relabelled = raster.copy()
+              >>> relabelled.band_names = ["reflectance"]
+              >>> raster.equals(relabelled), raster.identical(relabelled)
+              (True, False)
+
+              ```
+        """
+        return self._compares_equal(other, attributes=True)
+
+    def _compares_equal(self, other: Any, *, attributes: bool) -> bool:
+        """The shared body of :meth:`equals` and :meth:`identical`.
+
+        Args:
+            other: The raster to compare with.
+            attributes: Whether the metadata and band names are read too.
+
+        Returns:
+            bool: The verdict.
+        """
+        verdict = isinstance(other, RasterBase) and self._invariants_match(other)
+        if verdict:
+            raster = cast("Dataset", other)
+            verdict = self._values_match(raster)
+            if verdict and attributes:
+                verdict = self._attributes_match(raster)
+        return verdict
+
+    def _invariants_match(self, other: Any) -> bool:
+        """Whether the header fields agree, before a cell of either raster is read.
+
+        Args:
+            other: The raster to compare with.
+
+        Returns:
+            bool: `True` when the shape, the grid and the band layout all agree.
+        """
+        same = (
+            self._ds.rows == other.rows
+            and self._ds.columns == other.columns
+            and self._ds.band_count == other.band_count
+            and self._ds.spatial.same_grid(other)
+        )
+        if same:
+            # Duck-typed: a NetCDF variable carries band dimensions and a plain raster does
+            # not, and two rasters of the same shape whose steps are stamped differently are
+            # not the same cube.
+            same = tuple(getattr(self._ds, "_band_dim_names", ())) == tuple(
+                getattr(other, "_band_dim_names", ())
+            ) and getattr(self._ds, "_band_dim_values_map", {}) == getattr(
+                other, "_band_dim_values_map", {}
+            )
+        return same
+
+    def _values_match(self, other: Dataset) -> bool:
+        """Whether every cell agrees, a gap counting as equal to a gap.
+
+        Args:
+            other: The raster to compare with.
+
+        Returns:
+            bool: `True` when the gaps line up and the values agree everywhere else.
+        """
+        mine, _, my_domain = self._operand_arrays(self._ds, None)
+        theirs, _, their_domain = self._operand_arrays(other, None)
+        aligned = bool(np.array_equal(my_domain, their_domain))
+        return aligned and bool(
+            np.array_equal(
+                np.where(my_domain, mine, 0.0), np.where(their_domain, theirs, 0.0)
+            )
+        )
+
+    def _attributes_match(self, other: Dataset) -> bool:
+        """Whether the dataset tags and band names agree.
+
+        Args:
+            other: The raster to compare with.
+
+        Returns:
+            bool: `True` when both match.
+        """
+        return dict(self._ds.meta_data or {}) == dict(other.meta_data or {}) and list(
+            self._ds.band_names
+        ) == list(other.band_names)
+
     def fillna(self, value: float | int) -> Dataset:
         """Give every gap a value, so the raster has no missing cells left.
 

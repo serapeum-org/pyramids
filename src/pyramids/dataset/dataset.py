@@ -918,6 +918,21 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Analysis.isnull <pyramids.dataset.engines.Analysis.isnull>`."""
         return self.analysis.isnull(*args, **kwargs)
 
+    def equals(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.equals <pyramids.dataset.engines.Analysis.equals>`.
+
+        Value equality, which :meth:`same_grid` does not provide: that says two rasters
+        *could* be combined, this says they agree.
+        """
+        return self.analysis.equals(*args, **kwargs)
+
+    def identical(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.identical <pyramids.dataset.engines.Analysis.identical>`.
+
+        :meth:`equals` with the attributes read too.
+        """
+        return self.analysis.identical(*args, **kwargs)
+
     def notnull(self, *args, **kwargs):
         """Facade — delegates to :meth:`Analysis.notnull <pyramids.dataset.engines.Analysis.notnull>`."""
         return self.analysis.notnull(*args, **kwargs)
