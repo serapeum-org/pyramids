@@ -206,3 +206,63 @@ class TestTheReceivers:
         condition = container.get_variable("v") > 10
         with pytest.raises(ValueError, match="get_variable"):
             container.where(condition)
+
+
+class TestAVariableTakesEveryConditionForm:
+    """A NetCDF variable accepts the array and callable forms, not only a raster."""
+
+    @staticmethod
+    def _variable():
+        """A two-step variable over `time`.
+
+        Returns:
+            NetCDF: The variable.
+        """
+        return NetCDF.from_array(
+            np.arange(8.0).reshape(2, 2, 2),
+            geo_ref=NCGeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+        ).get_variable("t")
+
+    def test_an_array_condition(self):
+        """An array condition works on a variable, as it does on a plain raster.
+
+        Test scenario:
+            `_where_layout_source` answered `None` for a non-raster condition, and
+            `NetCDF._label_combined` unpacks its argument into a three-tuple, so every
+            array and callable condition raised
+            `TypeError: cannot unpack non-iterable NoneType object` — on the two forms the
+            docstring documents first.
+        """
+        variable = self._variable()
+        result = variable.where(np.arange(8.0).reshape(2, 2, 2) > 3)
+        assert tuple(result._band_dim_names) == ("time",)
+
+    def test_a_callable_condition(self):
+        """The callable form reaches the same place."""
+        variable = self._variable()
+        result = variable.where(lambda values: values > 3)
+        assert tuple(result._band_dim_names) == ("time",)
+
+    def test_every_form_agrees(self):
+        """The three forms describing the same cells answer the same raster."""
+        variable = self._variable()
+        mask = np.arange(8.0).reshape(2, 2, 2) > 3
+        from_array = np.asarray(variable.where(mask).read_array(), dtype="float64")
+        from_call = np.asarray(
+            variable.where(lambda values: values > 3).read_array(), dtype="float64"
+        )
+        from_raster = np.asarray(
+            variable.where(variable > 3).read_array(), dtype="float64"
+        )
+        np.testing.assert_allclose(from_array, from_call)
+        np.testing.assert_allclose(from_array, from_raster)
+
+    def test_the_stamps_survive_an_array_condition(self):
+        """The result still selects, which is what the band layout is for."""
+        variable = self._variable()
+        result = variable.where(np.arange(8.0).reshape(2, 2, 2) > 3)
+        assert result._band_dim_values_map["time"] == [0.0, 6.0]
+        assert np.asarray(result.sel(time=6.0).read_array()).shape == (2, 2)

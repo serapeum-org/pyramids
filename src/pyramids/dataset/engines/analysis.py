@@ -2293,16 +2293,7 @@ class Analysis(_Engine["Dataset"]):
         values, sentinels, domain = self._operand_arrays(self._ds, None)
         declared = next((one for one in sentinels if one is not None), None)
         out = np.asarray(np.where(domain, values, value))
-        return self._ds.__class__._build_dataset(
-            self._ds.columns,
-            self._ds.rows,
-            1 if out.ndim == 2 else out.shape[0],
-            numpy_to_gdal_dtype(out),
-            self._ds.geotransform,
-            self._ds.crs,
-            declared,
-            array=out,
-        )
+        return self._identified(self._rebuilt(out, declared))
 
     def isnull(self) -> Dataset:
         """Flag the gaps: `1` where a cell is missing, `0` where it holds data.
@@ -2375,16 +2366,7 @@ class Analysis(_Engine["Dataset"]):
         flags = np.asarray(
             (~domain if missing else domain).astype("uint8"), dtype="uint8"
         )
-        return self._ds.__class__._build_dataset(
-            self._ds.columns,
-            self._ds.rows,
-            1 if flags.ndim == 2 else flags.shape[0],
-            numpy_to_gdal_dtype(flags),
-            self._ds.geotransform,
-            self._ds.crs,
-            None,
-            array=flags,
-        )
+        return self._identified(self._rebuilt(flags, None))
 
     def _where_layout_source(self, cond: Any) -> Any:
         """Check a raster condition's grid and band layout, and say what labels the result.
@@ -2412,12 +2394,15 @@ class Analysis(_Engine["Dataset"]):
                 f"variables do. Call it on one of them: "
                 f"`nc.get_variable({variables[0]!r}).where(...)`."
             )
-        source = None
         if isinstance(cond, RasterBase):
             raster = cast("Dataset", cond)
             self._check_combinable(raster, np.logical_and, None)
-            source = self._ds._combine_layout_source(raster, None)
-        return source
+            return self._ds._combine_layout_source(raster, None)
+        # An array or a callable brings no layout of its own, which is the shape a fold
+        # has: one operand, nothing to compare it with or fill labels from. Asking the
+        # hook that way answers this raster's own layout, where passing `None` through
+        # would leave `NetCDF._label_combined` unpacking it.
+        return self._ds._combine_layout_source(None, None)
 
     def _where_condition(
         self, cond: Any, values: np.typing.NDArray, domain: np.typing.NDArray
@@ -2487,16 +2472,45 @@ class Analysis(_Engine["Dataset"]):
         if declared is None and np.isnan(np.asarray(fill, dtype="float64")).all():
             declared = np.nan
         out = np.asarray(out)
+        return self._identified(self._rebuilt(out, declared))
+
+    def _rebuilt(self, values: np.typing.NDArray, sentinel: Any) -> Dataset:
+        """A raster of `values` on this one's grid, declaring `sentinel`.
+
+        Args:
+            values: The cells, 2-D for one band or `(bands, rows, cols)`.
+            sentinel: The no-data value to declare, or `None` for none.
+
+        Returns:
+            Dataset: The raster, before its identity is put back on.
+        """
         return self._ds.__class__._build_dataset(
             self._ds.columns,
             self._ds.rows,
-            1 if out.ndim == 2 else out.shape[0],
-            numpy_to_gdal_dtype(out),
+            1 if values.ndim == 2 else values.shape[0],
+            numpy_to_gdal_dtype(values),
             self._ds.geotransform,
             self._ds.crs,
-            declared,
-            array=out,
+            sentinel,
+            array=values,
         )
+
+    def _identified(self, result: Dataset) -> Dataset:
+        """Put this raster's band names and dataset tags on a result built from it.
+
+        The same two assignments `combine` makes, and for the same reason: a masked or
+        filled raster is still the same band of the same scene, and one that has come back
+        as `Band_1` with no tags has lost what told the caller which band it is.
+
+        Args:
+            result: The freshly built raster.
+
+        Returns:
+            Dataset: `result`.
+        """
+        result.meta_data = self._ds.meta_data
+        result.band_names = list(self._ds.band_names)
+        return result
 
     def _where_trimmed(self, result: Dataset) -> Dataset:
         """Trim `result` to the smallest rectangle holding every cell that is not a gap.

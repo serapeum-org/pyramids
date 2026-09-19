@@ -312,3 +312,49 @@ class TestBandsAndLayout:
         assert result.geotransform[3] == pytest.approx(2.0)
         assert result.geotransform[1] == pytest.approx(1.0)
         assert result.geotransform[5] == pytest.approx(-1.0)
+
+
+class TestTheResultKeepsItsIdentity:
+    """A masked raster is still the same band of the same scene."""
+
+    @staticmethod
+    def _labelled() -> Dataset:
+        """A raster carrying a band name and a dataset tag.
+
+        Returns:
+            Dataset: The raster.
+        """
+        raster = _raster()
+        raster.band_names = ["reflectance"]
+        raster.meta_data = {"source": "sentinel"}
+        return raster
+
+    def test_where_keeps_the_band_names(self):
+        """The docstring promises the band names travel, as they do through an operator.
+
+        Test scenario:
+            `r + 1` answered `['reflectance']` while `r.where(r > 2)` answered `['Band_1']`:
+            `_combine` assigns the names and the tags before labelling, and `where` skipped
+            both assignments.
+        """
+        assert self._labelled().where(VALUES > 2).band_names == ["reflectance"]
+
+    def test_where_keeps_the_metadata(self):
+        """A result that has forgotten its scene is harder to use than the array it came from."""
+        assert self._labelled().where(VALUES > 2).meta_data == {"source": "sentinel"}
+
+    def test_the_operator_path_is_the_reference(self):
+        """Whatever an operator carries, `where` carries — that is the promise."""
+        labelled = self._labelled()
+        assert labelled.where(VALUES > 2).band_names == (labelled + 1).band_names
+        assert labelled.where(VALUES > 2).meta_data == (labelled + 1).meta_data
+
+    def test_fillna_keeps_them_too(self):
+        """`fillna` writes to the gaps; it does not rename the band."""
+        assert self._labelled().fillna(0.0).band_names == ["reflectance"]
+        assert self._labelled().fillna(0.0).meta_data == {"source": "sentinel"}
+
+    def test_the_null_flags_keep_them_too(self):
+        """A flag band still describes the band it flags."""
+        assert self._labelled().isnull().band_names == ["reflectance"]
+        assert self._labelled().notnull().meta_data == {"source": "sentinel"}
