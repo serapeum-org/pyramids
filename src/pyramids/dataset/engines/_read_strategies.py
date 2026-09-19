@@ -12,8 +12,11 @@ The per-path preconditions live here (rather than on ``ReadRequest``) because th
 depend on the *resolved* ``window`` — the value ``read_array`` computes from
 ``bbox``/``window`` and a polygon-to-pixel conversion just before dispatch and
 passes to :meth:`ReadStrategy.read` alongside the request. The strategy order in
-:data:`READ_STRATEGIES` reproduces the original ``if/elif`` ladder exactly, so the
-same input still raises the same error.
+:data:`READ_STRATEGIES` reproduces the original ``if/elif`` ladder exactly, so a
+multi-option input still resolves to the same path; the decimated and boundless
+paths now also honour ``masked=True`` (building the mask from their own read),
+while the remaining precondition errors — ``chunks`` or ``threadsafe`` with
+``masked``, ``chunks`` with a ``window`` — still fire from the same path.
 """
 
 from __future__ import annotations
@@ -131,16 +134,18 @@ class DecimatedRead(ReadStrategy):
         return req.out_shape is not None
 
     def read(self, io: IO, req: ReadRequest, window: Any) -> Any:
-        """Reject masked decimation, then read at the requested shape."""
-        if req.masked:
-            raise NotImplementedError(
-                "read_array(out_shape=...) is not supported together with "
-                "masked=True; decimation and masking are not combined yet. "
-                "Read decimated without masked, or mask the result yourself."
-            )
+        """Read at the requested shape, masking the decimated read when asked."""
         # ``matches`` only selected this path because an out_shape was given.
         assert req.out_shape is not None
-        return io._decimated_read(req.band, window, req.out_shape, req.resampling)
+        arr = io._decimated_read(req.band, window, req.out_shape, req.resampling)
+        if req.masked:
+            # The mask comes from the same decimated read: the no-data comparison
+            # on the decimated stored values plus the mask band decimated to the
+            # same buffer size (``_band_mask`` sizes it to ``arr.shape``). GDAL
+            # keeps the no-data sentinel out of the resampled valid cells, so the
+            # mask lines up with the data cell-for-cell.
+            arr = io._to_masked(arr, req.band, window=window)
+        return arr
 
 
 class BoundlessRead(ReadStrategy):
@@ -153,14 +158,7 @@ class BoundlessRead(ReadStrategy):
         return req.boundless
 
     def read(self, io: IO, req: ReadRequest, window: Any) -> Any:
-        """Require a pixel window, reject masked boundless, then pad-read."""
-        if req.masked:
-            raise NotImplementedError(
-                "read_array(boundless=True) is not supported together "
-                "with masked=True; boundless fills and masking are not "
-                "combined yet. Read boundless without masked, or mask the "
-                "result yourself."
-            )
+        """Require a pixel window, pad-read, and mask padding + invalid pixels when asked."""
         if window is None:
             raise ValueError(
                 "read_array(boundless=True) requires a window; a full read "
@@ -172,7 +170,7 @@ class BoundlessRead(ReadStrategy):
                 "[col_off, row_off, cols, rows] list); geometry windows "
                 "are clipped by definition."
             )
-        return io._boundless_read(req.band, window, req.fill_value)
+        return io._boundless_read(req.band, window, req.fill_value, masked=req.masked)
 
 
 class ThreadsafeRead(ReadStrategy):
@@ -253,5 +251,6 @@ READ_STRATEGIES: tuple[ReadStrategy, ...] = (
 
 The order reproduces ``read_array``'s original ``if chunks / elif out_shape / elif
 boundless / elif threadsafe / else`` ladder, so multi-option inputs still resolve
-to the same path and raise the same precondition error.
+to the same path and raise the same precondition errors (the ones that remain
+after the decimated and boundless paths gained ``masked=True`` support).
 """

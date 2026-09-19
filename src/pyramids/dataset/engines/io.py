@@ -1266,9 +1266,15 @@ class IO(_Engine["Dataset"]):
         (alpha / internal masks). ``GMF_NODATA``-derived mask bands are
         skipped — they duplicate the no-data comparison already applied.
 
+        The mask band is read into a buffer the size of ``data`` — so a
+        decimated read (``data`` already at the target ``out_shape``) gets a
+        mask band decimated to the same shape, while a native read (``data``
+        the size of ``window``) reads it 1:1, an implicit no-op.
+
         Args:
             index: Zero-based band index.
-            data: The band's 2-D data array.
+            data: The band's 2-D data array — the values that were read,
+                already decimated to the output shape on a decimated read.
             window: The resolved ``[xoff, yoff, xsize, ysize]`` pixel
                 window of the read, or ``None`` for a full read.
 
@@ -1297,11 +1303,22 @@ class IO(_Engine["Dataset"]):
         gdal_band = self._ds._iloc(index)
         if gdal_band.GetMaskFlags() not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA):
             mask_band = gdal_band.GetMaskBand()
+            # Size the mask-band read to the data buffer so a decimated read's
+            # mask lines up cell-for-cell; when the buffer matches the source
+            # window (a native read) buf_xsize/buf_ysize are a 1:1 no-op.
+            buf_rows, buf_cols = data.shape[-2], data.shape[-1]
             if window is None:
-                band_mask = mask_band.ReadAsArray()
+                band_mask = mask_band.ReadAsArray(
+                    buf_xsize=buf_cols, buf_ysize=buf_rows
+                )
             else:
                 band_mask = mask_band.ReadAsArray(
-                    window[0], window[1], window[2], window[3]
+                    window[0],
+                    window[1],
+                    window[2],
+                    window[3],
+                    buf_xsize=buf_cols,
+                    buf_ysize=buf_rows,
                 )
             mask = mask | (band_mask == 0)
         return mask
@@ -1551,7 +1568,8 @@ class IO(_Engine["Dataset"]):
         band: int | None,
         window: Window | list[int] | tuple[int, ...],
         fill_value: float | None,
-    ) -> np.typing.NDArray:
+        masked: bool = False,
+    ) -> np.typing.NDArray | np.ma.MaskedArray:
         """Read a window that may extend past the raster, filling the outside.
 
         The output always has the full requested window shape. The part of the
@@ -1559,6 +1577,12 @@ class IO(_Engine["Dataset"]):
         to ``fill_value`` (or, when that is ``None``, the band's no-data value
         when it fits the band dtype, falling back to the dtype's zero otherwise
         — e.g. a float ``-9999`` marker on a ``uint8`` band).
+
+        With ``masked=True`` the result is a :class:`numpy.ma.MaskedArray` whose
+        mask is ``True`` for the padding outside the raster *and* for the
+        invalid pixels inside it (the same no-data / mask-band test
+        :meth:`_band_mask` applies to a native read), so a caller never has to
+        tell padding from data by value.
 
         Args:
             band: Band index, or ``None`` for all bands.
@@ -1568,10 +1592,14 @@ class IO(_Engine["Dataset"]):
             fill_value: Explicit fill for outside pixels; ``None`` defers to
                 the band's no-data value when it is representable in the band
                 dtype, otherwise to the dtype zero.
+            masked: When ``True``, return a ``MaskedArray`` masking the padding
+                and the invalid pixels; when ``False`` (default), return the
+                plain filled array.
 
         Returns:
-            np.ndarray: ``(rows, cols)`` for a single band, ``(bands, rows,
-                cols)`` for an all-bands read — always the full window shape.
+            np.ndarray | np.ma.MaskedArray: ``(rows, cols)`` for a single band,
+                ``(bands, rows, cols)`` for an all-bands read — always the full
+                window shape; a ``MaskedArray`` when ``masked=True``.
 
         Raises:
             ValueError: ``band`` is out of range, or ``fill_value`` cannot be
@@ -1586,6 +1614,7 @@ class IO(_Engine["Dataset"]):
         raster_window = Window(0, 0, self._ds.columns, self._ds.rows)
         inside = window.intersection(raster_window)
         planes = []
+        masks: list[np.typing.NDArray] = []
         for index in band_indices:
             dtype = np.dtype(self._ds.numpy_dtype[index])
             marker = self._ds.no_data_value[index]
@@ -1600,17 +1629,33 @@ class IO(_Engine["Dataset"]):
             else:
                 fill = 0
             plane = np.full(window.shape, fill, dtype=dtype)
+            # Every cell starts masked, so the padding outside the raster stays
+            # masked; the in-raster block below unmasks its own cells down to the
+            # band's real invalid-pixel mask.
+            plane_mask = np.ones(window.shape, dtype=bool) if masked else None
             if inside is not None:
-                data = self._ds._iloc(index).ReadAsArray(*inside.to_read_args())
+                data = np.asarray(
+                    self._ds._iloc(index).ReadAsArray(*inside.to_read_args())
+                )
                 row_start = inside.row_off - window.row_off
                 col_start = inside.col_off - window.col_off
                 plane[
                     row_start : row_start + inside.rows,
                     col_start : col_start + inside.cols,
                 ] = data
+                if plane_mask is not None:
+                    plane_mask[
+                        row_start : row_start + inside.rows,
+                        col_start : col_start + inside.cols,
+                    ] = self._band_mask(index, data, list(inside.to_read_args()))
             planes.append(plane)
+            if plane_mask is not None:
+                masks.append(plane_mask)
         result = planes[0] if not all_bands else np.stack(planes, axis=0)
-        return result
+        if not masked:
+            return result
+        full_mask = masks[0] if not all_bands else np.stack(masks, axis=0)
+        return np.ma.MaskedArray(result, mask=full_mask)
 
     def _read_block(
         self,
