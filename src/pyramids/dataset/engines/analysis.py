@@ -2502,9 +2502,11 @@ class Analysis(_Engine["Dataset"]):
         """Trim `result` to the smallest rectangle holding every cell that is not a gap.
 
         Read off the **result**, not off the condition: an unselected cell that `other`
-        wrote a value into is data, and xarray's `drop=True` likewise trims where the
-        values are missing rather than where the condition was false. With the default
-        `other` the two coincide, since an unselected cell is exactly a gap.
+        wrote a value into is data, and a row of them is kept. xarray goes the other way
+        and drops whatever the condition was false at, whether or not `other` filled it.
+        With the default `other` the two coincide, since an unselected cell is then
+        exactly a gap; they part only when `other` is a number, where this keeps the full
+        grid and xarray still trims.
 
         Expressed as a `crop(bbox=...)` on the result rather than as an index slice, so the
         trimmed raster is georeferenced by the same machinery every other crop uses.

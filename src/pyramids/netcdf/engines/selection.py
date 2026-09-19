@@ -2747,6 +2747,10 @@ class Selection(_Engine["NetCDF"]):
                 survives, which would leave a variable with no bands; the container has no
                 data variables; or `dim` is not a band dimension of any gridded variable.
 
+        Warns:
+            UserWarning: A container's auxiliary variable spans `dim` and is dropped. The
+                message names `dropna()`.
+
         Examples:
             - Drop the steps that hold a gap, and then only the empty ones:
 

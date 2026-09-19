@@ -10,7 +10,8 @@ and doing it implicitly inside a join would move data without saying so.
 **A name to keep apart.** `DatasetCollection.merge(dst, ...)` already means a *spatial
 mosaic written to `dst`* — several rasters covering neighbouring ground becoming one. This
 `NetCDF.merge` is the other operation entirely: one grid, several variables. They live on
-different classes and take different arguments, and each docstring points at the other.
+different classes and take different arguments, and `NetCDF.merge`'s docstring names the
+other one so the two are not mistaken for each other.
 """
 
 from __future__ import annotations
