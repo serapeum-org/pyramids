@@ -2025,6 +2025,242 @@ class Analysis(_Engine["Dataset"]):
             return None
         return dst
 
+    def where(
+        self,
+        cond: Any,
+        other: Any = _DERIVE_NO_DATA,
+        *,
+        drop: bool = False,
+    ) -> Dataset:
+        """Keep the cells a condition selects and mask the rest.
+
+        The counterpart of :meth:`fill`, which writes to the cells that *are* data: `where`
+        decides which cells stay data at all. A cell the condition selects keeps its value
+        exactly; every other cell takes `other`, which defaults to the raster's own no-data
+        value, so the common call returns the same raster with the unwanted cells gone.
+
+        A condition cell that is itself no-data reads as **false**. That is what makes
+        `raster.where(raster > 5)` behave: a comparison declares `255` for a cell it could
+        not judge — a gap in the operand — and keeping such a cell would keep one the
+        comparison never approved. It is also xarray's answer, whose comparison is false at
+        a NaN.
+
+        Args:
+            cond: What to keep. A boolean (or `0` / `1`) array broadcastable to this
+                raster's cells; a raster on the same grid, which a comparison such as
+                `raster > 5` produces and whose own no-data cells read as false; or a
+                callable handed this raster's physical values and returning either.
+            other: What an unselected cell holds. The raster's declared no-data value by
+                default, or NaN when it declares none, in which case the result declares
+                NaN. A number writes that number instead, and the result then holds no
+                gaps at all — the declared sentinel comes along unchanged but marks
+                nothing, exactly as after a `fillna`.
+            drop: Trim the result to the smallest rectangle containing every cell that was
+                kept, discarding rows and columns that are masked from edge to edge. The
+                grid is unchanged: the origin moves to the first surviving cell and the
+                cell size stays as it was. Off by default, which keeps every row and
+                column.
+
+        Returns:
+            Dataset: A new raster on this one's grid and CRS — trimmed to what survived
+            when `drop` is set — carrying this raster's band names and metadata, as every
+            combined result does.
+
+        Raises:
+            AlignmentError: A raster condition is on another grid. `where` does not
+                resample; :meth:`Dataset.align <pyramids.dataset.Dataset.align>` is the
+                explicit step for that.
+            ValueError: An array condition's shape does not broadcast onto this raster's
+                cells, or `drop` was asked for and the condition selected no cells at all,
+                which leaves no raster to build.
+
+        Examples:
+            - Keep the cells above a threshold, masking the rest:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> values = np.array([[1.0, 2.0], [3.0, 4.0]])
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.where(raster > 2).read_array().tolist()
+              [[-9999.0, -9999.0], [3.0, 4.0]]
+
+              ```
+            - Write a value into the cells that were not selected:
+
+              ```python
+              >>> raster.where(values > 2, 0.0).read_array().tolist()
+              [[0.0, 0.0], [3.0, 4.0]]
+
+              ```
+            - Trim to what survived:
+
+              ```python
+              >>> kept = raster.where(values > 2, drop=True)
+              >>> (kept.rows, kept.columns)
+              (1, 2)
+
+              ```
+        """
+        layout_source = self._where_layout_source(cond)
+        values, sentinels, domain = self._operand_arrays(self._ds, None)
+        selected = self._where_condition(cond, values, domain)
+        result = self._where_result(values, sentinels, domain, selected, other)
+        self._ds._label_combined(result, layout_source)
+        return self._where_trimmed(result) if drop else result
+
+    def _where_layout_source(self, cond: Any) -> Any:
+        """Check a raster condition's grid and band layout, and say what labels the result.
+
+        A raster condition goes through the same two checks an operator's right operand
+        does — the grid, so nothing is silently resampled, and the band layout, through the
+        hook that lets a `NetCDF` refuse band dimensions that do not pair up. Anything else
+        is an array and has neither.
+
+        Args:
+            cond: The condition as the caller gave it.
+
+        Returns:
+            Any: What `_label_combined` should label the result from, or `None`.
+        """
+        # A NetCDF *container* has no grid of its own — its raster is a placeholder — so the
+        # grid check below would refuse its own variables' conditions with a message about
+        # alignment, which explains nothing. Every `Analysis` member has this limit (`apply`
+        # and `fill` answer `IndexError` on a container), but only this one can say so
+        # cheaply, because only this one is handed a raster to compare against.
+        variables = getattr(self._ds, "variable_names", None)
+        if variables and not getattr(self._ds, "_band_dim_names", ()):
+            raise ValueError(
+                f"where() works on a raster, and a container has none of its own — its "
+                f"variables do. Call it on one of them: "
+                f"`nc.get_variable({variables[0]!r}).where(...)`."
+            )
+        source = None
+        if isinstance(cond, RasterBase):
+            raster = cast("Dataset", cond)
+            self._check_combinable(raster, np.logical_and, None)
+            source = self._ds._combine_layout_source(raster, None)
+        return source
+
+    def _where_condition(
+        self, cond: Any, values: np.typing.NDArray, domain: np.typing.NDArray
+    ) -> np.typing.NDArray:
+        """The condition as a boolean mask shaped like this raster's cells.
+
+        Args:
+            cond: A callable, a raster, or an array.
+            values: This raster's physical values, for a callable condition.
+            domain: This raster's valid-cell mask, unused here but kept for symmetry with
+                the other operand's, which a raster condition contributes.
+
+        Returns:
+            numpy.ndarray: True wherever a cell is selected.
+
+        Raises:
+            ValueError: An array condition does not broadcast onto the values.
+        """
+        if callable(cond) and not isinstance(cond, RasterBase):
+            cond = cond(values)
+        if isinstance(cond, RasterBase):
+            # Its own gaps are cells it could not judge, so they select nothing.
+            other_values, _, other_domain = self._operand_arrays(
+                cast("Dataset", cond), None
+            )
+            flags = np.asarray(other_values) != 0
+            mask = np.asarray(flags & other_domain)
+        else:
+            mask = np.asarray(cond) != 0
+        try:
+            resolved = np.broadcast_to(mask, values.shape)
+        except ValueError:
+            raise ValueError(
+                f"where() needs a condition that covers this raster's cells: its shape is "
+                f"{np.shape(mask)}, which does not broadcast onto {values.shape}."
+            ) from None
+        return np.asarray(resolved)
+
+    def _where_result(
+        self,
+        values: np.typing.NDArray,
+        sentinels: list[Any],
+        domain: np.typing.NDArray,
+        selected: np.typing.NDArray,
+        other: Any,
+    ) -> Dataset:
+        """Build the masked raster: selected cells keep their value, the rest take `other`.
+
+        Args:
+            values: This raster's physical values.
+            sentinels: Its per-band no-data values.
+            domain: True where a cell holds data rather than its sentinel.
+            selected: True where the condition selected a cell.
+            other: What an unselected cell holds, or the derive sentinel.
+
+        Returns:
+            Dataset: The result, on this raster's grid.
+        """
+        declared = next((one for one in sentinels if one is not None), None)
+        fill = declared if other is _DERIVE_NO_DATA else other
+        if fill is None:
+            fill = np.nan
+        # A selected cell that was already a gap stays one: `values` holds its sentinel,
+        # which is what the caller declared to mean "missing", so it is left in place.
+        kept = np.where(domain, values, declared if declared is not None else np.nan)
+        out = np.where(selected, kept, fill)
+        if declared is None and np.isnan(np.asarray(fill, dtype="float64")).all():
+            declared = np.nan
+        out = np.asarray(out)
+        return self._ds.__class__._build_dataset(
+            self._ds.columns,
+            self._ds.rows,
+            1 if out.ndim == 2 else out.shape[0],
+            numpy_to_gdal_dtype(out),
+            self._ds.geotransform,
+            self._ds.crs,
+            declared,
+            array=out,
+        )
+
+    def _where_trimmed(self, result: Dataset) -> Dataset:
+        """Trim `result` to the smallest rectangle holding every cell that is not a gap.
+
+        Read off the **result**, not off the condition: an unselected cell that `other`
+        wrote a value into is data, and xarray's `drop=True` likewise trims where the
+        values are missing rather than where the condition was false. With the default
+        `other` the two coincide, since an unselected cell is exactly a gap.
+
+        Expressed as a `crop(bbox=...)` on the result rather than as an index slice, so the
+        trimmed raster is georeferenced by the same machinery every other crop uses.
+
+        Args:
+            result: The masked raster, on the full grid.
+
+        Returns:
+            Dataset: The trimmed raster.
+
+        Raises:
+            ValueError: Every cell is a gap, so there is no rectangle to keep.
+        """
+        _, _, domain = self._operand_arrays(result, None)
+        flat = domain if domain.ndim == 2 else np.any(domain, axis=0)
+        rows = np.flatnonzero(np.any(flat, axis=1))
+        columns = np.flatnonzero(np.any(flat, axis=0))
+        if rows.size == 0 or columns.size == 0:
+            raise ValueError(
+                "where(drop=True) kept no cells, and a raster of no cells cannot be built. "
+                "Check the condition, or leave `drop` off to keep the grid."
+            )
+        geo = result.geotransform
+        west = geo[0] + int(columns[0]) * geo[1]
+        east = geo[0] + (int(columns[-1]) + 1) * geo[1]
+        north = geo[3] + int(rows[0]) * geo[5]
+        south = geo[3] + (int(rows[-1]) + 1) * geo[5]
+        return cast(
+            "Dataset", result.crop(bbox=(west, south, east, north), epsg=result.epsg)
+        )
+
     def _extract_streamed(
         self, band: int | None, exclude_list: list
     ) -> np.typing.NDArray:

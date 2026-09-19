@@ -897,6 +897,15 @@ class Dataset(RasterBase):
         result = self.analysis.fill(*args, **kwargs)
         return self if result is None else result
 
+    def where(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.where <pyramids.dataset.engines.Analysis.where>`.
+
+        Keeps the cells a condition selects and masks the rest — the inverse of
+        :meth:`fill`, which writes to the cells that are data rather than deciding which
+        ones stay data.
+        """
+        return self.analysis.where(*args, **kwargs)
+
     def extract(self, *args, **kwargs):
         """Facade — delegates to :meth:`Analysis.extract <pyramids.dataset.engines.Analysis.extract>`."""
         return self.analysis.extract(*args, **kwargs)
