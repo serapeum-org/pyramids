@@ -369,7 +369,16 @@ class TestMaskedDecimatedReads:
         )
         assert isinstance(masked, np.ma.MaskedArray), f"got {type(masked).__name__}"
         assert masked.shape == (4, 4), f"unexpected shape {masked.shape}"
-        assert masked.mask.sum() >= 1, "nearest must keep a sampled no-data cell masked"
+        # nearest 8->4 samples the (7, 7) corner into output (3, 3); the (0, 0)
+        # corner is not sampled and is dropped -- a positional check, not the
+        # is_no_data-vs-== identity the array-equality below re-derives.
+        assert masked.mask.sum() == 1, (
+            f"exactly one sampled corner, got {masked.mask.sum()}"
+        )
+        assert masked.mask[3, 3], "the sampled (7, 7) corner must land masked at (3, 3)"
+        assert not masked.mask[0, 0], (
+            "the unsampled (0, 0) corner is dropped by nearest"
+        )
         np.testing.assert_array_equal(
             masked.mask,
             stored == -9999.0,
@@ -387,6 +396,10 @@ class TestMaskedDecimatedReads:
             included as the contrast: it samples the raster's pixels, so it masks
             both the block cell and the sampled lone cell. The mask always equals
             the decimated read's sentinel cells.
+
+            Note: the ``average`` branch depends on GDAL honouring the band's
+            no-data value in its RasterIO average path (true on the pinned GDAL);
+            an older GDAL that averaged the sentinel in would flip mask.sum().
         """
         arr = np.arange(64, dtype="float32").reshape(8, 8)
         arr[0:2, 0:2] = -9999.0
@@ -428,8 +441,34 @@ class TestMaskedDecimatedReads:
             bbox=quarter, out_shape=(2, 2), unpack=False, resampling="nearest"
         )
         assert masked.shape == (2, 2), f"unexpected shape {masked.shape}"
-        assert masked.mask.sum() >= 1, "the sub-window's no-data block must be masked"
+        assert masked.mask.sum() == 1, (
+            f"only the block cell masked, got {masked.mask.sum()}"
+        )
+        assert masked.mask[0, 0], (
+            "the sub-window's fully-no-data block lands masked at (0, 0)"
+        )
+        assert not masked.mask[1, 1], "a valid sub-window cell must be unmasked"
         np.testing.assert_array_equal(masked.mask, stored == -9999.0)
+
+    def test_windowed_decimated_read_honours_the_mask_band(self, mask_band_8x8):
+        """A decimated masked read over a sub-window decimates the mask band too.
+
+        Test scenario:
+            ``mask_band_8x8`` zeroes the top two rows via a GDAL mask band and
+            carries no no-data marker, so the mask band is the only signal.
+            Reading the top-left 4x4 quarter decimated to 2x2 exercises the
+            windowed mask-band read (the ``buf_*`` branch of ``_band_mask`` with
+            a non-None window): the top output row (source rows 0-1) is masked,
+            the bottom row (source rows 2-3) is valid.
+        """
+        xmin, _, _, ymax = mask_band_8x8.bbox
+        quarter = (xmin, ymax - 4.0, xmin + 4.0, ymax)
+        masked = mask_band_8x8.read_array(
+            bbox=quarter, out_shape=(2, 2), masked=True, resampling="nearest"
+        )
+        assert isinstance(masked, np.ma.MaskedArray), f"got {type(masked).__name__}"
+        assert masked.mask[0].all(), "the decimated top row must be masked"
+        assert not masked.mask[1].any(), "the bottom row must be valid"
 
     def test_integer_band_masks_by_exact_equality(self):
         """An integer band masks the decimated cells equal to the marker.
