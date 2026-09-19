@@ -34,13 +34,13 @@ from pyramids.base.remote import is_remote
 from pyramids.dataset.engines._base import _Engine
 from pyramids.netcdf._lazy import build_lazy_array
 from pyramids.netcdf._mdim import open_mdarray, strip_netcdf_subdataset_prefix
-from pyramids.netcdf.engines._weighted import _spatial_names
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     srs_from_wkt,
     write_attributes_to_md_array,
     write_global_attributes,
 )
+from pyramids.netcdf.engines._weighted import _spatial_names
 from pyramids.netcdf.utils import (
     CF_EPOCH_CALENDAR,
     cf_epoch_units,
@@ -418,7 +418,7 @@ class Interop(_Engine["NetCDF"]):
 
     def to_dataframe(
         self, *, variables: Any = None, dropna: bool = False
-    ) -> "pd.DataFrame":
+    ) -> pd.DataFrame:
         """Hand the cube to pandas, indexed by its dimension coordinates.
 
         One row per cell and one column per variable, on a `MultiIndex` naming the
@@ -556,7 +556,7 @@ def _frame_values(nc: NetCDF, var: NetCDF) -> Any:
     return values
 
 
-def _frame_index(var: NetCDF) -> "pd.MultiIndex":
+def _frame_index(var: NetCDF) -> pd.MultiIndex:
     """The `MultiIndex` over the variable's dimensions, outermost first.
 
     The spatial centres come from the geotransform rather than from the store's coordinate
