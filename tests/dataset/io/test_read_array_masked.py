@@ -429,6 +429,29 @@ class TestMaskedDecimatedReads:
         assert masked.dtype == np.float64, f"packed read must unpack: {masked.dtype}"
         np.testing.assert_array_equal(masked.mask, stored == -9999)
 
+    def test_all_bands_masked_stacks_a_per_band_mask(self):
+        """An all-bands decimated masked read stacks a per-band mask.
+
+        Test scenario:
+            A two-band raster with a different no-data corner per band,
+            decimated with band=None and masked, returns a 3-D MaskedArray whose
+            mask equals the decimated stored values compared to the marker,
+            band by band.
+        """
+        b0 = np.arange(64, dtype="float32").reshape(8, 8)
+        b0[0, 0] = -9999.0
+        b1 = np.arange(64, dtype="float32").reshape(8, 8) + 100.0
+        b1[7, 7] = -9999.0
+        ds = Dataset.from_array(
+            np.stack([b0, b1]),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+        )
+        masked = ds.read_array(out_shape=(4, 4), masked=True, resampling="nearest")
+        stored = ds.read_array(out_shape=(4, 4), unpack=False, resampling="nearest")
+        assert masked.shape == (2, 4, 4), f"unexpected shape {masked.shape}"
+        np.testing.assert_array_equal(masked.mask, stored == -9999.0)
+
     def test_without_masked_returns_plain_ndarray(self, ramp8_float):
         """out_shape without masked keeps the plain-ndarray contract.
 
@@ -470,6 +493,31 @@ class TestMaskedBoundlessReads:
         )
         assert isinstance(masked, np.ma.MaskedArray), f"got {type(masked).__name__}"
         assert masked.mask.all(), "an all-padding window must be fully masked"
+
+    def test_all_bands_masked_stacks_padding_and_per_band_invalid(self):
+        """An all-bands boundless masked read stacks padding + per-band invalid.
+
+        Test scenario:
+            A two-band raster read through a window off the right edge with
+            band=None returns a 3-D MaskedArray: the padding columns are masked
+            in every band, band 0's own no-data cell is masked, and band 1 (no
+            no-data cell in range) keeps its in-raster cells unmasked.
+        """
+        b0 = np.arange(64, dtype="float32").reshape(8, 8)
+        b0[7, 7] = -9999.0
+        b1 = np.arange(64, dtype="float32").reshape(8, 8) + 100.0
+        ds = Dataset.from_array(
+            np.stack([b0, b1]),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+        )
+        masked = ds.read_array(window=[6, 0, 6, 8], boundless=True, masked=True)
+        assert masked.shape == (2, 8, 6), f"unexpected shape {masked.shape}"
+        assert masked.mask[:, :, 2:].all(), (
+            "padding columns must be masked in every band"
+        )
+        assert masked.mask[0, 7, 1], "band 0's in-raster no-data cell must be masked"
+        assert not masked.mask[1, :, :2].any(), "band 1 has no in-raster no-data cell"
 
     def test_without_masked_returns_plain_ndarray(self, ramp8_float):
         """boundless without masked keeps the plain-ndarray contract.
