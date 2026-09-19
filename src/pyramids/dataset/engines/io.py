@@ -1660,38 +1660,9 @@ class IO(_Engine["Dataset"]):
         planes = []
         masks: list[np.typing.NDArray] = []
         for index in band_indices:
-            dtype = np.dtype(self._ds.numpy_dtype[index])
-            marker = self._ds.no_data_value[index]
-            if fill_value is not None:
-                _validate_fill_value(fill_value, dtype)
-                fill = fill_value
-            elif marker is not None and _fill_value_fits(marker, dtype):
-                # Use the band's no-data marker only when it fits the dtype;
-                # a float marker like -9999.0 on a uint8 band would otherwise
-                # wrap silently, so fall through to the dtype zero instead.
-                fill = marker
-            else:
-                fill = 0
-            plane = np.full(window.shape, fill, dtype=dtype)
-            # Every cell starts masked, so the padding outside the raster stays
-            # masked; the in-raster block below unmasks its own cells down to the
-            # band's real invalid-pixel mask.
-            plane_mask = np.ones(window.shape, dtype=bool) if masked else None
-            if inside is not None:
-                data = np.asarray(
-                    self._ds._iloc(index).ReadAsArray(*inside.to_read_args())
-                )
-                row_start = inside.row_off - window.row_off
-                col_start = inside.col_off - window.col_off
-                plane[
-                    row_start : row_start + inside.rows,
-                    col_start : col_start + inside.cols,
-                ] = data
-                if plane_mask is not None:
-                    plane_mask[
-                        row_start : row_start + inside.rows,
-                        col_start : col_start + inside.cols,
-                    ] = self._band_mask(index, data, list(inside.to_read_args()))
+            plane, plane_mask = self._boundless_plane(
+                index, window, inside, fill_value, masked
+            )
             planes.append(plane)
             if plane_mask is not None:
                 masks.append(plane_mask)
@@ -1700,6 +1671,82 @@ class IO(_Engine["Dataset"]):
             return result
         full_mask = masks[0] if not all_bands else np.stack(masks, axis=0)
         return np.ma.MaskedArray(result, mask=full_mask)
+
+    def _boundless_plane(
+        self,
+        index: int,
+        window: Window,
+        inside: Window | None,
+        fill_value: float | None,
+        masked: bool,
+    ) -> tuple[np.typing.NDArray, np.typing.NDArray | None]:
+        """Build one band's boundless plane and, when masked, its mask.
+
+        Args:
+            index: Zero-based band index.
+            window: The full requested window (the plane's shape).
+            inside: The window's intersection with the raster, or ``None`` when
+                the window lies entirely outside it (an all-padding plane).
+            fill_value: Explicit fill for the padding, or ``None`` to defer to
+                the band's no-data value / dtype zero (see
+                :meth:`_resolve_boundless_fill`).
+            masked: When ``True``, also build the padding + invalid-pixel mask.
+
+        Returns:
+            tuple: ``(plane, plane_mask)`` where ``plane_mask`` is ``None`` when
+            ``masked`` is ``False``.
+        """
+        dtype = np.dtype(self._ds.numpy_dtype[index])
+        fill = self._resolve_boundless_fill(
+            fill_value, self._ds.no_data_value[index], dtype
+        )
+        plane = np.full(window.shape, fill, dtype=dtype)
+        # Every cell starts masked, so the padding outside the raster stays
+        # masked; the in-raster block below unmasks its own cells down to the
+        # band's real invalid-pixel mask.
+        plane_mask = np.ones(window.shape, dtype=bool) if masked else None
+        if inside is not None:
+            data = np.asarray(self._ds._iloc(index).ReadAsArray(*inside.to_read_args()))
+            row_start = inside.row_off - window.row_off
+            col_start = inside.col_off - window.col_off
+            plane[
+                row_start : row_start + inside.rows,
+                col_start : col_start + inside.cols,
+            ] = data
+            if plane_mask is not None:
+                plane_mask[
+                    row_start : row_start + inside.rows,
+                    col_start : col_start + inside.cols,
+                ] = self._band_mask(index, data, list(inside.to_read_args()))
+        return plane, plane_mask
+
+    @staticmethod
+    def _resolve_boundless_fill(
+        fill_value: float | None, marker: float | None, dtype: np.dtype
+    ) -> float:
+        """Pick the padding fill for a boundless read.
+
+        Args:
+            fill_value: Explicit caller fill, or ``None`` to defer.
+            marker: The band's no-data value, or ``None``.
+            dtype: The band's NumPy dtype (the fill must fit it).
+
+        Returns:
+            float: ``fill_value`` when given; otherwise the band's no-data
+            marker when it fits ``dtype`` (a float ``-9999.0`` marker would
+            wrap silently on a ``uint8`` band, so it is skipped); otherwise the
+            dtype's zero.
+
+        Raises:
+            ValueError: ``fill_value`` is given but cannot be represented in
+                ``dtype``.
+        """
+        if fill_value is not None:
+            _validate_fill_value(fill_value, dtype)
+            return fill_value
+        if marker is not None and _fill_value_fits(marker, dtype):
+            return marker
+        return 0
 
     def _read_block(
         self,
