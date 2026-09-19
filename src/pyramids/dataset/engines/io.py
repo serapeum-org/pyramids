@@ -608,10 +608,12 @@ class IO(_Engine["Dataset"]):
             resampling (str, keyword-only):
                 Decimation algorithm for `out_shape` reads (`"nearest"`,
                 `"bilinear"`, `"cubic"`, `"cubicspline"`,
-                `"lanczos"`, `"average"`, `"mode"`, ...). Averaging
-                algorithms mix no-data into edge cells — prefer
-                `"nearest"` (the default) on rasters with a no-data
-                marker. Ignored when `out_shape` is `None`.
+                `"lanczos"`, `"average"`, `"mode"`, ...). GDAL excludes a
+                band's no-data from every algorithm, so the sentinel never
+                contaminates a valid output cell; but decimation still
+                loses no-data from a `masked=True` result (blenders erode
+                no-data regions, `nearest` subsamples them) — see `masked`.
+                Ignored when `out_shape` is `None`.
             boundless (bool, keyword-only):
                 Allow the window to extend past the raster extent. The output
                 keeps the full requested window shape; pixels outside the
@@ -654,10 +656,15 @@ class IO(_Engine["Dataset"]):
                 GDAL drop no-data from the result, the mask reflects only output
                 cells that remain the sentinel — an `average` cell is masked only
                 where its whole source footprint is no-data, and `bilinear` can
-                blend even a fully-no-data block into a valid value. Prefer
-                `nearest` (the default) to keep no-data regions in the mask. A
-                boundless masked read masks the padding outside the raster as well
-                as the invalid pixels inside it. The mask is built from **stored**
+                blend even a fully-no-data block into a valid value. `nearest`
+                subsamples instead, so whether a given no-data cell survives
+                depends on the decimation ratio and phase, not on its presence —
+                it too drops small or scattered no-data at many `out_shape`
+                values. The mask of a decimated read is therefore approximate
+                (no resampler preserves it faithfully); read at native resolution
+                for a mask that reflects every no-data cell. A boundless masked
+                read masks the padding outside the raster as well as the invalid
+                pixels inside it. The mask is built from **stored**
                 values, before `unpack` applies scale/offset, so a packed band
                 masks by its stored sentinel. Combining it with `chunks` or
                 `threadsafe=True` raises :class:`NotImplementedError`. Default is
@@ -1511,9 +1518,10 @@ class IO(_Engine["Dataset"]):
                 :data:`pyramids.dataset.engines.cog._RESAMPLING_ALG`
                 (``"nearest"``, ``"bilinear"``, ``"cubic"``,
                 ``"cubicspline"``, ``"lanczos"``, ``"average"``,
-                ``"mode"``, ...). ``average``-style algorithms mix no-data
-                into edge cells — prefer ``nearest`` on rasters with a
-                no-data marker.
+                ``"mode"``, ...). GDAL excludes a band's no-data from every
+                algorithm, so the sentinel never contaminates a valid cell;
+                blending algorithms instead erode no-data regions at their
+                edges, so a decimated read shrinks no-data coverage.
 
         Returns:
             np.ndarray: ``out_shape`` for a single band,

@@ -142,10 +142,10 @@ class DecimatedRead(ReadStrategy):
             # The mask comes from the same decimated read: the no-data comparison
             # on the decimated stored values plus the mask band decimated to the
             # same buffer size (``_band_mask`` sizes it to ``arr.shape``). It thus
-            # equals the decimated read's sentinel cells -- under a blending
-            # ``resampling`` GDAL absorbs partial no-data, so only fully-no-data
-            # output cells stay masked (see ``read_array``); ``nearest`` keeps
-            # no-data regions in the mask.
+            # equals the decimated read's sentinel cells, which is an approximate
+            # no-data mask -- a blending ``resampling`` erodes no-data regions and
+            # ``nearest`` subsamples them, so neither preserves scattered no-data
+            # (see ``read_array``); read at native resolution for an exact mask.
             arr = io._to_masked(arr, req.band, window=window)
         return arr
 
