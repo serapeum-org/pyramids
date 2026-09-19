@@ -1,6 +1,6 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 93 in all: 59 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 94 in all: 60 methods, 27 properties,
 6 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). For the full signatures, arguments and examples, see the rendered
 [NetCDF Class](index.md) reference; this page is the index you scan to find the member you want.
@@ -110,6 +110,7 @@ A variable with no raster plane is the exception — see each member's docstring
 | `bfill()`          | Carries the next valid value along `dim` back into the gaps before it — `limit`.     |
 | `dropna()`         | Removes the steps of `dim` whose cells are missing — `how`, `thresh`.                |
 | `interpolate_na()` | Fills the interior gaps along `dim` from both sides — `method`, `limit`.            |
+| `to_dataframe()`   | The cube as a pandas frame, indexed by its dimensions — `variables`, `dropna`.      |
 | `argmin()`         | The position along `dim` of the smallest value; `-1` where there is none.            |
 | `argmax()`         | The position along `dim` of the largest value; `-1` where there is none.             |
 | `idxmin()`         | The coordinate along `dim` of the smallest value; NaN where there is none.           |

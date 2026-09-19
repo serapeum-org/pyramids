@@ -7323,6 +7323,10 @@ class NetCDF(Dataset):
             dim, method, limit=limit, use_coordinate=use_coordinate
         )
 
+    def to_dataframe(self, *, variables: Any = None, dropna: bool = False):
+        """Facade — :meth:`Interop.to_dataframe <pyramids.netcdf.engines.interop.Interop.to_dataframe>`."""
+        return self.interop.to_dataframe(variables=variables, dropna=dropna)
+
     def weighted(
         self,
         weights: Any,
