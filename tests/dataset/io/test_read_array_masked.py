@@ -351,29 +351,57 @@ def mask_band_8x8(tmp_path) -> Dataset:
 class TestMaskedDecimatedReads:
     """read_array(out_shape=..., masked=True) — masked decimated reads (#1156)."""
 
-    @pytest.mark.parametrize("resampling", ["nearest", "average", "bilinear"])
-    def test_mask_equals_the_decimated_nodata_cells(self, ramp8_float, resampling):
-        """The mask is exactly the no-data cells of the decimated read.
+    def test_mask_equals_the_decimated_nodata_cells(self, ramp8_float):
+        """A nearest decimated read masks exactly the decimated no-data cells.
 
         Test scenario:
-            Decimating 8x8 -> 4x4 keeps the no-data sentinel out of the valid
-            cells (GDAL never blends it in), so the MaskedArray's mask equals
-            the decimated stored array compared to the marker — for nearest,
-            average and bilinear alike.
+            Decimating 8x8 -> 4x4 with nearest samples the raster's own pixels,
+            so a sampled no-data cell stays the sentinel and the mask equals the
+            decimated stored array compared to the marker. Restricted to nearest
+            because a blending resampler absorbs this fixture's scattered no-data
+            (covered by ``test_average_masks_only_a_fully_no_data_block``).
         """
         masked = ramp8_float.read_array(
-            out_shape=(4, 4), masked=True, resampling=resampling
+            out_shape=(4, 4), masked=True, resampling="nearest"
         )
         stored = ramp8_float.read_array(
-            out_shape=(4, 4), unpack=False, resampling=resampling
+            out_shape=(4, 4), unpack=False, resampling="nearest"
         )
         assert isinstance(masked, np.ma.MaskedArray), f"got {type(masked).__name__}"
         assert masked.shape == (4, 4), f"unexpected shape {masked.shape}"
+        assert masked.mask.sum() >= 1, "nearest must keep a sampled no-data cell masked"
         np.testing.assert_array_equal(
             masked.mask,
             stored == -9999.0,
             err_msg="mask must equal the decimated no-data cells",
         )
+
+    @pytest.mark.parametrize("resampling", ["nearest", "average"])
+    def test_average_masks_only_a_fully_no_data_block(self, resampling):
+        """A blending resampler masks a fully-no-data block but absorbs a lone cell.
+
+        Test scenario:
+            GDAL drops no-data from an ``average``, so a 2x2 source block that is
+            entirely no-data decimates to the sentinel (masked) while a lone
+            no-data cell blends into a valid value (not masked). ``nearest`` is
+            included as the contrast: it samples the raster's pixels, so it masks
+            both the block cell and the sampled lone cell. The mask always equals
+            the decimated read's sentinel cells.
+        """
+        arr = np.arange(64, dtype="float32").reshape(8, 8)
+        arr[0:2, 0:2] = -9999.0
+        arr[5, 5] = -9999.0
+        ds = Dataset.from_array(
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+        )
+        masked = ds.read_array(out_shape=(4, 4), masked=True, resampling=resampling)
+        stored = ds.read_array(out_shape=(4, 4), unpack=False, resampling=resampling)
+        assert masked.mask[0, 0], "the fully-no-data block must be masked"
+        np.testing.assert_array_equal(masked.mask, stored == -9999.0)
+        if resampling == "average":
+            assert masked.mask.sum() == 1, "average must absorb the lone no-data cell"
 
     def test_integer_band_masks_by_exact_equality(self):
         """An integer band masks the decimated cells equal to the marker.
