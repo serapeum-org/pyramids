@@ -2433,6 +2433,12 @@ class Analysis(_Engine["Dataset"]):
         Reading the snapshot would be wrong even if it were a mapping: every variable in
         a file answers the same one, so it would say nothing about the variable.
 
+        On a **classic** container `attrs` falls back to GDAL's whole prefixed metadata
+        dictionary (`NC_GLOBAL#Conventions`, `temperature#units`, the synthetic
+        `NETCDF_DIM_*` entries), which is the same 19-key blob for every variable in the
+        file. The tags therefore cannot separate two classic variables on their own — the
+        values, the grid and the band layout do, and those are compared first.
+
         Args:
             ds: The raster to read.
 
