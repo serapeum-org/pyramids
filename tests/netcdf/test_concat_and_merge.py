@@ -46,6 +46,25 @@ def _cube(values: np.ndarray, stamps: list[float], name: str = "t") -> NetCDF:
     )
 
 
+def _nan_cube(cells: list[list[float]], name: str = "t") -> NetCDF:
+    """A one-step `(time, y, x)` container that marks its gaps with NaN.
+
+    Args:
+        cells: The 2x2 grid, NaN where a gap is meant.
+        name: The variable's name.
+
+    Returns:
+        NetCDF: The container.
+    """
+    return NetCDF.from_array(
+        np.asarray(cells, dtype="float64").reshape(1, 2, 2),
+        geo_ref=GEO,
+        variable_name=name,
+        no_data_value=np.nan,
+        dims=ExtraDimensions(name="time", values=[0.0]),
+    )
+
+
 def _four_dimensional(times: list[float], levels: list[float], fill: float) -> NetCDF:
     """A `(time, level, y, x)` container holding one constant variable.
 
@@ -436,6 +455,36 @@ class TestNoConflictsFillsFromBothCopies:
         merged = NetCDF.merge([cube, other])
         assert merged.get_variable("t").dtype == ["int32"]
 
+    def test_nan_marked_gaps_are_combined_with_no_sentinel_to_restore(self):
+        """Copies that spell "missing" as NaN need nothing written back into the result.
+
+        Test scenario:
+            After the cells are taken from both copies, a numeric sentinel is put back
+            wherever the pair is still missing so the band keeps its own way of marking a
+            gap. A NaN sentinel is already what the combined array holds, so that step is
+            skipped — the combined cells go through as they are and the result still
+            declares NaN.
+        """
+        merged = NetCDF.merge(
+            [
+                _nan_cube([[1.0, np.nan], [np.nan, 4.0]]),
+                _nan_cube([[np.nan, 2.0], [3.0, np.nan]]),
+            ]
+        )
+        variable = merged.get_variable("t")
+        assert np.isnan(variable.no_data_value[0]), "the result still declares NaN"
+        assert_allclose(_read(merged), np.array([[1.0, 2.0], [3.0, 4.0]]))
+
+    def test_a_nan_marked_cell_both_copies_hold_differently_is_refused(self):
+        """The disagreement check reads the same whichever value marks the gaps."""
+        with pytest.raises(ValueError, match="different values"):
+            NetCDF.merge(
+                [
+                    _nan_cube([[1.0, np.nan], [np.nan, 4.0]]),
+                    _nan_cube([[9.0, 2.0], [3.0, np.nan]]),
+                ]
+            )
+
 
 class TestTheTwoMergesAreDifferent:
     """`NetCDF.merge` and `DatasetCollection.merge` share a name and nothing else."""
@@ -558,6 +607,61 @@ class TestJoiningCubesThatMarkGapsDifferently:
         )
         joined = NetCDF.concat([first, second], "time").get_variable("t")
         assert np.asarray(joined.isnull().read_array()).ravel().tolist() == [0, 1, 0, 0]
+
+    def test_two_cubes_that_both_mark_gaps_with_nan_agree(self):
+        """Two NaN sentinels mean the same thing, so the join rewrites nothing.
+
+        Test scenario:
+            The sentinels are compared as numbers and NaN is not equal to itself, so
+            without the NaN arm two cubes that already agree would take the normalising
+            path — masking and rewriting cells that needed neither. Both cubes' gaps come
+            through as gaps, the measurements between them are untouched, and the joined
+            cube still declares NaN.
+        """
+        first = self._cube_with([1.0, np.nan], [0.0, 6.0], np.nan)
+        second = self._cube_with([np.nan, 4.0], [12.0, 18.0], np.nan)
+        joined = NetCDF.concat([first, second], "time").get_variable("t")
+        read = np.asarray(joined.read_array(), dtype="float64").ravel()
+        assert np.isnan(joined.no_data_value[0]), "the join keeps the shared sentinel"
+        assert np.isnan(read).tolist() == [False, True, True, False]
+        assert_allclose(read[[0, 3]], [1.0, 4.0])
+
+
+class TestMergeRefusesCopiesItCannotCompare:
+    """Combining two copies cell by cell needs their cells to line up first."""
+
+    def test_the_same_name_over_different_band_dimensions(self):
+        """`t` over `time` and `t` over `level` are not two copies of one variable.
+
+        Test scenario:
+            Both cubes are on the same grid and hold a `(1, 2, 2)` block, so the shapes
+            agree and only the dimension names give the mismatch away. Combining them
+            would put one cube's steps under the other's axis, so it is refused by name.
+        """
+        over_time = _cube(np.arange(4.0).reshape(1, 2, 2), [0.0])
+        over_level = NetCDF.from_array(
+            np.arange(4.0).reshape(1, 2, 2),
+            geo_ref=GEO,
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="level", values=[0.0]),
+        )
+        with pytest.raises(ValueError, match="different layouts"):
+            NetCDF.merge([over_time, over_level])
+
+    def test_the_same_name_over_a_different_number_of_steps(self):
+        """One step and two steps do not combine, however well the grid agrees."""
+        one_step = _cube(np.arange(4.0).reshape(1, 2, 2), [0.0])
+        two_steps = _cube(np.arange(8.0).reshape(2, 2, 2), [0.0, 6.0])
+        with pytest.raises(ValueError, match=r"\(1, 2, 2\).*\(2, 2, 2\)"):
+            NetCDF.merge([one_step, two_steps])
+
+    def test_override_reads_no_second_copy_and_so_refuses_nothing(self):
+        """The other mode takes the first copy as it stands, mismatch and all."""
+        one_step = _cube(np.arange(4.0).reshape(1, 2, 2), [0.0])
+        two_steps = _cube(np.arange(8.0).reshape(2, 2, 2), [0.0, 6.0])
+        merged = NetCDF.merge([one_step, two_steps], compat="override")
+        assert_allclose(_read(merged), np.arange(4.0).reshape(2, 2))
 
 
 class TestTheJoinCarriesWhatTheCubesKnow:

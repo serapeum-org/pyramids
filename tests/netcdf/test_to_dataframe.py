@@ -57,6 +57,19 @@ def _container(
     )
 
 
+def _unreadable_dimensions(*_args: object, **_kwargs: object) -> list[str]:
+    """Stand in for a store whose dimension names can no longer be read.
+
+    Args:
+        *_args: The group and variable name the real reader takes.
+        **_kwargs: Ignored.
+
+    Raises:
+        RuntimeError: Always, as a closed or broken store does.
+    """
+    raise RuntimeError("the store is closed")
+
+
 class TestTheIndex:
     """The `MultiIndex` naming the dimensions, outermost first."""
 
@@ -126,6 +139,61 @@ class TestTheSentinel:
         assert (
             len(_container(values, no_data_value=np.nan).to_dataframe(dropna=True)) == 7
         )
+
+
+class TestWhenTheStoreCannotNameTheAxes:
+    """No parent to ask, so the spatial levels fall back to the names a rebuild gives."""
+
+    def test_a_variable_built_in_memory_is_indexed_by_y_and_x(self):
+        """A rebuilt variable has no store behind it, and is labelled all the same.
+
+        Test scenario:
+            `fillna` answers a freshly built variable: it carries the band dimensions it
+            was labelled with but no parent container and no source name, so the store's
+            own axis names are out of reach. The levels are the `y` / `x` a rebuild gives
+            it rather than an empty or internal name.
+        """
+        rebuilt = _container().get_variable("t").fillna(0.0)
+        assert rebuilt._parent_nc is None, "precondition: nothing to ask"
+        frame = rebuilt.to_dataframe()
+        assert list(frame.index.names) == ["time", "y", "x"]
+        assert len(frame) == 8
+
+    def test_a_variable_built_in_memory_keeps_its_band_coordinates(self):
+        """The fallback is only about the two spatial levels; the stamps still label time."""
+        rebuilt = _container().get_variable("t").fillna(0.0)
+        stamps = rebuilt.to_dataframe().index.get_level_values("time")
+        assert list(dict.fromkeys(stamps)) == STAMPS
+
+    def test_a_variable_built_in_memory_is_named_for_having_no_name(self):
+        """With no source name to carry, the single column falls back to `variable`.
+
+        Test scenario:
+            The receiver is a variable, so the column set is the one name it carries. A
+            rebuilt variable carries none, and the frame is built rather than refused —
+            pinned here because the placeholder is what a caller sees.
+        """
+        rebuilt = _container().get_variable("t").fillna(0.0)
+        assert list(rebuilt.to_dataframe().columns) == ["variable"]
+
+    def test_a_store_that_will_not_read_its_dimension_names(self, monkeypatch):
+        """An unreadable store is a fallback, not a failure.
+
+        Test scenario:
+            A classic container hands `None` for its multidimensional root group, so the
+            lookup reaches into it and raises rather than answering names. The frame is
+            still built, on the same `y` / `x` levels an in-memory variable gets.
+
+        Args:
+            monkeypatch: pytest's attribute patcher.
+        """
+        variable = _container().get_variable("t")
+        monkeypatch.setattr(
+            variable._parent_nc, "_variable_dim_names", _unreadable_dimensions
+        )
+        frame = variable.to_dataframe()
+        assert list(frame.index.names) == ["time", "y", "x"]
+        assert frame["t"].tolist() == CELLS.ravel().tolist()
 
 
 class TestRefusals:
