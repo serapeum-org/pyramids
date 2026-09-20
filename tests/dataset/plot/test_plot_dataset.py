@@ -635,6 +635,18 @@ class TestPlotDataSet:
             dataset.plot_vector_field(u_band=0, v_band=1, color="black", cmap=red_cmap)
 
     @pytest.mark.plot
+    def test_plot_vector_field_invalid_color_raises(self):
+        """An invalid ``color=`` is rejected early with a clear message (#1128 P3).
+
+        Test scenario:
+            A bad colour must raise a pyramids-level ValueError naming ``color=``
+            at the call boundary, not a raw matplotlib error deep in the render.
+        """
+        dataset = self._uv_dataset()
+        with pytest.raises(ValueError, match="color= must be a matplotlib colour"):
+            dataset.plot_vector_field(u_band=0, v_band=1, color="notacolour")
+
+    @pytest.mark.plot
     def test_plot_vector_field_band_out_of_range_raises(self):
         """A single-band dataset gives a clear error, not a GDAL/index crash.
 

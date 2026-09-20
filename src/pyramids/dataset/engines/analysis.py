@@ -3794,7 +3794,7 @@ class Analysis(_Engine["Dataset"]):
         """
         require_cleopatra()
         from cleopatra.glyphs.gridded.vector_glyph import VectorGlyph
-        from matplotlib.colors import ListedColormap
+        from matplotlib.colors import ListedColormap, is_color_like
 
         band_count = self._ds.band_count
         for name, idx in (("u_band", u_band), ("v_band", v_band)):
@@ -3832,6 +3832,8 @@ class Analysis(_Engine["Dataset"]):
                 raise ValueError(
                     "pass either color= (a solid arrow colour) or cmap=, not both"
                 )
+            if not is_color_like(color):
+                raise ValueError(f"color= must be a matplotlib colour, got {color!r}")
             kwargs["cmap"] = ListedColormap([color])
         xx, yy = np.meshgrid(x, y)
         glyph = VectorGlyph(xx, yy, u, v, ax=ax, **VectorGlyph.filter_kwargs(kwargs))
