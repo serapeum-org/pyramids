@@ -247,7 +247,7 @@ class TestDatasetBboxAndAxes:
 
         assert min_y < max_y, f"y came back inverted: {(min_y, max_y)}"
         assert min_x < max_x, f"x came back inverted: {(min_x, max_x)}"
-        assert list(ds.bbox) == pytest.approx(list(ds.transform.extent(8, 8)))
+        assert list(ds.bbox) == pytest.approx([0.0, 0.0, 8.0, 8.0])
 
     def test_an_east_left_bbox_is_not_inverted(self):
         """A negative `geotransform[1]` yields a min-before-max bbox.
@@ -348,7 +348,7 @@ class TestDatasetBboxAndAxes:
         )
 
         min_x, min_y, max_x, max_y = ds.bbox
-        assert list(ds.bbox) == pytest.approx(list(ds.transform.extent(12, 9)))
+        assert list(ds.bbox) == pytest.approx([10.0, 12.8, 25.0, 27.2])
         xs, ys = rot.apply([0, 12, 0, 12], [0, 0, 9, 9])
         assert min_x <= xs.min() and max_x >= xs.max(), "a corner fell outside x"
         assert min_y <= ys.min() and max_y >= ys.max(), "a corner fell outside y"
