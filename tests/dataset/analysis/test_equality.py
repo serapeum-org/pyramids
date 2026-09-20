@@ -8,6 +8,8 @@ methods and the plan's "done when".
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -234,3 +236,94 @@ class TestAStrayNanUnderANumericSentinel:
         assert not self._stray().equals(
             Dataset.from_array(other, geo_ref=GEO_REF, no_data_value=NDV)
         )
+
+
+class TestOnAVariableReadFromAStore:
+    """The tags a variable keeps are `attrs`, not the whole file's metadata snapshot.
+
+    Every other test here builds its rasters with `from_array`, whose `meta_data` is a
+    plain `dict`. A variable read from a store answers a `NetCDFMetadata` instead — a
+    structured snapshot of the *file* — so the dict-shaped comparison never ran on this
+    path and `identical` raised on every real cube.
+    """
+
+    STORE = (
+        Path(__file__).parents[2] / "data" / "netcdf" / "cf__7v__1d3-2d3-3d1__y-asc.nc"
+    )
+
+    @staticmethod
+    def _variable() -> NetCDF:
+        """The `tos` variable, which carries six CF attributes of its own.
+
+        Returns:
+            NetCDF: The variable.
+        """
+        store = NetCDF.read_file(str(TestOnAVariableReadFromAStore.STORE))
+        return store.get_variable("tos")
+
+    def test_identical_answers_instead_of_raising(self):
+        """The defect: `identical` raised `TypeError` on any variable from a file.
+
+        Test scenario:
+            `_attributes_match` did `dict(self._ds.meta_data or {})`, and a variable's
+            `meta_data` is a `NetCDFMetadata` — not iterable, no `to_dict`. `equals` on
+            the same pair answered `True`, because only `identical` reads the tags.
+        """
+        variable = self._variable()
+        assert variable.identical(variable.copy())
+
+    def test_equals_agrees_on_the_same_pair(self):
+        """The values half was never broken, and must stay that way."""
+        variable = self._variable()
+        assert variable.equals(variable.copy())
+
+    def test_the_tags_compared_are_the_variables_own(self):
+        """A file-wide snapshot would make every variable of one store identical.
+
+        Test scenario:
+            `meta_data` is the same object for every variable in a file, so comparing it
+            would compare nothing. `attrs` is this variable's own six CF attributes, and
+            the copy carries them — that is what the comparison has to read.
+        """
+        variable = self._variable()
+        assert len(dict(variable.attrs)) == 6, "precondition: the fixture has tags"
+        assert dict(variable.copy().attrs) == dict(variable.attrs)
+
+    def test_a_differing_tag_separates_equal_from_identical(self):
+        """The distinction the pair exists for has to hold on this path too.
+
+        Test scenario:
+            A copied variable is a classic raster, so there is no public way to relabel
+            it — `set_global_attribute` refuses one. The twin is rebuilt from the same
+            cells, grid and stamps through `from_array`, which carries none of the
+            store's six CF tags, so the two agree on every value and differ only in what
+            they are described as.
+        """
+        variable = self._variable()
+        dim = variable._band_dim_names[0]
+        twin = NetCDF.from_array(
+            np.asarray(variable.read_array()),
+            geo_ref=NCGeoReference(geo=variable.geotransform, epsg=variable.epsg),
+            variable_name="tos",
+            no_data_value=variable.no_data_value[0],
+            dims=ExtraDimensions(
+                name=dim, values=list(variable._band_dim_values_map[dim])
+            ),
+        ).get_variable("tos")
+        assert dict(twin.attrs) != dict(variable.attrs), "precondition: the tags differ"
+        assert variable.equals(twin)
+        assert not variable.identical(twin)
+
+    def test_a_variable_with_no_tags_is_identical_to_its_copy(self):
+        """An empty `attrs` is not a reason to answer `False`."""
+        store = NetCDF.read_file(
+            str(
+                Path(__file__).parents[2]
+                / "data"
+                / "netcdf"
+                / "cf__5v__1d4-4d1__y-asc.nc"
+            )
+        )
+        variable = store.get_variable(store.variable_names[0])
+        assert dict(variable.attrs) == {}, "precondition: this fixture has none"
+        assert variable.identical(variable.copy())
