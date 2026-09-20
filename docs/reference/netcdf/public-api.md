@@ -1,8 +1,10 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 96 in all: 60 methods, 27 properties,
-8 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
-`__len__`). For the full signatures, arguments and examples, see the rendered
+A one-line map of every public member the `NetCDF` class itself defines — 96 in all: 62 methods, 27 properties,
+6 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
+`__len__`). `concat` and `merge` are counted among the methods: each is callable on the class
+(`NetCDF.concat([a, b], dim)`) and on a cube (`a.concat([b], dim)`, which joins the
+receiver first). For the full signatures, arguments and examples, see the rendered
 [NetCDF Class](index.md) reference; this page is the index you scan to find the member you want.
 
 `NetCDF` extends `Dataset`, so it also inherits a further 139 public members it does not redefine — band

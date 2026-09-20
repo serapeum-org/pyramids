@@ -293,6 +293,33 @@ class TestConcatRefusals:
             NetCDF.concat([first, second], "time")
 
 
+class TestWhatTheJoinedAxisReallyCarries:
+    """A property of the joined coordinates the docstring now states.
+
+    The other one — that an unlabelled half leaves the axis stamped with *positions*
+    rather than the `None` the Returns section used to promise — is already pinned by
+    `TestConcatRefusals::test_an_unlabelled_axis_joins_without_coordinates`, which
+    asserts `[0, 1, 2, 3]`. That finding was the docstring contradicting a test the
+    branch already had.
+    """
+
+    def test_joining_a_cube_with_itself_repeats_its_stamps(self):
+        """Duplicate coordinates are permitted, and `sel` by one of them is ambiguous.
+
+        Test scenario:
+            xarray permits this too, so it is not refused — but nothing said it could
+            happen, and the frame then carries two blocks of rows under one label.
+        """
+        cube = _cube(np.ones((2, 2, 2)), [0.0, 6.0])
+        joined = NetCDF.concat([cube, cube], "time")
+        assert joined.get_variable("t")._band_dim_values_map["time"] == [
+            0.0,
+            6.0,
+            0.0,
+            6.0,
+        ]
+
+
 class TestConcatOnAFourDimensionalCube:
     """Only the joined axis grows; the others come through untouched."""
 
@@ -611,6 +638,51 @@ class TestTheTwoMergesAreDifferent:
         """It builds a new container rather than operating on an existing one."""
         rain = _cube(np.ones((2, 2, 2)), [0.0, 6.0], name="rain")
         assert isinstance(NetCDF.merge([rain]), NetCDF)
+
+
+class TestBothSpellingsOfTheJoins:
+    """`NetCDF.concat([a, b], dim)` and `a.concat([b], dim)` answer the same cube."""
+
+    def test_concat_on_a_cube_includes_that_cube(self):
+        """The natural reading of "join this with that" must not discard "this".
+
+        Test scenario:
+            As a plain `classmethod`, `a.concat([b], "time")` could not see `a` and
+            returned only `b` — half the data, with no error.
+        """
+        first = _cube(np.arange(4.0).reshape(1, 2, 2), [0.0])
+        second = _cube(np.arange(4.0, 8.0).reshape(1, 2, 2), [6.0])
+        assert_allclose(
+            _read(first.concat([second], "time")), np.arange(8.0).reshape(2, 2, 2)
+        )
+
+    def test_the_two_concat_spellings_agree(self):
+        """Whichever way it is called, it is the same join."""
+        first = _cube(np.arange(4.0).reshape(1, 2, 2), [0.0])
+        second = _cube(np.arange(4.0, 8.0).reshape(1, 2, 2), [6.0])
+        assert_allclose(
+            _read(first.concat([second], "time")),
+            _read(NetCDF.concat([first, second], "time")),
+        )
+
+    def test_merge_on_a_cube_includes_that_cube(self):
+        """`merge` reads the receiver the same way `concat` does."""
+        rain = _cube(np.ones((2, 2, 2)), [0.0, 6.0], name="rain")
+        temp = _cube(np.zeros((2, 2, 2)), [0.0, 6.0], name="temp")
+        assert sorted(rain.merge([temp]).variable_names) == ["rain", "temp"]
+
+    def test_the_class_spelling_is_unchanged(self):
+        """The canonical call must keep working exactly as it did."""
+        rain = _cube(np.ones((2, 2, 2)), [0.0, 6.0], name="rain")
+        temp = _cube(np.zeros((2, 2, 2)), [0.0, 6.0], name="temp")
+        assert sorted(NetCDF.merge([rain, temp]).variable_names) == ["rain", "temp"]
+
+    def test_the_stamps_come_from_both_cubes(self):
+        """The receiver contributes its coordinates, not only its cells."""
+        first = _cube(np.arange(4.0).reshape(1, 2, 2), [0.0])
+        second = _cube(np.arange(4.0, 8.0).reshape(1, 2, 2), [6.0])
+        joined = first.concat([second], "time")
+        assert joined.get_variable("t")._band_dim_values_map["time"] == [0.0, 6.0]
 
 
 class TestTheReceivers:

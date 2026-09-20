@@ -815,6 +815,62 @@ class TestTheResultKeepsItsType:
         )
 
 
+class TestAContainerIsRefusedByName:
+    """A container has no raster of its own, and all six members say so the same way."""
+
+    @staticmethod
+    def _container() -> NetCDF:
+        """A container holding one gridded variable.
+
+        Returns:
+            NetCDF: The container.
+        """
+        return NetCDF.from_array(
+            np.arange(8.0).reshape(2, 2, 2),
+            geo_ref=NCGeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+        )
+
+    @pytest.mark.parametrize(
+        "member", ["where", "fillna", "isnull", "notnull", "equals", "identical"]
+    )
+    def test_the_refusal_names_the_member_the_caller_called(self, member: str):
+        """Five of the six answered a message about `read_array`, which nobody called.
+
+        Test scenario:
+            `where` got a bespoke refusal in round 1 and the other five fell through to
+            the generic container guard: "Spatial operations are not supported on the
+            NetCDF container. Use nc.get_variable('var_name').read_array(...) instead."
+            The documentation advertises all six together, so they refuse alike.
+
+        Args:
+            member: The member under test.
+        """
+        container = self._container()
+        arguments = {
+            "where": (np.ones((2, 2, 2), dtype=bool),),
+            "fillna": (0.0,),
+            "equals": (container,),
+            "identical": (container,),
+        }
+        call = getattr(container, member)
+        with pytest.raises(ValueError, match=rf"^{member}\(\) works on a raster"):
+            call(*arguments.get(member, ()))
+
+    def test_the_refusal_names_a_variable_to_call_it_on(self):
+        """A refusal that does not say what to do instead is half a refusal."""
+        container = self._container()
+        with pytest.raises(ValueError, match=r"get_variable\('t'\).fillna"):
+            container.fillna(0.0)
+
+    def test_a_variable_compared_with_a_container_still_answers_false(self):
+        """The guard is about the receiver; anything may be the other operand."""
+        container = self._container()
+        assert not container.get_variable("t").equals(container)
+
+
 class TestTheRefusalsAreSentences:
     """A bad argument is refused in words, not by whatever numpy happened to raise."""
 

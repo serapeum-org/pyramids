@@ -50,9 +50,10 @@ def concat(objs: Any, dim: str) -> NetCDF:
 
     Returns:
         NetCDF: One cube whose `dim` is as long as the inputs' put together, holding each
-        input's coordinates for it in order — or `None` for that dimension's coordinates
-        when any cube contributes none, since a half-labelled axis would misdescribe its
-        own cells.
+        input's coordinates for it in order. When any cube contributes none, the join
+        carries no coordinates for `dim` — a half-labelled axis would misdescribe its own
+        cells — and the rebuilt variable then stamps it with positions (`[0, 1, 2, 3]`),
+        which is indistinguishable from a genuinely positional axis.
 
     Raises:
         ValueError: `objs` is empty; the cubes carry different variables; a variable does

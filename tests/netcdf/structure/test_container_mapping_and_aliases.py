@@ -45,6 +45,7 @@ from pyramids.netcdf.labeled import LabeledArray
 from pyramids.netcdf.netcdf import (
     _HasDtype,
     _HasRasterShape,
+    _joins_cubes,
     _open_variable,
     _summarised,
     _variable_dtype,
@@ -1757,7 +1758,9 @@ class TestThePublicApiPageMatchesTheClass:
                 counts["classmethod"] += 1
             elif isinstance(value, staticmethod):
                 counts["staticmethod"] += 1
-            elif callable(value):
+            elif callable(value) or isinstance(value, _joins_cubes):
+                # `concat` / `merge` are a descriptor rather than a plain function, so
+                # they are not `callable` themselves; they are methods to a caller.
                 counts["method"] += 1
 
         text = " ".join(self.PAGE.read_text(encoding="utf-8").split())
@@ -1830,9 +1833,21 @@ class TestThePublicApiPageMatchesTheClass:
         page = (
             Path(__file__).parents[3] / "docs" / "reference" / "dataset" / "analysis.md"
         )
-        assert f"`ds.{member}" in page.read_text(encoding="utf-8"), (
-            f"{member} is missing from docs/reference/dataset/analysis.md -- add it to "
-            f"the missing-data table, so a reader scanning the index can find it."
+        # A table row, not a passing mention: the row's leading cell and its trailing
+        # pipe, so replacing the row with prose elsewhere on the page still fails.
+        rows = [
+            line
+            for line in page.read_text(encoding="utf-8").splitlines()
+            if line.startswith(f"| `ds.{member}") and line.rstrip().endswith("|")
+        ]
+        assert len(rows) == 1, (
+            f"{member} needs exactly one row in the missing-data table of "
+            f"docs/reference/dataset/analysis.md; found {len(rows)}."
+        )
+        described = rows[0].split("|")[2].strip()
+        assert len(described) > 20, (
+            f"{member}'s row in docs/reference/dataset/analysis.md says "
+            f"{described!r}, which does not describe it."
         )
 
     @pytest.mark.parametrize(

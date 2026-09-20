@@ -2083,6 +2083,62 @@ def _variable_nbytes(variable: _HasRasterShape | LabeledArray) -> int:
     return size
 
 
+class _joins_cubes:  # noqa: N801
+    """Descriptor for the two joins: callable on the class, and on a cube.
+
+    `NetCDF.concat([a, b], "time")` is the canonical spelling, but
+    `first.concat([second], "time")` is a natural reading of "join this cube with that
+    one" — and as a plain `classmethod` it silently returned only `second`, because a
+    classmethod cannot see the instance it was reached through. Here it can: an instance
+    call puts the receiver at the front of the list, so both spellings answer the same
+    cube.
+
+    The wrapped function takes the list as its first argument and no `cls`, since neither
+    join uses one.
+    """
+
+    def __init__(self, function: Callable) -> None:
+        """Wrap the join.
+
+        Args:
+            function: The join, taking `(objs, ...)`.
+        """
+        self._function = function
+        self.__doc__ = function.__doc__
+
+    def __get__(self, instance: Any, owner: type | None = None) -> Callable:
+        """Bind the join to the class or to a cube.
+
+        Args:
+            instance: The cube it was reached through, or `None` for a class call.
+            owner: The class.
+
+        Returns:
+            Callable: The join, with the receiver prepended on an instance call.
+        """
+
+        def call(objs: Any, *args: Any, **kwargs: Any) -> NetCDF:
+            """Join `objs`, after the receiver when there is one.
+
+            Args:
+                objs: The cubes to join.
+                *args: Passed through.
+                **kwargs: Passed through.
+
+            Returns:
+                NetCDF: The joined cube.
+            """
+            cubes = list(objs)
+            joined = self._function(
+                cubes if instance is None else [instance, *cubes], *args, **kwargs
+            )
+            return cast("NetCDF", joined)
+
+        call.__doc__ = self._function.__doc__
+        call.__name__ = self._function.__name__
+        return call
+
+
 class NetCDF(Dataset):
     """NetCDF.
 
@@ -7342,8 +7398,8 @@ class NetCDF(Dataset):
         """Facade — :meth:`Interop.to_dataframe <pyramids.netcdf.engines.interop.Interop.to_dataframe>`."""
         return self.interop.to_dataframe(variables=variables, dropna=dropna)
 
-    @classmethod
-    def concat(cls, objs: Any, dim: str) -> NetCDF:
+    @_joins_cubes
+    def concat(objs: Any, dim: str) -> NetCDF:  # noqa: N805
         """Join cubes end to end along one of their dimensions.
 
         Two halves of a time series becoming the whole. Every cube must be on the same
@@ -7358,8 +7414,13 @@ class NetCDF(Dataset):
         is a later cube holding the first cube's sentinel as a real measurement, which is
         then read as missing — change one of the sentinels before joining such cubes.
 
+        Callable either way: `NetCDF.concat([first, second], dim)` joins the list, and
+        `first.concat([second], dim)` joins the receiver ahead of it. The two answer the
+        same cube.
+
         Args:
-            objs: The cubes, containers or variables, in the order they are joined.
+            objs: The cubes, containers or variables, in the order they are joined. On an
+                instance call the receiver comes first, ahead of these.
             dim: The non-spatial dimension to join along.
 
         Returns:
@@ -7395,8 +7456,8 @@ class NetCDF(Dataset):
         """
         return _concat(objs, dim)
 
-    @classmethod
-    def merge(cls, objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
+    @_joins_cubes
+    def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:  # noqa: N805
         """Put the variables of several cubes side by side on the grid they share.
 
         **Not** `DatasetCollection.merge`, which means a *spatial mosaic written to a
@@ -7404,8 +7465,12 @@ class NetCDF(Dataset):
         is the other operation: one grid, several variables. See :meth:`concat` for joining
         along a dimension instead.
 
+        Callable either way: `NetCDF.merge([first, second])` merges the list, and
+        `first.merge([second])` merges the receiver ahead of it.
+
         Args:
-            objs: The cubes, containers or variables, all on the same grid.
+            objs: The cubes, containers or variables, all on the same grid. On an
+                instance call the receiver comes first, ahead of these.
             compat: What to do with a variable more than one cube carries.
                 `"no_conflicts"` (default) is xarray's rule: the copies fill each other's
                 gaps, and only a cell both of them hold a *different* value in is a

@@ -649,8 +649,8 @@ class _DropNa(_AlongDim):
             computed, only selected — but the steps are read through the same unpacking
             every member here reads through, so a CF-packed variable comes back as physical
             `float64` declaring the *unpacked* fill (an `int16` band scaled by `0.1` with an
-            offset of `5.0` and a `_FillValue` of `-9999` declares `-994.9`), not as its
-            stored band type.
+            offset of `5.0` and a `_FillValue` of `-9999` declares `-994.9000000000001`,
+            the float the unpacking arithmetic lands on), not as its stored band type.
 
         Raises:
             ValueError: No step survives, and a variable with no bands cannot be built.

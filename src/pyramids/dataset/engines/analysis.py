@@ -2266,6 +2266,7 @@ class Analysis(_Engine["Dataset"]):
         Returns:
             bool: The verdict.
         """
+        self._refuse_a_container("identical" if attributes else "equals")
         verdict = isinstance(other, RasterBase) and self._invariants_match(other)
         if verdict:
             raster = cast("Dataset", other)
@@ -2368,6 +2369,7 @@ class Analysis(_Engine["Dataset"]):
 
               ```
         """
+        self._refuse_a_container("fillna")
         values, sentinels, domain = self._operand_arrays(self._ds, None)
         declared = next((one for one in sentinels if one is not None), None)
         out = np.asarray(np.where(domain, values, value))
@@ -2477,6 +2479,7 @@ class Analysis(_Engine["Dataset"]):
         Returns:
             Dataset: The flags, declaring no no-data value.
         """
+        self._refuse_a_container("isnull" if missing else "notnull")
         _, _, domain = self._operand_arrays(self._ds, None)
         flags = np.asarray(
             (~domain if missing else domain).astype("uint8"), dtype="uint8"
@@ -2497,18 +2500,7 @@ class Analysis(_Engine["Dataset"]):
         Returns:
             Any: What `_label_combined` should label the result from, or `None`.
         """
-        # A NetCDF *container* has no grid of its own — its raster is a placeholder — so the
-        # grid check below would refuse its own variables' conditions with a message about
-        # alignment, which explains nothing. Every `Analysis` member has this limit (`apply`
-        # and `fill` answer `IndexError` on a container), but only this one can say so
-        # cheaply, because only this one is handed a raster to compare against.
-        variables = getattr(self._ds, "variable_names", None)
-        if variables and not getattr(self._ds, "_band_dim_names", ()):
-            raise ValueError(
-                f"where() works on a raster, and a container has none of its own — its "
-                f"variables do. Call it on one of them: "
-                f"`nc.get_variable({variables[0]!r}).where(...)`."
-            )
+        self._refuse_a_container("where")
         if isinstance(cond, RasterBase):
             raster = cast("Dataset", cond)
             self._check_combinable(raster, np.logical_and, None)
@@ -2518,6 +2510,28 @@ class Analysis(_Engine["Dataset"]):
         # hook that way answers this raster's own layout, where passing `None` through
         # would leave `NetCDF._label_combined` unpacking it.
         return self._ds._combine_layout_source(None, None)
+
+    def _refuse_a_container(self, caller: str) -> None:
+        """Refuse a `NetCDF` container by name, since it has no raster of its own.
+
+        A container's raster is a placeholder — its variables hold the cells — so every
+        member here works on a variable. Without this the caller meets whichever internal
+        guard it reaches first, and the generic one names `read_array`, which the caller
+        never called.
+
+        Args:
+            caller: The member named in the refusal.
+
+        Raises:
+            ValueError: The receiver is a container.
+        """
+        variables = getattr(self._ds, "variable_names", None)
+        if variables and not getattr(self._ds, "_band_dim_names", ()):
+            raise ValueError(
+                f"{caller}() works on a raster, and a container has none of its own — "
+                f"its variables do. Call it on one of them: "
+                f"`nc.get_variable({variables[0]!r}).{caller}(...)`."
+            )
 
     def _where_condition(
         self, cond: Any, values: np.typing.NDArray, domain: np.typing.NDArray
