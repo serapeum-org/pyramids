@@ -2728,6 +2728,13 @@ class Selection(_Engine["NetCDF"]):
         Works on a container, dropping from every variable that has `dim`, and on a single
         variable, returning a variable.
 
+        **Two places this stops where xarray keeps going**, both because GDAL has no raster
+        of no bands to put the answer in: a call that would drop *every* step raises rather
+        than returning an empty cube (xarray answers shape `(0, …)`), and `thresh` must be
+        at least 1, where xarray reads `thresh=0` or a negative one as "keep everything".
+        `how` and `thresh` otherwise mean what they mean in xarray, `thresh` overriding
+        `how` included.
+
         Args:
             dim: The non-spatial dimension to drop steps from.
             how: `"any"` (default) drops a step that holds any gap at all; `"all"` drops only
@@ -2737,9 +2744,10 @@ class Selection(_Engine["NetCDF"]):
                 least 1. `None` (default) defers to `how`.
 
         Returns:
-            NetCDF: A container for a container, a variable for a variable, holding the steps
-            that survived with their own values, type and no-data value — nothing is
-            computed here, only selected.
+            NetCDF: A container for a container, a variable for a variable, holding the
+            steps that survived with their own values — nothing is computed here, only
+            selected. A CF-packed variable comes back unpacked, in physical units and
+            declaring the unpacked fill, as it does from every other member here.
 
         Raises:
             TypeError: `thresh` is not an integer, or is a boolean.
