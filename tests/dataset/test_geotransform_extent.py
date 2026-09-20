@@ -273,9 +273,8 @@ class TestDatasetBboxAndAxes:
         y = np.asarray(ds.y)
 
         assert y[0] < y[-1], "the y axis must ascend for a south-up grid"
-        assert y.min() >= 0.0 and y.max() <= 8.0, (
-            f"y left the 0..8 extent: {y.tolist()}"
-        )
+        assert y.min() >= 0.0, f"y went below the 0..8 extent: {y.tolist()}"
+        assert y.max() <= 8.0, f"y went above the 0..8 extent: {y.tolist()}"
         np.testing.assert_allclose(y[:4], [0.5, 1.5, 2.5, 3.5])
 
     def test_an_east_left_x_axis_follows_storage_order(self):
@@ -350,5 +349,7 @@ class TestDatasetBboxAndAxes:
         min_x, min_y, max_x, max_y = ds.bbox
         assert list(ds.bbox) == pytest.approx([10.0, 12.8, 25.0, 27.2])
         xs, ys = rot.apply([0, 12, 0, 12], [0, 0, 9, 9])
-        assert min_x <= xs.min() and max_x >= xs.max(), "a corner fell outside x"
-        assert min_y <= ys.min() and max_y >= ys.max(), "a corner fell outside y"
+        assert min_x <= xs.min(), "the west corner fell outside the bbox"
+        assert max_x >= xs.max(), "the east corner fell outside the bbox"
+        assert min_y <= ys.min(), "the south corner fell outside the bbox"
+        assert max_y >= ys.max(), "the north corner fell outside the bbox"

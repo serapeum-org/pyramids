@@ -232,9 +232,8 @@ class TestSouthUpWritePath:
         y = np.asarray(NetCDF.read_file(str(path)).get_dimension_values("y"))
 
         assert y[0] < y[-1], f"a south-up write must ascend, got {y.tolist()}"
-        assert y.min() >= 0.0 and y.max() <= 3.0, (
-            f"y left the 0..3 extent: {y.tolist()}"
-        )
+        assert y.min() >= 0.0, f"y went below the 0..3 extent: {y.tolist()}"
+        assert y.max() <= 3.0, f"y went above the 0..3 extent: {y.tolist()}"
         assert_array_equal(y, [0.5, 1.5, 2.5])
 
 
