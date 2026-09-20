@@ -153,6 +153,39 @@ class TestRefusals:
         with pytest.raises(ValueError, match=r"gridded variables are \['t'\]"):
             _container().to_dataframe(variables="rain")
 
+    def test_an_unknown_name_is_refused_on_a_variable_too(self):
+        """A variable receiver reads `variables=` rather than ignoring it.
+
+        Test scenario:
+            The argument was consulted only on a container, so `variables="rain"` on a
+            variable quietly returned that variable's own frame — the documented
+            "a name is not one of them" refusal never fired on this receiver.
+        """
+        variable = _container().get_variable("t")
+        with pytest.raises(ValueError, match=r"gridded variables are \['t'\]"):
+            variable.to_dataframe(variables="rain")
+
+    def test_a_variables_list_that_misses_the_variable_is_refused(self):
+        """A sequence goes through the same check as a bare name."""
+        variable = _container().get_variable("t")
+        with pytest.raises(ValueError, match=r"cannot take \['zzz'\] as columns"):
+            variable.to_dataframe(variables=["zzz"])
+
+    def test_the_variables_own_name_is_accepted(self):
+        """Naming the variable the call is made on is the one list that works."""
+        frame = _container().get_variable("t").to_dataframe(variables=["t"])
+        assert list(frame.columns) == ["t"]
+
+    def test_a_repeated_name_is_refused(self):
+        """A name asked for twice cannot become two columns, so it is not accepted.
+
+        Test scenario:
+            The columns were collected into a `dict` keyed by name, so a repeat silently
+            collapsed and the frame came back with fewer columns than were asked for.
+        """
+        with pytest.raises(ValueError, match="more than once"):
+            _container().to_dataframe(variables=["t", "t"])
+
 
 class TestAPackedVariable:
     """A CF-packed variable's fill cells reach the frame as NaN, not as a number."""

@@ -448,7 +448,8 @@ class Interop(_Engine["NetCDF"]):
         Args:
             variables: Which data variables become columns, as a name or a sequence of
                 names. `None` (default) takes every gridded variable that shares the band
-                dimensions.
+                dimensions. On a variable the only name it accepts is that variable's own;
+                anything else is refused rather than ignored. A name may appear once.
             dropna: Drop the rows that are missing in **every** column. `False` by default,
                 which is what xarray does — its `to_dataframe` has no such argument and
                 keeps a row for every cell. `True` is the convenience for the common "give
@@ -460,8 +461,8 @@ class Interop(_Engine["NetCDF"]):
 
         Raises:
             ValueError: The container has no gridded variables; a name is not one of them;
-                or the chosen variables do not share the same band dimensions, so their
-                cells do not line up on one index.
+                a name was given more than once; or the chosen variables do not share the
+                same band dimensions, so their cells do not line up on one index.
 
         Examples:
             - A two-step cube of one variable, as pandas sees it:
@@ -507,6 +508,10 @@ class Interop(_Engine["NetCDF"]):
     def _frame_variables(self, variables: Any) -> list[str]:
         """The data variables that become columns, in order.
 
+        A variable receiver goes through the same check as a container, against the one
+        name it carries: the argument is not ignored just because there is nothing to
+        choose between.
+
         Args:
             variables: A name, a sequence of names, or `None` for all of them.
 
@@ -514,27 +519,38 @@ class Interop(_Engine["NetCDF"]):
             list[str]: The names.
 
         Raises:
-            ValueError: There are none, or one of those named is not a gridded variable.
+            ValueError: There are none, one of those named is not a gridded variable, or
+                a name was asked for more than once.
         """
         nc = self._ds
-        if not _is_container(nc):
-            return [nc._source_var_name or "variable"]
-        available = list(nc._spatial_variable_names(nc._working_group()))
-        if not available:
-            raise ValueError(
-                "to_dataframe() needs at least one gridded variable, and this container "
-                "has none."
-            )
+        if _is_container(nc):
+            subject = "container"
+            available = list(nc._spatial_variable_names(nc._working_group()))
+            if not available:
+                raise ValueError(
+                    "to_dataframe() needs at least one gridded variable, and this "
+                    "container has none."
+                )
+        else:
+            subject = "variable"
+            available = [nc._source_var_name or "variable"]
         if variables is None:
-            return available
-        asked = [variables] if isinstance(variables, str) else list(variables)
-        unknown = [name for name in asked if name not in available]
-        if unknown:
-            raise ValueError(
-                f"to_dataframe() cannot take {unknown!r} as columns: this container's "
-                f"gridded variables are {available}."
-            )
-        return asked
+            names = available
+        else:
+            names = [variables] if isinstance(variables, str) else list(variables)
+            unknown = [name for name in names if name not in available]
+            if unknown:
+                raise ValueError(
+                    f"to_dataframe() cannot take {unknown!r} as columns: this {subject}'s "
+                    f"gridded variables are {available}."
+                )
+            repeated = sorted({name for name in names if names.count(name) > 1})
+            if repeated:
+                raise ValueError(
+                    f"to_dataframe() was asked for {repeated!r} more than once, and a "
+                    f"name can only become one column. Pass each name at most once."
+                )
+        return names
 
 
 def _is_container(nc: NetCDF) -> bool:
