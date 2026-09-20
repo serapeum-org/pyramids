@@ -41,7 +41,11 @@ from pyramids.netcdf.cf import (
     write_global_attributes,
 )
 from pyramids.netcdf.engines._along_dim import _read_no_data
-from pyramids.netcdf.engines._weighted import _spatial_names
+from pyramids.netcdf.engines._weighted import (
+    _COLUMN_ALIAS,
+    _ROW_ALIAS,
+    _spatial_names,
+)
 from pyramids.netcdf.utils import (
     CF_EPOCH_CALENDAR,
     cf_epoch_units,
@@ -425,8 +429,15 @@ class Interop(_Engine["NetCDF"]):
         One row per cell and one column per variable, on a `MultiIndex` naming the
         dimensions in the order the array is laid out — the band dimensions outermost, then
         the row axis, then the column axis. That is the shape
-        `xarray.Dataset.to_dataframe()` returns, and `assert_frame_equal` against it is the
-        strongest statement that the two describe the same cube.
+        `xarray.Dataset.to_dataframe()` returns, and on a north-up store
+        `assert_frame_equal` against it passes.
+
+        **On a y-ascending store the row order differs, deliberately.** pyramids reads
+        every raster north-up, so the frame describes the cells as they are laid out and
+        its first row is the northernmost; xarray orders the rows as the file stores them,
+        which for such a file is south first. The labels and the values under them are the
+        same — only the order differs — so a comparison against xarray needs a sort on
+        those files.
 
         **Not the same shape as** :meth:`LabeledDataset.to_dataframe
         <pyramids.netcdf.labeled.LabeledDataset.to_dataframe>`, which serves the non-raster
@@ -576,7 +587,7 @@ def _frame_index(var: NetCDF) -> pd.MultiIndex:
         pandas.MultiIndex: The index, `prod(sizes)` long.
     """
     geo = var.geotransform
-    names = [*var._band_dim_names, *_spatial_names(var)]
+    names = [*var._band_dim_names, *_public_spatial_names(var)]
     levels: list[Any] = []
     for dim in var._band_dim_names:
         stamps = var._band_dim_values_map.get(dim)
@@ -585,6 +596,55 @@ def _frame_index(var: NetCDF) -> pd.MultiIndex:
     levels.append([geo[3] + (row + 0.5) * geo[5] for row in range(var.rows)])
     levels.append([geo[0] + (col + 0.5) * geo[1] for col in range(var.columns)])
     return pd.MultiIndex.from_product(levels, names=names)
+
+
+def _public_spatial_names(var: NetCDF) -> tuple[str, str]:
+    """The row and column axis names to show a caller, never an internal one.
+
+    Reading a y-ascending store flips the rows through a view, and the view renames that
+    dimension after the window it was cut with — `lat` becomes `subset_lat_169_-1_170`.
+    That name is an implementation detail of the read: putting it on a public index level
+    leaks it and breaks the frame comparison against xarray.
+
+    The store's own name is recovered positionally from the parent container, which is how
+    `_removed_dimensions` recovers it for `weighted`. A variable with no reachable parent —
+    one built in memory — falls back to the `y` / `x` a rebuild gives it.
+
+    Args:
+        var: The variable whose axes are being named.
+
+    Returns:
+        tuple[str, str]: The row axis' name and the column axis' name.
+    """
+    row, column = _spatial_names(var)
+    declared = _store_dimension_names(var)
+    indices = var._md_spatial_dims
+    if declared and indices is not None and len(declared) > max(indices):
+        return declared[indices[1]], declared[indices[0]]
+    known = set(declared)
+    return (
+        row if row in known else _ROW_ALIAS,
+        column if column in known else _COLUMN_ALIAS,
+    )
+
+
+def _store_dimension_names(var: NetCDF) -> list[str]:
+    """The dimensions the **store** declares for this variable, positionally.
+
+    Args:
+        var: The variable.
+
+    Returns:
+        list[str]: The names, or `[]` when no parent container is reachable.
+    """
+    parent = var._parent_nc
+    name = var._source_var_name
+    if parent is None or name is None:
+        return []
+    try:
+        return list(parent._variable_dim_names(parent._working_group(), name))
+    except (KeyError, AttributeError, RuntimeError):
+        return []
 
 
 # The CF roles xarray represents as coordinates rather than data variables.

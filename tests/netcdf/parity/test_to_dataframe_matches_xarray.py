@@ -12,6 +12,8 @@ default is `False` and `dropna=True` is the opt-in convenience.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from pandas.testing import assert_frame_equal
@@ -178,3 +180,47 @@ class TestTheReceiversAndRefusals:
         container.set_variable("static", flat)
         with pytest.raises(ValueError, match="share their band dimensions"):
             container.to_dataframe()
+
+
+class TestAYAscendingStore:
+    """A store whose rows run south to north: the names are the store's, the order is ours."""
+
+    FIXTURE = (
+        Path(__file__).resolve().parents[2]
+        / "data"
+        / "netcdf"
+        / "cf__7v__1d3-2d3-3d1__y-asc.nc"
+    )
+
+    def test_the_index_names_are_the_stores_own(self):
+        """An internal view name never reaches a public index level.
+
+        Test scenario:
+            Reading a y-ascending store flips the rows through a view that renames the
+            axis after the window it was cut with, and that name — `subset_lat_169_-1_170`
+            — came through as the frame's index level, leaking an implementation detail
+            and breaking any comparison against xarray.
+        """
+        variable = NetCDF.read_file(str(self.FIXTURE)).get_variable("tos")
+        assert list(variable.to_dataframe().index.names) == ["time", "lat", "lon"]
+
+    def test_the_rows_run_north_to_south(self):
+        """The frame describes the cells as the raster lays them out, which is north-up.
+
+        Test scenario:
+            This is a deliberate difference from xarray, which orders the rows as the file
+            stores them — ascending latitude here. pyramids reads every raster north-up, so
+            its frame does too; the values under each label are the same, only the row
+            order differs. `TestTheFrameMatchesXarray` covers the north-up stores where the
+            two agree exactly.
+        """
+        variable = NetCDF.read_file(str(self.FIXTURE)).get_variable("tos")
+        latitudes = [key[1] for key in variable.to_dataframe().index[:400]]
+        assert latitudes[0] > latitudes[-1], "the first row is the northernmost"
+
+    def test_the_cells_are_still_right(self):
+        """Ordering aside, each label still carries the value that belongs to it."""
+        variable = NetCDF.read_file(str(self.FIXTURE)).get_variable("tos")
+        frame = variable.to_dataframe()
+        read = np.asarray(variable.read_array(), dtype="float64")
+        assert frame.iloc[0, 0] == pytest.approx(read[0, 0, 0], nan_ok=True)
