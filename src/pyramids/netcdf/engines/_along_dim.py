@@ -779,6 +779,9 @@ def _interpolated(
     Returns:
         The values with the reachable interior gaps filled, the rest still NaN.
     """
+    # Read once — see `_pushed` for why: the accumulations and the two gathers below
+    # would otherwise re-run a dask graph several times over for one call.
+    data = np.asarray(data)
     size = data.shape[axis]
     shape = [size if index == axis else 1 for index in range(data.ndim)]
     steps = np.arange(size).reshape(shape)
@@ -823,6 +826,11 @@ def _pushed(data: Any, axis: int, limit: int | None, backward: bool) -> Any:
     Returns:
         The values with the reachable gaps filled, the rest still NaN.
     """
+    # One materialisation, before anything else touches it: every `np.asarray` on a
+    # dask-backed array re-runs the whole graph, so the scans below would each re-read
+    # the variable. The result is numpy either way, so nothing downstream loses laziness
+    # that it had.
+    data = np.asarray(data)
     working = np.flip(data, axis=axis) if backward else data
     size = working.shape[axis]
     shape = [size if index == axis else 1 for index in range(working.ndim)]
