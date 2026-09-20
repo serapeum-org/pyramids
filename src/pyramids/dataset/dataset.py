@@ -94,6 +94,7 @@ from pyramids.dataset.ops._zonal import zonal_stats as _zonal_stats
 from pyramids.dataset.ops.interpolate import grid_points
 from pyramids.dataset.ops.units import convert_array
 from pyramids.dataset.ops.vectorize import rasterize_features
+from pyramids.dataset.transform import GeoTransform
 from pyramids.feature import FeatureCollection, create_polygon
 
 # tuple of collaborator attribute names. Used by
@@ -3819,11 +3820,10 @@ class Dataset(RasterBase):
             - Dataset.x: Dataset x coordinates.
             - Dataset.lat: Dataset latitude.
         """
-        pixel_width = self._geotransform[1]
-        x_coords = self.get_x_lon_dimension_array(
-            self.top_left_corner[0], pixel_width, self.columns
-        )
-        return x_coords
+        # Built from the cached `_geotransform` (not the `geotransform` property) so
+        # a subclass that derives `geotransform` from `lon`/`lat` does not recurse.
+        # `x_axis` reads the signed pixel width (`geotransform[1]`), ignoring rotation.
+        return GeoTransform(*self._geotransform).x_axis(self.columns)
 
     @property
     def lat(self) -> np.typing.NDArray:
@@ -3883,11 +3883,11 @@ class Dataset(RasterBase):
             - Dataset.y: Dataset y coordinates.
             - Dataset.lon: Dataset longitude.
         """
-        pixel_height = self._geotransform[5]
-        y_coords = self.get_y_lat_dimension_array(
-            self.top_left_corner[1], pixel_height, self.rows
-        )
-        return y_coords
+        # Built from the cached `_geotransform` (not the `geotransform` property) so
+        # a subclass that derives `geotransform` from `lon`/`lat` does not recurse.
+        # `y_axis` reads the signed pixel height (`geotransform[5]`), so a north-up
+        # grid descends and a south-up one ascends.
+        return GeoTransform(*self._geotransform).y_axis(self.rows)
 
     @property
     def x(self) -> np.typing.NDArray:

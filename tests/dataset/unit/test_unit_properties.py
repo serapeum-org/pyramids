@@ -9,48 +9,43 @@ from pyramids.base._errors import ReadOnlyError
 from pyramids.base.crs import crs_from_user_input, crs_spec, sr_from_epsg
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
-from pyramids.dataset.abstract_dataset import RasterBase
+from pyramids.dataset.transform import GeoTransform
 
 pytestmark = pytest.mark.core
 
 
-class TestRasterBaseStaticMethods:
-    """Tests for static helpers defined in RasterBase."""
+class TestCoordinateAxisBuilders:
+    """Tests for the `GeoTransform.x_axis` / `y_axis` cell-centre builders."""
 
-    def test_get_x_lon_dimension_array_values(self):
+    def test_x_axis_values(self):
         """Verify x-coordinate array for simple inputs."""
-        pivot_x = 10.0
-        cell_size = 0.5
-        columns = 4
-        result = RasterBase.get_x_lon_dimension_array(pivot_x, cell_size, columns)
+        result = GeoTransform(10.0, 0.5, 0.0, 0.0, 0.0, 0.0).x_axis(4)
         expected = np.array([10.25, 10.75, 11.25, 11.75])
         np.testing.assert_allclose(
             result,
             expected,
-            err_msg="X-lon dimension array values are incorrect",
+            err_msg="x_axis values are incorrect",
         )
 
-    def test_get_x_lon_dimension_array_length(self):
+    def test_x_axis_length(self):
         """Returned array length must equal the number of columns."""
-        result = RasterBase.get_x_lon_dimension_array(0.0, 1.0, 7)
+        result = GeoTransform(0.0, 1.0, 0.0, 0.0, 0.0, 0.0).x_axis(7)
         assert len(result) == 7, "Array length should equal column count"
 
-    def test_get_y_lat_dimension_array_values(self):
+    def test_y_axis_values(self):
         """A negative (north-up) step makes the y axis decrease from north to south."""
-        pivot_y = 50.0
-        cell_size = -0.5  # signed geotransform[5]; negative descends (north-up)
-        rows = 3
-        result = RasterBase.get_y_lat_dimension_array(pivot_y, cell_size, rows)
+        # signed geotransform[5] = -0.5; negative descends (north-up)
+        result = GeoTransform(0.0, 0.0, 0.0, 50.0, 0.0, -0.5).y_axis(3)
         expected = np.array([49.75, 49.25, 48.75])
         np.testing.assert_allclose(
             result,
             expected,
-            err_msg="Y-lat dimension array values are incorrect",
+            err_msg="y_axis values are incorrect",
         )
 
-    def test_get_y_lat_dimension_array_length(self):
+    def test_y_axis_length(self):
         """Returned array length must equal the number of rows."""
-        result = RasterBase.get_y_lat_dimension_array(0.0, 1.0, 5)
+        result = GeoTransform(0.0, 0.0, 0.0, 0.0, 0.0, 1.0).y_axis(5)
         assert len(result) == 5, "Array length should equal row count"
 
 
@@ -81,20 +76,19 @@ class TestCoordinateProperties:
         np.testing.assert_array_equal(ds.x, ds.lon, err_msg="x must equal lon")
         np.testing.assert_array_equal(ds.y, ds.lat, err_msg="y must equal lat")
 
-    def test_values_match_static_builders(self, multi_band_dataset):
-        """lon/lat equal the static dimension-array helpers fed the geotransform.
+    def test_values_match_the_signed_geotransform(self, multi_band_dataset):
+        """lon/lat equal cell centres computed from the signed geotransform.
 
         Test scenario:
-            The instance properties are a thin wrapper over
-            get_x_lon_dimension_array / get_y_lat_dimension_array using the
-            geotransform's own pixel width and height.
+            Each coordinate is `origin + (index + 0.5) * step`, taking the pixel
+            width (geotransform[1]) for lon and the *signed* pixel height
+            (geotransform[5]) for lat, computed here element-wise rather than
+            through the axis builder so the check is not tautological.
         """
         ds = multi_band_dataset
         gt = ds.geotransform
-        expected_lon = RasterBase.get_x_lon_dimension_array(gt[0], gt[1], ds.columns)
-        # Signed pixel height, matching lat's implementation (not abs): the axis
-        # follows the sign of geotransform[5].
-        expected_lat = RasterBase.get_y_lat_dimension_array(gt[3], gt[5], ds.rows)
+        expected_lon = [gt[0] + (i + 0.5) * gt[1] for i in range(ds.columns)]
+        expected_lat = [gt[3] + (j + 0.5) * gt[5] for j in range(ds.rows)]
         np.testing.assert_allclose(ds.lon, expected_lon, err_msg="lon mismatch")
         np.testing.assert_allclose(ds.lat, expected_lat, err_msg="lat mismatch")
 

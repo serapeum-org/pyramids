@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
+from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
@@ -89,9 +90,7 @@ class TestRootContainer:
         gt = nc.get_variable("temperature").geotransform
         # Signed pixel height (gt[5] < 0 for this north-up presentation), matching how
         # the raster axis is now built; it descends and reverses the stored ascending axis.
-        rows = NetCDF.get_y_lat_dimension_array(
-            gt[3], gt[5], nc.get_variable("temperature").rows
-        )
+        rows = GeoTransform(*gt).y_axis(nc.get_variable("temperature").rows)
         assert_array_equal(
             np.asarray(rows),
             lats[::-1],

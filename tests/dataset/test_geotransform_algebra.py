@@ -169,50 +169,44 @@ class TestCoordinateAxes:
         assert transform.y_axis(0).tolist() == []
 
 
-class TestDimensionArrayShims:
-    """The two public shims keep their sign contracts after vectorisation."""
+class TestAxisSign:
+    """`GeoTransform.x_axis` / `y_axis` honour the sign of the step."""
 
-    def test_x_shim_ascends_for_a_positive_cell_size(self):
-        """`get_x_lon_dimension_array` walks east from the pivot."""
-        result = RasterBase.get_x_lon_dimension_array(0.0, 2.0, 3)
+    def test_x_axis_ascends_for_a_positive_pixel_width(self):
+        """A positive pixel width walks east from the origin."""
+        result = GeoTransform(0.0, 2.0, 0.0, 0.0, 0.0, 0.0).x_axis(3)
 
         np.testing.assert_allclose(result, [1.0, 3.0, 5.0])
 
-    def test_y_shim_ascends_for_a_positive_cell_size(self):
-        """`get_y_lat_dimension_array` honours the signed step: positive ascends."""
-        result = RasterBase.get_y_lat_dimension_array(10.0, 2.0, 3)
+    def test_y_axis_ascends_for_a_positive_pixel_height(self):
+        """A positive pixel height (south-up geotransform[5]) ascends."""
+        result = GeoTransform(0.0, 0.0, 0.0, 10.0, 0.0, 2.0).y_axis(3)
 
         np.testing.assert_allclose(result, [11.0, 13.0, 15.0])
 
-    def test_y_shim_descends_for_a_negative_cell_size(self):
-        """A negative step (north-up ``geotransform[5]``) descends from the pivot."""
-        result = RasterBase.get_y_lat_dimension_array(10.0, -2.0, 3)
+    def test_y_axis_descends_for_a_negative_pixel_height(self):
+        """A negative pixel height (north-up geotransform[5]) descends."""
+        result = GeoTransform(0.0, 0.0, 0.0, 10.0, 0.0, -2.0).y_axis(3)
 
         np.testing.assert_allclose(result, [9.0, 7.0, 5.0])
 
-    def test_the_shims_match_the_element_wise_form(self):
-        """Vectorising changed values by at most a couple of ULP.
+    def test_the_axes_match_the_element_wise_form(self):
+        """The vectorised axis equals index-times-step, within a couple of ULP.
 
-        The previous implementation accumulated per element; this asserts the
-        difference stays far below the 1e-6 tolerance the only in-tree consumer
-        compares with.
+        Multiplying the index by the step (rather than accumulating per element)
+        stays far below the 1e-6 tolerance the only in-tree consumer compares
+        with; a positive step ascends on both axes.
         """
-        pivot, cell_size, count = 1234567.75, 0.125, 97
-        expected_x = np.array(
-            [pivot + i * cell_size + cell_size / 2 for i in range(count)]
-        )
-        # Signed contract: a positive cell_size now ascends, like the x shim.
-        expected_y = np.array(
-            [pivot + i * cell_size + cell_size / 2 for i in range(count)]
-        )
+        pivot, step, count = 1234567.75, 0.125, 97
+        expected = np.array([pivot + i * step + step / 2 for i in range(count)])
 
         np.testing.assert_allclose(
-            RasterBase.get_x_lon_dimension_array(pivot, cell_size, count),
-            expected_x,
+            GeoTransform(pivot, step, 0.0, 0.0, 0.0, 0.0).x_axis(count),
+            expected,
             atol=1e-6,
         )
         np.testing.assert_allclose(
-            RasterBase.get_y_lat_dimension_array(pivot, cell_size, count),
-            expected_y,
+            GeoTransform(0.0, 0.0, 0.0, pivot, 0.0, step).y_axis(count),
+            expected,
             atol=1e-6,
         )

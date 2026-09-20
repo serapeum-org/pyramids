@@ -36,7 +36,7 @@ from pyramids.base._utils import (
 )
 from pyramids.base.crs import epsg_of_crs, sr_from_epsg
 from pyramids.base.georeference import GeoReference
-from pyramids.base.protocols import ArrayLike, FloatArray
+from pyramids.base.protocols import ArrayLike
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._subdataset import SubDataset, subdatasets_of
 from pyramids.dataset.transform import GeoTransform
@@ -879,53 +879,6 @@ class RasterBase(ABC):
         """
         self._require_open()
         return cast("dict[str, str] | list[str]", self._raster.GetMetadata(domain))
-
-    @staticmethod
-    def get_x_lon_dimension_array(pivot_x, cell_size, columns) -> FloatArray:
-        """Build a 1-D array of x/longitude cell-centre coordinates.
-
-        Args:
-            pivot_x: X coordinate of the upper-left corner of
-                the raster (left edge of the first pixel).
-            cell_size: Pixel width in map units.
-            columns: Number of columns in the raster.
-
-        Returns:
-            np.ndarray: 1-D array of length *columns* with the
-                centre x coordinate of each column.
-
-        Note:
-            Vectorised via :meth:`GeoTransform.x_axis`; values may differ
-            from the previous element-wise accumulation in the last ULP.
-        """
-        # A degenerate transform carrying only the x terms: this axis does not
-        # depend on the others, and `x_axis` reads the signed pixel width, which
-        # is the contract here (a positive `cell_size` ascends).
-        return GeoTransform(pivot_x, cell_size, 0.0, 0.0, 0.0, 0.0).x_axis(columns)
-
-    @staticmethod
-    def get_y_lat_dimension_array(pivot_y, cell_size, rows) -> FloatArray:
-        """Build a 1-D array of y/latitude cell-centre coordinates.
-
-        Uses the **signed** pixel height (``geotransform[5]``), mirroring
-        :meth:`get_x_lon_dimension_array`: a negative step (north-up) descends
-        from north to south, a positive step (south-up) ascends.
-
-        Args:
-            pivot_y: Y coordinate of the upper-left corner of
-                the raster (top edge of the first pixel).
-            cell_size: Signed pixel height in map units (``geotransform[5]``).
-                Negative descends (north-up); positive ascends (south-up).
-            rows: Number of rows in the raster.
-
-        Returns:
-            np.ndarray: 1-D array of length *rows* with the
-                centre y coordinate of each row.
-        """
-        # The signed step is passed straight to `y_axis` (as the x shim passes
-        # the signed width to `x_axis`), so the axis direction follows the sign
-        # of `geotransform[5]` instead of being forced to descend.
-        return GeoTransform(0.0, 0.0, 0.0, pivot_y, 0.0, cell_size).y_axis(rows)
 
     def _iloc(self, i: int) -> gdal.Band:
         """Access a GDAL Band by 0-based index.
