@@ -395,20 +395,29 @@ class TestPlotDataSet:
 
     @pytest.mark.plot
     def test_plot_vector_field_ascending_y_is_not_flipped(self):
-        """A south-up (ascending-y) raster skips the y-flip branch (#1128).
+        """A south-up (ascending-y) raster skips the y-flip and keeps placement (#1128).
 
         Test scenario:
             A south-up geotransform (positive pixel height) makes ``y`` ascend,
             so the ``y[0] > y[-1]`` flip is skipped -- the complement of the
-            north-up path every other case takes. The field must still render.
+            north-up path every other case takes. The arrows must sit on the
+            un-flipped ``meshgrid(x, y)`` (a placement bug on the no-flip path
+            would still render, so assert the offsets, not just non-None).
         """
         rng = np.random.default_rng(5)
         uv = rng.standard_normal((2, 5, 5)).astype("float32")
         geo = (0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
         dataset = Dataset.from_array(uv, geo_ref=GeoReference(geo=geo, epsg=4326))
         assert dataset.y[0] < dataset.y[-1], "y must be ascending to skip the flip"
-        fig, ax, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind="quiver")
-        assert fig is not None and ax is not None
+        _, ax, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind="quiver")
+        offsets = np.asarray(ax.collections[-1].get_offsets())
+        xx, yy = np.meshgrid(dataset.x, dataset.y)
+        expected = np.column_stack([xx.ravel(), yy.ravel()])
+        np.testing.assert_allclose(
+            np.sort(offsets, axis=0),
+            np.sort(expected, axis=0),
+            err_msg="ascending-y arrows must sit on the un-flipped meshgrid",
+        )
 
     @pytest.mark.plot
     def test_plot_vector_field_invalid_kind_raises(self):
@@ -492,7 +501,57 @@ class TestPlotDataSet:
             u_band=0, v_band=1, kind="quiver", ax=host, add_colorbar=False
         )
         assert len(host.images) == 1, "the scalar image must survive the vector call"
-        assert len(host.collections) >= 1, "the quiver arrows must be added on top"
+        from matplotlib.quiver import Quiver
+
+        assert isinstance(host.collections[-1], Quiver), (
+            "the added collection must be the quiver, drawn on top of the scalar"
+        )
+
+    @pytest.mark.plot
+    def test_plot_vector_field_repeated_ax_calls_add_fields(self):
+        """Repeated composing onto the same ``ax`` adds fields, not replaces (#1128).
+
+        Test scenario:
+            Because a caller ``ax`` is composed onto (host preserved), a second
+            ``plot_vector_field(ax=host)`` draws another quiver on top rather
+            than replacing the first -- two collections remain. Locks the
+            additive semantics documented on ``ax`` (redraw from a fresh axes).
+        """
+        import matplotlib.pyplot as plt
+
+        dataset = self._uv_dataset()
+        _, host = plt.subplots()
+        dataset.plot_vector_field(u_band=0, v_band=1, ax=host, add_colorbar=False)
+        first = len(host.collections)
+        dataset.plot_vector_field(u_band=0, v_band=1, ax=host, add_colorbar=False)
+        assert len(host.collections) == first + 1, (
+            f"composing again must add a field, got {first} -> {len(host.collections)}"
+        )
+
+    @pytest.mark.plot
+    def test_plot_vector_field_compose_default_colorbar_adds_no_extra_axes(self):
+        """Composing onto a caller ``ax`` draws no colorbar by default (#1128).
+
+        Test scenario:
+            With default ``add_colorbar`` and a caller-supplied ``ax``, cleopatra
+            composes without its own colorbar (the host owns any shared bar), so
+            no extra colorbar axes appears and the host image is preserved. Locks
+            cleopatra's compose-colorbar contract from pyramids' side.
+        """
+        import matplotlib.pyplot as plt
+
+        scalar = Dataset.from_array(
+            np.random.default_rng(2).standard_normal((6, 6)).astype("float32"),
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
+        fig, host = plt.subplots()
+        scalar.plot(band=0, fig=fig, ax=host, add_colorbar=False)
+        n_before = len(fig.axes)
+        self._uv_dataset().plot_vector_field(u_band=0, v_band=1, ax=host)
+        assert len(fig.axes) == n_before, (
+            f"composing must add no colorbar axes by default, got {n_before} -> {len(fig.axes)}"
+        )
+        assert len(host.images) == 1, "the scalar image must survive the composed call"
 
     @pytest.mark.plot
     def test_plot_vector_field_thin_reduces_arrow_count(self):
