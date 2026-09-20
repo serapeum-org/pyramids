@@ -11,6 +11,7 @@ import logging
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -145,6 +146,38 @@ def _point_sample_fill(gdal_band: gdal.Band) -> tuple[Any, np.dtype]:
         )
         return np.nan, out_dtype
     return no_data_value, band_dtype
+
+
+def _mask_dtype(band: np.dtype, fill: Any) -> np.dtype:
+    """The type a masked result needs: the band's own, unless the fill will not fit it.
+
+    `np.where` with a Python float promotes everything to float64, which doubles a
+    `float32` raster and octuples a `uint8` one for a value that fits in either. A band
+    keeps its own type when it can hold what is written into it:
+
+    - a float band holds NaN at its own width, so a NaN fill costs nothing;
+    - an integer band holds an integral sentinel in range — GDAL hands those back as
+      floats (`255.0`), which is why the value is checked rather than its Python type.
+
+    Anything else — a fractional fill into an integer band, or NaN where no integer could
+    mean "missing" — genuinely needs a wider type, and gets one.
+
+    Args:
+        band: The source band's dtype.
+        fill: What an unselected cell will hold.
+
+    Returns:
+        numpy.dtype: The result's dtype.
+    """
+    filler = np.asarray(fill)
+    if np.issubdtype(band, np.floating) and np.isnan(filler).all():
+        return band
+    if np.issubdtype(band, np.integer) and not np.isnan(filler).any():
+        limits = np.iinfo(band)
+        value = float(filler)
+        if value.is_integer() and limits.min <= value <= limits.max:
+            return band
+    return np.result_type(band, filler)
 
 
 class Analysis(_Engine["Dataset"]):
@@ -2468,10 +2501,23 @@ class Analysis(_Engine["Dataset"]):
         fill = declared if other is _DERIVE_NO_DATA else other
         if fill is None:
             fill = np.nan
+        elif not isinstance(fill, (Real, np.number)) or isinstance(
+            fill, (bool, np.bool_)
+        ):
+            raise TypeError(
+                f"where() needs a number for `other`, or None for this raster's own "
+                f"no-data value; got {other!r}."
+            )
         # A selected cell that was already a gap stays one: `values` holds its sentinel,
         # which is what the caller declared to mean "missing", so it is left in place.
+        # `numpy.result_type` of the band and the fill, not whatever `np.where` promotes
+        # to: a Python float would otherwise widen every band to float64 and quietly
+        # double — or octuple — the result, including on the `where(notnull())` that the
+        # docstring calls a no-op. A fill the band cannot hold still widens it.
+        dtype = _mask_dtype(values.dtype, fill)
+        filler = np.asarray(fill)
         kept = np.where(domain, values, declared if declared is not None else np.nan)
-        out = np.where(selected, kept, fill)
+        out = np.asarray(np.where(selected, kept, filler)).astype(dtype, copy=False)
         # The gaps of the result are wherever `fill` went, so that is what it declares —
         # a NaN fill under a numeric sentinel would otherwise leave a raster declaring a
         # value it does not hold, unable to find its own missing cells.

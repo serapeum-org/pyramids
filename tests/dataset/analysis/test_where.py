@@ -421,3 +421,77 @@ class TestDropOnASouthUpRaster:
         raster = Dataset.from_array(values, geo_ref=south_up, no_data_value=NDV)
         result = raster.where(values > 6.0, drop=True)
         assert (result.rows, result.columns) == (1, 3)
+
+
+class TestTheResultKeepsItsType:
+    """Masking must not quietly double the raster's footprint."""
+
+    @pytest.mark.parametrize(
+        ("dtype", "sentinel"),
+        [("float32", None), ("uint8", 255), ("int16", -1)],
+    )
+    def test_the_dtype_survives_a_mask(self, dtype, sentinel):
+        """`where` preserves the band type, as `+`, `fill` and `fillna` do.
+
+        Test scenario:
+            The fill went in as a Python float, so `np.where` promoted the whole result to
+            float64: a `float32` raster doubled and a `uint8` one octupled, undocumented.
+            It also made `raster.where(raster.notnull())` — advertised as a no-op — change
+            the type.
+
+            A float band needs no sentinel, since it can hold NaN at its own width; an
+            integer band can only mark a gap with a declared value, which is why these two
+            declare one. An integer band without one is the case in
+            `test_an_integer_band_without_a_sentinel_must_widen`.
+
+        Args:
+            dtype: The band type under test.
+            sentinel: The no-data value to declare, or `None`.
+        """
+        values = np.arange(1, 10).reshape(3, 3).astype(dtype)
+        raster = Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=sentinel)
+        masked = raster.where(values > 4)
+        assert np.asarray(masked.read_array()).dtype == np.dtype(dtype)
+
+    def test_an_integer_band_without_a_sentinel_must_widen(self):
+        """There is no integer that means "missing", so the gaps need a float band."""
+        values = np.arange(1, 10, dtype="uint8").reshape(3, 3)
+        raster = Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=None)
+        masked = raster.where(values > 4)
+        assert np.asarray(masked.read_array()).dtype == np.float64
+        assert np.isnan(masked.no_data_value[0])
+
+    def test_where_notnull_is_really_a_no_op(self):
+        """The docstring calls it one, so it has to answer the same raster."""
+        values = np.arange(1, 10, dtype="float32").reshape(3, 3)
+        raster = Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=-9999.0)
+        assert raster.where(raster.notnull()).equals(raster)
+
+    def test_a_fractional_other_still_widens_an_integer_band(self):
+        """A fill the band cannot hold is a real reason to promote, and still does."""
+        values = np.arange(1, 10, dtype="int16").reshape(3, 3)
+        raster = Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=None)
+        assert (
+            np.asarray(raster.where(values > 4, 0.5).read_array()).dtype == np.float64
+        )
+
+
+class TestTheRefusalsAreSentences:
+    """A bad argument is refused in words, not by whatever numpy happened to raise."""
+
+    def test_a_non_numeric_other(self):
+        """`other="x"` is a mistake worth naming.
+
+        Test scenario:
+            It reached `np.where` and answered numpy's
+            `ValueError: could not convert string to float: 'x'`, which names neither the
+            member nor the argument.
+        """
+        raster = _raster()
+        with pytest.raises(TypeError, match="where.. needs a number"):
+            raster.where(VALUES > 5, "x")
+
+    def test_other_none_means_the_no_data_value(self):
+        """`None` is accepted and documented as "the raster's own gaps"."""
+        raster = _raster()
+        assert np.isnan(_read(raster.where(VALUES > 5, None))[0, 0])
