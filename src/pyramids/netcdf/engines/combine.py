@@ -343,17 +343,23 @@ def _check_other_dimensions(parts: list[NetCDF], dim: str, name: str) -> None:
         ValueError: The other band dimensions differ in name or in length.
     """
 
+    def coordinates(part: NetCDF, name: str) -> tuple:
+        """The dimension's stamps as a comparable tuple, empty when it carries none.
+
+        Args:
+            part: The variable.
+            name: The dimension's name.
+
+        Returns:
+            tuple: The stamps as floats, or `()`.
+        """
+        stamps = part._band_dim_values_map.get(name)
+        return () if stamps is None else tuple(float(one) for one in stamps)
+
     def layout(part: NetCDF) -> list[tuple[str, int, tuple]]:
         sizes = list(part._band_dim_sizes)
-        stamps = part._band_dim_values_map
         return [
-            (
-                other,
-                sizes[index],
-                ()
-                if stamps.get(other) is None
-                else tuple(float(one) for one in stamps[other]),
-            )
+            (other, sizes[index], coordinates(part, other))
             for index, other in enumerate(part._band_dim_names)
             if other != dim
         ]
