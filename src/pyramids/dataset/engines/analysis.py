@@ -155,12 +155,20 @@ def _mask_dtype(band: np.dtype, fill: Any) -> np.dtype:
     `float32` raster and octuples a `uint8` one for a value that fits in either. A band
     keeps its own type when it can hold what is written into it:
 
-    - a float band holds NaN at its own width, so a NaN fill costs nothing;
+    - a float band holds any real value at its own precision, NaN included, which is what
+      `fillna` and the operators do with the same fill. It widens only for a magnitude no
+      value of that width can represent — a `float16` band and `70000.0`;
     - an integer band holds an integral sentinel in range — GDAL hands those back as
       floats (`255.0`), which is why the value is checked rather than its Python type.
 
-    Anything else — a fractional fill into an integer band, or NaN where no integer could
-    mean "missing" — genuinely needs a wider type, and gets one.
+    A fractional fill into an integer band, or NaN where no integer could mean "missing",
+    genuinely needs a wider type and gets one.
+
+    `np.result_type` is asked only for those cases, and never as the *first* question:
+    the fill arrives as a `numpy.float64` — that is how GDAL hands back a declared no-data
+    value — and a numpy scalar is strongly typed, so `np.result_type(float32, it)` answers
+    `float64` for a number `float32` holds exactly. The band's own type is decided by what
+    it can hold, not by numpy's promotion.
 
     Args:
         band: The source band's dtype.
@@ -170,14 +178,16 @@ def _mask_dtype(band: np.dtype, fill: Any) -> np.dtype:
         numpy.dtype: The result's dtype.
     """
     filler = np.asarray(fill)
-    if np.issubdtype(band, np.floating) and np.isnan(filler).all():
-        return band
-    if np.issubdtype(band, np.integer) and not np.isnan(filler).any():
+    chosen = np.result_type(band, filler)
+    if np.issubdtype(band, np.floating):
+        if bool(np.isnan(filler).all()) or bool(np.abs(filler) <= np.finfo(band).max):
+            chosen = np.dtype(band)
+    elif np.issubdtype(band, np.integer) and not np.isnan(filler).any():
         limits = np.iinfo(band)
         value = float(filler)
         if value.is_integer() and limits.min <= value <= limits.max:
-            return band
-    return np.result_type(band, filler)
+            chosen = np.dtype(band)
+    return chosen
 
 
 class Analysis(_Engine["Dataset"]):

@@ -567,7 +567,13 @@ class TestTheResultKeepsItsType:
 
     @pytest.mark.parametrize(
         ("dtype", "sentinel"),
-        [("float32", None), ("uint8", 255), ("int16", -1)],
+        [
+            ("float32", None),
+            ("float32", -9999.0),
+            ("float64", -9999.0),
+            ("uint8", 255),
+            ("int16", -1),
+        ],
     )
     def test_the_dtype_survives_a_mask(self, dtype, sentinel):
         """`where` preserves the band type, as `+`, `fill` and `fillna` do.
@@ -601,10 +607,18 @@ class TestTheResultKeepsItsType:
         assert np.isnan(masked.no_data_value[0])
 
     def test_where_notnull_is_really_a_no_op(self):
-        """The docstring calls it one, so it has to answer the same raster."""
+        """The docstring calls it one, so it has to answer the same raster.
+
+        Test scenario:
+            `equals` reads the values and not the band type, so it answered `True` while
+            the result was a `float64` copy of a `float32` raster — the dtype is asserted
+            separately for that reason.
+        """
         values = np.arange(1, 10, dtype="float32").reshape(3, 3)
         raster = Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=-9999.0)
-        assert raster.where(raster.notnull()).equals(raster)
+        result = raster.where(raster.notnull())
+        assert result.equals(raster)
+        assert np.asarray(result.read_array()).dtype == np.float32
 
     def test_a_fractional_other_still_widens_an_integer_band(self):
         """A fill the band cannot hold is a real reason to promote, and still does."""
