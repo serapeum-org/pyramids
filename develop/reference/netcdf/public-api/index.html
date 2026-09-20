@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6393,8 +6393,8 @@
 
 
 <h1 id="netcdf-public-api"><a class="toclink" href="#netcdf-public-api"><code>NetCDF</code> — public API</a><a class="headerlink" href="#netcdf-public-api" title="Permanent link">#</a></h1>
-<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 96 in all: 60 methods, 27 properties,
-8 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
+<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 89 in all: 55 methods, 27 properties,
+6 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
 <code>__len__</code>). For the full signatures, arguments and examples, see the rendered
 <a href="../">NetCDF Class</a> reference; this page is the index you scan to find the member you want.</p>
 <p><code>NetCDF</code> extends <code>Dataset</code>, so it also inherits a further 133 public members it does not redefine — band
@@ -6687,34 +6687,6 @@ A variable with no raster plane is the exception — see each member's docstring
 <tr>
 <td><code>shift()</code></td>
 <td>Moves the values along <code>dim</code>, filling the vacated steps — <code>periods</code>, <code>fill_value</code>.</td>
-</tr>
-<tr>
-<td><code>ffill()</code></td>
-<td>Carries the last valid value along <code>dim</code> into the gaps after it — <code>limit</code>.</td>
-</tr>
-<tr>
-<td><code>bfill()</code></td>
-<td>Carries the next valid value along <code>dim</code> back into the gaps before it — <code>limit</code>.</td>
-</tr>
-<tr>
-<td><code>dropna()</code></td>
-<td>Removes the steps of <code>dim</code> whose cells are missing — <code>how</code>, <code>thresh</code>.</td>
-</tr>
-<tr>
-<td><code>interpolate_na()</code></td>
-<td>Fills the interior gaps along <code>dim</code> from both sides — <code>method</code>, <code>limit</code>.</td>
-</tr>
-<tr>
-<td><code>to_dataframe()</code></td>
-<td>The cube as a pandas frame, indexed by its dimensions — <code>variables</code>, <code>dropna</code>.</td>
-</tr>
-<tr>
-<td><code>concat()</code></td>
-<td>Joins cubes end to end along <code>dim</code> (classmethod).</td>
-</tr>
-<tr>
-<td><code>merge()</code></td>
-<td>Puts several cubes' variables on one grid (classmethod) — <code>compat</code>.</td>
 </tr>
 <tr>
 <td><code>argmin()</code></td>
