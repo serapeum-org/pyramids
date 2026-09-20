@@ -39,6 +39,7 @@ from pyramids.base.georeference import GeoReference
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset._driver import MEMORY_DRIVER, resolve_output_driver
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._mdim import open_mdarray, scalar_no_data, unflatten_band_axes
 from pyramids.netcdf.array_options import (
     CFAttributes,
@@ -195,11 +196,13 @@ class Variables(_Engine["NetCDF"]):
         # truncation when the data array is integer (e.g., classified rasters).
         coord_dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
 
-        # Build spatial dimensions from the geotransform
-        x_values = np.array(nc.get_x_lon_dimension_array(gt[0], gt[1], dataset.columns))
-        y_values = np.array(
-            nc.get_y_lat_dimension_array(gt[3], abs(gt[5]), dataset.rows)
-        )
+        # Build the spatial coordinate axes from the geotransform. x_axis/y_axis read
+        # the signed pixel width/height (geotransform[1]/[5]); the geo is the input
+        # Dataset's own, not a read-normalised one, so a south-up input (gt[5] > 0)
+        # reaches this site and writes an ascending y coordinate within its extent
+        # (abs(gt[5]) would write a descending axis below the extent).
+        x_values = GeoTransform(*gt).x_axis(dataset.columns)
+        y_values = GeoTransform(*gt).y_axis(dataset.rows)
         dim_x = nc._get_or_create_dimension(
             rg, "x", x_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_X
         )
@@ -1341,10 +1344,13 @@ def _create_netcdf_from_array(
     # axis: an integer one keeps its own dtype, because float64 cannot hold an
     # int64 nanosecond epoch exactly.
     coord_dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
-    x_dim_values = NetCDF.get_x_lon_dimension_array(geo[0], geo[1], cols)
-    # Y/lat pixel height comes from geo[5] (negative), not geo[1] — using the X cell here would
-    # square a non-square grid (e.g. 2° lon, 1° lat). Pass the positive height abs(geo[5]).
-    y_dim_values = NetCDF.get_y_lat_dimension_array(geo[3], abs(geo[5]), rows)
+    # Build the spatial coordinate axes from the geotransform. y_axis reads the signed
+    # geo[5] (not geo[1], which would square a non-square grid, e.g. 2° lon / 1° lat);
+    # the geo is caller-supplied (resolve_geotransform returns it verbatim), not
+    # read-normalised, so a south-up input (geo[5] > 0) writes an ascending y coordinate
+    # within its extent (abs(geo[5]) would write a descending axis below the extent).
+    x_dim_values = GeoTransform(*geo).x_axis(cols)
+    y_dim_values = GeoTransform(*geo).y_axis(rows)
 
     if path is not None:
         _require_netcdf_destination(path)
@@ -1370,7 +1376,7 @@ def _create_netcdf_from_array(
         rg,
         "x",
         coord_dtype,
-        np.array(x_dim_values),
+        x_dim_values,
         gdal.DIM_TYPE_HORIZONTAL_X,
         use_set_indexing,
         is_geographic=is_geographic,
@@ -1379,7 +1385,7 @@ def _create_netcdf_from_array(
         rg,
         "y",
         coord_dtype,
-        np.array(y_dim_values),
+        y_dim_values,
         gdal.DIM_TYPE_HORIZONTAL_Y,
         use_set_indexing,
         is_geographic=is_geographic,

@@ -1784,11 +1784,15 @@ class Bands(_Engine["Dataset"]):
         Uses ``geotransform[1]``/``geotransform[5]`` rather than a single ``cell_size`` so non-square
         grids (e.g. 2° longitude, 1° latitude) are not stretched.
         """
-        gt = self._ds.geotransform
-        x_min, y_max = gt[0], gt[3]
-        x_max = x_min + self._ds.columns * gt[1]
-        y_min = y_max + self._ds.rows * gt[5]
-        return [x_min, y_min, x_max, y_max]
+        # `transform.extent` projects and reduces all four corners, so it returns a
+        # normalised [min_x, min_y, max_x, max_y] for a south-up (gt[5] > 0), east-left
+        # (gt[1] < 0) or rotated grid alike -- the shared "where is this raster"
+        # derivation, not a hand-rolled copy that assumed north-up, west-left. A no-op
+        # for the usual north-up, west-left grid.
+        min_x, min_y, max_x, max_y = self._ds.transform.extent(
+            self._ds.columns, self._ds.rows
+        )
+        return [min_x, min_y, max_x, max_y]
 
     def _calculate_bounds(self) -> GeoDataFrame:
         """Get the bbox as a geodataframe with a polygon geometry."""

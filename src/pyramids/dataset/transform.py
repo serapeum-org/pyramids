@@ -14,6 +14,8 @@ from typing import NamedTuple
 import numpy as np
 from osgeo import gdal
 
+from pyramids.base.protocols import FloatArray
+
 
 class GeoTransform(NamedTuple):
     """A GDAL geotransform as a named, algebra-capable value object.
@@ -314,7 +316,7 @@ class GeoTransform(NamedTuple):
         )
         return cols, rows
 
-    def x_axis(self, columns: int) -> np.ndarray:
+    def x_axis(self, columns: int) -> FloatArray:
         """The 1-D array of x coordinates at each column's cell centre.
 
         Uses the **signed** pixel width, so a west-to-east grid ascends and a
@@ -349,7 +351,7 @@ class GeoTransform(NamedTuple):
             self.pixel_width
         )
 
-    def y_axis(self, rows: int) -> np.ndarray:
+    def y_axis(self, rows: int) -> FloatArray:
         """The 1-D array of y coordinates at each row's cell centre.
 
         Uses the **signed** pixel height, so a north-up grid (negative height)
