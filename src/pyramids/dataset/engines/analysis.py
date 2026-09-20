@@ -151,9 +151,12 @@ def _point_sample_fill(gdal_band: gdal.Band) -> tuple[Any, np.dtype]:
 def _mask_dtype(band: np.dtype, fill: Any) -> np.dtype:
     """The type a masked result needs: the band's own, unless the fill will not fit it.
 
-    `np.where` with a Python float promotes everything to float64, which doubles a
-    `float32` raster and octuples a `uint8` one for a value that fits in either. A band
-    keeps its own type when it can hold what is written into it:
+    `np.where` answers a different type depending on how the fill is spelled, and neither
+    answer is the band's own. A Python `0.0` octuples a `uint8` raster — `np.where` gives
+    `float64` for a value a byte holds — while under NEP 50 it leaves a `float32` raster
+    alone; and the `numpy.float64` GDAL hands back as a declared no-data value is strongly
+    typed, so it doubles that same `float32` raster. A band keeps its own type when it can
+    hold what is written into it:
 
     - a float band holds any real value at its own precision, NaN and the infinities
       included — every float width has those — so it widens only for a *finite* magnitude
@@ -176,6 +179,39 @@ def _mask_dtype(band: np.dtype, fill: Any) -> np.dtype:
 
     Returns:
         numpy.dtype: The result's dtype.
+
+    Examples:
+        - A float band keeps its width for anything it can represent, the infinities
+          included:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.dataset.engines.analysis import _mask_dtype
+          >>> [str(_mask_dtype(np.dtype("float32"), one)) for one in (-9999.0, 2.5, np.inf)]
+          ['float32', 'float32', 'float32']
+
+          ```
+        - And widens for a finite magnitude no value of that width can hold:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.dataset.engines.analysis import _mask_dtype
+          >>> str(_mask_dtype(np.dtype("float16"), 70000.0))
+          'float64'
+
+          ```
+        - An integer band keeps its type for an integral sentinel in range, and widens
+          for a fractional fill or for NaN:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.dataset.engines.analysis import _mask_dtype
+          >>> [str(_mask_dtype(np.dtype("uint8"), one)) for one in (255.0, np.nan)]
+          ['uint8', 'float64']
+          >>> str(_mask_dtype(np.dtype("int16"), 0.5))
+          'float64'
+
+          ```
     """
     filler = np.asarray(fill)
     chosen = np.result_type(band, filler)
@@ -2162,6 +2198,41 @@ class Analysis(_Engine["Dataset"]):
               (1, 2)
 
               ```
+            - A NaN `other` marks the gaps the condition kept the result's way, so the
+              source's sentinel is nowhere in it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> gapped = Dataset.from_array(
+              ...     np.array([[1.0, -9999.0], [3.0, 4.0]]), geo_ref=geo_ref,
+              ...     no_data_value=-9999.0,
+              ... )
+              >>> masked = gapped.where([[True, True], [True, False]], np.nan)
+              >>> masked.read_array().tolist()
+              [[1.0, nan], [3.0, nan]]
+              >>> masked.isnull().read_array().tolist()
+              [[0, 1], [0, 1]]
+
+              ```
+            - `drop` cuts the empty bands of a stack as well as its empty rows and
+              columns:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> stack = Dataset.from_array(
+              ...     np.arange(8.0).reshape(2, 2, 2), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> trimmed = stack.where(stack > 4, drop=True)
+              >>> (trimmed.band_count, trimmed.rows, trimmed.columns)
+              (1, 2, 2)
+
+              ```
         """
         layout_source = self._where_layout_source(cond)
         values, sentinels, domain = self._operand_arrays(self._ds, None)
@@ -2201,6 +2272,11 @@ class Analysis(_Engine["Dataset"]):
         Returns:
             bool: `True` when every cell agrees and every gap lines up.
 
+        Raises:
+            ValueError: This is a `NetCDF` container, which has no raster of its own —
+                call it on one of its variables. Only the *receiver* is refused: a
+                variable answers `False` for a container passed as `other`.
+
         Examples:
             - A raster equals its own copy, and stops equalling it after one cell changes:
 
@@ -2237,6 +2313,10 @@ class Analysis(_Engine["Dataset"]):
 
         Returns:
             bool: `True` when `equals` holds and the attributes match as well.
+
+        Raises:
+            ValueError: This is a `NetCDF` container, which has no raster of its own —
+                call it on one of its variables.
 
         Examples:
             - The same numbers under a different description:
@@ -2347,13 +2427,24 @@ class Analysis(_Engine["Dataset"]):
         leaves the gaps alone. `fillna` writes only to the gaps. The names are one letter
         apart and the behaviours are opposite, so check which one you meant.
 
+        The band type is :meth:`where`'s judgement about the same fill: the two make one
+        decision, so a `float32` raster stays `float32` for `2.5` and for either infinity,
+        and both widen to `float64` for `1e300`. The widening happens *before* the fill
+        goes in — writing `1e300` straight into a `float32` band stores `inf` behind a
+        `RuntimeWarning`.
+
         Args:
             value: What each gap takes, in physical units.
 
         Returns:
             Dataset: A new raster on this one's grid, holding `value` wherever this one held
             its no-data value. It declares the same no-data value, which now marks nothing —
-            as a filled raster's does.
+            as a filled raster's does — in the band's own type, widened only when that type
+            cannot hold `value`.
+
+        Raises:
+            ValueError: This is a `NetCDF` container, which has no raster of its own —
+                call it on one of its variables.
 
         Examples:
             - Fill the gaps with zero:
@@ -2367,6 +2458,24 @@ class Analysis(_Engine["Dataset"]):
               >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
               >>> raster.fillna(0.0).read_array().tolist()
               [[1.0, 0.0], [3.0, 4.0]]
+
+              ```
+            - A `float32` band keeps its width for a value it can hold, and widens for one
+              it cannot — the same answer `where` gives for that fill:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> narrow = Dataset.from_array(
+              ...     np.array([[1.0, -9999.0], [3.0, 4.0]], dtype="float32"),
+              ...     geo_ref=geo_ref, no_data_value=-9999.0,
+              ... )
+              >>> narrow.fillna(2.5).dtype, narrow.where(narrow.notnull(), 2.5).dtype
+              (['float32'], ['float32'])
+              >>> narrow.fillna(1e300).dtype, narrow.where(narrow.notnull(), 1e300).dtype
+              (['float64'], ['float64'])
 
               ```
         """
@@ -2396,6 +2505,10 @@ class Analysis(_Engine["Dataset"]):
             Dataset: A `uint8` raster on this one's grid, `1` at each gap. It declares no
             no-data value: every cell is either missing or not, so there is nothing a flag
             could fail to judge.
+
+        Raises:
+            ValueError: This is a `NetCDF` container, which has no raster of its own —
+                call it on one of its variables.
 
         Examples:
             - Flag the one gap:
@@ -2441,6 +2554,10 @@ class Analysis(_Engine["Dataset"]):
         Returns:
             Dataset: A `uint8` raster on this one's grid, `1` at each cell that holds data,
             declaring no no-data value.
+
+        Raises:
+            ValueError: This is a `NetCDF` container, which has no raster of its own —
+                call it on one of its variables.
 
         Examples:
             - Flag the cells that hold data:
@@ -2602,7 +2719,9 @@ class Analysis(_Engine["Dataset"]):
 
         Returns:
             Dataset: The result, on this raster's grid. It declares the fill that went into
-            the unselected cells, which is NaN whenever `other` resolved to NaN.
+            the unselected cells, which is NaN whenever `other` resolved to NaN. A cell the
+            condition selected that was already a gap stays one, marked the way the result
+            marks its gaps rather than the way the source did.
 
         Raises:
             TypeError: `other` is neither a number nor `None`. Booleans are refused with
@@ -2628,10 +2747,10 @@ class Analysis(_Engine["Dataset"]):
         # while declaring NaN would reclassify every such cell as a measurement, and the
         # number that leaked was the raw `-9999.0`.
         gap = np.nan if fills_with_nan or declared is None else declared
-        # `numpy.result_type` of the band and the fill, not whatever `np.where` promotes
-        # to: a Python float would otherwise widen every band to float64 and quietly
-        # double — or octuple — the result, including on the `where(notnull())` that the
-        # docstring calls a no-op. A fill the band cannot hold still widens it.
+        # `_mask_dtype` of the band and the fill, not whatever `np.where` promotes to: a
+        # Python float octuples a `uint8` band and a `numpy.float64` sentinel doubles a
+        # `float32` one, including on the `where(notnull())` that the docstring calls a
+        # no-op. A fill the band cannot hold still widens it.
         dtype = _mask_dtype(values.dtype, fill)
         filler = np.asarray(fill)
         kept = np.where(domain, values, gap)
@@ -2670,9 +2789,11 @@ class Analysis(_Engine["Dataset"]):
         back as `Band_1` with no tags has lost what told the caller which band it is.
 
         On a `NetCDF` variable the band **dimensions** are identity too — without them
-        `sel` refuses the result — so the labelling hook runs as well. Every member that
-        comes through here keeps each dimension's length, so the layout is the receiver's
-        own: the shape a fold has, one operand with nothing to compare it against.
+        `sel` refuses the result — so the labelling hook runs as well. The layout taken is
+        the receiver's own: the shape a fold has, one operand with nothing to compare it
+        against. `where(drop=True)` is the one caller that shortens a dimension, and it
+        runs after this one — :meth:`_restamped` cuts the sizes and the stamps the
+        receiver's length left behind.
 
         The name the variable answers to travels too, as it does through every member
         along a dimension. Without it a masked variable came back as the placeholder
@@ -2780,6 +2901,10 @@ class Analysis(_Engine["Dataset"]):
         Every band survives on a 2-D raster, and on a variable whose bands are the
         flattened product of two or more dimensions — there the kept set is not a
         rectangle of that product in general, so the trim stays spatial.
+
+        An all-false condition also keeps every band, rather than answering the empty set
+        that would leave no raster to build. Nothing reaches that fallback through
+        :meth:`where`, whose trim refuses an empty selection before this is asked.
 
         Args:
             selected: True wherever the condition selected a cell.
