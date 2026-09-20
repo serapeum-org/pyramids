@@ -917,6 +917,17 @@ which multiplies the index by the cell size instead of adding it repeatedly. The
 ones — `10.35` where the walk produced `10.350000000000001` — but any golden file, doctest or notebook output that
 pins the printed coordinate will move. Compare axis arrays with `numpy.allclose`, not with `==` or a repr.
 
+**`get_y_lat_dimension_array` now honours the sign of its step; a positive value ascends.** Hard change, silent.
+`RasterBase.get_y_lat_dimension_array(pivot_y, cell_size, rows)` used to force a descending (north-to-south) axis:
+it negated its `cell_size` argument and documented that argument as a *positive* pixel height. It now passes the
+value straight through as the **signed** `geotransform[5]`, mirroring `get_x_lon_dimension_array` — a negative step
+descends (north-up) and a positive step ascends (south-up). A caller that followed the old contract and passed
+`abs(geotransform[5])` (a positive number) will now get an **ascending** axis where it used to get a descending
+one. Pass the signed `geotransform[5]` instead. This is what fixes `Dataset.y` / `Dataset.lat` reporting
+coordinates outside a south-up raster's own extent; `Dataset.bbox` is likewise normalised now (always
+`[min_x, min_y, max_x, max_y]`), so it no longer comes back inverted for a south-up or east-left grid. The
+common north-up case is unchanged.
+
 ### 0.48.0
 
 **`recreate_overviews` now rebuilds a band's levels in one cascading pass.** Each deeper level is decimated from
