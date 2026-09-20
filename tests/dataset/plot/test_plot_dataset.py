@@ -394,30 +394,45 @@ class TestPlotDataSet:
         assert fig is not None and ax is not None
 
     @pytest.mark.plot
-    def test_plot_vector_field_ascending_y_is_not_flipped(self):
-        """A south-up (ascending-y) raster skips the y-flip and keeps placement (#1128).
+    def test_plot_vector_field_ascending_y_keeps_vectors_in_place(self):
+        """A south-up (ascending-y) raster skips the y-flip and keeps each (u, v) in place (#1128).
 
         Test scenario:
-            A south-up geotransform (positive pixel height) makes ``y`` ascend,
-            so the ``y[0] > y[-1]`` flip is skipped -- the complement of the
-            north-up path every other case takes. The arrows must sit on the
-            un-flipped ``meshgrid(x, y)`` (a placement bug on the no-flip path
-            would still render, so assert the offsets, not just non-None).
+            A south-up geotransform (positive pixel height) makes ``y`` ascend, so the
+            ``y[0] > y[-1]`` flip is skipped. With ``u`` set to the row index (asymmetric
+            across rows), each arrow's position AND its ``(u, v)`` must match the
+            un-flipped ``meshgrid`` + data cell-for-cell. Position alone is invariant to a
+            row reversal (the point set is unchanged), so a row-mirror bug is caught only
+            by checking the vector attached to each cell -- hence the ``U``/``V`` asserts.
         """
-        rng = np.random.default_rng(5)
-        uv = rng.standard_normal((2, 5, 5)).astype("float32")
+        rows, cols = 4, 3
+        u = np.repeat(np.arange(rows, dtype="float32"), cols).reshape(rows, cols)
+        v = np.full((rows, cols), 2.0, dtype="float32")
         geo = (0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
-        dataset = Dataset.from_array(uv, geo_ref=GeoReference(geo=geo, epsg=4326))
+        dataset = Dataset.from_array(
+            np.stack([u, v]), geo_ref=GeoReference(geo=geo, epsg=4326)
+        )
         assert dataset.y[0] < dataset.y[-1], "y must be ascending to skip the flip"
         _, ax, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind="quiver")
-        offsets = np.asarray(ax.collections[-1].get_offsets())
+        quiver = ax.collections[-1]
+        offsets = np.asarray(quiver.get_offsets())
         xx, yy = np.meshgrid(dataset.x, dataset.y)
-        expected = np.column_stack([xx.ravel(), yy.ravel()])
         np.testing.assert_allclose(
-            np.sort(offsets, axis=0),
-            np.sort(expected, axis=0),
-            err_msg="ascending-y arrows must sit on the un-flipped meshgrid",
+            offsets[:, 0],
+            xx.ravel(),
+            err_msg="x positions must be the un-flipped meshgrid",
         )
+        np.testing.assert_allclose(
+            offsets[:, 1],
+            yy.ravel(),
+            err_msg="y positions must be the un-flipped meshgrid",
+        )
+        np.testing.assert_allclose(
+            np.asarray(quiver.U),
+            u.ravel(),
+            err_msg="each arrow's u must stay with its cell (no row mirror on the no-flip path)",
+        )
+        np.testing.assert_allclose(np.asarray(quiver.V), v.ravel())
 
     @pytest.mark.plot
     def test_plot_vector_field_invalid_kind_raises(self):
