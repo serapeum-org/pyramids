@@ -3748,8 +3748,9 @@ class Analysis(_Engine["Dataset"]):
 
         Raises:
             ValueError: If ``u_band`` or ``v_band`` is out of range for the
-                dataset, or if ``kind`` is not one of ``"quiver"``,
-                ``"barbs"``, or ``"streamplot"``.
+                dataset, if ``kind`` is not one of ``"quiver"``, ``"barbs"``,
+                or ``"streamplot"``, or if both ``color=`` and ``cmap=`` are
+                given (they are mutually exclusive).
 
         Examples:
             - Render a two-band ``(u, v)`` stack as arrows (tagged ``+SKIP``
@@ -3782,6 +3783,12 @@ class Analysis(_Engine["Dataset"]):
                 >>> fig, host = plt.subplots()  # doctest: +SKIP
                 >>> ds.plot(band=0, fig=fig, ax=host)  # doctest: +SKIP
                 >>> ds.plot_vector_field(u_band=0, v_band=1, ax=host, add_colorbar=False)  # doctest: +SKIP
+
+                ```
+            - Draw solid black arrows instead of colouring them by magnitude:
+
+                ```python
+                >>> fig, ax, im = ds.plot_vector_field(u_band=0, v_band=1, color="black")  # doctest: +SKIP
 
                 ```
         """
