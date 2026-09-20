@@ -394,6 +394,23 @@ class TestPlotDataSet:
         assert fig is not None and ax is not None
 
     @pytest.mark.plot
+    def test_plot_vector_field_ascending_y_is_not_flipped(self):
+        """A south-up (ascending-y) raster skips the y-flip branch (#1128).
+
+        Test scenario:
+            A south-up geotransform (positive pixel height) makes ``y`` ascend,
+            so the ``y[0] > y[-1]`` flip is skipped -- the complement of the
+            north-up path every other case takes. The field must still render.
+        """
+        rng = np.random.default_rng(5)
+        uv = rng.standard_normal((2, 5, 5)).astype("float32")
+        geo = (0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+        dataset = Dataset.from_array(uv, geo_ref=GeoReference(geo=geo, epsg=4326))
+        assert dataset.y[0] < dataset.y[-1], "y must be ascending to skip the flip"
+        fig, ax, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind="quiver")
+        assert fig is not None and ax is not None
+
+    @pytest.mark.plot
     def test_plot_vector_field_invalid_kind_raises(self):
         """An unsupported ``kind`` surfaces cleopatra's ``ValueError``.
 
