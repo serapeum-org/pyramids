@@ -2085,9 +2085,10 @@ class Analysis(_Engine["Dataset"]):
                 callable handed this raster's physical values and returning either.
             other: What an unselected cell holds. The raster's declared no-data value by
                 default, or NaN when it declares none, in which case the result declares
-                NaN. A number writes that number instead, and the result then holds no
-                gaps at all — the declared sentinel comes along unchanged but marks
-                nothing, exactly as after a `fillna`.
+                NaN. A number writes that number into every unselected cell instead. A
+                *selected* cell that was already a gap stays one, so the result still
+                declares the sentinel and still holds it wherever the condition kept a
+                missing cell — `where(cond, 0.0)` is not a `fillna`.
             drop: Trim the result to the smallest rectangle the condition selected a cell
                 in, discarding the rows and columns it was false across. Read off the
                 condition, as xarray reads it: `other` does not save a row, and a cell
@@ -2168,7 +2169,10 @@ class Analysis(_Engine["Dataset"]):
 
         Args:
             other: The raster to compare with. Anything that is not one answers `False`
-                rather than raising, so `nc == something_else` is usable in a filter.
+                rather than raising, so a heterogeneous list can be filtered with it
+                without a type check first. It is a method, not `==`: `Dataset` overloads
+                the ordering comparisons to build masks and leaves `==` as Python's
+                identity, so `a == b` is `False` for two equal rasters.
 
         Returns:
             bool: `True` when every cell agrees and every gap lines up.
@@ -2198,6 +2202,11 @@ class Analysis(_Engine["Dataset"]):
         :meth:`equals` with the metadata read too: the dataset-level tags and the band
         names. Two rasters holding identical numbers but describing different things are
         equal and not identical, which is the distinction xarray draws.
+
+        Neither method reads the declared no-data value or the band type, also as xarray
+        has neither concept: two rasters marking the same missing cells with `-9999.0` and
+        with `-1.0` are identical, and so are a `float64` raster and its `float32` copy.
+        Compare `no_data_value` and `dtype` yourself when those matter.
 
         Args:
             other: The raster to compare with; anything else answers `False`.
