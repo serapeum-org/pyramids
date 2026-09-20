@@ -87,8 +87,10 @@ class TestRootContainer:
         lats = nc.get_dimension_values("lat")
         assert lats[0] < lats[-1], f"y-asc file should report ascending, got {lats}"
         gt = nc.get_variable("temperature").geotransform
+        # Signed pixel height (gt[5] < 0 for this north-up presentation), matching how
+        # the raster axis is now built; it descends and reverses the stored ascending axis.
         rows = NetCDF.get_y_lat_dimension_array(
-            gt[3], abs(gt[5]), nc.get_variable("temperature").rows
+            gt[3], gt[5], nc.get_variable("temperature").rows
         )
         assert_array_equal(
             np.asarray(rows),

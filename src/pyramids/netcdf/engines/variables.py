@@ -197,9 +197,9 @@ class Variables(_Engine["NetCDF"]):
 
         # Build spatial dimensions from the geotransform
         x_values = np.array(nc.get_x_lon_dimension_array(gt[0], gt[1], dataset.columns))
-        y_values = np.array(
-            nc.get_y_lat_dimension_array(gt[3], abs(gt[5]), dataset.rows)
-        )
+        # Signed pixel height (gt[5]), like the x width above: a south-up grid
+        # (gt[5] > 0) ascends, a north-up one (gt[5] < 0) descends.
+        y_values = np.array(nc.get_y_lat_dimension_array(gt[3], gt[5], dataset.rows))
         dim_x = nc._get_or_create_dimension(
             rg, "x", x_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_X
         )
@@ -1342,9 +1342,10 @@ def _create_netcdf_from_array(
     # int64 nanosecond epoch exactly.
     coord_dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
     x_dim_values = NetCDF.get_x_lon_dimension_array(geo[0], geo[1], cols)
-    # Y/lat pixel height comes from geo[5] (negative), not geo[1] — using the X cell here would
-    # square a non-square grid (e.g. 2° lon, 1° lat). Pass the positive height abs(geo[5]).
-    y_dim_values = NetCDF.get_y_lat_dimension_array(geo[3], abs(geo[5]), rows)
+    # Y/lat pixel height comes from geo[5], not geo[1] — using the X cell here would square a
+    # non-square grid (e.g. 2° lon, 1° lat). Pass the signed height so a south-up grid
+    # (geo[5] > 0) ascends and a north-up one (geo[5] < 0) descends.
+    y_dim_values = NetCDF.get_y_lat_dimension_array(geo[3], geo[5], rows)
 
     if path is not None:
         _require_netcdf_destination(path)

@@ -36,9 +36,9 @@ class TestRasterBaseStaticMethods:
         assert len(result) == 7, "Array length should equal column count"
 
     def test_get_y_lat_dimension_array_values(self):
-        """Verify y-coordinate array decreases from north to south."""
+        """A negative (north-up) step makes the y axis decrease from north to south."""
         pivot_y = 50.0
-        cell_size = 0.5
+        cell_size = -0.5  # signed geotransform[5]; negative descends (north-up)
         rows = 3
         result = RasterBase.get_y_lat_dimension_array(pivot_y, cell_size, rows)
         expected = np.array([49.75, 49.25, 48.75])
@@ -92,7 +92,9 @@ class TestCoordinateProperties:
         ds = multi_band_dataset
         gt = ds.geotransform
         expected_lon = RasterBase.get_x_lon_dimension_array(gt[0], gt[1], ds.columns)
-        expected_lat = RasterBase.get_y_lat_dimension_array(gt[3], abs(gt[5]), ds.rows)
+        # Signed pixel height, matching lat's implementation (not abs): the axis
+        # follows the sign of geotransform[5].
+        expected_lat = RasterBase.get_y_lat_dimension_array(gt[3], gt[5], ds.rows)
         np.testing.assert_allclose(ds.lon, expected_lon, err_msg="lon mismatch")
         np.testing.assert_allclose(ds.lat, expected_lat, err_msg="lat mismatch")
 

@@ -17,6 +17,8 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base.georeference import GeoReference
+from pyramids.dataset import Dataset
 from pyramids.dataset.cog.inspect import cog_info
 from pyramids.dataset.merge import _source_bounds
 from pyramids.dataset.transform import GeoTransform
@@ -218,3 +220,113 @@ class TestTheCallSitesUseIt:
         path = _geotiff(tmp_path, NORTH_UP, columns=8, rows=6)
 
         assert cog_info(path).bounds == pytest.approx((0.0, 94.0, 8.0, 100.0))
+
+
+def _ramp_dataset(geotransform):
+    """An 8x8 Dataset whose cell value is ``column + 10 * row`` (issue #1148)."""
+    rows, columns = np.mgrid[0:8, 0:8]
+    arr = (columns + 10 * rows).astype("float64")
+    return Dataset.from_array(
+        arr=arr, geo_ref=GeoReference(geo=tuple(geotransform), epsg=3857)
+    )
+
+
+class TestDatasetBboxAndAxes:
+    """`Dataset.bbox` / `y` / `x` follow the geotransform's sign (issue #1148)."""
+
+    def test_a_south_up_bbox_is_not_inverted(self):
+        """A positive `geotransform[5]` yields a min-before-max bbox.
+
+        Test scenario:
+            The old two-corner arithmetic returned `[0, 8, 8, 0]` (ymin > ymax)
+            for a south-up grid; the normalised bbox must read min-before-max on
+            both axes and equal the shared `transform.extent` derivation.
+        """
+        ds = _ramp_dataset(SOUTH_UP)
+        min_x, min_y, max_x, max_y = ds.bbox
+
+        assert min_y < max_y, f"y came back inverted: {(min_y, max_y)}"
+        assert min_x < max_x, f"x came back inverted: {(min_x, max_x)}"
+        assert list(ds.bbox) == pytest.approx(list(ds.transform.extent(8, 8)))
+
+    def test_an_east_left_bbox_is_not_inverted(self):
+        """A negative `geotransform[1]` yields a min-before-max bbox.
+
+        Test scenario:
+            An east-left grid stores columns right-to-left, so the old code
+            returned `[8, 0, 0, 8]` (xmin > xmax). The bbox must be normalised.
+        """
+        ds = _ramp_dataset(GeoTransform(8.0, -1.0, 0.0, 8.0, 0.0, -1.0))
+        min_x, min_y, max_x, max_y = ds.bbox
+
+        assert (min_x, min_y, max_x, max_y) == pytest.approx((0.0, 0.0, 8.0, 8.0))
+
+    def test_a_south_up_y_axis_ascends_within_the_extent(self):
+        """`Dataset.y` honours the sign of `geotransform[5]` like `x` does.
+
+        Test scenario:
+            A south-up grid's y cell-centres ascend from the bottom-left origin,
+            staying inside the raster's own 0..8 extent (the old axis descended
+            to negative coordinates outside it).
+        """
+        ds = _ramp_dataset(SOUTH_UP)
+        y = np.asarray(ds.y)
+
+        assert y[0] < y[-1], "the y axis must ascend for a south-up grid"
+        assert y.min() >= 0.0 and y.max() <= 8.0, (
+            f"y left the 0..8 extent: {y.tolist()}"
+        )
+        np.testing.assert_allclose(y[:4], [0.5, 1.5, 2.5, 3.5])
+
+    def test_an_east_left_x_axis_follows_storage_order(self):
+        """`Dataset.x` already honours `geotransform[1]`; it stays descending.
+
+        Test scenario:
+            An east-left grid stores x right-to-left, so the x cell-centres
+            descend from the origin -- unchanged by this fix, and the reference
+            the y axis is made to mirror.
+        """
+        ds = _ramp_dataset(GeoTransform(8.0, -1.0, 0.0, 8.0, 0.0, -1.0))
+        x = np.asarray(ds.x)
+
+        assert x[0] > x[-1], "east-left x must descend"
+        np.testing.assert_allclose(x[:4], [7.5, 6.5, 5.5, 4.5])
+
+    def test_the_axes_point_at_the_cell_read_array_returns(self):
+        """Sampling at `(x[j], y[i])` returns `read_array()[i, j]` (south-up).
+
+        Test scenario:
+            The whole point of `y`/`x` is to label cells; for a south-up grid
+            the coordinate a cell reports must sample back to that same cell's
+            value via `read_part`.
+        """
+        ds = _ramp_dataset(SOUTH_UP)
+        data = np.asarray(ds.read_array())
+        y = np.asarray(ds.y)
+        x = np.asarray(ds.x)
+
+        for i in (0, 3, 7):
+            for j in (0, 5, 7):
+                sample = ds.read_part(
+                    bbox=[x[j], y[i], x[j], y[i]],
+                    dst_width=1,
+                    dst_height=1,
+                    bbox_crs=3857,
+                    band=0,
+                )
+                got = float(np.asarray(sample).ravel()[0])
+                assert got == data[i, j], (
+                    f"cell ({i},{j}): sampled {got}, stored {data[i, j]}"
+                )
+
+    def test_a_north_up_grid_is_unchanged(self):
+        """The common case must not move while fixing the rare ones.
+
+        Test scenario:
+            A north-up grid's bbox and descending y axis are exactly what the
+            old arithmetic produced.
+        """
+        ds = _ramp_dataset(GeoTransform(0.0, 1.0, 0.0, 8.0, 0.0, -1.0))
+
+        assert list(ds.bbox) == pytest.approx([0.0, 0.0, 8.0, 8.0])
+        np.testing.assert_allclose(np.asarray(ds.y)[:4], [7.5, 6.5, 5.5, 4.5])

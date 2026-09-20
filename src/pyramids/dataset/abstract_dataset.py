@@ -907,22 +907,25 @@ class RasterBase(ABC):
     def get_y_lat_dimension_array(pivot_y, cell_size, rows) -> FloatArray:
         """Build a 1-D array of y/latitude cell-centre coordinates.
 
-        Coordinates decrease from north to south (top to bottom).
+        Uses the **signed** pixel height (``geotransform[5]``), mirroring
+        :meth:`get_x_lon_dimension_array`: a negative step (north-up) descends
+        from north to south, a positive step (south-up) ascends.
 
         Args:
             pivot_y: Y coordinate of the upper-left corner of
                 the raster (top edge of the first pixel).
-            cell_size: Pixel height in map units (positive).
+            cell_size: Signed pixel height in map units (``geotransform[5]``).
+                Negative descends (north-up); positive ascends (south-up).
             rows: Number of rows in the raster.
 
         Returns:
             np.ndarray: 1-D array of length *rows* with the
                 centre y coordinate of each row.
         """
-        # `-cell_size`, not `-abs(cell_size)`: this shim's documented contract
-        # is that `cell_size` is positive and the axis descends, so negating it
-        # is what makes `y_axis`'s signed step match.
-        return GeoTransform(0.0, 0.0, 0.0, pivot_y, 0.0, -cell_size).y_axis(rows)
+        # The signed step is passed straight to `y_axis` (as the x shim passes
+        # the signed width to `x_axis`), so the axis direction follows the sign
+        # of `geotransform[5]` instead of being forced to descend.
+        return GeoTransform(0.0, 0.0, 0.0, pivot_y, 0.0, cell_size).y_axis(rows)
 
     def _iloc(self, i: int) -> gdal.Band:
         """Access a GDAL Band by 0-based index.

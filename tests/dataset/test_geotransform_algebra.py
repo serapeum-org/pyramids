@@ -178,9 +178,15 @@ class TestDimensionArrayShims:
 
         np.testing.assert_allclose(result, [1.0, 3.0, 5.0])
 
-    def test_y_shim_descends_for_a_positive_cell_size(self):
-        """`get_y_lat_dimension_array` documents a positive size and descends."""
+    def test_y_shim_ascends_for_a_positive_cell_size(self):
+        """`get_y_lat_dimension_array` honours the signed step: positive ascends."""
         result = RasterBase.get_y_lat_dimension_array(10.0, 2.0, 3)
+
+        np.testing.assert_allclose(result, [11.0, 13.0, 15.0])
+
+    def test_y_shim_descends_for_a_negative_cell_size(self):
+        """A negative step (north-up ``geotransform[5]``) descends from the pivot."""
+        result = RasterBase.get_y_lat_dimension_array(10.0, -2.0, 3)
 
         np.testing.assert_allclose(result, [9.0, 7.0, 5.0])
 
@@ -195,8 +201,9 @@ class TestDimensionArrayShims:
         expected_x = np.array(
             [pivot + i * cell_size + cell_size / 2 for i in range(count)]
         )
+        # Signed contract: a positive cell_size now ascends, like the x shim.
         expected_y = np.array(
-            [pivot - i * cell_size - cell_size / 2 for i in range(count)]
+            [pivot + i * cell_size + cell_size / 2 for i in range(count)]
         )
 
         np.testing.assert_allclose(
