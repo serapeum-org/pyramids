@@ -38,6 +38,11 @@ _COMPAT_MODES = ("no_conflicts", "override")
 def concat(objs: Any, dim: str) -> NetCDF:
     """Join cubes end to end along one of their dimensions.
 
+    Every cube's gaps stay gaps: the joined variable declares the first cube's sentinel
+    and the others are rewritten to it. The one case that cannot come out right is a
+    later cube holding the first cube's sentinel as a real measurement — that cell is
+    read as missing afterwards, so change one of the sentinels before joining.
+
     Args:
         objs: The cubes, in the order they are joined. Containers or variables, at least
             one, all on the same grid and all carrying `dim`.
@@ -45,12 +50,9 @@ def concat(objs: Any, dim: str) -> NetCDF:
 
     Returns:
         NetCDF: One cube whose `dim` is as long as the inputs' put together, holding each
-        input's coordinates for it in order.
-
-    Every cube's gaps stay gaps: the joined variable declares the first cube's sentinel
-    and the others are rewritten to it. The one case that cannot come out right is a
-    later cube holding the first cube's sentinel as a real measurement — that cell is
-    read as missing afterwards, so change one of the sentinels before joining.
+        input's coordinates for it in order — or `None` for that dimension's coordinates
+        when any cube contributes none, since a half-labelled axis would misdescribe its
+        own cells.
 
     Raises:
         ValueError: `objs` is empty; the cubes carry different variables; a variable does
@@ -383,6 +385,14 @@ def _check_other_dimensions(parts: list[NetCDF], dim: str, name: str) -> None:
         return () if stamps is None else tuple(float(one) for one in stamps)
 
     def layout(part: NetCDF) -> list[tuple[str, int, tuple]]:
+        """The variable's dimensions other than `dim`, as comparable `(name, size, stamps)`.
+
+        Args:
+            part: The variable.
+
+        Returns:
+            list[tuple[str, int, tuple]]: One entry per other dimension, in array order.
+        """
         sizes = list(part._band_dim_sizes)
         return [
             (other, sizes[index], coordinates(part, other))

@@ -2106,9 +2106,12 @@ class Analysis(_Engine["Dataset"]):
             AlignmentError: A raster condition is on another grid. `where` does not
                 resample; :meth:`Dataset.align <pyramids.dataset.Dataset.align>` is the
                 explicit step for that.
+            TypeError: `other` is neither a number nor `None` — a boolean included, since
+                writing `True` into a band is never what was meant.
             ValueError: An array condition's shape does not broadcast onto this raster's
-                cells, or `drop` was asked for and the condition selected no cells at all,
-                which leaves no raster to build.
+                cells; `drop` was asked for and the condition selected no cells at all,
+                which leaves no raster to build; or this is a `NetCDF` container, which has
+                no raster of its own — call it on one of its variables.
 
         Examples:
             - Keep the cells above a threshold, masking the rest:
@@ -2281,13 +2284,13 @@ class Analysis(_Engine["Dataset"]):
     def _values_match(self, other: Dataset) -> bool:
         """Whether every cell agrees, a gap counting as equal to a gap.
 
-        Args:
-            other: The raster to compare with.
-
         A NaN sitting inside the domain — a raster that declares a numeric sentinel and
         holds a NaN anyway, which is what `where(cond, np.nan)` produces — counts as equal
         to the same NaN on the other side, so a raster equals its own copy. Without that,
         `np.array_equal` would answer `False` for a raster compared with itself.
+
+        Args:
+            other: The raster to compare with.
 
         Returns:
             bool: `True` when the gaps line up and the values agree everywhere else.
@@ -2355,9 +2358,12 @@ class Analysis(_Engine["Dataset"]):
         """Flag the gaps: `1` where a cell is missing, `0` where it holds data.
 
         The flags come back in the `uint8` a comparison returns, so the result reads as a
-        condition: `raster.where(raster.notnull())` is a no-op and
-        `raster.where(raster.isnull(), 0.0)` zeroes exactly the gaps. xarray answers a
-        boolean array, which GDAL has no band type for.
+        condition for :meth:`where`. Mind which way round: `where` keeps what the condition
+        *selects*, and a selected cell that was already a gap stays one, so it is the
+        complement that closes the gaps — `raster.where(raster.notnull(), 0.0)` zeroes them,
+        while `raster.where(raster.isnull(), 0.0)` zeroes the cells that hold data and
+        leaves every gap where it was. xarray's `where` answers exactly the same both ways;
+        it differs only in flagging with a boolean array, which GDAL has no band type for.
 
         Returns:
             Dataset: A `uint8` raster on this one's grid, `1` at each gap. It declares no
@@ -2378,6 +2384,21 @@ class Analysis(_Engine["Dataset"]):
               [[0, 1], [0, 0]]
 
               ```
+            - Which way round the flags read as a `where` condition:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, -9999.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.where(raster.notnull(), 0.0).read_array().tolist()
+              [[1.0, 0.0], [3.0, 4.0]]
+              >>> raster.where(raster.isnull(), 0.0).read_array().tolist()
+              [[0.0, -9999.0], [0.0, 0.0]]
+
+              ```
         """
         return self._null_flags(missing=True)
 
@@ -2385,7 +2406,10 @@ class Analysis(_Engine["Dataset"]):
         """Flag the data: `1` where a cell holds a value, `0` where it is missing.
 
         The complement of :meth:`isnull`, in the same `uint8` flags, so it reads as a
-        condition for :meth:`where`.
+        condition for :meth:`where` — and it is this one, not `isnull`, that a `where`
+        closing the gaps takes: `raster.where(raster.notnull(), 0.0)` keeps every cell that
+        holds data and writes `0.0` into the gaps, which is what :meth:`fillna` does.
+        Selecting on it alone, `raster.where(raster.notnull())`, is a no-op.
 
         Returns:
             Dataset: A `uint8` raster on this one's grid, `1` at each cell that holds data,
@@ -2403,6 +2427,22 @@ class Analysis(_Engine["Dataset"]):
               >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
               >>> raster.notnull().read_array().tolist()
               [[1, 0], [1, 1]]
+
+              ```
+            - Selecting on the flags changes nothing, and filling through them matches
+              `fillna`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, -9999.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.equals(raster.where(raster.notnull()))
+              True
+              >>> raster.where(raster.notnull(), 0.0).equals(raster.fillna(0.0))
+              True
 
               ```
         """
@@ -2515,7 +2555,12 @@ class Analysis(_Engine["Dataset"]):
             other: What an unselected cell holds, or the derive sentinel.
 
         Returns:
-            Dataset: The result, on this raster's grid.
+            Dataset: The result, on this raster's grid. It declares the fill that went into
+            the unselected cells, which is NaN whenever `other` resolved to NaN.
+
+        Raises:
+            TypeError: `other` is neither a number nor `None`. Booleans are refused with
+                the rest: `np.where` would happily write `True` into the band as `1`.
         """
         declared = next((one for one in sentinels if one is not None), None)
         fill = declared if other is _DERIVE_NO_DATA else other

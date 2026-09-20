@@ -435,9 +435,11 @@ class Interop(_Engine["NetCDF"]):
         **On a y-ascending store the row order differs, deliberately.** pyramids reads
         every raster north-up, so the frame describes the cells as they are laid out and
         its first row is the northernmost; xarray orders the rows as the file stores them,
-        which for such a file is south first. The labels and the values under them are the
-        same — only the order differs — so a comparison against xarray needs a sort on
-        those files.
+        which for such a file is south first. The index labels are the same set and each
+        one carries the same value — only the order differs — so comparing against xarray
+        on those files takes a `sort_index()` on both. Add `check_dtype=False` while you
+        are there: every column here is `float64`, whatever width the store keeps the
+        variable at.
 
         **Not the same shape as** :meth:`LabeledDataset.to_dataframe
         <pyramids.netcdf.labeled.LabeledDataset.to_dataframe>`, which serves the non-raster
@@ -456,8 +458,8 @@ class Interop(_Engine["NetCDF"]):
                 me the cells that hold data" read.
 
         Returns:
-            pandas.DataFrame: The frame, `prod(sizes)` rows long before `dropna`, its gaps
-            as NaN.
+            pandas.DataFrame: The frame, `prod(sizes)` rows long before `dropna`, every
+            column `float64` whatever the store's own band type, its gaps as NaN.
 
         Raises:
             ValueError: The container has no gridded variables; a name is not one of them;
