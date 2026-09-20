@@ -190,12 +190,14 @@ class TestAxisSign:
 
         np.testing.assert_allclose(result, [9.0, 7.0, 5.0])
 
-    def test_the_axes_match_the_element_wise_form(self):
-        """The vectorised axis equals index-times-step, within a couple of ULP.
+    def test_the_axes_match_the_closed_form(self):
+        """Both axes equal the closed form `origin + (i + 0.5) * step`, element for element.
 
-        Multiplying the index by the step (rather than accumulating per element)
-        stays far below the 1e-6 tolerance the only in-tree consumer compares
-        with; a positive step ascends on both axes.
+        The reference evaluates that same closed form in a Python loop for a large
+        count off a big origin with a fractional step, where float rounding would
+        surface; the vectorised `x_axis` / `y_axis` must match it within
+        representation noise (`atol`), not a different formula. A positive step
+        ascends on both axes.
         """
         pivot, step, count = 1234567.75, 0.125, 97
         expected = np.array([pivot + i * step + step / 2 for i in range(count)])
