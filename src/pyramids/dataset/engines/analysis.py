@@ -3738,8 +3738,10 @@ class Analysis(_Engine["Dataset"]):
                 otherwise-meaningless magnitude colorbar is suppressed by default
                 (equivalent to ``cmap=matplotlib.colors.ListedColormap(["black"])``
                 with ``add_colorbar=False``). ``color=`` and ``cmap=`` are
-                mutually exclusive. Pass ``add_colorbar=False`` when composing
-                onto a shared map.
+                mutually exclusive. (Unlike :meth:`plot`'s ``color=``, which is a
+                magnitude ``ColorScaling``, here ``color=`` is a solid matplotlib
+                colour.) Pass ``add_colorbar=False`` when composing onto a shared
+                map.
 
         Returns:
             tuple:
@@ -3751,8 +3753,9 @@ class Analysis(_Engine["Dataset"]):
         Raises:
             ValueError: If ``u_band`` or ``v_band`` is out of range for the
                 dataset, if ``kind`` is not one of ``"quiver"``, ``"barbs"``,
-                or ``"streamplot"``, or if both ``color=`` and ``cmap=`` are
-                given (they are mutually exclusive).
+                or ``"streamplot"``, if both ``color=`` and ``cmap=`` are given
+                (they are mutually exclusive), or if ``color=`` is not a valid
+                matplotlib colour.
 
         Examples:
             - Render a two-band ``(u, v)`` stack as arrows (tagged ``+SKIP``
