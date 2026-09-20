@@ -511,6 +511,35 @@ class TestNoConflictsFillsFromBothCopies:
         assert merged.dtype == ["int16"]
         assert_allclose(_read_variable(merged), np.array([[1.0, 2.0], [3.0, 4.0]]))
 
+    def test_copies_stamped_at_different_times_are_refused(self):
+        """Two measurements 100 hours apart are not one step, however well they combine.
+
+        Test scenario:
+            The layout check compared the shape and the dimension *names* and never the
+            coordinates, so the copies were fused and stamped with the first's `time`.
+            `concat` got this cross-check in round 1 and `merge` did not. xarray aligns
+            the pair into a two-step cube instead; pyramids has `concat` for that, so the
+            fusion is refused rather than guessed at.
+        """
+        mine = _cube(np.array([[[1.0, NDV], [3.0, 4.0]]]), [0.0])
+        theirs = _cube(np.array([[[NDV, 2.0], [3.0, 4.0]]]), [100.0])
+        with pytest.raises(ValueError, match="different coordinates"):
+            NetCDF.merge([mine, theirs])
+
+    def test_the_refusal_names_the_dimension_and_both_stamps(self):
+        """A caller has to see which axis disagrees and what it disagrees about."""
+        mine = _cube(np.array([[[1.0, NDV], [3.0, 4.0]]]), [0.0])
+        theirs = _cube(np.array([[[NDV, 2.0], [3.0, 4.0]]]), [100.0])
+        with pytest.raises(ValueError, match=r"'time'.*\[0.0\].*\[100.0\]"):
+            NetCDF.merge([mine, theirs])
+
+    def test_copies_stamped_the_same_still_combine(self):
+        """The check must not refuse the pair the member exists for."""
+        mine = _cube(np.array([[[1.0, NDV], [3.0, 4.0]]]), [0.0])
+        theirs = _cube(np.array([[[NDV, 2.0], [3.0, 4.0]]]), [0.0])
+        merged = NetCDF.merge([mine, theirs])
+        assert_allclose(_read(merged), np.array([[1.0, 2.0], [3.0, 4.0]]))
+
     def test_two_copies_with_nothing_to_fill_keep_the_band_type(self):
         """The conversion to NaN is only paid when a cell is actually taken.
 
@@ -787,6 +816,93 @@ class TestTheJoinCarriesWhatTheCubesKnow:
         )
         carried = joined.get_variable("t")._resolved_band_dim_time_attrs()
         assert carried.get("time") == ("hours since 2020-01-01", "standard")
+
+    @staticmethod
+    def _declaring(values: list[float], stamps: list[float], units) -> NetCDF:
+        """A cube whose `time` carries the CF units given, or none.
+
+        Args:
+            values: One value per step.
+            stamps: The `time` coordinates.
+            units: The `(units, calendar)` pair, or `None` to declare nothing.
+
+        Returns:
+            NetCDF: The cube.
+        """
+        cube = NetCDF.from_array(
+            np.array(values).reshape(len(values), 1, 1),
+            geo_ref=GEO,
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=stamps),
+        )
+        if units is not None:
+            cube.get_variable("t")._band_dim_time_attrs = {"time": units}
+            cube._band_dim_time_attrs = {"time": units}
+        return cube
+
+    def test_disagreeing_units_are_dropped_rather_than_guessed(self):
+        """A calendar that is only one cube's must not be applied to the other's stamps.
+
+        Test scenario:
+            The carry folded `reversed(parts)` into one dict, so the first part declaring
+            anything won — including against a part declaring something different. `B`'s
+            `6.0` then read as 6 hours since 2020 rather than 6 days since 1990, which is
+            worse than the bare axis the carry was added to fix: undecodable became
+            confidently wrong. `_label_combined`'s policy for a dimension the operands
+            disagree on is to drop it, and this follows it.
+        """
+        joined = NetCDF.concat(
+            [
+                self._declaring([1.0], [0.0], ("hours since 2020-01-01", "standard")),
+                self._declaring([2.0], [6.0], ("days since 1990-01-01", "standard")),
+            ],
+            "time",
+        )
+        carried = joined.get_variable("t")._resolved_band_dim_time_attrs()
+        assert "time" not in carried
+
+    def test_units_on_only_one_cube_are_not_applied_to_the_other(self):
+        """An unlabelled half makes the joined axis unlabelled, not half-labelled."""
+        joined = NetCDF.concat(
+            [
+                self._declaring([1.0], [0.0], None),
+                self._declaring([2.0], [6.0], ("hours since 2020-01-01", "standard")),
+            ],
+            "time",
+        )
+        carried = joined.get_variable("t")._resolved_band_dim_time_attrs()
+        assert "time" not in carried
+
+    def test_two_variables_disagreeing_about_a_shared_dimension(self):
+        """The container-level carry must not let one variable stamp another's axis.
+
+        Test scenario:
+            `time_attrs.update(...)` ran once per variable into one container-level dict,
+            so whichever variable was processed last left its units on the shared `time`.
+        """
+        first = NetCDF.from_array(
+            np.ones((2, 1, 1)),
+            geo_ref=GEO,
+            variable_name="rain",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+        )
+        first.get_variable("rain")._band_dim_time_attrs = {
+            "time": ("hours since 2020-01-01", "standard")
+        }
+        second = NetCDF.from_array(
+            np.ones((2, 1, 1)),
+            geo_ref=GEO,
+            variable_name="temp",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+        )
+        second.get_variable("temp")._band_dim_time_attrs = {
+            "time": ("days since 1990-01-01", "standard")
+        }
+        merged = NetCDF.merge([first, second])
+        assert "time" not in merged._band_dim_time_attrs
 
     def test_merge_carries_them_too(self):
         """The same omission was in `merge`."""

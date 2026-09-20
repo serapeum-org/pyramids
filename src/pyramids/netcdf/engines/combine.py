@@ -100,23 +100,29 @@ def _carried_time_attrs(parts: list[NetCDF], band_names: list[str]) -> dict:
     bare numbers again and a date `sel`, a frequency `reduce` or a decoding `to_xarray`
     all lose the calendar.
 
+    Only a dimension every part agrees about is carried. A part that declares nothing
+    counts as a disagreement: applying the other part's calendar to its bare stamps is
+    how `6.0` comes to read as 6 hours since 2020 when it meant 6 days since 1990, and a
+    confidently wrong calendar is worse than the undecodable axis this carry exists to
+    fix. That is `_label_combined`'s policy for a dimension the operands disagree on.
+
     Args:
         parts: One variable per cube.
         band_names: The result's band dimensions.
 
     Returns:
-        dict: The units per dimension, taken from the first part that declares any.
+        dict: The units per dimension every part declares the same, and no others.
     """
-    carried: dict = {}
-    for part in reversed(parts):
-        carried.update(
-            {
-                name: attrs
-                for name, attrs in part._resolved_band_dim_time_attrs().items()
-                if name in band_names
-            }
-        )
-    return carried
+    declared: dict[str, list] = {name: [] for name in band_names}
+    for part in parts:
+        resolved = part._resolved_band_dim_time_attrs()
+        for name in band_names:
+            declared[name].append(resolved.get(name))
+    return {
+        name: attrs[0]
+        for name, attrs in declared.items()
+        if attrs[0] is not None and all(one == attrs[0] for one in attrs)
+    }
 
 
 def _joined_values(
@@ -228,8 +234,14 @@ def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
             list(part._band_dim_names),
             dict(part._band_dim_values_map),
         )
-        time_attrs.update(_carried_time_attrs([part], list(part._band_dim_names)))
-    cast("NetCDF", result)._band_dim_time_attrs = time_attrs
+        carried = _carried_time_attrs([part], list(part._band_dim_names))
+        for dim, attrs in carried.items():
+            # Two variables sharing a dimension and declaring it differently leave it
+            # undecodable rather than stamped with whichever was processed last.
+            time_attrs[dim] = attrs if time_attrs.get(dim, attrs) == attrs else None
+    cast("NetCDF", result)._band_dim_time_attrs = {
+        dim: attrs for dim, attrs in time_attrs.items() if attrs is not None
+    }
     return cast("NetCDF", result)
 
 
@@ -481,7 +493,8 @@ def _filled_from(
         numpy.ndarray: The cells, with what the other copy could add.
 
     Raises:
-        ValueError: The layouts differ, or a cell both copies judged disagrees.
+        ValueError: The layouts differ, a band dimension is stamped differently, or a
+            cell both copies judged disagrees.
     """
     theirs = np.asarray(cube._materialize_variable_array(other))
     if theirs.shape != values.shape or tuple(other._band_dim_names) != tuple(
@@ -492,6 +505,20 @@ def _filled_from(
             f"{values.shape} over {tuple(part._band_dim_names)} and another is "
             f"{theirs.shape} over {tuple(other._band_dim_names)}."
         )
+    # `merge` joins no dimension, so every one of them has to line up before the cells
+    # can. Without this the copies are fused and stamped with the first's coordinates:
+    # two measurements a hundred hours apart become one step. `concat` is the member for
+    # putting them end to end.
+    for dim in part._band_dim_names:
+        mine_stamps = _stamps(part, dim)
+        their_stamps = _stamps(other, dim)
+        if mine_stamps != their_stamps:
+            raise ValueError(
+                f"merge() found {name!r} in more than one cube with different "
+                f"coordinates for {dim!r}: one is {list(mine_stamps)} and another is "
+                f"{list(their_stamps)}. Use concat() to put them end to end along "
+                f"{dim!r}."
+            )
     sentinel = _read_no_data(part)
     mine = _gaps_as_nan(values, sentinel)
     yours = _gaps_as_nan(theirs, _read_no_data(other))
@@ -512,6 +539,20 @@ def _filled_from(
     else:
         filled = values
     return np.asarray(filled)
+
+
+def _stamps(part: NetCDF, dim: str) -> tuple:
+    """A dimension's coordinates as a comparable tuple, empty when it carries none.
+
+    Args:
+        part: The variable.
+        dim: The dimension's name.
+
+    Returns:
+        tuple: The stamps as floats, or `()`.
+    """
+    values = part._band_dim_values_map.get(dim)
+    return () if values is None else tuple(float(one) for one in values)
 
 
 def _narrowed(filled: np.typing.NDArray, dtype: np.dtype) -> np.typing.NDArray:
