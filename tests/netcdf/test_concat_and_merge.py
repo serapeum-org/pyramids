@@ -178,6 +178,17 @@ class TestConcatRefusals:
         with pytest.raises(ValueError, match="same variables"):
             NetCDF.concat([rain, temp], "time")
 
+    def test_something_that_is_not_a_cube(self):
+        """A stray object is named and refused, not followed until it breaks.
+
+        Test scenario:
+            The grid check reached for `_band_dim_names` on whatever it was handed, so an
+            `int` in the list surfaced as `AttributeError: 'int' object has no attribute
+            '_band_dim_names'` from deep inside the join.
+        """
+        with pytest.raises(ValueError, match=r"concat\(\) joins NetCDF cubes"):
+            NetCDF.concat([1, 2], "time")
+
     def test_a_dimension_the_cubes_lack(self):
         """The joined dimension has to be one they have."""
         first = _cube(np.ones((2, 2, 2)), [0.0, 6.0])
@@ -323,6 +334,11 @@ class TestMerge:
         """Only the two modes are accepted."""
         with pytest.raises(ValueError, match="compat="):
             NetCDF.merge([_cube(np.ones((2, 2, 2)), [0.0, 6.0])], compat="strict")
+
+    def test_something_that_is_not_a_cube(self):
+        """`merge` refuses the same way `concat` does, and names the type."""
+        with pytest.raises(ValueError, match=r"merge\(\) joins NetCDF cubes"):
+            NetCDF.merge([1, 2])
 
     def test_a_different_grid_is_refused(self):
         """Variables on different grids cannot share one container."""

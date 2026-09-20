@@ -231,12 +231,23 @@ def _checked(objs: Any, caller: str) -> list[NetCDF]:
         list[NetCDF]: The cubes.
 
     Raises:
-        ValueError: There are none.
+        ValueError: There are none, or one of them is not a cube.
         AlignmentError: They are not all on one grid.
     """
     cubes = list(objs)
     if not cubes:
         raise ValueError(f"{caller}() needs at least one cube to join, got none.")
+    # Duck-typed on what the join reads rather than on the class, because importing
+    # `NetCDF` here would close the cycle `netcdf -> combine -> netcdf`. Without the
+    # check the first grid comparison reaches for `_band_dim_names` on whatever it was
+    # handed and the caller gets an `AttributeError` from inside the join.
+    strangers = [one for one in cubes if not hasattr(one, "_band_dim_names")]
+    if strangers:
+        raise ValueError(
+            f"{caller}() joins NetCDF cubes — containers or variables — and was given "
+            f"{type(strangers[0]).__name__}. Read the file with NetCDF.read_file(), or "
+            f"take a variable with get_variable()."
+        )
     first = cubes[0]
     for cube in cubes[1:]:
         if not _grids_match(first, cube):

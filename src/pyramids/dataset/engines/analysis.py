@@ -2083,9 +2083,10 @@ class Analysis(_Engine["Dataset"]):
                 raster's cells; a raster on the same grid, which a comparison such as
                 `raster > 5` produces and whose own no-data cells read as false; or a
                 callable handed this raster's physical values and returning either.
-            other: What an unselected cell holds. The raster's declared no-data value by
-                default, or NaN when it declares none, in which case the result declares
-                NaN. A number writes that number into every unselected cell instead. A
+            other: What an unselected cell holds. Left out, it is the raster's declared
+                no-data value, or NaN when it declares none. An explicit `None` is NaN
+                whatever the raster declares, and the result then declares NaN too — the
+                two are not the same argument. A number writes that number instead. A
                 *selected* cell that was already a gap stays one, so the result still
                 declares the sentinel and still holds it wherever the condition kept a
                 missing cell — `where(cond, 0.0)` is not a `fillna`.
@@ -2524,8 +2525,7 @@ class Analysis(_Engine["Dataset"]):
             fill, (bool, np.bool_)
         ):
             raise TypeError(
-                f"where() needs a number for `other`, or None for this raster's own "
-                f"no-data value; got {other!r}."
+                f"where() needs a number for `other`, or None for NaN; got {other!r}."
             )
         # A selected cell that was already a gap stays one: `values` holds its sentinel,
         # which is what the caller declared to mean "missing", so it is left in place.

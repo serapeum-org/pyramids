@@ -514,7 +514,16 @@ class TestTheRefusalsAreSentences:
         with pytest.raises(TypeError, match="where.. needs a number"):
             raster.where(VALUES > 5, "x")
 
-    def test_other_none_means_the_no_data_value(self):
-        """`None` is accepted and documented as "the raster's own gaps"."""
+    def test_other_none_means_nan_whatever_the_raster_declares(self):
+        """An explicit `None` is NaN, not the raster's own `-9999.0`.
+
+        Test scenario:
+            The refusal offered `None` as "this raster's own no-data value", which it is
+            not: leaving `other` out does that, and `None` asks for NaN whatever the
+            raster declares. The result declares NaN too, so it can find those cells.
+        """
         raster = _raster()
-        assert np.isnan(_read(raster.where(VALUES > 5, None))[0, 0])
+        assert raster.no_data_value[0] == NDV, "precondition: it declares a number"
+        result = raster.where(VALUES > 5, None)
+        assert np.isnan(result.no_data_value[0])
+        assert np.isnan(_read(result)[0, 0])
