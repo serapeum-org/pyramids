@@ -386,3 +386,85 @@ class TestTheReceivers:
         )
         merged = NetCDF.merge([container])
         assert sorted(merged.variable_names) == ["dem", "rain"]
+
+
+class TestJoiningCubesThatMarkGapsDifferently:
+    """Two cubes may spell "missing" with different numbers; the join must keep both."""
+
+    @staticmethod
+    def _cube_with(values: list[float], stamps: list[float], sentinel: float) -> NetCDF:
+        """A one-cell cube declaring `sentinel` for its gaps.
+
+        Args:
+            values: One value per step, the sentinel where a gap is meant.
+            stamps: The `time` coordinates.
+            sentinel: The no-data value to declare.
+
+        Returns:
+            NetCDF: The cube.
+        """
+        return NetCDF.from_array(
+            np.array(values).reshape(len(values), 1, 1),
+            geo_ref=GEO,
+            variable_name="t",
+            no_data_value=sentinel,
+            dims=ExtraDimensions(name="time", values=stamps),
+        )
+
+    def test_both_cubes_gaps_survive(self):
+        """The second cube's gap stays a gap instead of becoming a measurement.
+
+        Test scenario:
+            Each cube was materialised with its own sentinel written into its gaps, and the
+            join declared only the first cube's. The second cube's `-1.0` gap came through
+            as a legitimate — and physically absurd — value: `isnull` answered `[0, 1, 0, 0]`
+            where `[0, 1, 1, 0]` is the truth, and every later mean or fill consumed it.
+        """
+        first = self._cube_with([1.0, -9999.0], [0.0, 6.0], -9999.0)
+        second = self._cube_with([-1.0, 4.0], [12.0, 18.0], -1.0)
+        joined = NetCDF.concat([first, second], "time").get_variable("t")
+        flags = np.asarray(joined.isnull().read_array()).ravel().tolist()
+        assert flags == [0, 1, 1, 0]
+
+    def test_the_values_that_are_data_are_unchanged(self):
+        """Only the gap marking is normalised; the measurements are the cubes' own."""
+        first = self._cube_with([1.0, -9999.0], [0.0, 6.0], -9999.0)
+        second = self._cube_with([-1.0, 4.0], [12.0, 18.0], -1.0)
+        joined = NetCDF.concat([first, second], "time").get_variable("t")
+        read = np.asarray(joined.read_array(), dtype="float64").ravel()
+        sentinel = joined.no_data_value[0]
+        kept = read[read != sentinel]
+        assert_allclose(kept, [1.0, 4.0])
+
+    def test_matching_sentinels_keep_the_band_type(self):
+        """When the cubes already agree, nothing is converted and an integer band stays one."""
+        first = NetCDF.from_array(
+            np.array([1, 2], dtype="int16").reshape(2, 1, 1),
+            geo_ref=GEO,
+            variable_name="t",
+            no_data_value=-1,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+        )
+        second = NetCDF.from_array(
+            np.array([3, -1], dtype="int16").reshape(2, 1, 1),
+            geo_ref=GEO,
+            variable_name="t",
+            no_data_value=-1,
+            dims=ExtraDimensions(name="time", values=[12.0, 18.0]),
+        )
+        joined = NetCDF.concat([first, second], "time").get_variable("t")
+        assert np.asarray(joined.read_array()).dtype == np.int16
+        assert joined.no_data_value[0] == -1
+
+    def test_a_cube_declaring_no_sentinel_joins_with_one_that_does(self):
+        """A cube with no gaps at all contributes none, and the other's still count."""
+        first = self._cube_with([1.0, -9999.0], [0.0, 6.0], -9999.0)
+        second = NetCDF.from_array(
+            np.array([3.0, 4.0]).reshape(2, 1, 1),
+            geo_ref=GEO,
+            variable_name="t",
+            no_data_value=None,
+            dims=ExtraDimensions(name="time", values=[12.0, 18.0]),
+        )
+        joined = NetCDF.concat([first, second], "time").get_variable("t")
+        assert np.asarray(joined.isnull().read_array()).ravel().tolist() == [0, 1, 0, 0]

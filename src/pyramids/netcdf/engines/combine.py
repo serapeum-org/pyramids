@@ -22,7 +22,11 @@ import numpy as np
 
 from pyramids.base._errors import AlignmentError
 from pyramids.base.crs import crs_spec
-from pyramids.netcdf.engines._along_dim import _read_no_data, _reduces_as_a_variable
+from pyramids.netcdf.engines._along_dim import (
+    _gaps_as_nan,
+    _read_no_data,
+    _reduces_as_a_variable,
+)
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
@@ -62,13 +66,7 @@ def concat(objs: Any, dim: str) -> NetCDF:
             )
         _check_other_dimensions(parts, dim, name)
         axis = band_names.index(dim)
-        values = np.concatenate(
-            [
-                np.asarray(cube._materialize_variable_array(part))
-                for cube, part in zip(cubes, parts)
-            ],
-            axis=axis,
-        )
+        values, sentinel = _joined_values(cubes, parts, axis)
         values_map = dict(parts[0]._band_dim_values_map)
         values_map[dim] = _joined_coordinates(parts, dim)
         result = first._stack_reduced_variable(
@@ -77,11 +75,66 @@ def concat(objs: Any, dim: str) -> NetCDF:
             values,
             parts[0].geotransform,
             crs_spec(parts[0].epsg, parts[0].crs),
-            _read_no_data(parts[0]),
+            sentinel,
             band_names,
             values_map,
         )
     return cast("NetCDF", result)
+
+
+def _joined_values(
+    cubes: list[NetCDF], parts: list[NetCDF], axis: int
+) -> tuple[np.ndarray, Any]:
+    """The cubes' values end to end, with every cube's gaps still marked as gaps.
+
+    Each cube writes its **own** sentinel into its gap cells, and the joined variable can
+    declare only one. Taking the first cube's and concatenating the rest as stored turns
+    every other cube's gaps into ordinary numbers — a `-1.0` that was "missing" becomes a
+    measurement, and every later mean or fill consumes it. So when the cubes disagree, each
+    is masked with its own sentinel first and the chosen one is written back.
+
+    Cubes that already agree are concatenated as they are, which keeps an integer band
+    integer: the conversion is only paid when it buys something.
+
+    Args:
+        cubes: The cubes being joined, for their array helpers.
+        parts: The matching variable of each cube.
+        axis: The axis to join along.
+
+    Returns:
+        tuple: The joined values, and the no-data value the result should declare.
+    """
+    arrays = [
+        np.asarray(cube._materialize_variable_array(part))
+        for cube, part in zip(cubes, parts)
+    ]
+    sentinels = [_read_no_data(part) for part in parts]
+    first = sentinels[0]
+    if all(_same_sentinel(one, first) for one in sentinels):
+        return np.concatenate(arrays, axis=axis), first
+    target = first if first is not None else np.nan
+    normalised = [
+        np.where(np.isnan(_gaps_as_nan(array, sentinel)), target, array)
+        for array, sentinel in zip(arrays, sentinels)
+    ]
+    return np.concatenate(normalised, axis=axis), target
+
+
+def _same_sentinel(one: Any, other: Any) -> bool:
+    """Whether two declared no-data values mean the same thing.
+
+    Args:
+        one: A cube's sentinel, or `None`.
+        other: Another cube's sentinel, or `None`.
+
+    Returns:
+        bool: `True` when both are absent, both are NaN, or both are the same number.
+    """
+    if one is None or other is None:
+        return one is None and other is None
+    if np.isnan(one) and np.isnan(other):
+        return True
+    return bool(one == other)
 
 
 def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
