@@ -259,6 +259,22 @@ class TestRefusals:
         frame = _container().get_variable("t").to_dataframe(variables=["t"])
         assert list(frame.columns) == ["t"]
 
+    @pytest.mark.parametrize("empty", [[], ()])
+    def test_an_empty_selection_is_refused_in_words(self, empty):
+        """Asking for no columns is a mistake, and `names[0]` said so in the wrong voice.
+
+        Test scenario:
+            `_frame_variables` returned the empty list unchanged and `to_dataframe` then
+            indexed it, so the caller got `IndexError: list index out of range` from the
+            middle of the member.
+
+        Args:
+            empty: The empty selection under test.
+        """
+        container = _container()
+        with pytest.raises(ValueError, match="empty selection"):
+            container.to_dataframe(variables=empty)
+
     def test_a_repeated_name_is_refused(self):
         """A name asked for twice cannot become two columns, so it is not accepted.
 

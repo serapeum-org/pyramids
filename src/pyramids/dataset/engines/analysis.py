@@ -2541,6 +2541,13 @@ class Analysis(_Engine["Dataset"]):
             mask = np.asarray(flags & other_domain)
         else:
             mask = np.asarray(cond) != 0
+        # A one-step variable reads back as `(rows, cols)` while its cube layout is
+        # `(1, rows, cols)`, and `broadcast_to` cannot drop a leading axis — so a
+        # condition built from `_materialize_variable_array` was refused on a one-step
+        # cube and accepted on a two-step one. A leading singleton carries no information,
+        # so it is dropped rather than made to depend on the cube's length.
+        while np.ndim(mask) == values.ndim + 1 and np.shape(mask)[0] == 1:
+            mask = np.asarray(mask)[0]
         try:
             resolved = np.broadcast_to(mask, values.shape)
         except ValueError:
@@ -2579,9 +2586,10 @@ class Analysis(_Engine["Dataset"]):
         fill = declared if other is _DERIVE_NO_DATA else other
         if fill is None:
             fill = np.nan
-        elif not isinstance(fill, (Real, np.number)) or isinstance(
-            fill, (bool, np.bool_)
-        ):
+        # `Real` alone: every real numpy scalar registers as one, while `np.complex128`
+        # is an `np.number` and slipped through to produce a complex band under a real
+        # no-data value. A bool is a `Real` equal to 1, and is refused as a caller's bug.
+        elif not isinstance(fill, Real) or isinstance(fill, (bool, np.bool_)):
             raise TypeError(
                 f"where() needs a number for `other`, or None for NaN; got {other!r}."
             )

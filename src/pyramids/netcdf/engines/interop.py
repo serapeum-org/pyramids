@@ -552,6 +552,12 @@ class Interop(_Engine["NetCDF"]):
                     f"to_dataframe() was asked for {repeated!r} more than once, and a "
                     f"name can only become one column. Pass each name at most once."
                 )
+            if not names:
+                raise ValueError(
+                    f"to_dataframe() was given an empty selection, and a frame needs at "
+                    f"least one column. Pass `variables=None` for all of them, or one of "
+                    f"{available}."
+                )
         return names
 
 

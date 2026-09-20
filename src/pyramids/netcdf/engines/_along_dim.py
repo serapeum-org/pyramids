@@ -659,7 +659,10 @@ class _DropNa(_AlongDim):
         values_map = dict(var._band_dim_values_map)
         ndv = _read_no_data(var)
         axis = band_names.index(dim)
-        arr = nc._materialize_variable_array(var, lazy=True)
+        # One materialisation, as the two fills do: counting the gaps and taking the
+        # surviving steps both read the variable, and a lazily-backed one was computed
+        # twice for it.
+        arr = np.asarray(nc._materialize_variable_array(var, lazy=True))
         valid = np.asarray(~np.isnan(_gaps_as_nan(arr, ndv)))
         counted = np.sum(valid, axis=tuple(i for i in range(valid.ndim) if i != axis))
         per_step = int(
@@ -677,7 +680,7 @@ class _DropNa(_AlongDim):
                 f"holds fewer than {needed} valid cell(s). A variable with no bands cannot "
                 f"be built; relax `how` or `thresh`."
             )
-        values = np.take(np.asarray(arr), kept, axis=axis)
+        values = np.take(arr, kept, axis=axis)
         coords = values_map.get(dim)
         if coords is not None:
             values_map[dim] = [coords[int(step)] for step in kept]

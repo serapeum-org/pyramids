@@ -202,6 +202,62 @@ class TestConditionForms:
             raster.where(wrong_shape)
 
 
+class TestACubeShapedCondition:
+    """A condition carrying the cube's leading axis works whatever the cube's length."""
+
+    @staticmethod
+    def _variable(steps: int) -> tuple:
+        """A `(steps, 3, 3)` variable and the cube-shaped array of its own values.
+
+        Args:
+            steps: How many steps the `time` dimension has.
+
+        Returns:
+            tuple: The variable and its values as `_materialize_variable_array` gives them.
+        """
+        container = NetCDF.from_array(
+            np.arange(9.0 * steps).reshape(steps, 3, 3),
+            geo_ref=NCGeoReference(geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=[6.0 * i for i in range(steps)]),
+        )
+        variable = container.get_variable("t")
+        return variable, np.asarray(container._materialize_variable_array(variable))
+
+    def test_a_one_step_cube_accepts_its_own_layout(self):
+        """The refusal depended on the cube's length, which is not a property of the call.
+
+        Test scenario:
+            `_operand_arrays` squeezes a single-band variable to `(rows, cols)` while the
+            cube layout stays `(1, rows, cols)`, and `broadcast_to` cannot drop a leading
+            axis — so the same construction was refused on a one-step cube and accepted
+            on a two-step one.
+        """
+        variable, values = self._variable(1)
+        assert values.shape == (1, 3, 3), "precondition: the cube layout has the axis"
+        kept = variable.where(values > 4.0)
+        assert np.asarray(kept.read_array()).ravel().tolist()[5:] == [
+            5.0,
+            6.0,
+            7.0,
+            8.0,
+        ]
+
+    def test_a_two_step_cube_is_unaffected(self):
+        """The case that already worked still works."""
+        variable, values = self._variable(2)
+        kept = variable.where(values > 4.0)
+        assert np.asarray(kept.read_array()).shape == (2, 3, 3)
+
+    def test_a_genuinely_wrong_shape_is_still_refused(self):
+        """Dropping a leading singleton must not swallow a real mismatch."""
+        variable, _ = self._variable(1)
+        wrong = np.ones((1, 2, 2), dtype=bool)
+        with pytest.raises(ValueError, match="does not broadcast"):
+            variable.where(wrong)
+
+
 class TestDrop:
     """`drop=True` trims the raster to the bounding box of what survived."""
 
@@ -684,6 +740,37 @@ class TestTheRefusalsAreSentences:
         raster = _raster()
         with pytest.raises(TypeError, match="where.. needs a number"):
             raster.where(VALUES > 5, "x")
+
+    @pytest.mark.parametrize(
+        "value",
+        [complex(1, 2), np.complex128(1 + 2j), np.complex64(1 + 2j)],
+    )
+    def test_a_complex_other_is_refused_however_it_is_spelled(self, value):
+        """A complex fill cannot be a cell value under a real no-data value.
+
+        Test scenario:
+            The check read `isinstance(fill, (Real, np.number))`, and a `np.complex128`
+            is an `np.number` without being a `Real` — so the numpy spelling was accepted
+            where the Python one was refused, and produced a complex band declaring a
+            real sentinel, with two `ComplexWarning`s on the way.
+
+        Args:
+            value: The complex fill under test.
+        """
+        raster = _raster()
+        with pytest.raises(TypeError, match="needs a number"):
+            raster.where(VALUES > 5, value)
+
+    @pytest.mark.parametrize(
+        "value", [2, 2.5, np.float32(0.5), np.int16(7), np.float64(-1.0)]
+    )
+    def test_every_real_spelling_is_still_accepted(self, value):
+        """Refusing complex must not refuse the numpy reals alongside it.
+
+        Args:
+            value: The real fill under test.
+        """
+        assert _raster().where(VALUES > 5, value) is not None
 
     def test_other_none_means_nan_whatever_the_raster_declares(self):
         """An explicit `None` is NaN, not the raster's own `-9999.0`.
