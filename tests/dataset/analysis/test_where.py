@@ -446,6 +446,53 @@ class TestDropOnASouthUpRaster:
         assert (result.rows, result.columns) == (1, 3)
 
 
+class TestDropOnARotatedGrid:
+    """The trim is an index slice, so a skewed geotransform moves its corner too."""
+
+    ROTATED = (100.0, 2.0, 0.5, 500.0, 0.25, -2.0)
+    """A grid with both rotation terms non-zero, so neither can be dropped unnoticed."""
+
+    @staticmethod
+    def _trimmed() -> Dataset:
+        """The 3x4 rotated raster trimmed to the interior 2x2 block.
+
+        Returns:
+            Dataset: The trimmed raster.
+        """
+        raster = Dataset.from_array(
+            CLEAN,
+            geo_ref=GeoReference(geo=TestDropOnARotatedGrid.ROTATED, epsg=4326),
+            no_data_value=NDV,
+        )
+        condition = np.zeros(CLEAN.shape, dtype=bool)
+        condition[1:3, 1:3] = True
+        return raster.where(condition, drop=True)
+
+    def test_the_origin_moves_through_both_skews(self):
+        """The corner is `origin + left * column_terms + top * row_terms`, both axes.
+
+        Test scenario:
+            The trim starts one row down and one column across, so the new corner picks
+            up a skew term on each axis: `100 + 1*2.0 + 1*0.5` east and
+            `500 + 1*0.25 + 1*-2.0` north. Arithmetic that ignored the skews would answer
+            `102.0` and `498.0` and place the block off its own grid.
+        """
+        geo = self._trimmed().geotransform
+        assert geo[0] == pytest.approx(102.5)
+        assert geo[3] == pytest.approx(498.25)
+
+    def test_the_rotation_terms_survive(self):
+        """Only the corner moves: the cell size and both skews are the raster's own."""
+        geo = self._trimmed().geotransform
+        assert (geo[1], geo[2], geo[4], geo[5]) == self.ROTATED[1:3] + self.ROTATED[4:6]
+
+    def test_it_keeps_the_block_the_condition_selected(self):
+        """The values are the interior block, not a resampled or re-cropped one."""
+        trimmed = self._trimmed()
+        assert (trimmed.rows, trimmed.columns) == (2, 2)
+        assert_allclose(_read(trimmed), [[6.0, 7.0], [10.0, 11.0]])
+
+
 class TestTheResultKeepsItsType:
     """Masking must not quietly double the raster's footprint."""
 
