@@ -2597,14 +2597,15 @@ class NetCDF(Dataset):
     @property
     def x(self) -> np.typing.NDArray:
         """x-coordinate/longitude."""
-        # X_coordinate = upper-left corner x + index * cell size + cell-size/2
+        # Returns the stored x/lon coordinate variable (see `lon`); only when the file
+        # has no such coordinate does it fall back to the geotransform-derived axis.
         return self.lon
 
     @property
     def y(self) -> np.typing.NDArray:
         """y-coordinate/latitude."""
-        # Y_coordinate = upper-left corner y + (index + 0.5) * signed pixel height (gt[5]);
-        # a north-up grid (gt[5] < 0) descends, a south-up one (gt[5] > 0) ascends.
+        # Returns the stored y/lat coordinate variable (see `lat`); only when the file
+        # has no such coordinate does it fall back to the geotransform-derived axis.
         return self.lat
 
     @property
