@@ -358,3 +358,66 @@ class TestTheResultKeepsItsIdentity:
         """A flag band still describes the band it flags."""
         assert self._labelled().isnull().band_names == ["reflectance"]
         assert self._labelled().notnull().meta_data == {"source": "sentinel"}
+
+
+class TestANanOtherIsDeclared:
+    """Filling with NaN must leave the result honest about what is missing."""
+
+    @staticmethod
+    def _flagged() -> Dataset:
+        """A `uint8` raster declaring 255 for its gaps.
+
+        Returns:
+            Dataset: The raster.
+        """
+        values = np.arange(1, 10, dtype="uint8").reshape(3, 3)
+        return Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=255)
+
+    def test_the_result_declares_nan(self):
+        """A raster whose gaps are NaN says so, rather than naming a value it never holds.
+
+        Test scenario:
+            The declared sentinel was replaced by NaN only when the source declared
+            nothing, so a `uint8` raster declaring `255` answered a float64 result still
+            declaring `255` — a value absent from it — and then claimed nothing was
+            missing: `isnull` all zero, `fillna` filling nothing, and the result not even
+            equal to its own copy.
+        """
+        result = self._flagged().where(np.arange(1, 10).reshape(3, 3) > 4, np.nan)
+        assert np.isnan(result.no_data_value[0])
+
+    def test_it_knows_its_own_gaps(self):
+        """`isnull` finds the cells the mask removed."""
+        result = self._flagged().where(np.arange(1, 10).reshape(3, 3) > 4, np.nan)
+        assert np.asarray(result.isnull().read_array()).sum() == 4
+
+    def test_it_equals_its_own_copy(self):
+        """A raster that does not equal its own copy is broken by definition."""
+        result = self._flagged().where(np.arange(1, 10).reshape(3, 3) > 4, np.nan)
+        assert result.equals(result.copy())
+
+    def test_fillna_can_reach_those_cells(self):
+        """The gaps are real gaps, so `fillna` writes to them."""
+        result = self._flagged().where(np.arange(1, 10).reshape(3, 3) > 4, np.nan)
+        filled = np.asarray(result.fillna(0.0).read_array(), dtype="float64")
+        assert not np.isnan(filled).any()
+
+
+class TestDropOnASouthUpRaster:
+    """A raster whose rows run south to north trims like any other."""
+
+    def test_it_does_not_refuse_what_crop_accepts(self):
+        """`drop=True` builds its bbox from the edges, whichever way the rows run.
+
+        Test scenario:
+            The north edge was computed as `geo[3] + rows[0] * geo[5]`, which assumes a
+            negative row height. On a south-up geotransform that put south above north and
+            the call died inside `crop` with
+            `ValueError: bbox must satisfy south < north` — on a raster `crop(bbox=...)`
+            accepts directly.
+        """
+        south_up = GeoReference(geo=(0.0, 1.0, 0.0, 0.0, 0.0, 1.0), epsg=4326)
+        values = np.arange(1, 10, dtype="float64").reshape(3, 3)
+        raster = Dataset.from_array(values, geo_ref=south_up, no_data_value=NDV)
+        result = raster.where(values > 6.0, drop=True)
+        assert (result.rows, result.columns) == (1, 3)

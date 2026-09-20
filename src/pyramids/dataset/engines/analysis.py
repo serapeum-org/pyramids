@@ -2108,6 +2108,9 @@ class Analysis(_Engine["Dataset"]):
         values, sentinels, domain = self._operand_arrays(self._ds, None)
         selected = self._where_condition(cond, values, domain)
         result = self._where_result(values, sentinels, domain, selected, other)
+        # A raster condition may carry a layout of its own, which the hook has already
+        # reconciled with this one's; `_identified` labelled the result from the receiver
+        # alone, so the reconciled answer replaces it.
         self._ds._label_combined(result, layout_source)
         return self._where_trimmed(result) if drop else result
 
@@ -2469,7 +2472,10 @@ class Analysis(_Engine["Dataset"]):
         # which is what the caller declared to mean "missing", so it is left in place.
         kept = np.where(domain, values, declared if declared is not None else np.nan)
         out = np.where(selected, kept, fill)
-        if declared is None and np.isnan(np.asarray(fill, dtype="float64")).all():
+        # The gaps of the result are wherever `fill` went, so that is what it declares —
+        # a NaN fill under a numeric sentinel would otherwise leave a raster declaring a
+        # value it does not hold, unable to find its own missing cells.
+        if np.isnan(np.asarray(fill, dtype="float64")).all():
             declared = np.nan
         out = np.asarray(out)
         return self._identified(self._rebuilt(out, declared))
@@ -2496,11 +2502,16 @@ class Analysis(_Engine["Dataset"]):
         )
 
     def _identified(self, result: Dataset) -> Dataset:
-        """Put this raster's band names and dataset tags on a result built from it.
+        """Put this raster's identity on a result built from it, cell for cell.
 
-        The same two assignments `combine` makes, and for the same reason: a masked or
-        filled raster is still the same band of the same scene, and one that has come back
-        as `Band_1` with no tags has lost what told the caller which band it is.
+        The same assignments `combine` makes, and for the same reason: a masked, filled
+        or flagged raster is still the same band of the same scene, and one that comes
+        back as `Band_1` with no tags has lost what told the caller which band it is.
+
+        On a `NetCDF` variable the band **dimensions** are identity too — without them
+        `sel` refuses the result — so the labelling hook runs as well. Every member that
+        comes through here keeps each dimension's length, so the layout is the receiver's
+        own: the shape a fold has, one operand with nothing to compare it against.
 
         Args:
             result: The freshly built raster.
@@ -2510,6 +2521,7 @@ class Analysis(_Engine["Dataset"]):
         """
         result.meta_data = self._ds.meta_data
         result.band_names = list(self._ds.band_names)
+        self._ds._label_combined(result, self._ds._combine_layout_source(None, None))
         return result
 
     def _where_trimmed(self, result: Dataset) -> Dataset:
@@ -2544,13 +2556,20 @@ class Analysis(_Engine["Dataset"]):
                 "Check the condition, or leave `drop` off to keep the grid."
             )
         geo = result.geotransform
-        west = geo[0] + int(columns[0]) * geo[1]
-        east = geo[0] + (int(columns[-1]) + 1) * geo[1]
-        north = geo[3] + int(rows[0]) * geo[5]
-        south = geo[3] + (int(rows[-1]) + 1) * geo[5]
-        return cast(
-            "Dataset", result.crop(bbox=(west, south, east, north), epsg=result.epsg)
+        # Taken as the min and max of the two edge ordinates rather than assuming which
+        # way each axis runs: a south-up geotransform (`geo[5] > 0`) would otherwise put
+        # south above north and be refused by a `crop` that accepts the same box happily.
+        first_x = geo[0] + int(columns[0]) * geo[1]
+        last_x = geo[0] + (int(columns[-1]) + 1) * geo[1]
+        first_y = geo[3] + int(rows[0]) * geo[5]
+        last_y = geo[3] + (int(rows[-1]) + 1) * geo[5]
+        bbox = (
+            min(first_x, last_x),
+            min(first_y, last_y),
+            max(first_x, last_x),
+            max(first_y, last_y),
         )
+        return cast("Dataset", result.crop(bbox=bbox, epsg=result.epsg))
 
     def _extract_streamed(
         self, band: int | None, exclude_list: list

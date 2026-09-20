@@ -266,3 +266,62 @@ class TestAVariableTakesEveryConditionForm:
         result = variable.where(np.arange(8.0).reshape(2, 2, 2) > 3)
         assert result._band_dim_values_map["time"] == [0.0, 6.0]
         assert np.asarray(result.sel(time=6.0).read_array()).shape == (2, 2)
+
+
+class TestTheCellWiseMembersKeepAVariablesLayout:
+    """`fillna`, `isnull` and `notnull` leave a variable selectable, as every member does."""
+
+    @staticmethod
+    def _variable():
+        """A two-step variable over `time`, one cell of it a gap.
+
+        Returns:
+            NetCDF: The variable.
+        """
+        values = np.arange(8.0).reshape(2, 2, 2)
+        values[0, 0, 0] = NDV
+        return NetCDF.from_array(
+            values,
+            geo_ref=NCGeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+        ).get_variable("t")
+
+    @pytest.mark.parametrize("member", ["fillna", "isnull", "notnull"])
+    def test_the_band_dimensions_survive(self, member):
+        """The result still carries `time`, so it still selects.
+
+        Test scenario:
+            These three built their result straight through `_build_dataset` without the
+            labelling hook every other member goes through, so a `('time',)` variable came
+            back with no band dimensions at all and `sel(time=0.0)` then refused with
+            "requires a variable with at least one non-spatial dimension".
+
+        Args:
+            member: The member called.
+        """
+        variable = self._variable()
+        call = getattr(variable, member)
+        result = call(0.0) if member == "fillna" else call()
+        assert tuple(result._band_dim_names) == ("time",)
+        assert result._band_dim_values_map["time"] == [0.0, 6.0]
+
+    @pytest.mark.parametrize("member", ["fillna", "isnull", "notnull"])
+    def test_the_result_still_selects(self, member):
+        """The layout is only worth keeping if it is usable.
+
+        Args:
+            member: The member called.
+        """
+        variable = self._variable()
+        call = getattr(variable, member)
+        result = call(0.0) if member == "fillna" else call()
+        assert np.asarray(result.sel(time=6.0).read_array()).shape == (2, 2)
+
+    def test_the_operator_path_is_the_reference(self):
+        """Whatever `v + 1` keeps, these keep."""
+        variable = self._variable()
+        assert tuple(variable.fillna(0.0)._band_dim_names) == tuple(
+            (variable + 1)._band_dim_names
+        )
