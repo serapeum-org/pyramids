@@ -3694,13 +3694,15 @@ class Analysis(_Engine["Dataset"]):
         extra.
 
         The grid is taken from the dataset's 1-D ``x``/``y`` cell-centre
-        arrays, so an **axis-aligned (north-up, unrotated)** geotransform is
-        assumed — as elsewhere in pyramids' extent-based plotting. ``v`` is
-        treated as the northward (``+y``) component. Because ``streamplot``
-        requires strictly-increasing coordinates while a north-up raster's
-        ``y`` is descending, the axis is flipped to ascending and the data
-        rows/cols are mirrored to match; this is a pure relabelling, so each
-        vector stays at its true location for every ``kind``.
+        arrays, so an **axis-aligned (unrotated)** geotransform is assumed —
+        the rotation terms are ignored, as elsewhere in pyramids' extent-based
+        plotting. Orientation is handled, though: ``v`` is treated as the
+        northward (``+y``) component, and because ``streamplot`` requires
+        strictly-increasing coordinates, a descending ``x``/``y`` (e.g. a
+        north-up raster's ``y``) is flipped to ascending with the data
+        rows/cols mirrored to match — a pure relabelling, so each vector keeps
+        its true location for every ``kind``, while an already-ascending
+        (south-up) axis is left as-is.
 
         Args:
             u_band (int, optional):
