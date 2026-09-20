@@ -332,6 +332,95 @@ class TestDrop:
         assert np.isnan(_read(result)).sum() == 11
 
 
+class TestDropTrimsTheBandDimensionToo:
+    """xarray drops labels in every dimension, not only the two spatial ones."""
+
+    @staticmethod
+    def _variable() -> tuple:
+        """A `(time=2, y=2, x=2)` variable and its cells in cube layout.
+
+        Returns:
+            tuple: The variable and the `(2, 2, 2)` array of its values.
+        """
+        container = NetCDF.from_array(
+            np.arange(8.0).reshape(2, 2, 2),
+            geo_ref=NCGeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+        )
+        variable = container.get_variable("t")
+        return variable, np.asarray(container._materialize_variable_array(variable))
+
+    def test_a_step_the_condition_is_false_across_is_dropped(self):
+        """The empty step goes, and the stamps go with it.
+
+        Test scenario:
+            The trim folded the band axis away with `np.any(selected, axis=0)` and cut
+            rows and columns only, so a cube kept every step however empty. Measured on
+            xarray: `da.where(da > 4, drop=True)` answers shape `(1, 2, 2)` with
+            `time == [6.0]` and values `[[nan, 5.0], [6.0, 7.0]]`.
+        """
+        variable, values = self._variable()
+        kept = variable.where(values > 4.0, drop=True)
+        assert (kept.band_count, kept.rows, kept.columns) == (1, 2, 2)
+        assert kept._band_dim_values_map["time"] == [6.0]
+        assert_allclose(
+            _read(kept), np.array([[np.nan, 5.0], [6.0, 7.0]]), equal_nan=True
+        )
+
+    def test_the_spatial_trim_still_applies_alongside_it(self):
+        """Both halves at once, which is the shape xarray answers.
+
+        Test scenario:
+            `da.where(da > 6, drop=True)` is `(1, 1, 1)` at `time [6.0]`, `y [0.5]`,
+            `x [1.5]`.
+        """
+        variable, values = self._variable()
+        kept = variable.where(values > 6.0, drop=True)
+        assert (kept.band_count, kept.rows, kept.columns) == (1, 1, 1)
+        assert kept._band_dim_values_map["time"] == [6.0]
+
+    def test_a_condition_true_in_every_step_keeps_them_all(self):
+        """Trimming must not shorten a cube the condition did not empty."""
+        variable, values = self._variable()
+        kept = variable.where(values >= 0.0, drop=True)
+        assert kept.band_count == 2
+        assert kept._band_dim_values_map["time"] == [0.0, 6.0]
+
+    def test_a_plain_stack_drops_its_empty_band(self):
+        """A stack has bands without stamps, and the same rule applies to them."""
+        cells = np.arange(8.0).reshape(2, 2, 2)
+        stack = Dataset.from_array(cells, geo_ref=GEO_REF, no_data_value=NDV)
+        assert stack.where(cells > 4.0, drop=True).band_count == 1
+
+    def test_two_band_dimensions_keep_every_band(self):
+        """A product of two dimensions has no rectangular subset to cut to.
+
+        Test scenario:
+            The bands are the flattened product of `time` and `level`, and the steps the
+            condition survives in are not a rectangle of that product in general — so
+            those variables are trimmed spatially only, which the docstring states.
+        """
+        container = NetCDF.from_array(
+            np.arange(16.0).reshape(2, 2, 2, 2),
+            geo_ref=NCGeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(
+                dims=[("time", [0.0, 6.0]), ("level", [1000.0, 850.0])]
+            ),
+        )
+        variable = container.get_variable("t")
+        # The bands are the flattened product, which is the layout a condition for this
+        # variable has to be in — the `(2, 2, 2, 2)` store layout is a separate gap.
+        cells = np.arange(16.0).reshape(4, 2, 2)
+        kept = variable.where(cells > 12.0, drop=True)
+        assert kept.band_count == 4
+        assert kept._band_dim_values_map["time"] == [0.0, 6.0]
+        assert kept._band_dim_values_map["level"] == [1000.0, 850.0]
+
+
 class TestBandsAndLayout:
     """A multi-band raster is masked band by band."""
 

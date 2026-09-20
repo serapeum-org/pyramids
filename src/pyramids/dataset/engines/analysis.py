@@ -2103,12 +2103,18 @@ class Analysis(_Engine["Dataset"]):
                 result declares the sentinel and still holds it there. A NaN `other`
                 makes the result declare NaN, and those kept gaps are NaN too, so the
                 source's sentinel appears nowhere in it.
-            drop: Trim the result to the smallest rectangle the condition selected a cell
-                in, discarding the rows and columns it was false across. Read off the
-                condition, as xarray reads it: `other` does not save a row, and a cell
-                that was already missing is kept if the condition selected it. The grid is
-                unchanged — the origin moves to the first surviving cell and the cell size
-                stays as it was. Off by default, which keeps every row and column.
+            drop: Trim the result to what the condition selected a cell in, discarding
+                the rows, the columns **and** the bands it was false across — xarray
+                drops labels in every dimension, and a cube's empty steps go with its
+                empty rows. Read off the condition, as xarray reads it: `other` does not
+                save a row, and a cell that was already missing is kept if the condition
+                selected it. The grid is unchanged — the origin moves to the first
+                surviving cell and the cell size stays as it was. Off by default, which
+                keeps every row, column and band.
+
+                A variable carrying **two or more** band dimensions is trimmed spatially
+                only: its bands are the flattened product of those dimensions, and the
+                surviving set is not a rectangle of that product in general.
 
         Returns:
             Dataset: A new raster on this one's grid and CRS — trimmed to what survived
@@ -2689,6 +2695,12 @@ class Analysis(_Engine["Dataset"]):
         rows and columns that are no-data from edge to edge as well, which is the second
         half of that same divergence — `crop` trimming gaps the condition had kept.
 
+        The bands the condition is false across go too, which for a cube means its empty
+        steps: xarray drops labels in *every* dimension, not only the two spatial ones.
+        A variable carrying **two or more** band dimensions is the exception — its bands
+        are the flattened product of them, and the surviving set is not a rectangle of
+        that product in general — so those keep every band and only the grid is trimmed.
+
         Args:
             result: The masked raster, on the full grid.
             selected: True wherever the condition selected a cell, shaped like the cells.
@@ -2711,10 +2723,11 @@ class Analysis(_Engine["Dataset"]):
         top, bottom = int(rows[0]), int(rows[-1]) + 1
         left, right = int(columns[0]), int(columns[-1]) + 1
         cells = np.asarray(result.read_array(unpack=False))
+        bands = self._surviving_bands(selected, cells)
         block = np.ascontiguousarray(
             cells[top:bottom, left:right]
             if cells.ndim == 2
-            else cells[:, top:bottom, left:right]
+            else cells[np.ix_(bands, range(top, bottom), range(left, right))]
         )
         geo = result.geotransform
         # The two skews carry a rotated grid's corner across as well, so this is the same
@@ -2737,7 +2750,67 @@ class Analysis(_Engine["Dataset"]):
             result.no_data_value[0],
             array=block,
         )
-        return self._identified(trimmed)
+        return self._restamped(self._identified(trimmed), bands)
+
+    def _surviving_bands(
+        self, selected: np.typing.NDArray, cells: np.typing.NDArray
+    ) -> np.typing.NDArray:
+        """The band indices the condition selected a cell in, or all of them.
+
+        Every band survives on a 2-D raster, and on a variable whose bands are the
+        flattened product of two or more dimensions — there the kept set is not a
+        rectangle of that product in general, so the trim stays spatial.
+
+        Args:
+            selected: True wherever the condition selected a cell.
+            cells: The result's stored values, for its band count.
+
+        Returns:
+            numpy.ndarray: The band indices to keep, in order.
+        """
+        count = 1 if cells.ndim == 2 else cells.shape[0]
+        keep = np.arange(count)
+        if selected.ndim == 3 and len(getattr(self._ds, "_band_dim_names", ())) <= 1:
+            survivors = np.flatnonzero(np.any(selected, axis=(1, 2)))
+            if survivors.size:
+                keep = survivors
+        return keep
+
+    def _restamped(self, trimmed: Dataset, bands: np.typing.NDArray) -> Dataset:
+        """Cut the one band dimension's coordinates to the bands that survived.
+
+        `_identified` labels the result from the receiver, whose dimension is as long as
+        it was before the trim, so the sizes and stamps are corrected here. A receiver
+        with no band dimension, or one that kept every band, needs nothing.
+
+        Args:
+            trimmed: The trimmed raster, already labelled.
+            bands: The band indices that survived.
+
+        Returns:
+            Dataset: `trimmed`.
+        """
+        names = list(getattr(self._ds, "_band_dim_names", ()))
+        if len(names) == 1 and len(bands) != self._ds.band_count:
+            dim = names[0]
+            trimmed._band_dim_sizes = (len(bands),)  # type: ignore[attr-defined]
+            stamps = dict(getattr(self._ds, "_band_dim_values_map", {}))
+            coords = stamps.get(dim)
+            if coords is not None:
+                stamps[dim] = [coords[int(one)] for one in bands]
+            trimmed._band_dim_values_map = stamps  # type: ignore[attr-defined]
+            # The legacy `(name, values)` pair is a view of the canonical fields, and
+            # one staticmethod owns that derivation — including the staleness guard for
+            # a band-shrinking operation, which this is.
+            trimmed._band_dim_name, trimmed._band_dim_values = (  # type: ignore[attr-defined]
+                trimmed._derive_primary_band_view(  # type: ignore[attr-defined]
+                    tuple(trimmed._band_dim_names),
+                    trimmed._band_dim_values_map,
+                    tuple(trimmed._band_dim_sizes),
+                    trimmed.band_count,
+                )
+            )
+        return trimmed
 
     def _extract_streamed(
         self, band: int | None, exclude_list: list
