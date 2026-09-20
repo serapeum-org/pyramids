@@ -197,8 +197,10 @@ class Variables(_Engine["NetCDF"]):
 
         # Build spatial dimensions from the geotransform
         x_values = np.array(nc.get_x_lon_dimension_array(gt[0], gt[1], dataset.columns))
-        # Signed pixel height (gt[5]), like the x width above: a south-up grid
-        # (gt[5] > 0) ascends, a north-up one (gt[5] < 0) descends.
+        # Pass the signed geotransform[5], matching the helper's signed contract
+        # (like the x width above). A NetCDF is normalised to north-up on
+        # construction/read, so gt[5] is < 0 here and the axis descends; this is
+        # required, not a behaviour change -- abs(gt[5]) would now wrongly ascend.
         y_values = np.array(nc.get_y_lat_dimension_array(gt[3], gt[5], dataset.rows))
         dim_x = nc._get_or_create_dimension(
             rg, "x", x_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_X
@@ -1343,8 +1345,9 @@ def _create_netcdf_from_array(
     coord_dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
     x_dim_values = NetCDF.get_x_lon_dimension_array(geo[0], geo[1], cols)
     # Y/lat pixel height comes from geo[5], not geo[1] — using the X cell here would square a
-    # non-square grid (e.g. 2° lon, 1° lat). Pass the signed height so a south-up grid
-    # (geo[5] > 0) ascends and a north-up one (geo[5] < 0) descends.
+    # non-square grid (e.g. 2° lon, 1° lat). Pass the signed geo[5], matching the helper's
+    # signed contract; a NetCDF is normalised to north-up (geo[5] < 0), so the axis descends.
+    # Required, not a behaviour change: abs(geo[5]) would now wrongly ascend.
     y_dim_values = NetCDF.get_y_lat_dimension_array(geo[3], geo[5], rows)
 
     if path is not None:

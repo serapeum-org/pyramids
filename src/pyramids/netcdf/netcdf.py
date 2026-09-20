@@ -2603,7 +2603,8 @@ class NetCDF(Dataset):
     @property
     def y(self) -> np.typing.NDArray:
         """y-coordinate/latitude."""
-        # Y_coordinate = upper-left corner y - index * cell size - cell-size/2
+        # Y_coordinate = upper-left corner y + (index + 0.5) * signed pixel height (gt[5]);
+        # a north-up grid (gt[5] < 0) descends, a south-up one (gt[5] > 0) ascends.
         return self.lat
 
     @property
