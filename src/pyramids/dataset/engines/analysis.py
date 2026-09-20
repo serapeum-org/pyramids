@@ -3717,15 +3717,23 @@ class Analysis(_Engine["Dataset"]):
                 what lets it be composed onto a shared map (pair it with
                 ``add_colorbar=False``). Any layers already on the axes — e.g. a scalar
                 :meth:`plot` drawn first — are **preserved**, and the arrows are drawn on
-                top rather than clearing them. An axes already carries its figure, so
-                ``ax`` on its own is sufficient and there is no separate ``fig`` parameter
-                here. A new figure/axes is created when left unset. Default is ``None``.
+                top rather than clearing them. Because the host is preserved, calling
+                ``plot_vector_field`` again on the same ``ax`` **adds** another field on
+                top rather than replacing the previous one; start from a fresh axes to
+                redraw. An axes already carries its figure, so ``ax`` on its own is
+                sufficient and there is no separate ``fig`` parameter here. A new
+                figure/axes is created when left unset. Default is ``None``.
             **kwargs:
                 Style options forwarded to the ``VectorGlyph`` constructor,
                 filtered via :meth:`VectorGlyph.filter_kwargs` (e.g.
-                ``density``, ``scale``, ``cmap``, ``add_colorbar``, and
-                ``thin`` — draw every nth grid point so a large ``quiver`` /
-                ``barbs`` grid is not one arrow per cell). Pass
+                ``density``, ``scale``, ``cmap``, ``add_colorbar``, ``thin``).
+                ``thin=n`` draws every nth grid point so a large ``quiver`` /
+                ``barbs`` grid is not one arrow per cell; it applies to
+                ``quiver`` / ``barbs`` only — ``streamplot`` ignores it (with a
+                warning), use ``density`` there. Arrows are coloured by vector
+                magnitude through ``cmap``; for a single **solid** colour pass a
+                one-colour colormap, e.g.
+                ``cmap=matplotlib.colors.ListedColormap(["black"])``. Pass
                 ``add_colorbar=False`` when composing onto a shared map.
 
         Returns:
