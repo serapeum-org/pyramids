@@ -420,6 +420,55 @@ class TestDropTrimsTheBandDimensionToo:
         assert kept._band_dim_values_map["time"] == [0.0, 6.0]
         assert kept._band_dim_values_map["level"] == [1000.0, 850.0]
 
+    def test_a_dimension_that_lost_its_stamps_still_drops_its_band(self):
+        """An operator's result has no coordinates to cut, and the count still has to follow.
+
+        Test scenario:
+            A binary operator between two `isel` slices leaves `time` unstamped
+            (`_band_dim_values_map['time'] is None`) — the one receiver where the
+            coordinate cut has nothing to cut. The band count, the dimension size and the
+            legacy `(name, values)` view still have to follow the trim, or the result
+            describes two steps while holding one.
+        """
+        variable = NetCDF.from_array(
+            np.arange(16.0).reshape(4, 2, 2),
+            geo_ref=NCGeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+        ).get_variable("t")
+        change = variable.isel(time=slice(2, 4)) * variable.isel(time=slice(0, 2))
+        assert change._band_dim_values_map["time"] is None, "precondition: no stamps"
+        condition = np.zeros((2, 2, 2), dtype=bool)
+        condition[1] = True
+        kept = change.where(condition, drop=True)
+        assert kept.band_count == 1, f"expected one band, got {kept.band_count}"
+        assert kept._band_dim_sizes == (1,), f"stale sizes: {kept._band_dim_sizes}"
+        assert kept._band_dim_values_map["time"] is None, "stamps invented from nowhere"
+        assert np.asarray(kept.read_array()).ravel().tolist() == [
+            48.0,
+            65.0,
+            84.0,
+            105.0,
+        ]
+
+    def test_every_band_is_kept_when_the_condition_selected_none(self):
+        """The fallback the trim never reaches, since an empty condition is refused first.
+
+        Test scenario:
+            `_where_trimmed` raises on an all-false condition before `_surviving_bands`
+            could answer an empty set, so the fallback is only reachable by calling it
+            directly. It has to answer every band rather than none — an empty set would
+            build a raster of no bands — and the public call still refuses in words.
+        """
+        cells = np.arange(8.0).reshape(2, 2, 2)
+        stack = Dataset.from_array(cells, geo_ref=GEO_REF, no_data_value=NDV)
+        stored = np.asarray(stack.read_array(unpack=False))
+        bands = stack.analysis._surviving_bands(np.zeros((2, 2, 2), dtype=bool), stored)
+        assert bands.tolist() == [0, 1], f"expected every band, got {bands.tolist()}"
+        with pytest.raises(ValueError, match="kept no cells"):
+            stack.where(np.zeros((2, 2, 2), dtype=bool), drop=True)
+
 
 class TestBandsAndLayout:
     """A multi-band raster is masked band by band."""
@@ -813,6 +862,21 @@ class TestTheResultKeepsItsType:
         assert (
             np.asarray(raster.where(values > 4, 0.5).read_array()).dtype == np.float64
         )
+
+    def test_a_float_band_widens_for_a_magnitude_it_cannot_hold(self):
+        """The rule is what the band can hold, not that the band is a float.
+
+        Test scenario:
+            A `float32` band keeps its own type for anything inside `+/-3.4e38`, which is
+            what makes `where(notnull())` a no-op on one — but `1e300` is past that
+            range, so the result widens rather than storing an infinity the caller never
+            asked for.
+        """
+        values = np.arange(1, 10, dtype="float32").reshape(3, 3)
+        raster = Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=None)
+        widened = np.asarray(raster.where(values > 4, 1e300).read_array())
+        assert widened.dtype == np.float64, f"expected float64, got {widened.dtype}"
+        assert widened.ravel()[0] == 1e300, f"the fill was lost: {widened.ravel()[0]}"
 
 
 class TestAContainerIsRefusedByName:

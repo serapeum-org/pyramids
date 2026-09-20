@@ -25,6 +25,11 @@ from pyramids.base.georeference import GeoReference as DatasetGeoReference
 from pyramids.dataset import Dataset
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
 
+try:
+    import dask.array as dask_array
+except ImportError:  # pragma: no cover
+    dask_array = None  # type: ignore[assignment]
+
 pytestmark = pytest.mark.core
 
 GEO = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
@@ -53,6 +58,26 @@ def _column(values: list[float], no_data_value: float | None = None) -> NetCDF:
         no_data_value=no_data_value,
         dims=ExtraDimensions(name="time", values=TIMES[: len(values)]),
     ).get_variable("t")
+
+
+class _CountedBlock:
+    """A dask block function that records every compute of the graph it sits in."""
+
+    def __init__(self) -> None:
+        """Start the count at zero."""
+        self.computes = 0
+
+    def __call__(self, block: np.ndarray) -> np.ndarray:
+        """Return `block` unchanged, counting the call.
+
+        Args:
+            block: The chunk dask handed over.
+
+        Returns:
+            numpy.ndarray: `block`, untouched.
+        """
+        self.computes += 1
+        return block
 
 
 def _read(result: NetCDF) -> list[float]:
@@ -459,6 +484,34 @@ class TestDropna:
         result = variable.dropna("time")
         assert np.asarray(result.read_array()).dtype == np.int16
         assert result._band_dim_values_map["time"] == [0.0, 12.0, 18.0]
+
+    @pytest.mark.lazy
+    def test_a_lazily_backed_variable_is_computed_once(self, monkeypatch):
+        """Counting the gaps and taking the survivors read one array, not the graph twice.
+
+        Test scenario:
+            `dropna` held on to the lazy array and let `numpy.asarray` run over it twice
+            — once through the gap count, once through `numpy.take` — so a dask-backed
+            variable was computed from scratch for each of them. The two fills already
+            materialise once per call; this pins the same for `dropna`. The count is read
+            off a block function, which dask calls exactly once per chunk per compute
+            when `meta` spares it the metadata probe.
+
+        Args:
+            monkeypatch: Replaces the materialisation with a counted lazy array.
+        """
+        variable = _column([1.0, np.nan, 3.0, 4.0])
+        cells = np.asarray(variable.read_array(), dtype="float64").reshape(4, 1, 1)
+        counter = _CountedBlock()
+        lazy = dask_array.from_array(cells, chunks=cells.shape).map_blocks(
+            counter, dtype=cells.dtype, meta=np.empty((0, 0, 0), dtype=cells.dtype)
+        )
+        monkeypatch.setattr(
+            NetCDF, "_materialize_variable_array", staticmethod(lambda *_, **__: lazy)
+        )
+        kept = variable.dropna("time")
+        assert counter.computes == 1, f"the graph was computed {counter.computes} times"
+        assert kept._band_dim_values_map["time"] == [0.0, 12.0, 18.0]
 
 
 class TestTheReceivers:
