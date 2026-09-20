@@ -3733,11 +3733,13 @@ class Analysis(_Engine["Dataset"]):
                 warning), use ``density`` there. Arrows are coloured by vector
                 magnitude through ``cmap``. For a single **solid** colour pass
                 ``color=`` a matplotlib colour (e.g. ``color="black"``): it is
-                turned into a one-colour colormap, so every arrow renders in that
-                colour (equivalent to
-                ``cmap=matplotlib.colors.ListedColormap(["black"])``). ``color=``
-                and ``cmap=`` are mutually exclusive. Pass ``add_colorbar=False``
-                when composing onto a shared map.
+                turned into a one-colour colormap, so the whole field (arrows,
+                barbs, or streamlines) renders in that colour, and the
+                otherwise-meaningless magnitude colorbar is suppressed by default
+                (equivalent to ``cmap=matplotlib.colors.ListedColormap(["black"])``
+                with ``add_colorbar=False``). ``color=`` and ``cmap=`` are
+                mutually exclusive. Pass ``add_colorbar=False`` when composing
+                onto a shared map.
 
         Returns:
             tuple:
@@ -3794,6 +3796,10 @@ class Analysis(_Engine["Dataset"]):
         """
         require_cleopatra()
         from cleopatra.glyphs.gridded.vector_glyph import VectorGlyph
+
+        # Local ([viz]-extra only): matplotlib ships with cleopatra, so it imports
+        # once require_cleopatra() above passes; a module-level import would break a
+        # bare install without the [viz] extra (matplotlib is TYPE_CHECKING-only here).
         from matplotlib.colors import ListedColormap, is_color_like
 
         band_count = self._ds.band_count
@@ -3821,11 +3827,11 @@ class Analysis(_Engine["Dataset"]):
             x = x[::-1]
             u = u[:, ::-1]
             v = v[:, ::-1]
-        # Solid arrow colour: cleopatra colours arrows by magnitude through a
-        # colormap and has no scalar ``color=`` for a quiver (its ``color=`` is a
-        # magnitude ``ColorScaling``), so translate a matplotlib colour
-        # (``color="black"``) into a one-colour colormap — every arrow then
-        # renders in that colour.
+        # Solid colour: cleopatra colours the field by magnitude through a
+        # colormap and has no scalar ``color=`` (its ``color=`` is a magnitude
+        # ``ColorScaling``), so translate a matplotlib colour (``color="black"``)
+        # into a one-colour colormap — the whole field (arrows, barbs, or
+        # streamlines) then renders in that colour.
         color = kwargs.pop("color", None)
         if color is not None:
             if "cmap" in kwargs:
