@@ -632,9 +632,7 @@ class TestPlotDataSet:
         dataset = self._uv_dataset()
         red_cmap = ListedColormap(["red"])
         with pytest.raises(ValueError, match="color=.*or cmap="):
-            dataset.plot_vector_field(
-                u_band=0, v_band=1, color="black", cmap=red_cmap
-            )
+            dataset.plot_vector_field(u_band=0, v_band=1, color="black", cmap=red_cmap)
 
     @pytest.mark.plot
     def test_plot_vector_field_band_out_of_range_raises(self):
