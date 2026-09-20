@@ -457,6 +457,38 @@ class TestANanOtherIsDeclared:
         filled = np.asarray(result.fillna(0.0).read_array(), dtype="float64")
         assert not np.isnan(filled).any()
 
+    def test_a_gap_the_condition_selected_stays_a_gap(self):
+        """The cells that were already missing must not become `-9999.0` measurements.
+
+        Test scenario:
+            The fixture above holds no gap at all, so it never exercised the cell this is
+            about: a cell the condition *selected* that was already missing. The result
+            declares NaN while those cells still held the old numeric sentinel, so every
+            one of them was reclassified as data — `isnull` moved from `[[0, 1], [0, 0]]`
+            to `[[0, 0], [0, 1]]`. xarray answers `[[1.0, nan], [3.0, nan]]` here.
+        """
+        raster = _raster(np.array([[1.0, NDV], [3.0, 4.0]]))
+        assert np.asarray(raster.isnull().read_array()).tolist() == [[0, 1], [0, 0]]
+        result = raster.where(np.array([[True, True], [True, False]]), np.nan)
+        assert np.isnan(result.no_data_value[0])
+        assert np.asarray(result.isnull().read_array()).tolist() == [[0, 1], [0, 1]]
+        assert_allclose(
+            _read(result), np.array([[1.0, np.nan], [3.0, np.nan]]), equal_nan=True
+        )
+
+    def test_the_old_sentinel_is_nowhere_in_the_result(self):
+        """A raster declaring NaN must not still be carrying `-9999.0` cells."""
+        raster = _raster(np.array([[1.0, NDV], [3.0, 4.0]]))
+        result = raster.where(np.array([[True, True], [True, False]]), np.nan)
+        assert not (np.asarray(result.read_array()) == NDV).any()
+
+    def test_other_none_takes_the_same_path(self):
+        """`other=None` resolves to NaN, so it must clear the old sentinel too."""
+        raster = _raster(np.array([[1.0, NDV], [3.0, 4.0]]))
+        result = raster.where(np.array([[True, True], [True, False]]), None)
+        assert np.isnan(result.no_data_value[0])
+        assert not (np.asarray(result.read_array()) == NDV).any()
+
 
 class TestDropOnASouthUpRaster:
     """A raster whose rows run south to north trims like any other."""

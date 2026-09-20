@@ -2085,11 +2085,14 @@ class Analysis(_Engine["Dataset"]):
                 callable handed this raster's physical values and returning either.
             other: What an unselected cell holds. Left out, it is the raster's declared
                 no-data value, or NaN when it declares none. An explicit `None` is NaN
-                whatever the raster declares, and the result then declares NaN too — the
-                two are not the same argument. A number writes that number instead. A
-                *selected* cell that was already a gap stays one, so the result still
-                declares the sentinel and still holds it wherever the condition kept a
-                missing cell — `where(cond, 0.0)` is not a `fillna`.
+                whatever the raster declares — the two are not the same argument. A
+                number writes that number instead.
+
+                A *selected* cell that was already a gap stays a gap, marked the way the
+                result marks its gaps: `where(cond, 0.0)` is not a `fillna`, and the
+                result declares the sentinel and still holds it there. A NaN `other`
+                makes the result declare NaN, and those kept gaps are NaN too, so the
+                source's sentinel appears nowhere in it.
             drop: Trim the result to the smallest rectangle the condition selected a cell
                 in, discarding the rows and columns it was false across. Read off the
                 condition, as xarray reads it: `other` does not save a row, and a cell
@@ -2572,20 +2575,24 @@ class Analysis(_Engine["Dataset"]):
             raise TypeError(
                 f"where() needs a number for `other`, or None for NaN; got {other!r}."
             )
-        # A selected cell that was already a gap stays one: `values` holds its sentinel,
-        # which is what the caller declared to mean "missing", so it is left in place.
+        # The gaps of the result are wherever `fill` went, so a NaN fill makes the result
+        # declare NaN: keeping a numeric sentinel would leave a raster declaring a value
+        # it does not hold, unable to find its own missing cells.
+        fills_with_nan = bool(np.isnan(np.asarray(fill, dtype="float64")).all())
+        # A selected cell that was already a gap stays one, marked the way the *result*
+        # marks its gaps — not the way the source did. Writing the source's sentinel back
+        # while declaring NaN would reclassify every such cell as a measurement, and the
+        # number that leaked was the raw `-9999.0`.
+        gap = np.nan if fills_with_nan or declared is None else declared
         # `numpy.result_type` of the band and the fill, not whatever `np.where` promotes
         # to: a Python float would otherwise widen every band to float64 and quietly
         # double — or octuple — the result, including on the `where(notnull())` that the
         # docstring calls a no-op. A fill the band cannot hold still widens it.
         dtype = _mask_dtype(values.dtype, fill)
         filler = np.asarray(fill)
-        kept = np.where(domain, values, declared if declared is not None else np.nan)
+        kept = np.where(domain, values, gap)
         out = np.asarray(np.where(selected, kept, filler)).astype(dtype, copy=False)
-        # The gaps of the result are wherever `fill` went, so that is what it declares —
-        # a NaN fill under a numeric sentinel would otherwise leave a raster declaring a
-        # value it does not hold, unable to find its own missing cells.
-        if np.isnan(np.asarray(fill, dtype="float64")).all():
+        if fills_with_nan:
             declared = np.nan
         out = np.asarray(out)
         return self._identified(self._rebuilt(out, declared))
