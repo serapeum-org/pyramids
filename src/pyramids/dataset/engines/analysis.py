@@ -3835,6 +3835,9 @@ class Analysis(_Engine["Dataset"]):
             if not is_color_like(color):
                 raise ValueError(f"color= must be a matplotlib colour, got {color!r}")
             kwargs["cmap"] = ListedColormap([color])
+            # A single colour has no magnitude scale, so a magnitude colorbar
+            # would be misleading; default it off (an explicit add_colorbar wins).
+            kwargs.setdefault("add_colorbar", False)
         xx, yy = np.meshgrid(x, y)
         glyph = VectorGlyph(xx, yy, u, v, ax=ax, **VectorGlyph.filter_kwargs(kwargs))
         # A caller-supplied ``ax`` is a host to compose onto (e.g. a scalar map

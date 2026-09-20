@@ -647,6 +647,25 @@ class TestPlotDataSet:
             dataset.plot_vector_field(u_band=0, v_band=1, color="notacolour")
 
     @pytest.mark.plot
+    def test_plot_vector_field_solid_color_suppresses_colorbar(self):
+        """A solid ``color=`` drops the meaningless magnitude colorbar by default (#1128 P3).
+
+        Test scenario:
+            One colour has no magnitude scale, so a standalone ``color="black"``
+            field must not add a colorbar axes by default (the figure keeps its
+            single axes); an explicit ``add_colorbar=True`` still draws one.
+        """
+        dataset = self._uv_dataset()
+        fig, _, _ = dataset.plot_vector_field(u_band=0, v_band=1, color="black")
+        assert len(fig.axes) == 1, (
+            f"solid color must not add a colorbar, got {len(fig.axes)} axes"
+        )
+        fig2, _, _ = dataset.plot_vector_field(
+            u_band=0, v_band=1, color="black", add_colorbar=True
+        )
+        assert len(fig2.axes) == 2, "explicit add_colorbar=True must still draw a bar"
+
+    @pytest.mark.plot
     def test_plot_vector_field_band_out_of_range_raises(self):
         """A single-band dataset gives a clear error, not a GDAL/index crash.
 
