@@ -351,8 +351,9 @@ class TestMerge:
 
     def test_an_unknown_compat(self):
         """Only the two modes are accepted."""
+        cube = _cube(np.ones((2, 2, 2)), [0.0, 6.0])
         with pytest.raises(ValueError, match="compat="):
-            NetCDF.merge([_cube(np.ones((2, 2, 2)), [0.0, 6.0])], compat="strict")
+            NetCDF.merge([cube], compat="strict")
 
     def test_something_that_is_not_a_cube(self):
         """`merge` refuses the same way `concat` does, and names the type."""
@@ -369,8 +370,9 @@ class TestMerge:
             no_data_value=NDV,
             dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
         )
+        mine = _cube(np.ones((2, 2, 2)), [0.0, 6.0])
         with pytest.raises(AlignmentError, match="same grid"):
-            NetCDF.merge([_cube(np.ones((2, 2, 2)), [0.0, 6.0]), other])
+            NetCDF.merge([mine, other])
 
     def test_variables_with_different_dimensions_merge(self):
         """Unlike `concat`, `merge` does not need the cubes to agree on their axes."""
@@ -404,8 +406,10 @@ class TestNoConflictsFillsFromBothCopies:
     def test_a_cell_both_copies_hold_differently_is_still_refused(self):
         """ "No conflicts" is about the cells both copies judged, and those must agree."""
         clashing = np.array([[[9.0, 2.0], [3.0, NDV]]])
+        mine = _cube(self.COMPLEMENTARY, [0.0])
+        theirs = _cube(clashing, [0.0])
         with pytest.raises(ValueError, match="different values"):
-            NetCDF.merge([_cube(self.COMPLEMENTARY, [0.0]), _cube(clashing, [0.0])])
+            NetCDF.merge([mine, theirs])
 
     def test_an_overlap_that_agrees_fills_the_rest(self):
         """Agreement where both hold a value, and a fill where only one does."""
@@ -477,13 +481,10 @@ class TestNoConflictsFillsFromBothCopies:
 
     def test_a_nan_marked_cell_both_copies_hold_differently_is_refused(self):
         """The disagreement check reads the same whichever value marks the gaps."""
+        mine = _nan_cube([[1.0, np.nan], [np.nan, 4.0]])
+        theirs = _nan_cube([[9.0, 2.0], [3.0, np.nan]])
         with pytest.raises(ValueError, match="different values"):
-            NetCDF.merge(
-                [
-                    _nan_cube([[1.0, np.nan], [np.nan, 4.0]]),
-                    _nan_cube([[9.0, 2.0], [3.0, np.nan]]),
-                ]
-            )
+            NetCDF.merge([mine, theirs])
 
 
 class TestTheTwoMergesAreDifferent:

@@ -190,8 +190,9 @@ class TestConditionForms:
         flags = Dataset.from_array(
             (VALUES > 5).astype("uint8"), geo_ref=other_grid, no_data_value=None
         )
+        raster = _raster()
         with pytest.raises(AlignmentError):
-            _raster().where(flags)
+            raster.where(flags)
 
     def test_a_condition_of_the_wrong_shape_is_refused(self):
         """An array condition has to describe this raster's cells."""
@@ -515,7 +516,12 @@ class TestDropOnARotatedGrid:
     def test_the_rotation_terms_survive(self):
         """Only the corner moves: the cell size and both skews are the raster's own."""
         geo = self._trimmed().geotransform
-        assert (geo[1], geo[2], geo[4], geo[5]) == self.ROTATED[1:3] + self.ROTATED[4:6]
+        assert (geo[1], geo[2], geo[4], geo[5]) == (
+            self.ROTATED[1],
+            self.ROTATED[2],
+            self.ROTATED[4],
+            self.ROTATED[5],
+        )
 
     def test_it_keeps_the_block_the_condition_selected(self):
         """The values are the interior block, not a resampled or re-cropped one."""

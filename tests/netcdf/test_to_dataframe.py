@@ -232,8 +232,9 @@ class TestRefusals:
 
     def test_an_unknown_variable_names_the_ones_there_are(self):
         """The refusal lists the columns the caller could have asked for."""
+        container = _container()
         with pytest.raises(ValueError, match=r"gridded variables are \['t'\]"):
-            _container().to_dataframe(variables="rain")
+            container.to_dataframe(variables="rain")
 
     def test_an_unknown_name_is_refused_on_a_variable_too(self):
         """A variable receiver reads `variables=` rather than ignoring it.
@@ -265,8 +266,9 @@ class TestRefusals:
             The columns were collected into a `dict` keyed by name, so a repeat silently
             collapsed and the frame came back with fewer columns than were asked for.
         """
+        container = _container()
         with pytest.raises(ValueError, match="more than once"):
-            _container().to_dataframe(variables=["t", "t"])
+            container.to_dataframe(variables=["t", "t"])
 
 
 class TestAPackedVariable:
