@@ -2224,6 +2224,12 @@ class NetCDF(Dataset):
         # Origin-tracking attributes set by get_variable (RT-4)
         self._parent_nc: NetCDF | None = None
         self._source_var_name: str | None = None
+        # True on a raster rebuilt cell by cell in memory (`where`, `fillna`, the null
+        # flags): it keeps `_source_var_name` so it is still called what it is called,
+        # but its values are its own and no longer live at `file::source_var_name`. A
+        # lazy read, which reopens that path, has to refuse it rather than reach for a
+        # store that does not hold these cells.
+        self._rebuilt_in_memory: bool = False
         # ARC-12: a group view shares the parent container's open dataset and
         # records the "/"-joined path to its working sub-group here. None (the
         # default) means this container is rooted at the dataset's root group;
@@ -5873,6 +5879,13 @@ class NetCDF(Dataset):
                 "Lazy read requires a variable name; pass "
                 "`variable=` on the container or call read_array "
                 "on a subset from `get_variable()`."
+            )
+        if self._rebuilt_in_memory:
+            raise ValueError(
+                f"Lazy read reopens the variable from its store, and {var_name!r} was "
+                f"rebuilt in memory (by where(), fillna(), isnull() or notnull()), so "
+                f"the store no longer holds these cells. Read it eagerly with "
+                f"read_array(), or write it out first with to_file()."
             )
         # Thread the eager-resolved raster plane (and its flips) into the lazy build so a variable
         # whose latitude/longitude is not the trailing pair -- selected via `x_dim`/`y_dim` or CF
@@ -11840,6 +11853,7 @@ class NetCDF(Dataset):
         result._is_subset = False
         result._parent_nc = None
         result._source_var_name = None
+        result._rebuilt_in_memory = False
         result._md_array_dims = self._md_array_dims
         result._geostationary_scaled = self._geostationary_scaled
         result._variable_attrs = self._variable_attrs

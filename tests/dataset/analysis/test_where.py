@@ -389,6 +389,47 @@ class TestTheResultKeepsItsIdentity:
         "member",
         ["where", "fillna", "isnull", "notnull"],
     )
+    def test_a_lazy_read_of_a_rebuilt_variable_is_refused_in_words(self, member: str):
+        """Carrying the name must not make the result look like it still reads its store.
+
+        Test scenario:
+            `copy()` clears `_source_var_name` precisely so the lazy read — which reopens
+            `file::name` — cannot reach for a store that no longer holds these cells.
+            Carrying the name for labelling put the result back in that position, and the
+            guard stopped firing: the caller got a bare `RuntimeError: No such file or
+            directory` from inside GDAL instead of a sentence.
+
+        Args:
+            member: The `Analysis` member to check.
+        """
+        variable = NetCDF.from_array(
+            np.arange(8.0).reshape(2, 2, 2),
+            geo_ref=NCGeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+        ).get_variable("t")
+        arguments = {"where": (np.ones((2, 2, 2), dtype=bool),), "fillna": (0.0,)}
+        result = getattr(variable, member)(*arguments.get(member, ()))
+        with pytest.raises(ValueError, match="rebuilt in memory"):
+            result.read_array(chunks="auto")
+
+    def test_a_rebuilt_variable_still_reads_eagerly(self):
+        """The refusal is about the lazy path only; the cells are right there."""
+        variable = NetCDF.from_array(
+            np.arange(8.0).reshape(2, 2, 2),
+            geo_ref=NCGeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+        ).get_variable("t")
+        filled = variable.fillna(0.0)
+        assert np.asarray(filled.read_array()).ravel().tolist() == list(range(8))
+
+    @pytest.mark.parametrize(
+        "member",
+        ["where", "fillna", "isnull", "notnull"],
+    )
     def test_a_variable_keeps_the_name_it_answers_to(self, member: str):
         """A masked variable is still `t`, and `to_dataframe` must still call it that.
 

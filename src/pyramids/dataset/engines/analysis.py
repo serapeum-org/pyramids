@@ -2660,6 +2660,11 @@ class Analysis(_Engine["Dataset"]):
         name = getattr(self._ds, "_source_var_name", None)
         if name is not None:
             result._source_var_name = name  # type: ignore[attr-defined]
+            # The name is for labelling; it must not read as store identity. `copy()`
+            # clears `_source_var_name` for exactly that reason, and a raster rebuilt
+            # here is in the same position — its cells are its own — so the flag says so
+            # and the lazy read refuses it in words instead of failing inside GDAL.
+            result._rebuilt_in_memory = True  # type: ignore[attr-defined]
         self._ds._label_combined(result, self._ds._combine_layout_source(None, None))
         return result
 
