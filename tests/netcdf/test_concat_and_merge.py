@@ -347,6 +347,80 @@ class TestMerge:
         assert sorted(merged.variable_names) == ["dem", "rain"]
 
 
+class TestNoConflictsFillsFromBothCopies:
+    """xarray's `no_conflicts` means "no *non-null* disagreement", and so does this one."""
+
+    COMPLEMENTARY = np.array([[[1.0, NDV], [NDV, 4.0]]])
+    OTHER_HALF = np.array([[[NDV, 2.0], [3.0, NDV]]])
+
+    def test_complementary_gaps_are_combined(self):
+        """Each copy contributes the cells the other is missing.
+
+        Test scenario:
+            Measured on xarray 2026.7.0: `xr.merge([a, b], compat="no_conflicts")` on the
+            same two half-filled arrays answers `[[1.0, 2.0], [3.0, 4.0]]`. This refused
+            the pair outright, because the check was strict equality.
+        """
+        merged = NetCDF.merge(
+            [_cube(self.COMPLEMENTARY, [0.0]), _cube(self.OTHER_HALF, [0.0])]
+        )
+        assert_allclose(_read(merged), np.array([[1.0, 2.0], [3.0, 4.0]]))
+
+    def test_a_cell_both_copies_hold_differently_is_still_refused(self):
+        """ "No conflicts" is about the cells both copies judged, and those must agree."""
+        clashing = np.array([[[9.0, 2.0], [3.0, NDV]]])
+        with pytest.raises(ValueError, match="different values"):
+            NetCDF.merge([_cube(self.COMPLEMENTARY, [0.0]), _cube(clashing, [0.0])])
+
+    def test_an_overlap_that_agrees_fills_the_rest(self):
+        """Agreement where both hold a value, and a fill where only one does."""
+        overlapping = np.array([[[1.0, 2.0], [3.0, NDV]]])
+        merged = NetCDF.merge(
+            [_cube(self.COMPLEMENTARY, [0.0]), _cube(overlapping, [0.0])]
+        )
+        assert_allclose(_read(merged), np.array([[1.0, 2.0], [3.0, 4.0]]))
+
+    def test_the_filled_cells_are_not_gaps_any_more(self):
+        """A cell taken from the other copy is data, so the sentinel is gone from it."""
+        merged = NetCDF.merge(
+            [_cube(self.COMPLEMENTARY, [0.0]), _cube(self.OTHER_HALF, [0.0])]
+        )
+        assert not np.isnan(_read(merged)).any()
+
+    def test_override_still_keeps_the_first_copy_gaps_and_all(self):
+        """The other mode does not combine: it takes the first copy as it stands."""
+        merged = NetCDF.merge(
+            [_cube(self.COMPLEMENTARY, [0.0]), _cube(self.OTHER_HALF, [0.0])],
+            compat="override",
+        )
+        assert_allclose(_read(merged), np.array([[1.0, np.nan], [np.nan, 4.0]]))
+
+    def test_two_copies_with_nothing_to_fill_keep_the_band_type(self):
+        """The conversion to NaN is only paid when a cell is actually taken.
+
+        Test scenario:
+            Two identical gapless integer copies have nothing to combine, so the first
+            copy goes through untouched and the merged variable is still `int32`.
+        """
+        cells = np.arange(4, dtype="int32").reshape(1, 2, 2)
+        cube = NetCDF.from_array(
+            cells,
+            geo_ref=GEO,
+            variable_name="t",
+            no_data_value=-9999,
+            dims=ExtraDimensions(name="time", values=[0.0]),
+        )
+        other = NetCDF.from_array(
+            cells,
+            geo_ref=GEO,
+            variable_name="t",
+            no_data_value=-9999,
+            dims=ExtraDimensions(name="time", values=[0.0]),
+        )
+        merged = NetCDF.merge([cube, other])
+        assert merged.get_variable("t").dtype == ["int32"]
+
+
 class TestTheTwoMergesAreDifferent:
     """`NetCDF.merge` and `DatasetCollection.merge` share a name and nothing else."""
 

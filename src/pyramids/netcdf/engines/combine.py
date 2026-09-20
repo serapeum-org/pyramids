@@ -173,16 +173,18 @@ def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
     Args:
         objs: The cubes, containers or variables, at least one and all on the same grid.
         compat: What to do with a variable more than one cube carries. `"no_conflicts"`
-            (default) accepts it only when the cubes agree on its values and refuses
-            otherwise; `"override"` takes the first cube's copy without comparing.
+            (default) is xarray's rule: the copies are combined cell by cell, each filling
+            the gaps of the other, and only a cell both of them hold a value in — a
+            different value — is a conflict. `"override"` takes the first cube's copy as
+            it stands, gaps and all, without reading any other.
 
     Returns:
         NetCDF: One container holding the union of the variables, in the order the cubes
         were given.
 
     Raises:
-        ValueError: `objs` is empty, `compat` is unknown, or two cubes carry the same
-            variable with different values under `"no_conflicts"`.
+        ValueError: `objs` is empty, `compat` is unknown, or two cubes disagree about a
+            cell they both judged under `"no_conflicts"`.
         AlignmentError: The cubes are not on the same grid.
     """
     if compat not in _COMPAT_MODES:
@@ -191,27 +193,29 @@ def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
             f"got {compat!r}."
         )
     cubes = _checked(objs, "merge")
-    result = None
-    time_attrs: dict = {}
-    taken: dict[str, NetCDF] = {}
+    copies: dict[str, list[tuple[NetCDF, NetCDF]]] = {}
+    order: list[str] = []
     for cube in cubes:
         for name in _variable_names(cube):
-            part = _variable_of(cube, name)
-            if name in taken:
-                _check_no_conflict(taken[name], part, name, compat)
-                continue
-            taken[name] = part
-            result = cubes[0]._stack_reduced_variable(
-                result,
-                name,
-                np.asarray(cube._materialize_variable_array(part)),
-                part.geotransform,
-                crs_spec(part.epsg, part.crs),
-                _read_no_data(part),
-                list(part._band_dim_names),
-                dict(part._band_dim_values_map),
-            )
-            time_attrs.update(_carried_time_attrs([part], list(part._band_dim_names)))
+            if name not in copies:
+                copies[name] = []
+                order.append(name)
+            copies[name].append((cube, _variable_of(cube, name)))
+    result = None
+    time_attrs: dict = {}
+    for name in order:
+        part = copies[name][0][1]
+        result = cubes[0]._stack_reduced_variable(
+            result,
+            name,
+            _merged_values(copies[name], name, compat),
+            part.geotransform,
+            crs_spec(part.epsg, part.crs),
+            _read_no_data(part),
+            list(part._band_dim_names),
+            dict(part._band_dim_values_map),
+        )
+        time_attrs.update(_carried_time_attrs([part], list(part._band_dim_names)))
     cast("NetCDF", result)._band_dim_time_attrs = time_attrs
     return cast("NetCDF", result)
 
@@ -393,23 +397,86 @@ def _joined_coordinates(parts: list[NetCDF], dim: str) -> list | None:
     return joined
 
 
-def _check_no_conflict(kept: NetCDF, candidate: NetCDF, name: str, compat: str) -> None:
-    """Refuse a variable two cubes carry with different values.
+def _merged_values(
+    copies: list[tuple[NetCDF, NetCDF]], name: str, compat: str
+) -> np.typing.NDArray:
+    """The cells of a variable, taken from every cube that carries it.
+
+    `"override"` takes the first copy and reads no other. `"no_conflicts"` is xarray's
+    rule and not strict equality: a cell only conflicts when **both** copies hold a value
+    there and the two differ, so complementary gaps fill each other in.
 
     Args:
-        kept: The copy already taken.
-        candidate: The copy another cube offers.
-        name: The variable's name.
-        compat: The mode; `"override"` skips the comparison.
+        copies: The `(cube, variable)` pairs carrying this name, in the order given.
+        name: The variable's name, for the refusal.
+        compat: The mode.
+
+    Returns:
+        numpy.ndarray: The cells to write.
 
     Raises:
-        ValueError: The two disagree and `compat` is `"no_conflicts"`.
+        ValueError: Two copies hold different values in a cell both of them judged, or
+            their band dimensions do not line up.
     """
-    if compat == "override":
-        return
-    if not kept.equals(candidate):
+    cube, part = copies[0]
+    values = np.asarray(cube._materialize_variable_array(part))
+    if compat != "override":
+        for other_cube, other_part in copies[1:]:
+            values = _filled_from(values, part, other_cube, other_part, name)
+    return values
+
+
+def _filled_from(
+    values: np.typing.NDArray,
+    part: NetCDF,
+    cube: NetCDF,
+    other: NetCDF,
+    name: str,
+) -> np.typing.NDArray:
+    """`values` with the gaps another copy of the same variable can fill.
+
+    The conversion to NaN and back is only paid when a cell is actually taken, so two
+    gapless copies — or two whose gaps line up — leave an integer band integer.
+
+    Args:
+        values: The cells taken so far.
+        part: The variable they came from, for its sentinel and band dimensions.
+        cube: The cube offering another copy, for its array helper.
+        other: That copy.
+        name: The variable's name, for the refusals.
+
+    Returns:
+        numpy.ndarray: The cells, with what the other copy could add.
+
+    Raises:
+        ValueError: The layouts differ, or a cell both copies judged disagrees.
+    """
+    theirs = np.asarray(cube._materialize_variable_array(other))
+    if theirs.shape != values.shape or tuple(other._band_dim_names) != tuple(
+        part._band_dim_names
+    ):
+        raise ValueError(
+            f"merge() found {name!r} in more than one cube with different layouts: one is "
+            f"{values.shape} over {tuple(part._band_dim_names)} and another is "
+            f"{theirs.shape} over {tuple(other._band_dim_names)}."
+        )
+    sentinel = _read_no_data(part)
+    mine = _gaps_as_nan(values, sentinel)
+    yours = _gaps_as_nan(theirs, _read_no_data(other))
+    my_gaps = np.isnan(mine)
+    if np.any(~my_gaps & ~np.isnan(yours) & (mine != yours)):
         raise ValueError(
             f"merge() found {name!r} in more than one cube with different values. Pass "
             f"compat='override' to take the first copy, or drop the variable from one of "
             f"them."
         )
+    takeable = my_gaps & ~np.isnan(yours)
+    if takeable.any():
+        filled = np.where(my_gaps, yours, mine)
+        if sentinel is not None and not np.isnan(sentinel):
+            filled = np.where(np.isnan(filled), sentinel, filled).astype(
+                values.dtype, copy=False
+            )
+    else:
+        filled = values
+    return np.asarray(filled)

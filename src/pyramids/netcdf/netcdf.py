@@ -7389,15 +7389,17 @@ class NetCDF(Dataset):
         Args:
             objs: The cubes, containers or variables, all on the same grid.
             compat: What to do with a variable more than one cube carries.
-                `"no_conflicts"` (default) accepts it only when the cubes agree on its
-                values; `"override"` takes the first cube's copy without comparing.
+                `"no_conflicts"` (default) is xarray's rule: the copies fill each other's
+                gaps, and only a cell both of them hold a *different* value in is a
+                conflict. `"override"` takes the first cube's copy as it stands, gaps and
+                all, without reading any other.
 
         Returns:
             NetCDF: One container holding the union of the variables.
 
         Raises:
             ValueError: `objs` is empty, `compat` is unknown, or two cubes disagree about a
-                variable they both carry.
+                cell they both judged.
             AlignmentError: The cubes are not on the same grid.
 
         Examples:
