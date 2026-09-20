@@ -2271,6 +2271,11 @@ class Analysis(_Engine["Dataset"]):
         Args:
             other: The raster to compare with.
 
+        A NaN sitting inside the domain — a raster that declares a numeric sentinel and
+        holds a NaN anyway, which is what `where(cond, np.nan)` produces — counts as equal
+        to the same NaN on the other side, so a raster equals its own copy. Without that,
+        `np.array_equal` would answer `False` for a raster compared with itself.
+
         Returns:
             bool: `True` when the gaps line up and the values agree everywhere else.
         """
@@ -2279,7 +2284,9 @@ class Analysis(_Engine["Dataset"]):
         aligned = bool(np.array_equal(my_domain, their_domain))
         return aligned and bool(
             np.array_equal(
-                np.where(my_domain, mine, 0.0), np.where(their_domain, theirs, 0.0)
+                np.where(my_domain, mine, 0.0),
+                np.where(their_domain, theirs, 0.0),
+                equal_nan=True,
             )
         )
 

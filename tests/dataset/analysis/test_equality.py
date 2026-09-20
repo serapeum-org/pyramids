@@ -196,3 +196,41 @@ class TestOnANetCDFVariable:
             no_data_value=NDV,
         )
         assert not variable.equals(plain)
+
+
+class TestAStrayNanUnderANumericSentinel:
+    """A NaN that is not the declared sentinel must still compare as itself."""
+
+    @staticmethod
+    def _stray() -> Dataset:
+        """A raster declaring -9999.0 but holding a NaN in one cell.
+
+        Returns:
+            Dataset: The raster.
+        """
+        values = np.array([[1.0, np.nan], [3.0, 4.0]])
+        return Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=NDV)
+
+    def test_it_equals_its_own_copy(self):
+        """Reflexivity is the one property a comparison cannot be allowed to fail.
+
+        Test scenario:
+            The in-domain values were compared with `np.array_equal`, where a NaN is not
+            equal to itself, so a raster holding a NaN that is *not* its declared sentinel
+            did not equal its own copy — the exact raster `where(cond, np.nan)` used to
+            produce before M1 was fixed.
+        """
+        raster = self._stray()
+        assert raster.equals(raster.copy())
+
+    def test_it_is_identical_to_its_own_copy(self):
+        """`identical` reads the same comparison, so it inherits the same property."""
+        raster = self._stray()
+        assert raster.identical(raster.copy())
+
+    def test_a_different_stray_nan_still_differs(self):
+        """Reflexivity must not be bought by calling every NaN-bearing raster equal."""
+        other = np.array([[1.0, 2.0], [3.0, np.nan]])
+        assert not self._stray().equals(
+            Dataset.from_array(other, geo_ref=GEO_REF, no_data_value=NDV)
+        )
