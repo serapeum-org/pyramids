@@ -569,6 +569,294 @@ class _Extremum(_AlongDim):
         return np.asarray([float(value) for value in coords], dtype="float64")
 
 
+@dataclass
+class _Push(_AlongDim):
+    """`ffill` / `bfill`: carry the last valid value along the dimension into the gaps after it.
+
+    The dimension keeps its length and its stamps: only the gaps change, and only those that
+    have a valid cell to take from on the side being carried from. A gap before the first
+    valid cell of a forward fill — or after the last of a backward one — has nothing to take
+    and stays a gap, which is what xarray answers.
+
+    Attributes:
+        backward: Carry from the far end towards the start (`bfill`) instead of from the start
+            towards the end (`ffill`).
+        limit: How many consecutive gaps one valid cell may fill; `None` for no limit. A run
+            longer than the limit keeps the gaps beyond it.
+    """
+
+    backward: bool
+    limit: int | None
+    caller: str = "ffill"
+    verb: ClassVar[str] = "fill"
+    keeps_length: ClassVar[bool] = True
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Carry one variable's valid values into the gaps along `dim`.
+
+        Args:
+            nc: The object the member was called on.
+            var: The variable.
+            dim: The dimension to carry along.
+
+        Returns:
+            _Applied: The filled values, the band layout unchanged. The result is float64 and
+            declares the variable's no-data value, or NaN when it declares none — a gap the
+            fill could not reach is still a gap, so a result always needs one.
+        """
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        axis = band_names.index(dim)
+        arr = nc._materialize_variable_array(var, lazy=True)
+        data = _gaps_as_nan(arr, ndv)
+        filled = _pushed(data, axis, self.limit, self.backward)
+        fill: Any = np.nan if ndv is None else ndv
+        values = np.where(np.isnan(filled), fill, filled)
+        return _Applied(np.asarray(values), band_names, values_map, fill)
+
+
+@dataclass
+class _DropNa(_AlongDim):
+    """`dropna`: remove the steps of a dimension whose cells are missing.
+
+    The only operation here that shortens the dimension by a length it cannot state in
+    advance — it depends on the values — so the coordinates come back cut to the steps that
+    survived, and a container's auxiliary variable spanning the dimension is dropped.
+
+    Attributes:
+        how: `"any"` drops a step with any gap at all, `"all"` only a step with no valid cell.
+            Ignored when `thresh` is given, as it is in xarray.
+        thresh: Keep a step with at least this many valid cells; `None` defers to `how`.
+    """
+
+    how: str
+    thresh: int | None
+    caller: str = "dropna"
+    verb: ClassVar[str] = "drop from"
+    keeps_length: ClassVar[bool] = False
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Keep the steps of `dim` that hold enough data.
+
+        Counting the gaps and taking the surviving steps both read the variable, and both
+        read the one materialisation: a lazily-backed variable is computed once here, as
+        it is for the two fills.
+
+        Args:
+            nc: The object `dropna` was called on.
+            var: The variable.
+            dim: The dimension to drop steps from.
+
+        Returns:
+            _Applied: The surviving steps, with `dim`'s coordinates cut to match. Nothing is
+            computed, only selected — but the steps are read through the same unpacking
+            every member here reads through, so a CF-packed variable comes back as physical
+            `float64` declaring the *unpacked* fill (an `int16` band scaled by `0.1` with an
+            offset of `5.0` and a `_FillValue` of `-9999` declares `-994.9000000000001`,
+            the float the unpacking arithmetic lands on), not as its stored band type.
+
+        Raises:
+            ValueError: No step survives, and a variable with no bands cannot be built.
+        """
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        axis = band_names.index(dim)
+        # One materialisation, as the two fills do: counting the gaps and taking the
+        # surviving steps both read the variable, and a lazily-backed one was computed
+        # twice for it.
+        arr = np.asarray(nc._materialize_variable_array(var, lazy=True))
+        valid = np.asarray(~np.isnan(_gaps_as_nan(arr, ndv)))
+        counted = np.sum(valid, axis=tuple(i for i in range(valid.ndim) if i != axis))
+        per_step = int(
+            np.prod([valid.shape[i] for i in range(valid.ndim) if i != axis])
+        )
+        # `how` says how many valid cells a step needs: every one of them for `"any"`, since a
+        # single gap drops the step, and one for `"all"`. An explicit `thresh` says it outright
+        # and xarray lets it win over `how`.
+        by_how = per_step if self.how == "any" else 1
+        needed = by_how if self.thresh is None else self.thresh
+        kept = np.flatnonzero(np.asarray(counted) >= needed)
+        if kept.size == 0:
+            raise ValueError(
+                f"dropna() kept no steps of {dim!r}: every one of its {arr.shape[axis]} "
+                f"holds fewer than {needed} valid cell(s). A variable with no bands cannot "
+                f"be built; relax `how` or `thresh`."
+            )
+        values = np.take(arr, kept, axis=axis)
+        coords = values_map.get(dim)
+        if coords is not None:
+            values_map[dim] = [coords[int(step)] for step in kept]
+        return _Applied(np.asarray(values), band_names, values_map, ndv)
+
+
+@dataclass
+class _Interpolate(_AlongDim):
+    """`interpolate_na`: fill each interior gap from the valid cells on either side of it.
+
+    The temporal counterpart of the spatial `fill_gaps`. A gap with a valid cell on both
+    sides is interpolated between them; a leading or trailing gap has only one side and is
+    left alone, which is what xarray answers.
+
+    Attributes:
+        method: `"linear"` weights the two neighbours by distance; `"nearest"` takes the
+            closer one.
+        limit: How many consecutive gaps one run may fill, counted from the valid cell
+            before it, as `ffill`'s is; `None` for no limit.
+        use_coordinate: Measure the distance along the dimension's coordinate values, so an
+            uneven axis interpolates by how far apart the steps really are. `False` measures
+            by position, which is what an axis without coordinates falls back to.
+    """
+
+    method: str
+    limit: int | None
+    use_coordinate: bool
+    caller: str = "interpolate_na"
+    verb: ClassVar[str] = "interpolate"
+    keeps_length: ClassVar[bool] = True
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Interpolate one variable's interior gaps along `dim`.
+
+        Args:
+            nc: The object `interpolate_na` was called on.
+            var: The variable.
+            dim: The dimension to interpolate along.
+
+        Returns:
+            _Applied: The filled values, the band layout unchanged. The result is float64 and
+            declares the variable's no-data value, or NaN when it declares none, since a gap
+            the interpolation could not reach is still a gap.
+        """
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        axis = band_names.index(dim)
+        arr = nc._materialize_variable_array(var, lazy=True)
+        data = _gaps_as_nan(arr, ndv)
+        positions = self._axis_positions(values_map.get(dim), data.shape[axis], dim)
+        filled = _interpolated(data, axis, positions, self.method, self.limit)
+        fill: Any = np.nan if ndv is None else ndv
+        values = np.where(np.isnan(filled), fill, filled)
+        return _Applied(np.asarray(values), band_names, values_map, fill)
+
+    def _axis_positions(self, coords: Any, size: int, dim: str) -> np.ndarray:
+        """What the distance between two steps is measured along.
+
+        Args:
+            coords: The dimension's coordinate values, or `None` when it has none.
+            size: The dimension's length.
+            dim: The dimension's name, for the refusal.
+
+        Returns:
+            numpy.ndarray: One float64 position per step.
+
+        Raises:
+            ValueError: `use_coordinate` was asked for and the coordinates are not numeric,
+                so a distance between two of them is not defined.
+        """
+        if not self.use_coordinate or coords is None:
+            return np.arange(size, dtype="float64")
+        numeric = all(
+            isinstance(value, Real) and not isinstance(value, (bool, np.bool_))
+            for value in coords
+        )
+        if not numeric:
+            raise ValueError(
+                f"interpolate_na() cannot measure distance along {dim!r}: its stamps are "
+                f"{coords[0]!r}... Pass use_coordinate=False to interpolate by position."
+            )
+        return np.asarray([float(value) for value in coords], dtype="float64")
+
+
+def _interpolated(
+    data: Any, axis: int, positions: np.ndarray, method: str, limit: int | None
+) -> Any:
+    """`data` with each interior gap filled from the valid cells on either side.
+
+    Both neighbours are found the way `_pushed` finds one — a running maximum of the last
+    valid position forwards, and the same backwards — so the whole array is filled in a
+    handful of vectorised passes rather than a loop over the cells.
+
+    Args:
+        data: The values as float64 with NaN gaps, numpy or dask.
+        axis: The axis to interpolate along.
+        positions: What distance is measured along, one per step.
+        method: `"linear"` or `"nearest"`.
+        limit: How many consecutive gaps a run may fill, or `None` for no limit.
+
+    Returns:
+        The values with the reachable interior gaps filled, the rest still NaN.
+    """
+    # Read once — see `_pushed` for why: the accumulations and the two gathers below
+    # would otherwise re-run a dask graph several times over for one call.
+    data = np.asarray(data)
+    size = data.shape[axis]
+    shape = [size if index == axis else 1 for index in range(data.ndim)]
+    steps = np.arange(size).reshape(shape)
+    axis_x = positions.reshape(shape)
+    valid = ~np.isnan(data)
+    before = np.maximum.accumulate(np.asarray(np.where(valid, steps, -1)), axis=axis)
+    flipped = np.flip(np.asarray(np.where(valid, steps, size)), axis=axis)
+    after = np.flip(np.minimum.accumulate(flipped, axis=axis), axis=axis)
+    inner = (before >= 0) & (after < size)
+    left = np.clip(before, 0, size - 1)
+    right = np.clip(after, 0, size - 1)
+    values = np.asarray(data)
+    low = np.take_along_axis(values, left, axis=axis)
+    high = np.take_along_axis(values, right, axis=axis)
+    low_x = np.take_along_axis(np.broadcast_to(axis_x, values.shape), left, axis=axis)
+    high_x = np.take_along_axis(np.broadcast_to(axis_x, values.shape), right, axis=axis)
+    span = np.where(high_x == low_x, 1.0, high_x - low_x)
+    weight = (np.broadcast_to(axis_x, values.shape) - low_x) / span
+    if method == "nearest":
+        between = np.where(weight <= 0.5, low, high)
+    else:
+        between = low + (high - low) * weight
+    reachable = inner
+    if limit is not None:
+        reachable = reachable & ((steps - before) <= limit)
+    return np.where(valid, values, np.where(reachable, between, np.nan))
+
+
+def _pushed(data: Any, axis: int, limit: int | None, backward: bool) -> Any:
+    """`data` with each gap taking the nearest valid value before it along `axis`.
+
+    Written as an index scan rather than a Python loop over the steps: the position of the
+    last valid cell is a running maximum, which one `np.maximum.accumulate` answers for every
+    cell at once, and `limit` is then a comparison against how far that position is.
+
+    Args:
+        data: The values as float64 with NaN gaps, numpy or dask.
+        axis: The axis to carry along.
+        limit: How many consecutive gaps one valid cell may fill, or `None` for no limit.
+        backward: Carry from the end towards the start instead.
+
+    Returns:
+        The values with the reachable gaps filled, the rest still NaN.
+    """
+    # One materialisation, before anything else touches it: every `np.asarray` on a
+    # dask-backed array re-runs the whole graph, so the scans below would each re-read
+    # the variable. The result is numpy either way, so nothing downstream loses laziness
+    # that it had.
+    data = np.asarray(data)
+    working = np.flip(data, axis=axis) if backward else data
+    size = working.shape[axis]
+    shape = [size if index == axis else 1 for index in range(working.ndim)]
+    positions = np.arange(size).reshape(shape)
+    source = np.where(~np.isnan(working), positions, -1)
+    source = np.maximum.accumulate(np.asarray(source), axis=axis)
+    reachable = source >= 0
+    if limit is not None:
+        reachable = reachable & ((positions - source) <= limit)
+    taken = np.take_along_axis(
+        np.asarray(working), np.clip(source, 0, size - 1), axis=axis
+    )
+    filled = np.where(reachable, taken, np.nan)
+    return np.flip(filled, axis=axis) if backward else filled
+
+
 _INDEX_NO_DATA = -1
 """The no-data value of a position band: a slice with no valid cell has no extremum, and a
 position is never negative, so it cannot be mistaken for one."""

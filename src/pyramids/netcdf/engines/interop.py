@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 import cftime
 import numpy as np
+import pandas as pd
 from osgeo import gdal, osr
 
 from pyramids.base._errors import TimeDecodingWarning
@@ -38,6 +39,12 @@ from pyramids.netcdf.cf import (
     srs_from_wkt,
     write_attributes_to_md_array,
     write_global_attributes,
+)
+from pyramids.netcdf.engines._along_dim import _read_no_data
+from pyramids.netcdf.engines._weighted import (
+    _COLUMN_ALIAS,
+    _ROW_ALIAS,
+    _spatial_names,
 )
 from pyramids.netcdf.utils import (
     CF_EPOCH_CALENDAR,
@@ -413,6 +420,260 @@ class Interop(_Engine["NetCDF"]):
             bounds_encodings=bounds_encodings,
             decode_times=decode_times,
         )
+
+    def to_dataframe(
+        self, *, variables: Any = None, dropna: bool = False
+    ) -> pd.DataFrame:
+        """Hand the cube to pandas, indexed by its dimension coordinates.
+
+        One row per cell and one column per variable, on a `MultiIndex` naming the
+        dimensions in the order the array is laid out — the band dimensions outermost, then
+        the row axis, then the column axis. That is the shape
+        `xarray.Dataset.to_dataframe()` returns, and on a north-up store
+        `assert_frame_equal` against it passes.
+
+        **On a y-ascending store the row order differs, deliberately.** pyramids reads
+        every raster north-up, so the frame describes the cells as they are laid out and
+        its first row is the northernmost; xarray orders the rows as the file stores them,
+        which for such a file is south first. The index labels are the same set and each
+        one carries the same value — only the order differs — so comparing against xarray
+        on those files takes a `sort_index()` on both. Add `check_dtype=False` while you
+        are there: every column here is `float64`, whatever width the store keeps the
+        variable at.
+
+        **Not the same shape as** :meth:`LabeledDataset.to_dataframe
+        <pyramids.netcdf.labeled.LabeledDataset.to_dataframe>`, which serves the non-raster
+        stores and returns a *tidy* frame — one column per coordinate and per variable, on a
+        plain `RangeIndex`. A gridded cube has a natural index and uses it; a labelled table
+        does not.
+
+        Args:
+            variables: Which data variables become columns, as a name or a sequence of
+                names. `None` (default) takes every gridded variable that shares the band
+                dimensions. On a variable the only name it accepts is that variable's own;
+                anything else is refused rather than ignored. A name may appear once, and
+                an empty sequence is refused rather than read as `None` — a frame needs
+                at least one column.
+            dropna: Drop the rows that are missing in **every** column. `False` by default,
+                which is what xarray does — its `to_dataframe` has no such argument and
+                keeps a row for every cell. `True` is the convenience for the common "give
+                me the cells that hold data" read.
+
+        Returns:
+            pandas.DataFrame: The frame, `prod(sizes)` rows long before `dropna`, every
+            column `float64` whatever the store's own band type, its gaps as NaN.
+
+        Raises:
+            ValueError: The container has no gridded variables; a name is not one of them;
+                a name was given more than once; an empty selection was given; or the
+                chosen variables do not share the same band dimensions, so their cells do
+                not line up on one index.
+
+        Examples:
+            - A two-step cube of one variable, as pandas sees it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> nc = NetCDF.from_array(
+              ...     np.arange(8.0).reshape(2, 2, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... )
+              >>> frame = nc.to_dataframe()
+              >>> list(frame.index.names), list(frame.columns)
+              (['time', 'y', 'x'], ['t'])
+              >>> len(frame)
+              8
+              >>> frame["t"].tolist()
+              [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
+
+              ```
+        """
+        nc = self._ds
+        names = self._frame_variables(variables)
+        first = nc._require_raster_variable(names[0]) if _is_container(nc) else nc
+        columns = {}
+        for name in names:
+            var = nc._require_raster_variable(name) if _is_container(nc) else nc
+            if tuple(var._band_dim_names) != tuple(first._band_dim_names):
+                raise ValueError(
+                    f"to_dataframe() needs the variables to share their band dimensions, so "
+                    f"their cells line up on one index: {names[0]!r} has "
+                    f"{tuple(first._band_dim_names)} and {name!r} has "
+                    f"{tuple(var._band_dim_names)}. Pass `variables=` to choose a set that "
+                    f"agrees."
+                )
+            columns[name] = np.asarray(_frame_values(nc, var), dtype="float64").ravel()
+        index = _frame_index(first)
+        frame = pd.DataFrame(columns, index=index)
+        return frame.dropna(how="all") if dropna else frame
+
+    def _frame_variables(self, variables: Any) -> list[str]:
+        """The data variables that become columns, in order.
+
+        A variable receiver goes through the same check as a container, against the one
+        name it carries: the argument is not ignored just because there is nothing to
+        choose between.
+
+        Args:
+            variables: A name, a sequence of names, or `None` for all of them. An empty
+                sequence is a distinct case from `None`: it asks for no columns at all,
+                which is refused rather than quietly turned into "every variable".
+
+        Returns:
+            list[str]: The names, never empty.
+
+        Raises:
+            ValueError: There are none, one of those named is not a gridded variable, a
+                name was asked for more than once, or the selection is empty.
+        """
+        nc = self._ds
+        if _is_container(nc):
+            subject = "container"
+            available = list(nc._spatial_variable_names(nc._working_group()))
+            if not available:
+                raise ValueError(
+                    "to_dataframe() needs at least one gridded variable, and this "
+                    "container has none."
+                )
+        else:
+            subject = "variable"
+            available = [nc._source_var_name or "variable"]
+        if variables is None:
+            names = available
+        else:
+            names = [variables] if isinstance(variables, str) else list(variables)
+            unknown = [name for name in names if name not in available]
+            if unknown:
+                raise ValueError(
+                    f"to_dataframe() cannot take {unknown!r} as columns: this {subject}'s "
+                    f"gridded variables are {available}."
+                )
+            repeated = sorted({name for name in names if names.count(name) > 1})
+            if repeated:
+                raise ValueError(
+                    f"to_dataframe() was asked for {repeated!r} more than once, and a "
+                    f"name can only become one column. Pass each name at most once."
+                )
+            if not names:
+                raise ValueError(
+                    f"to_dataframe() was given an empty selection, and a frame needs at "
+                    f"least one column. Pass `variables=None` for all of them, or one of "
+                    f"{available}."
+                )
+        return names
+
+
+def _is_container(nc: NetCDF) -> bool:
+    """Whether `nc` holds variables rather than being one.
+
+    Args:
+        nc: The container or variable.
+
+    Returns:
+        bool: `True` for a container.
+    """
+    return bool(getattr(nc, "variable_names", None)) and not getattr(
+        nc, "_band_dim_names", ()
+    )
+
+
+def _frame_values(nc: NetCDF, var: NetCDF) -> Any:
+    """One variable's cells as float64 with its gaps as NaN, in array order.
+
+    Args:
+        nc: The object `to_dataframe` was called on, which owns the array helpers.
+        var: The variable to read.
+
+    Returns:
+        The values, shaped `(*band_dim_sizes, rows, cols)`.
+    """
+    values = np.asarray(nc._materialize_variable_array(var), dtype="float64")
+    # `_read_no_data`, not `no_data_value`: the values above are physical (unpacked), and
+    # on a CF-packed variable the declared `_FillValue` is the *stored* number. Comparing
+    # the two masks nothing, and the fill cell reaches pandas as a measurement — scale and
+    # offset applied to the sentinel. The helper unpacks it first, which is what every
+    # other reader of the cube uses.
+    sentinel = _read_no_data(var)
+    if sentinel is not None and not np.isnan(sentinel):
+        values = np.where(values == sentinel, np.nan, values)
+    return values
+
+
+def _frame_index(var: NetCDF) -> pd.MultiIndex:
+    """The `MultiIndex` over the variable's dimensions, outermost first.
+
+    The spatial centres come from the geotransform rather than from the store's coordinate
+    arrays: the raster is north-up whatever order the file stores its rows in, and the frame
+    has to describe the cells as they are laid out.
+
+    Args:
+        var: The variable whose dimensions the index names.
+
+    Returns:
+        pandas.MultiIndex: The index, `prod(sizes)` long.
+    """
+    geo = var.geotransform
+    names = [*var._band_dim_names, *_public_spatial_names(var)]
+    levels: list[Any] = []
+    for dim in var._band_dim_names:
+        stamps = var._band_dim_values_map.get(dim)
+        size = var._band_dim_sizes[list(var._band_dim_names).index(dim)]
+        levels.append(list(stamps) if stamps is not None else list(range(size)))
+    levels.append([geo[3] + (row + 0.5) * geo[5] for row in range(var.rows)])
+    levels.append([geo[0] + (col + 0.5) * geo[1] for col in range(var.columns)])
+    return pd.MultiIndex.from_product(levels, names=names)
+
+
+def _public_spatial_names(var: NetCDF) -> tuple[str, str]:
+    """The row and column axis names to show a caller, never an internal one.
+
+    Reading a y-ascending store flips the rows through a view, and the view renames that
+    dimension after the window it was cut with — `lat` becomes `subset_lat_169_-1_170`.
+    That name is an implementation detail of the read: putting it on a public index level
+    leaks it and breaks the frame comparison against xarray.
+
+    The store's own name is recovered positionally from the parent container, which is how
+    `_removed_dimensions` recovers it for `weighted`. A variable with no reachable parent —
+    one built in memory — falls back to the `y` / `x` a rebuild gives it.
+
+    Args:
+        var: The variable whose axes are being named.
+
+    Returns:
+        tuple[str, str]: The row axis' name and the column axis' name.
+    """
+    row, column = _spatial_names(var)
+    declared = _store_dimension_names(var)
+    indices = var._md_spatial_dims
+    if declared and indices is not None and len(declared) > max(indices):
+        return declared[indices[1]], declared[indices[0]]
+    known = set(declared)
+    return (
+        row if row in known else _ROW_ALIAS,
+        column if column in known else _COLUMN_ALIAS,
+    )
+
+
+def _store_dimension_names(var: NetCDF) -> list[str]:
+    """The dimensions the **store** declares for this variable, positionally.
+
+    Args:
+        var: The variable.
+
+    Returns:
+        list[str]: The names, or `[]` when no parent container is reachable.
+    """
+    parent = var._parent_nc
+    name = var._source_var_name
+    if parent is None or name is None:
+        return []
+    try:
+        return list(parent._variable_dim_names(parent._working_group(), name))
+    except (KeyError, AttributeError, RuntimeError):
+        return []
 
 
 # The CF roles xarray represents as coordinates rather than data variables.

@@ -59,7 +59,10 @@ from pyramids.netcdf.engines._along_dim import (
     _assert_band_dimension,
     _CumSum,
     _Diff,
+    _DropNa,
     _Extremum,
+    _Interpolate,
+    _Push,
     _reduces_as_a_variable,
     _Reduction,
     _Rolling,
@@ -2603,6 +2606,328 @@ class Selection(_Engine["NetCDF"]):
         nc = self._ds
         _check_how(how, set(_WEIGHTED_HOWS))
         return _weighted_result(nc, weights, dims, how=how, skipna=bool(skipna))
+
+    def ffill(self, dim: str, *, limit: int | None = None) -> NetCDF:
+        """Carry the last valid value along a non-spatial dimension into the gaps after it.
+
+        Each gap takes the nearest valid value **before** it along `dim`. A gap before the
+        first valid cell has nothing to take and stays a gap, which is what xarray answers —
+        `ffill` carries data forward, it does not invent a start.
+
+        Works on a container, filling every variable that has `dim`, and on a single
+        variable, returning a variable. A container's auxiliary variables are all carried
+        over, those spanning `dim` included, since its length does not change.
+
+        Args:
+            dim: The non-spatial dimension to carry along.
+            limit: How many consecutive gaps one valid cell may fill, an integer of at least
+                1. `None` (default) lets a value carry as far as the next valid cell. A run
+                longer than the limit keeps the gaps beyond it.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, float64, with
+            every dimension unchanged in length and coordinates. It declares the variable's
+            no-data value, or NaN when it declares none, since a gap the fill could not reach
+            is still a gap.
+
+        Raises:
+            TypeError: `limit` is not an integer, or is a boolean.
+            ValueError: `limit` is below 1; the container has no data variables; or `dim` is
+                not a band dimension of any gridded variable (or of this variable, or this
+                variable has none).
+
+        Examples:
+            - A leading gap has nothing to carry into it; the rest are filled:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([np.nan, 2.0, np.nan, np.nan]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.ffill("time").read_array().ravel().tolist()
+              [-9999.0, 2.0, 2.0, 2.0]
+              >>> var.ffill("time", limit=1).read_array().ravel().tolist()
+              [-9999.0, 2.0, 2.0, -9999.0]
+
+              ```
+            - `-9999.0` is the no-data value `from_array` declares when none is given, so
+              those are the gaps the fill could not reach:
+
+              ```python
+              >>> var.ffill("time").no_data_value[0]
+              -9999.0
+
+              ```
+        """
+        op = _Push(
+            backward=False, limit=_check_limit(limit, caller="ffill"), caller="ffill"
+        )
+        return _along_either(self._ds, dim, op)
+
+    def bfill(self, dim: str, *, limit: int | None = None) -> NetCDF:
+        """Carry the next valid value along a non-spatial dimension back into the gaps before it.
+
+        `ffill` read the other way: each gap takes the nearest valid value **after** it along
+        `dim`, and a gap after the last valid cell stays a gap.
+
+        Works on a container, filling every variable that has `dim`, and on a single
+        variable, returning a variable. A container's auxiliary variables are all carried
+        over, those spanning `dim` included, since its length does not change.
+
+        Args:
+            dim: The non-spatial dimension to carry along.
+            limit: How many consecutive gaps one valid cell may fill, an integer of at least
+                1. `None` (default) lets a value carry as far as the previous valid cell.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, float64, with
+            every dimension unchanged in length and coordinates, declaring the variable's
+            no-data value or NaN when it declares none.
+
+        Raises:
+            TypeError: `limit` is not an integer, or is a boolean.
+            ValueError: `limit` is below 1; the container has no data variables; or `dim` is
+                not a band dimension of any gridded variable (or of this variable, or this
+                variable has none).
+
+        Examples:
+            - The trailing gap has nothing to carry into it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([np.nan, 2.0, np.nan, np.nan]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.bfill("time").read_array().ravel().tolist()
+              [2.0, 2.0, -9999.0, -9999.0]
+
+              ```
+        """
+        op = _Push(
+            backward=True, limit=_check_limit(limit, caller="bfill"), caller="bfill"
+        )
+        return _along_either(self._ds, dim, op)
+
+    def dropna(
+        self, dim: str, *, how: str = "any", thresh: int | None = None
+    ) -> NetCDF:
+        """Remove the steps of a non-spatial dimension whose cells are missing.
+
+        The one member here whose result length depends on the values rather than on the
+        arguments, so `dim`'s coordinates come back cut to the steps that survived and a
+        container's auxiliary variable spanning `dim` is dropped with a warning.
+
+        Works on a container, dropping from every variable that has `dim`, and on a single
+        variable, returning a variable.
+
+        **Two places this stops where xarray keeps going**, both because GDAL has no raster
+        of no bands to put the answer in: a call that would drop *every* step raises rather
+        than returning an empty cube (xarray answers shape `(0, …)`), and `thresh` must be
+        at least 1, where xarray reads `thresh=0` or a negative one as "keep everything".
+        `how` and `thresh` otherwise mean what they mean in xarray, `thresh` overriding
+        `how` included.
+
+        Args:
+            dim: The non-spatial dimension to drop steps from.
+            how: `"any"` (default) drops a step that holds any gap at all; `"all"` drops only
+                a step with no valid cell. Ignored when `thresh` is given, as xarray ignores
+                it.
+            thresh: Keep a step holding at least this many valid cells, an integer of at
+                least 1. `None` (default) defers to `how`.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, holding the
+            steps that survived with their own values — nothing is computed here, only
+            selected. A CF-packed variable comes back unpacked, in physical units and
+            declaring the unpacked fill, as it does from every other member here.
+
+        Raises:
+            TypeError: `thresh` is not an integer, or is a boolean.
+            ValueError: `how` is neither `"any"` nor `"all"`; `thresh` is below 1; no step
+                survives, which would leave a variable with no bands; the container has no
+                data variables; or `dim` is not a band dimension of any gridded variable.
+
+        Warns:
+            UserWarning: A container's auxiliary variable spans `dim` and is dropped. The
+                message names `dropna()`.
+
+        Examples:
+            - Drop the steps that hold a gap, and then only the empty ones:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, np.nan, 3.0, np.nan]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.dropna("time").read_array().ravel().tolist()
+              [1.0, 3.0]
+              >>> var.dropna("time")._band_dim_values_map["time"]
+              [0.0, 12.0]
+
+              ```
+        """
+        if how not in _DROPNA_HOWS:
+            raise ValueError(
+                f"dropna() takes how={' or '.join(repr(one) for one in _DROPNA_HOWS)}, "
+                f"got {how!r}."
+            )
+        op = _DropNa(how=how, thresh=_check_limit(thresh, caller="dropna"))
+        return _along_either(self._ds, dim, op)
+
+    def interpolate_na(
+        self,
+        dim: str,
+        method: str = "linear",
+        *,
+        limit: int | None = None,
+        use_coordinate: bool = True,
+    ) -> NetCDF:
+        """Fill the gaps along a non-spatial dimension from the valid cells around them.
+
+        The temporal counterpart of the spatial `fill_gaps`: where `ffill` carries one
+        neighbour forwards, this reads both sides of a gap and places it between them. A gap
+        with a valid cell on only one side — a leading or trailing one — is left alone, as
+        xarray leaves it.
+
+        Works on a container, interpolating every variable that has `dim`, and on a single
+        variable, returning a variable. A container's auxiliary variables are all carried
+        over, those spanning `dim` included, since its length does not change.
+
+        Args:
+            dim: The non-spatial dimension to interpolate along.
+            method: `"linear"` (default) places a gap between its neighbours in proportion to
+                its distance from each; `"nearest"` gives it the closer neighbour's value,
+                the earlier one when the distances are equal. The spline methods xarray
+                offers are not implemented.
+            limit: How many consecutive gaps one run may fill, counted from the valid cell
+                before it exactly as `ffill`'s limit is, an integer of at least 1. `None`
+                (default) fills a run of any length.
+            use_coordinate: Measure the distance between steps along the dimension's own
+                coordinate values (default), so an unevenly spaced axis interpolates by how
+                far apart its steps really are. `False` measures by position, which is also
+                what a dimension carrying no coordinates falls back to.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, float64, with
+            every dimension unchanged in length and coordinates. It declares the variable's
+            no-data value, or NaN when it declares none, since a gap that could not be
+            reached is still a gap.
+
+        Raises:
+            TypeError: `limit` is not an integer, or is a boolean.
+            ValueError: `method` is neither `"linear"` nor `"nearest"`; `limit` is below 1;
+                `use_coordinate` was asked for and `dim`'s stamps are not numeric; the
+                container has no data variables; or `dim` is not a band dimension of any
+                gridded variable.
+
+        Examples:
+            - An interior gap is placed between its neighbours; the edges are left alone:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, np.nan, np.nan, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=None,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0, 3.0]),
+              ... ).get_variable("t")
+              >>> var.interpolate_na("time").read_array().ravel().tolist()
+              [1.0, 3.0, 5.0, 7.0]
+
+              ```
+            - On an uneven axis the distance is the coordinate's, not the position's:
+
+              ```python
+              >>> uneven = NetCDF.from_array(
+              ...     np.array([1.0, np.nan, np.nan, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     no_data_value=None,
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 5.0, 6.0]),
+              ... ).get_variable("t")
+              >>> uneven.interpolate_na("time").read_array().ravel().tolist()
+              [1.0, 2.0, 6.0, 7.0]
+
+              ```
+        """
+        if method not in _INTERPOLATION_METHODS:
+            raise ValueError(
+                f"interpolate_na() takes method="
+                f"{' or '.join(repr(one) for one in _INTERPOLATION_METHODS)}, got "
+                f"{method!r}."
+            )
+        op = _Interpolate(
+            method=method,
+            limit=_check_limit(limit, caller="interpolate_na"),
+            use_coordinate=bool(use_coordinate),
+        )
+        return _along_either(self._ds, dim, op)
+
+
+_INTERPOLATION_METHODS = ("linear", "nearest")
+"""The interpolations `interpolate_na` offers; xarray's spline methods are not implemented."""
+
+_DROPNA_HOWS = ("any", "all")
+"""The `how` modes of `dropna`, in xarray's vocabulary."""
+
+
+def _along_either(nc: NetCDF, dim: str, op: Any) -> NetCDF:
+    """Run `op` along `dim`, on whichever receiver `nc` is.
+
+    Args:
+        nc: The container or variable the member was called on.
+        dim: The dimension the operation runs along.
+        op: The operation.
+
+    Returns:
+        NetCDF: A container for a container, a variable for a variable.
+    """
+    if _reduces_as_a_variable(nc):
+        return _apply_to_variable(nc, dim, op)
+    return _apply_to_container(nc, dim, op)
+
+
+def _check_limit(limit: Any, *, caller: str) -> int | None:
+    """A `limit` or `thresh` as a positive `int`, or the refusal saying why it is not one.
+
+    Args:
+        limit: As passed; `None` asks for no limit.
+        caller: The member named in the message. Required rather than defaulted, because a
+            default is silently wrong for every member but one — `bfill` inherited `ffill`'s
+            and reported a bad limit against a member the caller never called.
+
+    Returns:
+        int | None: `None` unchanged, otherwise the value as an `int`.
+
+    Raises:
+        TypeError: The value is a boolean or not something `operator.index()` accepts.
+        ValueError: The value is below 1, which would fill or keep nothing.
+    """
+    checked: int | None = None
+    if limit is not None:
+        if isinstance(limit, (bool, np.bool_)):
+            raise TypeError(f"{caller}() needs an integer, got {limit!r}.")
+        try:
+            checked = operator.index(limit)
+        except TypeError:
+            raise TypeError(f"{caller}() needs an integer, got {limit!r}.") from None
+        if checked < 1:
+            raise ValueError(f"{caller}() needs a value of at least 1, got {checked}.")
+    return checked
 
 
 _BOUNDARIES = ("exact", "trim", "pad")

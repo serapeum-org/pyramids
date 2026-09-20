@@ -89,6 +89,8 @@ from pyramids.netcdf.cf import (
 )
 from pyramids.netcdf.engines import interop as _interop
 from pyramids.netcdf.engines import variables as _variables
+from pyramids.netcdf.engines.combine import concat as _concat
+from pyramids.netcdf.engines.combine import merge as _merge
 from pyramids.netcdf.engines.interop import Interop
 from pyramids.netcdf.engines.selection import Selection
 from pyramids.netcdf.engines.variables import Variables
@@ -2081,6 +2083,72 @@ def _variable_nbytes(variable: _HasRasterShape | LabeledArray) -> int:
     return size
 
 
+def _with_receiver(receiver: NetCDF | None, objs: Any) -> list:
+    """The cubes a join should read: `objs`, after the receiver when there is one.
+
+    Args:
+        receiver: The cube the join was reached through, or `None` for a class call.
+        objs: The cubes the caller passed.
+
+    Returns:
+        list: The cubes to join, in order.
+    """
+    cubes = list(objs)
+    return cubes if receiver is None else [receiver, *cubes]
+
+
+class _joins_cubes:  # noqa: N801
+    """Descriptor for the two joins: callable on the class, and on a cube.
+
+    `NetCDF.concat([a, b], "time")` is the canonical spelling, but
+    `first.concat([second], "time")` is a natural reading of "join this cube with that
+    one" — and as a plain `classmethod` it silently returned only `second`, because a
+    classmethod cannot see the instance it was reached through. Here it can: an instance
+    call puts the receiver at the front of the list, so both spellings answer the same
+    cube.
+
+    The wrapped function takes the receiver as its first parameter — the cube it was
+    reached through, or `None` for a class call — and `_with_receiver` turns that into
+    the list to join.
+    """
+
+    def __init__(self, function: Callable) -> None:
+        """Wrap the join.
+
+        Args:
+            function: The join, taking `(objs, ...)`.
+        """
+        self._function = function
+        self.__doc__ = function.__doc__
+
+    def __get__(self, instance: Any, owner: type | None = None) -> Callable:
+        """Bind the join to the class or to a cube.
+
+        Args:
+            instance: The cube it was reached through, or `None` for a class call.
+            owner: The class.
+
+        Returns:
+            Callable: The join, with the receiver prepended on an instance call.
+        """
+
+        def call(*args: Any, **kwargs: Any) -> NetCDF:
+            """Join, with the receiver threaded in as the wrapped function's first argument.
+
+            Args:
+                *args: Passed through.
+                **kwargs: Passed through.
+
+            Returns:
+                NetCDF: The joined cube.
+            """
+            return cast("NetCDF", self._function(instance, *args, **kwargs))
+
+        call.__doc__ = self._function.__doc__
+        call.__name__ = self._function.__name__
+        return call
+
+
 class NetCDF(Dataset):
     """NetCDF.
 
@@ -2222,6 +2290,12 @@ class NetCDF(Dataset):
         # Origin-tracking attributes set by get_variable (RT-4)
         self._parent_nc: NetCDF | None = None
         self._source_var_name: str | None = None
+        # True on a raster rebuilt cell by cell in memory (`where`, `fillna`, the null
+        # flags): it keeps `_source_var_name` so it is still called what it is called,
+        # but its values are its own and no longer live at `file::source_var_name`. A
+        # lazy read, which reopens that path, has to refuse it rather than reach for a
+        # store that does not hold these cells.
+        self._rebuilt_in_memory: bool = False
         # ARC-12: a group view shares the parent container's open dataset and
         # records the "/"-joined path to its working sub-group here. None (the
         # default) means this container is rooted at the dataset's root group;
@@ -5856,7 +5930,30 @@ class NetCDF(Dataset):
         )
 
     def _read_array_lazy(self, chunks: Any, lock: Any, masked: bool) -> ArrayLike:
-        """Lazy (dask) read via ``build_lazy_array``; rejects unsupported combos."""
+        """The dask read, through `build_lazy_array`, once the request can be served.
+
+        A lazy read reopens the variable from its store, so it needs a path and a name to
+        reopen — and it needs the store to still hold the cells being asked for. A raster
+        rebuilt in memory by `where`, `fillna`, `isnull` or `notnull` keeps the name it is
+        called by, for labelling, but its values are its own; without the flag it carries
+        that read reached for `file::name` and failed inside GDAL with a bare
+        `No such file or directory`.
+
+        Args:
+            chunks: The dask chunk specification.
+            lock: The read lock handed to `build_lazy_array`.
+            masked: Whether the caller asked for a masked array, which this read has no
+                answer for.
+
+        Returns:
+            ArrayLike: The dask array.
+
+        Raises:
+            NotImplementedError: `masked=True` was combined with `chunks=`.
+            ValueError: There is no variable name to reopen — the receiver is a container
+                rather than a variable — or the variable was rebuilt in memory, so the
+                store no longer holds these cells. Read it eagerly instead.
+        """
         if masked:
             raise NotImplementedError(
                 "read_array(masked=True) is not supported together with "
@@ -5874,6 +5971,13 @@ class NetCDF(Dataset):
                 "Lazy read requires a variable name; pass "
                 "`variable=` on the container or call read_array "
                 "on a subset from `get_variable()`."
+            )
+        if self._rebuilt_in_memory:
+            raise ValueError(
+                f"Lazy read reopens the variable from its store, and {var_name!r} was "
+                f"rebuilt in memory (by where(), fillna(), isnull() or notnull()), so "
+                f"the store no longer holds these cells. Read it eagerly with "
+                f"read_array()."
             )
         # Thread the eager-resolved raster plane (and its flips) into the lazy build so a variable
         # whose latitude/longitude is not the trailing pair -- selected via `x_dim`/`y_dim` or CF
@@ -7298,6 +7402,185 @@ class NetCDF(Dataset):
     def shift(self, dim: str, periods: int = 1, *, fill_value: Any = None) -> NetCDF:
         """Facade — :meth:`Selection.shift <pyramids.netcdf.engines.selection.Selection.shift>`."""
         return self.selection.shift(dim, periods, fill_value=fill_value)
+
+    def ffill(self, dim: str, *, limit: int | None = None) -> NetCDF:
+        """Facade — :meth:`Selection.ffill <pyramids.netcdf.engines.selection.Selection.ffill>`."""
+        return self.selection.ffill(dim, limit=limit)
+
+    def bfill(self, dim: str, *, limit: int | None = None) -> NetCDF:
+        """Facade — :meth:`Selection.bfill <pyramids.netcdf.engines.selection.Selection.bfill>`."""
+        return self.selection.bfill(dim, limit=limit)
+
+    def dropna(
+        self, dim: str, *, how: str = "any", thresh: int | None = None
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.dropna <pyramids.netcdf.engines.selection.Selection.dropna>`."""
+        return self.selection.dropna(dim, how=how, thresh=thresh)
+
+    def interpolate_na(
+        self,
+        dim: str,
+        method: str = "linear",
+        *,
+        limit: int | None = None,
+        use_coordinate: bool = True,
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.interpolate_na <pyramids.netcdf.engines.selection.Selection.interpolate_na>`."""
+        return self.selection.interpolate_na(
+            dim, method, limit=limit, use_coordinate=use_coordinate
+        )
+
+    def to_dataframe(self, *, variables: Any = None, dropna: bool = False):
+        """Facade — :meth:`Interop.to_dataframe <pyramids.netcdf.engines.interop.Interop.to_dataframe>`."""
+        return self.interop.to_dataframe(variables=variables, dropna=dropna)
+
+    @_joins_cubes
+    def concat(self, objs: Any, dim: str) -> NetCDF:
+        """Join cubes end to end along one of their dimensions.
+
+        Two halves of a time series becoming the whole. Every cube must be on the same
+        grid, carry the same variables, and agree on every dimension but `dim`; the joined
+        dimension's coordinates are laid end to end in the order the cubes were given.
+
+        See :meth:`merge` for the other join — several variables on one grid, rather than
+        one set of variables over a longer axis.
+
+        Every cube's gaps stay gaps: the result declares the first cube's no-data value
+        and the other cubes' gaps are rewritten to it. The one cell this cannot get right
+        is a later cube holding the first cube's sentinel as a real measurement, which is
+        then read as missing — change one of the sentinels before joining such cubes.
+
+        Callable either way: `NetCDF.concat([first, second], dim)` joins the list, and
+        `first.concat([second], dim)` joins the receiver ahead of it. The two answer the
+        same cube.
+
+        Args:
+            objs: The cubes, containers or variables, in the order they are joined. On an
+                instance call the receiver comes first, ahead of these.
+            dim: The non-spatial dimension to join along.
+
+        Returns:
+            NetCDF: One container holding the joined cubes.
+
+        Raises:
+            ValueError: `objs` is empty, the cubes carry different variables, or a variable
+                lacks `dim` or disagrees on another dimension.
+            AlignmentError: The cubes are not on the same grid.
+
+        Examples:
+            - Two halves of a four-step cube, joined back into it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo_ref = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> first = NetCDF.from_array(
+              ...     np.array([1.0, 2.0]).reshape(2, 1, 1), geo_ref=geo_ref,
+              ...     variable_name="t", dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... )
+              >>> second = NetCDF.from_array(
+              ...     np.array([3.0, 4.0]).reshape(2, 1, 1), geo_ref=geo_ref,
+              ...     variable_name="t", dims=ExtraDimensions(name="time", values=[12.0, 18.0]),
+              ... )
+              >>> whole = NetCDF.concat([first, second], "time")
+              >>> whole.get_variable("t").read_array().ravel().tolist()
+              [1.0, 2.0, 3.0, 4.0]
+              >>> whole.get_variable("t")._band_dim_values_map["time"]
+              [0.0, 6.0, 12.0, 18.0]
+
+              ```
+            - The same join reached through the first cube, which goes at the front:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo_ref = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> first = NetCDF.from_array(
+              ...     np.array([1.0, 2.0]).reshape(2, 1, 1), geo_ref=geo_ref,
+              ...     variable_name="t", dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... )
+              >>> second = NetCDF.from_array(
+              ...     np.array([3.0, 4.0]).reshape(2, 1, 1), geo_ref=geo_ref,
+              ...     variable_name="t", dims=ExtraDimensions(name="time", values=[12.0, 18.0]),
+              ... )
+              >>> first.concat([second], "time").get_variable("t").read_array().ravel().tolist()
+              [1.0, 2.0, 3.0, 4.0]
+
+              ```
+        """
+        return _concat(_with_receiver(self, objs), dim)
+
+    @_joins_cubes
+    def merge(self, objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
+        """Put the variables of several cubes side by side on the grid they share.
+
+        **Not** `DatasetCollection.merge`, which means a *spatial mosaic written to a
+        destination file* — several rasters covering neighbouring ground becoming one. This
+        is the other operation: one grid, several variables. See :meth:`concat` for joining
+        along a dimension instead.
+
+        Callable either way: `NetCDF.merge([first, second])` merges the list, and
+        `first.merge([second])` merges the receiver ahead of it.
+
+        No dimension is joined here, so the copies of a variable have to agree about every
+        one of them, coordinates included — two measurements a hundred hours apart are
+        refused rather than fused into one step carrying the first's stamp. Use
+        :meth:`concat` to put them end to end instead.
+
+        Args:
+            objs: The cubes, containers or variables, all on the same grid. On an
+                instance call the receiver comes first, ahead of these.
+            compat: What to do with a variable more than one cube carries.
+                `"no_conflicts"` (default) is xarray's rule: the copies fill each other's
+                gaps, and only a cell both of them hold a *different* value in is a
+                conflict. A value borrowed into a band that cannot hold it widens that
+                band rather than being truncated into it. `"override"` takes the first
+                cube's copy as it stands, gaps and all, without reading any other.
+
+        Returns:
+            NetCDF: One container holding the union of the variables.
+
+        Raises:
+            ValueError: `objs` is empty, `compat` is unknown, two copies of a variable are
+                stamped differently along a band dimension, or two cubes disagree about a
+                cell they both judged.
+            AlignmentError: The cubes are not on the same grid.
+
+        Examples:
+            - Two single-variable cubes becoming one container of both:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo_ref = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> rain = NetCDF.from_array(
+              ...     np.ones((1, 1)), geo_ref=geo_ref, variable_name="rain"
+              ... )
+              >>> temp = NetCDF.from_array(
+              ...     np.zeros((1, 1)), geo_ref=geo_ref, variable_name="temp"
+              ... )
+              >>> sorted(NetCDF.merge([rain, temp]).variable_names)
+              ['rain', 'temp']
+
+              ```
+            - The same merge reached through the first cube:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo_ref = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> rain = NetCDF.from_array(
+              ...     np.ones((1, 1)), geo_ref=geo_ref, variable_name="rain"
+              ... )
+              >>> temp = NetCDF.from_array(
+              ...     np.zeros((1, 1)), geo_ref=geo_ref, variable_name="temp"
+              ... )
+              >>> sorted(rain.merge([temp]).variable_names)
+              ['rain', 'temp']
+
+              ```
+        """
+        return _merge(_with_receiver(self, objs), compat=compat)
 
     def weighted(
         self,
@@ -11712,6 +11995,7 @@ class NetCDF(Dataset):
         result._is_subset = False
         result._parent_nc = None
         result._source_var_name = None
+        result._rebuilt_in_memory = False
         result._md_array_dims = self._md_array_dims
         result._geostationary_scaled = self._geostationary_scaled
         result._variable_attrs = self._variable_attrs

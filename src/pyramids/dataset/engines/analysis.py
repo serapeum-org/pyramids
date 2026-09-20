@@ -11,6 +11,7 @@ import logging
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -145,6 +146,85 @@ def _point_sample_fill(gdal_band: gdal.Band) -> tuple[Any, np.dtype]:
         )
         return np.nan, out_dtype
     return no_data_value, band_dtype
+
+
+def _mask_dtype(band: np.dtype, fill: Any) -> np.dtype:
+    """The type a masked result needs: the band's own, unless the fill will not fit it.
+
+    `np.where` answers a different type depending on how the fill is spelled, and neither
+    answer is the band's own. A Python `0.0` octuples a `uint8` raster — `np.where` gives
+    `float64` for a value a byte holds — while under NEP 50 it leaves a `float32` raster
+    alone; and the `numpy.float64` GDAL hands back as a declared no-data value is strongly
+    typed, so it doubles that same `float32` raster. A band keeps its own type when it can
+    hold what is written into it:
+
+    - a float band holds any real value at its own precision, NaN and the infinities
+      included — every float width has those — so it widens only for a *finite* magnitude
+      no value of that width can represent: a `float16` band and `70000.0`;
+    - an integer band holds an integral sentinel in range — GDAL hands those back as
+      floats (`255.0`), which is why the value is checked rather than its Python type.
+
+    A fractional fill into an integer band, or NaN where no integer could mean "missing",
+    genuinely needs a wider type and gets one.
+
+    `np.result_type` is asked only for those cases, and never as the *first* question:
+    the fill arrives as a `numpy.float64` — that is how GDAL hands back a declared no-data
+    value — and a numpy scalar is strongly typed, so `np.result_type(float32, it)` answers
+    `float64` for a number `float32` holds exactly. The band's own type is decided by what
+    it can hold, not by numpy's promotion.
+
+    Args:
+        band: The source band's dtype.
+        fill: What an unselected cell will hold.
+
+    Returns:
+        numpy.dtype: The result's dtype.
+
+    Examples:
+        - A float band keeps its width for anything it can represent, the infinities
+          included:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.dataset.engines.analysis import _mask_dtype
+          >>> [str(_mask_dtype(np.dtype("float32"), one)) for one in (-9999.0, 2.5, np.inf)]
+          ['float32', 'float32', 'float32']
+
+          ```
+        - And widens for a finite magnitude no value of that width can hold:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.dataset.engines.analysis import _mask_dtype
+          >>> str(_mask_dtype(np.dtype("float16"), 70000.0))
+          'float64'
+
+          ```
+        - An integer band keeps its type for an integral sentinel in range, and widens
+          for a fractional fill or for NaN:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.dataset.engines.analysis import _mask_dtype
+          >>> [str(_mask_dtype(np.dtype("uint8"), one)) for one in (255.0, np.nan)]
+          ['uint8', 'float64']
+          >>> str(_mask_dtype(np.dtype("int16"), 0.5))
+          'float64'
+
+          ```
+    """
+    filler = np.asarray(fill)
+    chosen = np.result_type(band, filler)
+    if np.issubdtype(band, np.floating):
+        holds = bool(np.isnan(filler).all()) or bool(np.isinf(filler).all())
+        if holds or bool(np.abs(filler) <= np.finfo(band).max):
+            chosen = np.dtype(band)
+    elif np.issubdtype(band, np.integer) and not np.isnan(filler).any():
+        limits = np.iinfo(band)
+        value = float(filler)
+        if value.is_integer() and limits.min <= value <= limits.max:
+            chosen = np.dtype(band)
+    return chosen
 
 
 class Analysis(_Engine["Dataset"]):
@@ -2024,6 +2104,858 @@ class Analysis(_Engine["Dataset"]):
             self._ds._spend_packing()
             return None
         return dst
+
+    def where(
+        self,
+        cond: Any,
+        other: Any = _DERIVE_NO_DATA,
+        *,
+        drop: bool = False,
+    ) -> Dataset:
+        """Keep the cells a condition selects and mask the rest.
+
+        The counterpart of :meth:`fill`, which writes to the cells that *are* data: `where`
+        decides which cells stay data at all. A cell the condition selects keeps its value
+        exactly; every other cell takes `other`, which defaults to the raster's own no-data
+        value, so the common call returns the same raster with the unwanted cells gone.
+
+        A condition cell that is itself no-data reads as **false**. That is what makes
+        `raster.where(raster > 5)` behave: a comparison declares `255` for a cell it could
+        not judge — a gap in the operand — and keeping such a cell would keep one the
+        comparison never approved. It is also xarray's answer, whose comparison is false at
+        a NaN.
+
+        Args:
+            cond: What to keep. A boolean (or `0` / `1`) array broadcastable to this
+                raster's cells; a raster on the same grid, which a comparison such as
+                `raster > 5` produces and whose own no-data cells read as false; or a
+                callable handed this raster's physical values and returning either.
+            other: What an unselected cell holds. Left out, it is the raster's declared
+                no-data value, or NaN when it declares none. An explicit `None` is NaN
+                whatever the raster declares — the two are not the same argument. A
+                number writes that number instead.
+
+                A *selected* cell that was already a gap stays a gap, marked the way the
+                result marks its gaps: `where(cond, 0.0)` is not a `fillna`, and the
+                result declares the sentinel and still holds it there. A NaN `other`
+                makes the result declare NaN, and those kept gaps are NaN too, so the
+                source's sentinel appears nowhere in it.
+            drop: Trim the result to what the condition selected a cell in, discarding
+                the rows, the columns **and** the bands it was false across — xarray
+                drops labels in every dimension, and a cube's empty steps go with its
+                empty rows. Read off the condition, as xarray reads it: `other` does not
+                save a row, and a cell that was already missing is kept if the condition
+                selected it. The grid is unchanged — the origin moves to the first
+                surviving cell and the cell size stays as it was. Off by default, which
+                keeps every row, column and band.
+
+                A variable carrying **two or more** band dimensions is trimmed spatially
+                only: its bands are the flattened product of those dimensions, and the
+                surviving set is not a rectangle of that product in general.
+
+        Returns:
+            Dataset: A new raster on this one's grid and CRS — trimmed to what survived
+            when `drop` is set — carrying this raster's band names and metadata, as every
+            combined result does.
+
+        Raises:
+            AlignmentError: A raster condition is on another grid. `where` does not
+                resample; :meth:`Dataset.align <pyramids.dataset.Dataset.align>` is the
+                explicit step for that.
+            TypeError: `other` is neither a number nor `None` — a boolean included, since
+                writing `True` into a band is never what was meant.
+            ValueError: An array condition's shape does not broadcast onto this raster's
+                cells; `drop` was asked for and the condition selected no cells at all,
+                which leaves no raster to build; or this is a `NetCDF` container, which has
+                no raster of its own — call it on one of its variables.
+
+        Examples:
+            - Keep the cells above a threshold, masking the rest:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> values = np.array([[1.0, 2.0], [3.0, 4.0]])
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.where(raster > 2).read_array().tolist()
+              [[-9999.0, -9999.0], [3.0, 4.0]]
+
+              ```
+            - Write a value into the cells that were not selected:
+
+              ```python
+              >>> raster.where(values > 2, 0.0).read_array().tolist()
+              [[0.0, 0.0], [3.0, 4.0]]
+
+              ```
+            - Trim to what survived:
+
+              ```python
+              >>> kept = raster.where(values > 2, drop=True)
+              >>> (kept.rows, kept.columns)
+              (1, 2)
+
+              ```
+            - A NaN `other` marks the gaps the condition kept the result's way, so the
+              source's sentinel is nowhere in it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> gapped = Dataset.from_array(
+              ...     np.array([[1.0, -9999.0], [3.0, 4.0]]), geo_ref=geo_ref,
+              ...     no_data_value=-9999.0,
+              ... )
+              >>> masked = gapped.where([[True, True], [True, False]], np.nan)
+              >>> masked.read_array().tolist()
+              [[1.0, nan], [3.0, nan]]
+              >>> masked.isnull().read_array().tolist()
+              [[0, 1], [0, 1]]
+
+              ```
+            - `drop` cuts the empty bands of a stack as well as its empty rows and
+              columns:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> stack = Dataset.from_array(
+              ...     np.arange(8.0).reshape(2, 2, 2), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> trimmed = stack.where(stack > 4, drop=True)
+              >>> (trimmed.band_count, trimmed.rows, trimmed.columns)
+              (1, 2, 2)
+
+              ```
+        """
+        layout_source = self._where_layout_source(cond)
+        values, sentinels, domain = self._operand_arrays(self._ds, None)
+        selected = self._where_condition(cond, values, domain)
+        result = self._where_result(values, sentinels, domain, selected, other)
+        if drop:
+            result = self._where_trimmed(result, selected)
+        # A raster condition may carry a layout of its own, which the hook has already
+        # reconciled with this one's; `_identified` labelled the result from the receiver
+        # alone, so the reconciled answer replaces it.
+        self._ds._label_combined(result, layout_source)
+        return result
+
+    def equals(self, other: Any) -> bool:
+        """Whether two rasters hold the same values on the same grid.
+
+        What :meth:`Dataset.same_grid <pyramids.dataset.Dataset.same_grid>` does not answer:
+        that says the two *could* be combined cell by cell, this says they actually agree.
+        A gap equals a gap — comparing the sentinels as ordinary numbers would call two
+        rasters different for marking the same missing cell with a different value, and
+        would call a NaN unequal to itself.
+
+        Attributes are ignored, as xarray ignores them here; :meth:`identical` is the one
+        that reads them.
+
+        The cheap invariants are checked first — the band count, the grid, and a NetCDF's
+        band dimensions and their coordinates — so two rasters that cannot possibly agree
+        are refused without reading a cell of either.
+
+        Args:
+            other: The raster to compare with. Anything that is not one answers `False`
+                rather than raising, so a heterogeneous list can be filtered with it
+                without a type check first. It is a method, not `==`: `Dataset` overloads
+                the ordering comparisons to build masks and leaves `==` as Python's
+                identity, so `a == b` is `False` for two equal rasters.
+
+        Returns:
+            bool: `True` when every cell agrees and every gap lines up.
+
+        Raises:
+            ValueError: This is a `NetCDF` container, which has no raster of its own —
+                call it on one of its variables. Only the *receiver* is refused: a
+                variable answers `False` for a container passed as `other`.
+
+        Examples:
+            - A raster equals its own copy, and stops equalling it after one cell changes:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, 2.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.equals(raster.copy())
+              True
+              >>> raster.equals(Dataset.from_array(values * 2, geo_ref=geo_ref))
+              False
+
+              ```
+        """
+        return self._compares_equal(other, attributes=False)
+
+    def identical(self, other: Any) -> bool:
+        """Whether two rasters are equal **and** carry the same attributes.
+
+        :meth:`equals` with the metadata read too: the dataset-level tags and the band
+        names. Two rasters holding identical numbers but describing different things are
+        equal and not identical, which is the distinction xarray draws.
+
+        Neither method reads the declared no-data value or the band type, also as xarray
+        has neither concept: two rasters marking the same missing cells with `-9999.0` and
+        with `-1.0` are identical, and so are a `float64` raster and its `float32` copy.
+        Compare `no_data_value` and `dtype` yourself when those matter.
+
+        Args:
+            other: The raster to compare with; anything else answers `False`.
+
+        Returns:
+            bool: `True` when `equals` holds and the attributes match as well.
+
+        Raises:
+            ValueError: This is a `NetCDF` container, which has no raster of its own —
+                call it on one of its variables.
+
+        Examples:
+            - The same numbers under a different description:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, 2.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> relabelled = raster.copy()
+              >>> relabelled.band_names = ["reflectance"]
+              >>> raster.equals(relabelled), raster.identical(relabelled)
+              (True, False)
+
+              ```
+        """
+        return self._compares_equal(other, attributes=True)
+
+    def _compares_equal(self, other: Any, *, attributes: bool) -> bool:
+        """The shared body of :meth:`equals` and :meth:`identical`.
+
+        Args:
+            other: The raster to compare with.
+            attributes: Whether the metadata and band names are read too.
+
+        Returns:
+            bool: The verdict.
+        """
+        self._refuse_a_container("identical" if attributes else "equals")
+        verdict = isinstance(other, RasterBase) and self._invariants_match(other)
+        if verdict:
+            raster = cast("Dataset", other)
+            verdict = self._values_match(raster)
+            if verdict and attributes:
+                verdict = self._attributes_match(raster)
+        return verdict
+
+    def _invariants_match(self, other: Any) -> bool:
+        """Whether the header fields agree, before a cell of either raster is read.
+
+        Args:
+            other: The raster to compare with.
+
+        Returns:
+            bool: `True` when the shape, the grid and the band layout all agree.
+        """
+        same = (
+            self._ds.rows == other.rows
+            and self._ds.columns == other.columns
+            and self._ds.band_count == other.band_count
+            and self._ds.spatial.same_grid(other)
+        )
+        if same:
+            # Duck-typed: a NetCDF variable carries band dimensions and a plain raster does
+            # not, and two rasters of the same shape whose steps are stamped differently are
+            # not the same cube.
+            same = tuple(getattr(self._ds, "_band_dim_names", ())) == tuple(
+                getattr(other, "_band_dim_names", ())
+            ) and getattr(self._ds, "_band_dim_values_map", {}) == getattr(
+                other, "_band_dim_values_map", {}
+            )
+        return same
+
+    def _values_match(self, other: Dataset) -> bool:
+        """Whether every cell agrees, a gap counting as equal to a gap.
+
+        A NaN sitting inside the domain — a raster that declares a numeric sentinel and
+        holds a NaN anyway, which is what `where(cond, np.nan)` produces — counts as equal
+        to the same NaN on the other side, so a raster equals its own copy. Without that,
+        `np.array_equal` would answer `False` for a raster compared with itself.
+
+        Args:
+            other: The raster to compare with.
+
+        Returns:
+            bool: `True` when the gaps line up and the values agree everywhere else.
+        """
+        mine, _, my_domain = self._operand_arrays(self._ds, None)
+        theirs, _, their_domain = self._operand_arrays(other, None)
+        aligned = bool(np.array_equal(my_domain, their_domain))
+        return aligned and bool(
+            np.array_equal(
+                np.where(my_domain, mine, 0.0),
+                np.where(their_domain, theirs, 0.0),
+                equal_nan=True,
+            )
+        )
+
+    def _attributes_match(self, other: Dataset) -> bool:
+        """Whether the dataset tags and band names agree.
+
+        Args:
+            other: The raster to compare with.
+
+        Returns:
+            bool: `True` when both match.
+        """
+        return dict(self._ds.meta_data or {}) == dict(other.meta_data or {}) and list(
+            self._ds.band_names
+        ) == list(other.band_names)
+
+    def fillna(self, value: float | int) -> Dataset:
+        """Give every gap a value, so the raster has no missing cells left.
+
+        The inverse of :meth:`fill`, which writes to the cells that already hold data and
+        leaves the gaps alone. `fillna` writes only to the gaps. The names are one letter
+        apart and the behaviours are opposite, so check which one you meant.
+
+        The band type is :meth:`where`'s judgement about the same fill: the two make one
+        decision, so a `float32` raster stays `float32` for `2.5` and for either infinity,
+        and both widen to `float64` for `1e300`. The widening happens *before* the fill
+        goes in — writing `1e300` straight into a `float32` band stores `inf` behind a
+        `RuntimeWarning`.
+
+        Args:
+            value: What each gap takes, in physical units.
+
+        Returns:
+            Dataset: A new raster on this one's grid, holding `value` wherever this one held
+            its no-data value. It declares the same no-data value, which now marks nothing —
+            as a filled raster's does — in the band's own type, widened only when that type
+            cannot hold `value`.
+
+        Raises:
+            ValueError: This is a `NetCDF` container, which has no raster of its own —
+                call it on one of its variables.
+
+        Examples:
+            - Fill the gaps with zero:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, -9999.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.fillna(0.0).read_array().tolist()
+              [[1.0, 0.0], [3.0, 4.0]]
+
+              ```
+            - A `float32` band keeps its width for a value it can hold, and widens for one
+              it cannot — the same answer `where` gives for that fill:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> narrow = Dataset.from_array(
+              ...     np.array([[1.0, -9999.0], [3.0, 4.0]], dtype="float32"),
+              ...     geo_ref=geo_ref, no_data_value=-9999.0,
+              ... )
+              >>> narrow.fillna(2.5).dtype, narrow.where(narrow.notnull(), 2.5).dtype
+              (['float32'], ['float32'])
+              >>> narrow.fillna(1e300).dtype, narrow.where(narrow.notnull(), 1e300).dtype
+              (['float64'], ['float64'])
+
+              ```
+        """
+        self._refuse_a_container("fillna")
+        values, sentinels, domain = self._operand_arrays(self._ds, None)
+        declared = next((one for one in sentinels if one is not None), None)
+        # The same judgement `where` makes about the same fill, and made before the fill
+        # goes in: `np.where` on a float32 band with `1e300` keeps float32 and overflows
+        # to inf with only a RuntimeWarning, so the band is widened first when it cannot
+        # hold what is being written into it.
+        dtype = _mask_dtype(values.dtype, value)
+        out = np.asarray(np.where(domain, values.astype(dtype, copy=False), value))
+        return self._identified(self._rebuilt(out, declared))
+
+    def isnull(self) -> Dataset:
+        """Flag the gaps: `1` where a cell is missing, `0` where it holds data.
+
+        The flags come back in the `uint8` a comparison returns, so the result reads as a
+        condition for :meth:`where`. Mind which way round: `where` keeps what the condition
+        *selects*, and a selected cell that was already a gap stays one, so it is the
+        complement that closes the gaps — `raster.where(raster.notnull(), 0.0)` zeroes them,
+        while `raster.where(raster.isnull(), 0.0)` zeroes the cells that hold data and
+        leaves every gap where it was. xarray's `where` answers exactly the same both ways;
+        it differs only in flagging with a boolean array, which GDAL has no band type for.
+
+        Returns:
+            Dataset: A `uint8` raster on this one's grid, `1` at each gap. It declares no
+            no-data value: every cell is either missing or not, so there is nothing a flag
+            could fail to judge.
+
+        Raises:
+            ValueError: This is a `NetCDF` container, which has no raster of its own —
+                call it on one of its variables.
+
+        Examples:
+            - Flag the one gap:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, -9999.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.isnull().read_array().tolist()
+              [[0, 1], [0, 0]]
+
+              ```
+            - Which way round the flags read as a `where` condition:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, -9999.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.where(raster.notnull(), 0.0).read_array().tolist()
+              [[1.0, 0.0], [3.0, 4.0]]
+              >>> raster.where(raster.isnull(), 0.0).read_array().tolist()
+              [[0.0, -9999.0], [0.0, 0.0]]
+
+              ```
+        """
+        return self._null_flags(missing=True)
+
+    def notnull(self) -> Dataset:
+        """Flag the data: `1` where a cell holds a value, `0` where it is missing.
+
+        The complement of :meth:`isnull`, in the same `uint8` flags, so it reads as a
+        condition for :meth:`where` — and it is this one, not `isnull`, that a `where`
+        closing the gaps takes: `raster.where(raster.notnull(), 0.0)` keeps every cell that
+        holds data and writes `0.0` into the gaps, which is what :meth:`fillna` does.
+        Selecting on it alone, `raster.where(raster.notnull())`, is a no-op.
+
+        Returns:
+            Dataset: A `uint8` raster on this one's grid, `1` at each cell that holds data,
+            declaring no no-data value.
+
+        Raises:
+            ValueError: This is a `NetCDF` container, which has no raster of its own —
+                call it on one of its variables.
+
+        Examples:
+            - Flag the cells that hold data:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, -9999.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.notnull().read_array().tolist()
+              [[1, 0], [1, 1]]
+
+              ```
+            - Selecting on the flags changes nothing, and filling through them matches
+              `fillna`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+              >>> values = np.array([[1.0, -9999.0], [3.0, 4.0]])
+              >>> raster = Dataset.from_array(values, geo_ref=geo_ref, no_data_value=-9999.0)
+              >>> raster.equals(raster.where(raster.notnull()))
+              True
+              >>> raster.where(raster.notnull(), 0.0).equals(raster.fillna(0.0))
+              True
+
+              ```
+        """
+        return self._null_flags(missing=False)
+
+    def _null_flags(self, *, missing: bool) -> Dataset:
+        """The `uint8` gap flags, one way round or the other.
+
+        Args:
+            missing: `True` to flag the gaps (`isnull`), `False` to flag the data
+                (`notnull`).
+
+        Returns:
+            Dataset: The flags, declaring no no-data value.
+        """
+        self._refuse_a_container("isnull" if missing else "notnull")
+        _, _, domain = self._operand_arrays(self._ds, None)
+        flags = np.asarray(
+            (~domain if missing else domain).astype("uint8"), dtype="uint8"
+        )
+        return self._identified(self._rebuilt(flags, None))
+
+    def _where_layout_source(self, cond: Any) -> Any:
+        """Check a raster condition's grid and band layout, and say what labels the result.
+
+        A raster condition goes through the same two checks an operator's right operand
+        does — the grid, so nothing is silently resampled, and the band layout, through the
+        hook that lets a `NetCDF` refuse band dimensions that do not pair up. Anything else
+        is an array and has neither.
+
+        Args:
+            cond: The condition as the caller gave it.
+
+        Returns:
+            Any: What `_label_combined` should label the result from, or `None`.
+        """
+        self._refuse_a_container("where")
+        if isinstance(cond, RasterBase):
+            raster = cast("Dataset", cond)
+            self._check_combinable(raster, np.logical_and, None)
+            return self._ds._combine_layout_source(raster, None)
+        # An array or a callable brings no layout of its own, which is the shape a fold
+        # has: one operand, nothing to compare it with or fill labels from. Asking the
+        # hook that way answers this raster's own layout, where passing `None` through
+        # would leave `NetCDF._label_combined` unpacking it.
+        return self._ds._combine_layout_source(None, None)
+
+    def _refuse_a_container(self, caller: str) -> None:
+        """Refuse a `NetCDF` container by name, since it has no raster of its own.
+
+        A container's raster is a placeholder — its variables hold the cells — so every
+        member here works on a variable. Without this the caller meets whichever internal
+        guard it reaches first, and the generic one names `read_array`, which the caller
+        never called.
+
+        Args:
+            caller: The member named in the refusal.
+
+        Raises:
+            ValueError: The receiver is a container.
+        """
+        variables = getattr(self._ds, "variable_names", None)
+        if variables and not getattr(self._ds, "_band_dim_names", ()):
+            raise ValueError(
+                f"{caller}() works on a raster, and a container has none of its own — "
+                f"its variables do. Call it on one of them: "
+                f"`nc.get_variable({variables[0]!r}).{caller}(...)`."
+            )
+
+    def _where_condition(
+        self, cond: Any, values: np.typing.NDArray, domain: np.typing.NDArray
+    ) -> np.typing.NDArray:
+        """The condition as a boolean mask shaped like this raster's cells.
+
+        Args:
+            cond: A callable, a raster, or an array.
+            values: This raster's physical values, for a callable condition.
+            domain: This raster's valid-cell mask, unused here but kept for symmetry with
+                the other operand's, which a raster condition contributes.
+
+        Returns:
+            numpy.ndarray: True wherever a cell is selected.
+
+        Raises:
+            ValueError: An array condition does not broadcast onto the values.
+        """
+        if callable(cond) and not isinstance(cond, RasterBase):
+            cond = cond(values)
+        if isinstance(cond, RasterBase):
+            # Its own gaps are cells it could not judge, so they select nothing.
+            other_values, _, other_domain = self._operand_arrays(
+                cast("Dataset", cond), None
+            )
+            flags = np.asarray(other_values) != 0
+            mask = np.asarray(flags & other_domain)
+        else:
+            mask = np.asarray(cond) != 0
+        # A one-step variable reads back as `(rows, cols)` while its cube layout is
+        # `(1, rows, cols)`, and `broadcast_to` cannot drop a leading axis — so a
+        # condition built from `_materialize_variable_array` was refused on a one-step
+        # cube and accepted on a two-step one. A leading singleton carries no information,
+        # so it is dropped rather than made to depend on the cube's length.
+        while np.ndim(mask) == values.ndim + 1 and np.shape(mask)[0] == 1:
+            mask = np.asarray(mask)[0]
+        try:
+            resolved = np.broadcast_to(mask, values.shape)
+        except ValueError:
+            raise ValueError(
+                f"where() needs a condition that covers this raster's cells: its shape is "
+                f"{np.shape(mask)}, which does not broadcast onto {values.shape}."
+            ) from None
+        return np.asarray(resolved)
+
+    def _where_result(
+        self,
+        values: np.typing.NDArray,
+        sentinels: list[Any],
+        domain: np.typing.NDArray,
+        selected: np.typing.NDArray,
+        other: Any,
+    ) -> Dataset:
+        """Build the masked raster: selected cells keep their value, the rest take `other`.
+
+        Args:
+            values: This raster's physical values.
+            sentinels: Its per-band no-data values.
+            domain: True where a cell holds data rather than its sentinel.
+            selected: True where the condition selected a cell.
+            other: What an unselected cell holds, or the derive sentinel.
+
+        Returns:
+            Dataset: The result, on this raster's grid. It declares the fill that went into
+            the unselected cells, which is NaN whenever `other` resolved to NaN. A cell the
+            condition selected that was already a gap stays one, marked the way the result
+            marks its gaps rather than the way the source did.
+
+        Raises:
+            TypeError: `other` is neither a number nor `None`. Booleans are refused with
+                the rest: `np.where` would happily write `True` into the band as `1`.
+        """
+        declared = next((one for one in sentinels if one is not None), None)
+        fill = declared if other is _DERIVE_NO_DATA else other
+        if fill is None:
+            fill = np.nan
+        # `Real` alone: every real numpy scalar registers as one, while `np.complex128`
+        # is an `np.number` and slipped through to produce a complex band under a real
+        # no-data value. A bool is a `Real` equal to 1, and is refused as a caller's bug.
+        elif not isinstance(fill, Real) or isinstance(fill, (bool, np.bool_)):
+            raise TypeError(
+                f"where() needs a number for `other`, or None for NaN; got {other!r}."
+            )
+        # The gaps of the result are wherever `fill` went, so a NaN fill makes the result
+        # declare NaN: keeping a numeric sentinel would leave a raster declaring a value
+        # it does not hold, unable to find its own missing cells.
+        fills_with_nan = bool(np.isnan(np.asarray(fill, dtype="float64")).all())
+        # A selected cell that was already a gap stays one, marked the way the *result*
+        # marks its gaps — not the way the source did. Writing the source's sentinel back
+        # while declaring NaN would reclassify every such cell as a measurement, and the
+        # number that leaked was the raw `-9999.0`.
+        gap = np.nan if fills_with_nan or declared is None else declared
+        # `_mask_dtype` of the band and the fill, not whatever `np.where` promotes to: a
+        # Python float octuples a `uint8` band and a `numpy.float64` sentinel doubles a
+        # `float32` one, including on the `where(notnull())` that the docstring calls a
+        # no-op. A fill the band cannot hold still widens it.
+        dtype = _mask_dtype(values.dtype, fill)
+        filler = np.asarray(fill)
+        kept = np.where(domain, values, gap)
+        out = np.asarray(np.where(selected, kept, filler)).astype(dtype, copy=False)
+        if fills_with_nan:
+            declared = np.nan
+        out = np.asarray(out)
+        return self._identified(self._rebuilt(out, declared))
+
+    def _rebuilt(self, values: np.typing.NDArray, sentinel: Any) -> Dataset:
+        """A raster of `values` on this one's grid, declaring `sentinel`.
+
+        Args:
+            values: The cells, 2-D for one band or `(bands, rows, cols)`.
+            sentinel: The no-data value to declare, or `None` for none.
+
+        Returns:
+            Dataset: The raster, before its identity is put back on.
+        """
+        return self._ds.__class__._build_dataset(
+            self._ds.columns,
+            self._ds.rows,
+            1 if values.ndim == 2 else values.shape[0],
+            numpy_to_gdal_dtype(values),
+            self._ds.geotransform,
+            self._ds.crs,
+            sentinel,
+            array=values,
+        )
+
+    def _identified(self, result: Dataset) -> Dataset:
+        """Put this raster's identity on a result built from it, cell for cell.
+
+        The same assignments `combine` makes, and for the same reason: a masked, filled
+        or flagged raster is still the same band of the same scene, and one that comes
+        back as `Band_1` with no tags has lost what told the caller which band it is.
+
+        On a `NetCDF` variable the band **dimensions** are identity too — without them
+        `sel` refuses the result — so the labelling hook runs as well. The layout taken is
+        the receiver's own: the shape a fold has, one operand with nothing to compare it
+        against. `where(drop=True)` is the one caller that shortens a dimension, and it
+        runs after this one — :meth:`_restamped` cuts the sizes and the stamps the
+        receiver's length left behind.
+
+        The name the variable answers to travels too, as it does through every member
+        along a dimension. Without it a masked variable came back as the placeholder
+        `variable`, so `to_dataframe()` renamed its column and `to_dataframe(variables=…)`
+        refused the variable's own name. `_parent_nc` deliberately does **not** travel:
+        the result no longer holds the store's values, and pointing it back at that store
+        would let a reader recover coordinates for cells that are no longer there.
+
+        Args:
+            result: The freshly built raster.
+
+        Returns:
+            Dataset: `result`.
+        """
+        result.meta_data = self._ds.meta_data
+        result.band_names = list(self._ds.band_names)
+        # Duck-typed: only a NetCDF variable carries one, and a plain raster has no name
+        # to lose.
+        name = getattr(self._ds, "_source_var_name", None)
+        if name is not None:
+            result._source_var_name = name  # type: ignore[attr-defined]
+            # The name is for labelling; it must not read as store identity. `copy()`
+            # clears `_source_var_name` for exactly that reason, and a raster rebuilt
+            # here is in the same position — its cells are its own — so the flag says so
+            # and the lazy read refuses it in words instead of failing inside GDAL.
+            result._rebuilt_in_memory = True  # type: ignore[attr-defined]
+        self._ds._label_combined(result, self._ds._combine_layout_source(None, None))
+        return result
+
+    def _where_trimmed(self, result: Dataset, selected: np.typing.NDArray) -> Dataset:
+        """Trim `result` to the smallest rectangle the condition selected a cell in.
+
+        Read off the **condition**, not off the result's gaps, which is what xarray does:
+        a row the condition was false across is dropped whether or not `other` wrote a
+        number into it, and a cell that was already missing is kept if the condition
+        selected it. Reading the result instead made `other` cancel the trim entirely and
+        made an all-true condition trim a raster's pre-existing edge gaps away.
+
+        Taken as an index slice rather than as a `crop(bbox=...)`: a bbox crop drops the
+        rows and columns that are no-data from edge to edge as well, which is the second
+        half of that same divergence — `crop` trimming gaps the condition had kept.
+
+        The bands the condition is false across go too, which for a cube means its empty
+        steps: xarray drops labels in *every* dimension, not only the two spatial ones.
+        A variable carrying **two or more** band dimensions is the exception — its bands
+        are the flattened product of them, and the surviving set is not a rectangle of
+        that product in general — so those keep every band and only the grid is trimmed.
+
+        Args:
+            result: The masked raster, on the full grid.
+            selected: True wherever the condition selected a cell, shaped like the cells.
+
+        Returns:
+            Dataset: The trimmed raster, on the same grid, its origin at the first cell
+            that survived.
+
+        Raises:
+            ValueError: The condition selected nothing, so there is no rectangle to keep.
+        """
+        flat = selected if selected.ndim == 2 else np.any(selected, axis=0)
+        rows = np.flatnonzero(np.any(flat, axis=1))
+        columns = np.flatnonzero(np.any(flat, axis=0))
+        if rows.size == 0 or columns.size == 0:
+            raise ValueError(
+                "where(drop=True) kept no cells, and a raster of no cells cannot be built. "
+                "Check the condition, or leave `drop` off to keep the grid."
+            )
+        top, bottom = int(rows[0]), int(rows[-1]) + 1
+        left, right = int(columns[0]), int(columns[-1]) + 1
+        cells = np.asarray(result.read_array(unpack=False))
+        bands = self._surviving_bands(selected, cells)
+        block = np.ascontiguousarray(
+            cells[top:bottom, left:right]
+            if cells.ndim == 2
+            else cells[np.ix_(bands, range(top, bottom), range(left, right))]
+        )
+        geo = result.geotransform
+        # The two skews carry a rotated grid's corner across as well, so this is the same
+        # arithmetic for a north-up, a south-up and a rotated geotransform.
+        shifted = (
+            geo[0] + left * geo[1] + top * geo[2],
+            geo[1],
+            geo[2],
+            geo[3] + left * geo[4] + top * geo[5],
+            geo[4],
+            geo[5],
+        )
+        trimmed = result.__class__._build_dataset(
+            right - left,
+            bottom - top,
+            1 if block.ndim == 2 else block.shape[0],
+            numpy_to_gdal_dtype(block),
+            shifted,
+            result.crs,
+            result.no_data_value[0],
+            array=block,
+        )
+        return self._restamped(self._identified(trimmed), bands)
+
+    def _surviving_bands(
+        self, selected: np.typing.NDArray, cells: np.typing.NDArray
+    ) -> np.typing.NDArray:
+        """The band indices the condition selected a cell in, or all of them.
+
+        Every band survives on a 2-D raster, and on a variable whose bands are the
+        flattened product of two or more dimensions — there the kept set is not a
+        rectangle of that product in general, so the trim stays spatial.
+
+        An all-false condition also keeps every band, rather than answering the empty set
+        that would leave no raster to build. Nothing reaches that fallback through
+        :meth:`where`, whose trim refuses an empty selection before this is asked.
+
+        Args:
+            selected: True wherever the condition selected a cell.
+            cells: The result's stored values, for its band count.
+
+        Returns:
+            numpy.ndarray: The band indices to keep, in order.
+        """
+        count = 1 if cells.ndim == 2 else cells.shape[0]
+        keep = np.arange(count)
+        if selected.ndim == 3 and len(getattr(self._ds, "_band_dim_names", ())) <= 1:
+            survivors = np.flatnonzero(np.any(selected, axis=(1, 2)))
+            if survivors.size:
+                keep = survivors
+        return keep
+
+    def _restamped(self, trimmed: Dataset, bands: np.typing.NDArray) -> Dataset:
+        """Cut the one band dimension's coordinates to the bands that survived.
+
+        `_identified` labels the result from the receiver, whose dimension is as long as
+        it was before the trim, so the sizes and stamps are corrected here. A receiver
+        with no band dimension, or one that kept every band, needs nothing.
+
+        Args:
+            trimmed: The trimmed raster, already labelled.
+            bands: The band indices that survived.
+
+        Returns:
+            Dataset: `trimmed`.
+        """
+        names = list(getattr(self._ds, "_band_dim_names", ()))
+        if len(names) == 1 and len(bands) != self._ds.band_count:
+            dim = names[0]
+            trimmed._band_dim_sizes = (len(bands),)  # type: ignore[attr-defined]
+            stamps = dict(getattr(self._ds, "_band_dim_values_map", {}))
+            coords = stamps.get(dim)
+            if coords is not None:
+                stamps[dim] = [coords[int(one)] for one in bands]
+            trimmed._band_dim_values_map = stamps  # type: ignore[attr-defined]
+            # The legacy `(name, values)` pair is a view of the canonical fields, and
+            # one staticmethod owns that derivation — including the staleness guard for
+            # a band-shrinking operation, which this is.
+            trimmed._band_dim_name, trimmed._band_dim_values = (  # type: ignore[attr-defined]
+                trimmed._derive_primary_band_view(  # type: ignore[attr-defined]
+                    tuple(trimmed._band_dim_names),
+                    trimmed._band_dim_values_map,
+                    tuple(trimmed._band_dim_sizes),
+                    trimmed.band_count,
+                )
+            )
+        return trimmed
 
     def _extract_streamed(
         self, band: int | None, exclude_list: list

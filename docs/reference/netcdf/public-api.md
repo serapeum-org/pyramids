@@ -1,14 +1,18 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 89 in all: 55 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 96 in all: 62 methods, 27 properties,
 6 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
-`__len__`). For the full signatures, arguments and examples, see the rendered
+`__len__`). `concat` and `merge` are counted among the methods: each is callable on the class
+(`NetCDF.concat([a, b], dim)`) and on a cube (`a.concat([b], dim)`, which joins the
+receiver first). For the full signatures, arguments and examples, see the rendered
 [NetCDF Class](index.md) reference; this page is the index you scan to find the member you want.
 
-`NetCDF` extends `Dataset`, so it also inherits a further 133 public members it does not redefine — band
-handling, the COG surface, and the rest of the raster API. 118 of those are declared in `Dataset`'s own body
-and the remaining 15 come from `RasterBase` above it. They live in the
-[Dataset reference](../dataset/index.md).
+`NetCDF` extends `Dataset`, so it also inherits a further 137 public members it does not redefine — band
+handling, the COG surface, the missing-data members (`where`, `fillna`, `isnull`, `notnull`, `equals`,
+`identical`) and the rest of the raster API. 124 of those are declared in `Dataset`'s own body and the
+remaining 13 come from `RasterBase` above it. They live in the
+[Dataset reference](../dataset/index.md), the six named above on its
+[Analysis page](../dataset/analysis.md#missing-data-and-comparison).
 
 Two object shapes share this class, and several members behave differently across them:
 
@@ -106,6 +110,13 @@ A variable with no raster plane is the exception — see each member's docstring
 | `diff()`           | Differences neighbouring steps along `dim` — `n`, `label`.                           |
 | `cumsum()`         | Totals the values along `dim`, step by step — `skipna`.                              |
 | `shift()`          | Moves the values along `dim`, filling the vacated steps — `periods`, `fill_value`.   |
+| `ffill()`          | Carries the last valid value along `dim` into the gaps after it — `limit`.           |
+| `bfill()`          | Carries the next valid value along `dim` back into the gaps before it — `limit`.     |
+| `dropna()`         | Removes the steps of `dim` whose cells are missing — `how`, `thresh`.                |
+| `interpolate_na()` | Fills the interior gaps along `dim` from both sides — `method`, `limit`.             |
+| `to_dataframe()`   | The cube as a pandas frame, indexed by its dimensions — `variables`, `dropna`.       |
+| `concat()`         | Joins cubes end to end along `dim` (classmethod).                                    |
+| `merge()`          | Puts several cubes' variables on one grid (classmethod) — `compat`.                  |
 | `argmin()`         | The position along `dim` of the smallest value; `-1` where there is none.            |
 | `argmax()`         | The position along `dim` of the largest value; `-1` where there is none.             |
 | `idxmin()`         | The coordinate along `dim` of the smallest value; NaN where there is none.           |

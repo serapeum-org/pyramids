@@ -38,11 +38,14 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.dataset import Dataset
+from pyramids.dataset.abstract_dataset import RasterBase
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf.labeled import LabeledArray
 from pyramids.netcdf.netcdf import (
     _HasDtype,
     _HasRasterShape,
+    _joins_cubes,
     _open_variable,
     _summarised,
     _variable_dtype,
@@ -1755,7 +1758,9 @@ class TestThePublicApiPageMatchesTheClass:
                 counts["classmethod"] += 1
             elif isinstance(value, staticmethod):
                 counts["staticmethod"] += 1
-            elif callable(value):
+            elif callable(value) or isinstance(value, _joins_cubes):
+                # `concat` / `merge` are a descriptor rather than a plain function, so
+                # they are not `callable` themselves; they are methods to a caller.
                 counts["method"] += 1
 
         text = " ".join(self.PAGE.read_text(encoding="utf-8").split())
@@ -1777,6 +1782,73 @@ class TestThePublicApiPageMatchesTheClass:
             f"{counts['staticmethod']} staticmethod",
         ):
             assert re.search(rf"{re.escape(phrase)}" + r"\b", text), remedy
+
+    def test_the_inherited_counts_match_reflection_too(self):
+        """The page quotes what `NetCDF` inherits, and that drifts with `Dataset`.
+
+        Test scenario:
+            The opening section states how many members come from above. It said 133 and
+            118 while `Dataset` had already gained six -- nothing compared the figures to
+            the classes, so a member added to `Dataset` silently falsified this page.
+        """
+        own = {name for name in vars(NetCDF) if not name.startswith("_")}
+        inherited = {name for name in dir(NetCDF) if not name.startswith("_")} - own
+        from_dataset = {
+            name for name in vars(Dataset) if not name.startswith("_")
+        } - own
+        from_base = (
+            {name for name in vars(RasterBase) if not name.startswith("_")}
+            - own
+            - from_dataset
+        )
+        text = " ".join(self.PAGE.read_text(encoding="utf-8").split())
+        remedy = (
+            f"docs/reference/netcdf/public-api.md is out of date about what NetCDF "
+            f"inherits: {len(inherited)} members, {len(from_dataset)} of them declared "
+            f"in Dataset's own body and {len(from_base)} from RasterBase."
+        )
+        for phrase in (
+            f"further {len(inherited)} public members",
+            f"{len(from_dataset)} of those are declared",
+            f"remaining {len(from_base)} come from",
+        ):
+            assert re.search(rf"{re.escape(phrase)}" + r"\b", text), remedy
+
+    @pytest.mark.parametrize(
+        "member",
+        ["where", "fillna", "isnull", "notnull", "equals", "identical"],
+    )
+    def test_the_missing_data_members_are_indexed_on_the_dataset_page(
+        self, member: str
+    ):
+        """A `Dataset` member is documented on `Dataset`'s pages, not on this one.
+
+        Test scenario:
+            These six are defined in `Dataset`'s body and inherited here, so the NetCDF
+            index does not list them -- which left them in no reference page at all.
+
+        Args:
+            member: The member the Analysis page must mention.
+        """
+        page = (
+            Path(__file__).parents[3] / "docs" / "reference" / "dataset" / "analysis.md"
+        )
+        # A table row, not a passing mention: the row's leading cell and its trailing
+        # pipe, so replacing the row with prose elsewhere on the page still fails.
+        rows = [
+            line
+            for line in page.read_text(encoding="utf-8").splitlines()
+            if line.startswith(f"| `ds.{member}") and line.rstrip().endswith("|")
+        ]
+        assert len(rows) == 1, (
+            f"{member} needs exactly one row in the missing-data table of "
+            f"docs/reference/dataset/analysis.md; found {len(rows)}."
+        )
+        described = rows[0].split("|")[2].strip()
+        assert len(described) > 20, (
+            f"{member}'s row in docs/reference/dataset/analysis.md says "
+            f"{described!r}, which does not describe it."
+        )
 
     @pytest.mark.parametrize(
         "member",
