@@ -2,11 +2,14 @@
 
 The module re-exports `NDArray` and a dtype-precise `FloatArray`
 (`NDArray[np.float64]`) for typed eager array returns. These tests tie the
-aliases to runtime reality: the coordinate axes (`GeoTransform.x_axis` /
-`y_axis`) return float64 arrays, and `as_numpy` returns a numpy array.
+aliases to reality on both fronts: the coordinate axes (`GeoTransform.x_axis` /
+`y_axis`) are annotated `FloatArray` and return float64 arrays at runtime, and
+`as_numpy` returns a numpy array.
 """
 
 from __future__ import annotations
+
+from typing import get_type_hints
 
 import numpy as np
 import pytest
@@ -52,10 +55,10 @@ class TestCoordinateAxesAreFloat64:
         assert arr.shape == (4,)
 
     def test_integer_inputs_still_float64(self):
-        """Integer origin/step still yield float64 (locks the FloatArray annotation).
+        """Integer origin/step still yield float64 at runtime.
 
         The `step / 2` true-division forces float regardless of input dtype;
-        this is the non-obvious case the float64 annotation depends on.
+        this is the non-obvious case the float64 dtype depends on.
         """
         x = GeoTransform(0, 10, 0, 0, 0, 0).x_axis(5)
         y = GeoTransform(0, 0, 0, 100, 0, -10).y_axis(4)
@@ -64,6 +67,19 @@ class TestCoordinateAxesAreFloat64:
         )
         assert y.dtype == np.float64, (
             f"int inputs must still give float64 y, got {y.dtype}"
+        )
+
+    def test_return_type_annotation_is_float_array(self):
+        """`x_axis` / `y_axis` are annotated `FloatArray`, not a bare `np.ndarray`.
+
+        Locks the dtype-precise return contract the removed dimension-array shims
+        advertised, resolving the string annotations via `get_type_hints`.
+        """
+        assert get_type_hints(GeoTransform.x_axis)["return"] == FloatArray, (
+            "x_axis return annotation should be FloatArray"
+        )
+        assert get_type_hints(GeoTransform.y_axis)["return"] == FloatArray, (
+            "y_axis return annotation should be FloatArray"
         )
 
 
