@@ -2671,13 +2671,15 @@ class NetCDF(Dataset):
     @property
     def x(self) -> np.typing.NDArray:
         """x-coordinate/longitude."""
-        # X_coordinate = upper-left corner x + index * cell size + cell-size/2
+        # Returns the stored x/lon coordinate variable (see `lon`); only when the file
+        # has no such coordinate does it fall back to the geotransform-derived axis.
         return self.lon
 
     @property
     def y(self) -> np.typing.NDArray:
         """y-coordinate/latitude."""
-        # Y_coordinate = upper-left corner y - index * cell size - cell-size/2
+        # Returns the stored y/lat coordinate variable (see `lat`); only when the file
+        # has no such coordinate does it fall back to the geotransform-derived axis.
         return self.lat
 
     @property
@@ -3791,7 +3793,8 @@ class NetCDF(Dataset):
         of the y axis to the window it was cut with (`subset_lat_4_-1_5`) is real but
         incidental; a store whose subset keeps both axis names loses both coordinates just the
         same. A spatial axis's cell centres come from the geotransform instead, via
-        :meth:`get_x_lon_dimension_array` / :meth:`get_y_lat_dimension_array`.
+        :meth:`~pyramids.dataset.transform.GeoTransform.x_axis` /
+        :meth:`~pyramids.dataset.transform.GeoTransform.y_axis`.
 
         A **classic** container (`open_as_multi_dimensional=False`) has no dimension names at
         all — :attr:`dimension_names` is `None` there, not a list, so the invariant above has
@@ -9286,7 +9289,7 @@ class NetCDF(Dataset):
         * On a **root container** the coordinate variable is read from the store, for
           any dimension it declares. A subset asked for a dimension it does not track —
           its spatial axes — has no coordinate variable to read and answers ``None``;
-          those come from the geotransform (:meth:`get_x_lon_dimension_array`).
+          those come from the geotransform (:meth:`~pyramids.dataset.transform.GeoTransform.x_axis`).
 
         Values are the **stored** ones, matching what :meth:`sel` matches against and what
         ``to_xarray(decode_times=False).coords`` reports for the same file. A CF time axis
@@ -9297,9 +9300,9 @@ class NetCDF(Dataset):
         the raster's. Pyramids presents rasters north-up, but a south-to-north file stores
         its latitudes ascending, so ``get_dimension_values("lat")`` comes back
         ``[40, 41, …, 44]`` while :meth:`read_array`'s row 0 is the lat-44 row. Do not
-        index raster rows with this — :meth:`get_y_lat_dimension_array` builds the row
-        centres from the geotransform, in raster order. The values here answer "what does
-        this file store", which is the question :meth:`sel` and the CF metadata ask.
+        index raster rows with this — :meth:`~pyramids.dataset.transform.GeoTransform.y_axis`
+        builds the row centres from the geotransform, in raster order. The values here answer
+        "what does this file store", which is the question :meth:`sel` and the CF metadata ask.
 
         Args:
             name: Dimension name, as listed by :attr:`dimension_names` /

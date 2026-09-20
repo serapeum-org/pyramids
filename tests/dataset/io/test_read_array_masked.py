@@ -301,6 +301,351 @@ class TestMaskedReads:
             nodata_dataset.read_array(band=0, chunks=2, masked=True)
 
 
+@pytest.fixture
+def ramp8_float() -> Dataset:
+    """An 8x8 float32 ramp (value == row*8 + col), nodata -9999 in two corners.
+
+    Returns:
+        Dataset: Single-band in-memory dataset large enough to decimate.
+    """
+    arr = np.arange(64, dtype="float32").reshape(8, 8)
+    arr[0, 0] = -9999.0
+    arr[7, 7] = -9999.0
+    return Dataset.from_array(
+        arr,
+        no_data_value=-9999.0,
+        geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+    )
+
+
+@pytest.fixture
+def mask_band_8x8(tmp_path) -> Dataset:
+    """An 8x8 GTiff whose PER_DATASET mask band zeroes the top two rows.
+
+    The band carries no nodata marker, so the mask band is the only
+    invalidity signal — exercising the decimated mask-band read.
+
+    Args:
+        tmp_path: pytest temp directory.
+
+    Returns:
+        Dataset: Single-band dataset with a mask band over the top two rows.
+    """
+    path = str(tmp_path / "masked8.tif")
+    drv = gdal.GetDriverByName("GTiff")
+    ds = drv.Create(path, 8, 8, 1, gdal.GDT_Float32)
+    ds.SetGeoTransform((0, 1, 0, 8, 0, -1))
+    sr = osr.SpatialReference()
+    sr.ImportFromEPSG(4326)
+    ds.SetProjection(sr.ExportToWkt())
+    ds.GetRasterBand(1).WriteArray(np.arange(64, dtype="float32").reshape(8, 8))
+    ds.CreateMaskBand(gdal.GMF_PER_DATASET)
+    mask = np.full((8, 8), 255, dtype="uint8")
+    mask[:2, :] = 0
+    ds.GetRasterBand(1).GetMaskBand().WriteArray(mask)
+    ds.FlushCache()
+    ds = None
+    return Dataset.read_file(path)
+
+
+class TestMaskedDecimatedReads:
+    """read_array(out_shape=..., masked=True) — masked decimated reads (#1156)."""
+
+    def test_mask_equals_the_decimated_nodata_cells(self, ramp8_float):
+        """A nearest decimated read masks exactly the decimated no-data cells.
+
+        Test scenario:
+            Decimating 8x8 -> 4x4 with nearest samples the raster's own pixels,
+            so a sampled no-data cell stays the sentinel and the mask equals the
+            decimated stored array compared to the marker. Restricted to nearest
+            because a blending resampler absorbs this fixture's scattered no-data
+            (covered by ``test_average_masks_only_a_fully_no_data_block``).
+        """
+        masked = ramp8_float.read_array(
+            out_shape=(4, 4), masked=True, resampling="nearest"
+        )
+        stored = ramp8_float.read_array(
+            out_shape=(4, 4), unpack=False, resampling="nearest"
+        )
+        assert isinstance(masked, np.ma.MaskedArray), f"got {type(masked).__name__}"
+        assert masked.shape == (4, 4), f"unexpected shape {masked.shape}"
+        # nearest 8->4 samples the (7, 7) corner into output (3, 3); the (0, 0)
+        # corner is not sampled and is dropped -- a positional check, not the
+        # is_no_data-vs-== identity the array-equality below re-derives.
+        assert masked.mask.sum() == 1, (
+            f"exactly one sampled corner, got {masked.mask.sum()}"
+        )
+        assert masked.mask[3, 3], "the sampled (7, 7) corner must land masked at (3, 3)"
+        assert not masked.mask[0, 0], (
+            "the unsampled (0, 0) corner is dropped by nearest"
+        )
+        np.testing.assert_array_equal(
+            masked.mask,
+            stored == -9999.0,
+            err_msg="mask must equal the decimated no-data cells",
+        )
+
+    @pytest.mark.parametrize("resampling", ["nearest", "average"])
+    def test_average_masks_only_a_fully_no_data_block(self, resampling):
+        """A blending resampler masks a fully-no-data block but absorbs a lone cell.
+
+        Test scenario:
+            GDAL drops no-data from an ``average``, so a 2x2 source block that is
+            entirely no-data decimates to the sentinel (masked) while a lone
+            no-data cell blends into a valid value (not masked). ``nearest`` is
+            included as the contrast: it samples the raster's pixels, so it masks
+            both the block cell and the sampled lone cell. The mask always equals
+            the decimated read's sentinel cells.
+
+            Note: the ``average`` branch depends on GDAL honouring the band's
+            no-data value in its RasterIO average path (true on the pinned GDAL);
+            an older GDAL that averaged the sentinel in would flip mask.sum().
+        """
+        arr = np.arange(64, dtype="float32").reshape(8, 8)
+        arr[0:2, 0:2] = -9999.0
+        arr[5, 5] = -9999.0
+        ds = Dataset.from_array(
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+        )
+        masked = ds.read_array(out_shape=(4, 4), masked=True, resampling=resampling)
+        stored = ds.read_array(out_shape=(4, 4), unpack=False, resampling=resampling)
+        assert masked.mask[0, 0], "the fully-no-data block must be masked"
+        np.testing.assert_array_equal(masked.mask, stored == -9999.0)
+        if resampling == "average":
+            assert masked.mask.sum() == 1, "average must absorb the lone no-data cell"
+
+    def test_decimated_masked_read_over_a_sub_window(self):
+        """A decimated masked read over a bbox sub-window masks that window's no-data.
+
+        Test scenario:
+            Decimating only the top-left quarter (which holds a fully-no-data 2x2
+            block) to 2x2 forwards the resolved pixel window through to the mask
+            band read, so the block cell is masked and the mask equals the
+            decimated stored sentinel cells.
+        """
+        arr = np.arange(64, dtype="float32").reshape(8, 8)
+        arr[0:2, 0:2] = -9999.0
+        ds = Dataset.from_array(
+            arr,
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+        )
+        xmin, _, _, ymax = ds.bbox
+        quarter = (xmin, ymax - 4.0, xmin + 4.0, ymax)
+        masked = ds.read_array(
+            bbox=quarter, out_shape=(2, 2), masked=True, resampling="nearest"
+        )
+        stored = ds.read_array(
+            bbox=quarter, out_shape=(2, 2), unpack=False, resampling="nearest"
+        )
+        assert masked.shape == (2, 2), f"unexpected shape {masked.shape}"
+        assert masked.mask.sum() == 1, (
+            f"only the block cell masked, got {masked.mask.sum()}"
+        )
+        assert masked.mask[0, 0], (
+            "the sub-window's fully-no-data block lands masked at (0, 0)"
+        )
+        assert not masked.mask[1, 1], "a valid sub-window cell must be unmasked"
+        np.testing.assert_array_equal(masked.mask, stored == -9999.0)
+
+    def test_windowed_decimated_read_honours_the_mask_band(self, mask_band_8x8):
+        """A decimated masked read over a sub-window decimates the mask band too.
+
+        Test scenario:
+            ``mask_band_8x8`` zeroes the top two rows via a GDAL mask band and
+            carries no no-data marker, so the mask band is the only signal.
+            Reading the top-left 4x4 quarter decimated to 2x2 exercises the
+            windowed mask-band read (the ``buf_*`` branch of ``_band_mask`` with
+            a non-None window): the top output row (source rows 0-1) is masked,
+            the bottom row (source rows 2-3) is valid.
+        """
+        xmin, _, _, ymax = mask_band_8x8.bbox
+        quarter = (xmin, ymax - 4.0, xmin + 4.0, ymax)
+        masked = mask_band_8x8.read_array(
+            bbox=quarter, out_shape=(2, 2), masked=True, resampling="nearest"
+        )
+        assert isinstance(masked, np.ma.MaskedArray), f"got {type(masked).__name__}"
+        assert masked.mask[0].all(), "the decimated top row must be masked"
+        assert not masked.mask[1].any(), "the bottom row must be valid"
+
+    def test_integer_band_masks_by_exact_equality(self):
+        """An integer band masks the decimated cells equal to the marker.
+
+        Test scenario:
+            An int16 band decimated with nearest keeps its -9999 marker; the
+            mask is exact equality, with no fuzzy tolerance near the sentinel.
+        """
+        arr = np.arange(64, dtype="int16").reshape(8, 8)
+        arr[0, 0] = -9999
+        ds = Dataset.from_array(
+            arr,
+            no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+        )
+        masked = ds.read_array(out_shape=(4, 4), masked=True, resampling="nearest")
+        stored = ds.read_array(out_shape=(4, 4), unpack=False, resampling="nearest")
+        np.testing.assert_array_equal(masked.mask, stored == -9999)
+
+    def test_mask_band_is_decimated_to_the_output_shape(self, mask_band_8x8):
+        """A GDAL mask band is decimated to the same buffer and lines up.
+
+        Test scenario:
+            The mask band zeroes the top two of eight rows and the band has no
+            nodata marker; decimated 8x8 -> 4x4 (nearest) that is the top output
+            row, so only it is masked.
+        """
+        masked = mask_band_8x8.read_array(
+            out_shape=(4, 4), masked=True, resampling="nearest"
+        )
+        assert isinstance(masked, np.ma.MaskedArray), f"got {type(masked).__name__}"
+        assert masked.mask[0].all(), "the decimated top row must be masked"
+        assert not masked.mask[1:].any(), "rows below the mask band must be valid"
+
+    def test_packed_band_masks_by_stored_value(self):
+        """A packed band masks by the stored marker, then unpacks the data.
+
+        Test scenario:
+            An int16 band with scale 0.5 and a -9999 marker, decimated + masked,
+            returns an unpacked float64 MaskedArray whose mask is the stored
+            sentinel — the comparison runs before scale/offset apply.
+        """
+        arr = np.arange(64, dtype="int16").reshape(8, 8)
+        arr[7, 7] = -9999
+        ds = Dataset.from_array(
+            arr,
+            no_data_value=-9999,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+        )
+        ds.scale = [0.5]
+        masked = ds.read_array(out_shape=(4, 4), masked=True, resampling="nearest")
+        stored = ds.read_array(out_shape=(4, 4), unpack=False, resampling="nearest")
+        assert masked.dtype == np.float64, f"packed read must unpack: {masked.dtype}"
+        np.testing.assert_array_equal(masked.mask, stored == -9999)
+
+    def test_all_bands_masked_stacks_a_per_band_mask(self):
+        """An all-bands decimated masked read stacks a per-band mask.
+
+        Test scenario:
+            A two-band raster with a different no-data corner per band,
+            decimated with band=None and masked, returns a 3-D MaskedArray whose
+            mask equals the decimated stored values compared to the marker,
+            band by band.
+        """
+        b0 = np.arange(64, dtype="float32").reshape(8, 8)
+        b0[0, 0] = -9999.0
+        b1 = np.arange(64, dtype="float32").reshape(8, 8) + 100.0
+        b1[7, 7] = -9999.0
+        ds = Dataset.from_array(
+            np.stack([b0, b1]),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+        )
+        masked = ds.read_array(out_shape=(4, 4), masked=True, resampling="nearest")
+        stored = ds.read_array(out_shape=(4, 4), unpack=False, resampling="nearest")
+        assert masked.shape == (2, 4, 4), f"unexpected shape {masked.shape}"
+        np.testing.assert_array_equal(masked.mask, stored == -9999.0)
+
+    def test_without_masked_returns_plain_ndarray(self, ramp8_float):
+        """out_shape without masked keeps the plain-ndarray contract.
+
+        Test scenario:
+            The decimated read is unchanged when masked is not requested.
+        """
+        result = ramp8_float.read_array(out_shape=(4, 4))
+        assert type(result) is np.ndarray, f"masked leaked in: {type(result).__name__}"
+
+
+class TestMaskedBoundlessReads:
+    """read_array(window=..., boundless=True, masked=True) — masked padded reads (#1156)."""
+
+    def test_masks_padding_and_invalid_pixels(self, ramp8_float):
+        """Padding outside the raster and no-data inside it are both masked.
+
+        Test scenario:
+            A window running four columns off the right edge pads those columns
+            (masked), and the in-raster -9999 corner cell is masked too, while a
+            valid in-raster cell stays unmasked.
+        """
+        window = [6, 0, 6, 8]  # cols 6..11; raster has 8 cols -> 4 padding columns
+        masked = ramp8_float.read_array(window=window, boundless=True, masked=True)
+        assert isinstance(masked, np.ma.MaskedArray), f"got {type(masked).__name__}"
+        assert masked.shape == (8, 6), f"unexpected shape {masked.shape}"
+        assert masked.mask[:, 2:].all(), "the four out-of-raster columns must be masked"
+        assert masked.mask[7, 1], "the in-raster no-data cell (7, 7) must be masked"
+        assert not masked.mask[0, 0], "a valid in-raster cell must be unmasked"
+
+    def test_mask_is_independent_of_fill_value(self, ramp8_float):
+        """fill_value sets only the padding's data; the mask is the same either way.
+
+        Test scenario:
+            A boundless masked read with the default fill and with an explicit
+            fill_value produce identical masks — fill_value chooses the padding's
+            value, not what counts as padding — and the padding stays masked.
+        """
+        window = [6, 0, 6, 8]
+        default_fill = ramp8_float.read_array(
+            window=window, boundless=True, masked=True
+        )
+        explicit_fill = ramp8_float.read_array(
+            window=window, boundless=True, masked=True, fill_value=123.0
+        )
+        np.testing.assert_array_equal(
+            default_fill.mask,
+            explicit_fill.mask,
+            err_msg="the mask must not depend on fill_value",
+        )
+        assert explicit_fill.mask[:, 2:].all(), "the padding columns must stay masked"
+
+    def test_window_fully_outside_is_all_masked(self, ramp8_float):
+        """A window entirely off the raster masks every (all-padding) cell.
+
+        Test scenario:
+            No intersection with the raster -> the whole buffer is fill and
+            every cell is masked.
+        """
+        masked = ramp8_float.read_array(
+            window=[20, 20, 3, 3], boundless=True, masked=True
+        )
+        assert isinstance(masked, np.ma.MaskedArray), f"got {type(masked).__name__}"
+        assert masked.mask.all(), "an all-padding window must be fully masked"
+
+    def test_all_bands_masked_stacks_padding_and_per_band_invalid(self):
+        """An all-bands boundless masked read stacks padding + per-band invalid.
+
+        Test scenario:
+            A two-band raster read through a window off the right edge with
+            band=None returns a 3-D MaskedArray: the padding columns are masked
+            in every band, band 0's own no-data cell is masked, and band 1 (no
+            no-data cell in range) keeps its in-raster cells unmasked.
+        """
+        b0 = np.arange(64, dtype="float32").reshape(8, 8)
+        b0[7, 7] = -9999.0
+        b1 = np.arange(64, dtype="float32").reshape(8, 8) + 100.0
+        ds = Dataset.from_array(
+            np.stack([b0, b1]),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=4326),
+        )
+        masked = ds.read_array(window=[6, 0, 6, 8], boundless=True, masked=True)
+        assert masked.shape == (2, 8, 6), f"unexpected shape {masked.shape}"
+        assert masked.mask[:, :, 2:].all(), (
+            "padding columns must be masked in every band"
+        )
+        assert masked.mask[0, 7, 1], "band 0's in-raster no-data cell must be masked"
+        assert not masked.mask[1, :, :2].any(), "band 1 has no in-raster no-data cell"
+
+    def test_without_masked_returns_plain_ndarray(self, ramp8_float):
+        """boundless without masked keeps the plain-ndarray contract.
+
+        Test scenario:
+            The padded read is unchanged when masked is not requested.
+        """
+        result = ramp8_float.read_array(window=[6, 0, 6, 8], boundless=True)
+        assert type(result) is np.ndarray, f"masked leaked in: {type(result).__name__}"
+
+
 class TestNetCDFMaskedReads:
     """Tests for the masked= threading through NetCDF.read_array."""
 

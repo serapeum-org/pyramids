@@ -94,6 +94,7 @@ from pyramids.dataset.ops._zonal import zonal_stats as _zonal_stats
 from pyramids.dataset.ops.interpolate import grid_points
 from pyramids.dataset.ops.units import convert_array
 from pyramids.dataset.ops.vectorize import rasterize_features
+from pyramids.dataset.transform import GeoTransform
 from pyramids.feature import FeatureCollection, create_polygon
 
 # tuple of collaborator attribute names. Used by
@@ -1837,13 +1838,14 @@ class Dataset(RasterBase):
         `bbox` / `bounds` properties are reachable before the
         collaborator is wired during `Dataset.__init__`.
         """
-        # Derive the extent from the geotransform's separate X/Y pixel sizes (gt[1], gt[5]) rather
-        # than a single cell_size, so non-square grids (e.g. 2° lon, 1° lat) are not stretched.
-        gt = self.geotransform
-        x_min, y_max = gt[0], gt[3]
-        x_max = x_min + self.columns * gt[1]
-        y_min = y_max + self.rows * gt[5]
-        return [x_min, y_min, x_max, y_max]
+        # `transform.extent` projects and reduces all four corners, so it returns a
+        # normalised [min_x, min_y, max_x, max_y] for a south-up (gt[5] > 0), east-left
+        # (gt[1] < 0) or rotated grid alike -- the same derivation merge/cog_info use,
+        # rather than a fourth hand-rolled copy that assumed a north-up, west-left grid
+        # and inverted the box otherwise. Non-square cells are honoured (separate gt[1],
+        # gt[5]). A no-op for the usual north-up, west-left grid.
+        min_x, min_y, max_x, max_y = self.transform.extent(self.columns, self.rows)
+        return [min_x, min_y, max_x, max_y]
 
     def _calculate_bounds(self):
         """Concrete override of :meth:`RasterBase._calculate_bounds`."""
@@ -3720,7 +3722,40 @@ class Dataset(RasterBase):
 
     @property
     def bbox(self) -> list:
-        """Bound box [xmin, ymin, xmax, ymax].
+        """The raster's map-space bounding box, ``[xmin, ymin, xmax, ymax]``.
+
+        Always normalised min-before-max on each axis, whatever the
+        geotransform's orientation: a south-up (positive ``geotransform[5]``),
+        east-left (negative ``geotransform[1]``) or rotated grid returns a proper
+        box, not an inverted one. Derived from
+        :meth:`~pyramids.dataset.transform.GeoTransform.extent`.
+
+        Examples:
+            - A north-up raster spans its cells:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.zeros((2, 3)),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=3857),
+                ... )
+                >>> ds.bbox
+                [0.0, 0.0, 3.0, 2.0]
+
+                ```
+            - A south-up raster (positive y step) reports the same box, not an
+              inverted one:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.zeros((2, 3)),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 0.0, 0.0, 1.0), epsg=3857),
+                ... )
+                >>> ds.bbox
+                [0.0, 0.0, 3.0, 2.0]
+
+                ```
 
         See Also:
             - Dataset.bounds: Dataset bounding polygon.
@@ -3825,25 +3860,27 @@ class Dataset(RasterBase):
             - Dataset.x: Dataset x coordinates.
             - Dataset.lat: Dataset latitude.
         """
-        pixel_width = self._geotransform[1]
-        x_coords = self.get_x_lon_dimension_array(
-            self.top_left_corner[0], pixel_width, self.columns
-        )
-        return x_coords
+        # Built from the cached `_geotransform` (not the `geotransform` property) so
+        # a subclass that derives `geotransform` from `lon`/`lat` does not recurse.
+        # `x_axis` reads the signed pixel width (`geotransform[1]`), ignoring rotation.
+        return GeoTransform(*self._geotransform).x_axis(self.columns)
 
     @property
     def lat(self) -> np.typing.NDArray:
         """Latitude / y cell-centre coordinates.
 
-        Uses the geotransform's pixel height (``abs(geotransform[5])``) rather than
-        :attr:`cell_size` (which only tracks pixel width), so the axis is correct for
-        non-square cells. Reads the cached ``_geotransform`` (like
+        Uses the geotransform's **signed** pixel height (``geotransform[5]``) rather
+        than :attr:`cell_size` (which only tracks pixel width), so the axis is correct
+        for non-square cells and honours the step's sign — a north-up raster (negative
+        ``geotransform[5]``) descends from north to south and a south-up one (positive
+        ``geotransform[5]``) ascends, mirroring how :attr:`lon` honours
+        ``geotransform[1]``. Reads the cached ``_geotransform`` (like
         :attr:`top_left_corner`) rather than the ``geotransform`` property, so
         subclasses that derive ``geotransform`` from ``lon``/``lat`` (e.g.
         :class:`~pyramids.netcdf.NetCDF`) do not recurse.
 
         Examples:
-            - Row-centre latitudes decrease from north to south:
+            - A north-up raster's row-centre latitudes decrease from north to south:
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset, GeoReference
@@ -3853,6 +3890,18 @@ class Dataset(RasterBase):
                 ... )
                 >>> ds.lat.tolist()
                 [-0.25, -0.75]
+
+                ```
+            - A south-up raster (positive ``geotransform[5]``) ascends instead:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.zeros((2, 3)),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 0.0, 0.0, 1.0), epsg=3857),
+                ... )
+                >>> ds.lat.tolist()
+                [0.5, 1.5]
 
                 ```
             - With non-square cells the latitude axis uses the pixel height, not the
@@ -3874,11 +3923,11 @@ class Dataset(RasterBase):
             - Dataset.y: Dataset y coordinates.
             - Dataset.lon: Dataset longitude.
         """
-        pixel_height = abs(self._geotransform[5])
-        y_coords = self.get_y_lat_dimension_array(
-            self.top_left_corner[1], pixel_height, self.rows
-        )
-        return y_coords
+        # Built from the cached `_geotransform` (not the `geotransform` property) so
+        # a subclass that derives `geotransform` from `lon`/`lat` does not recurse.
+        # `y_axis` reads the signed pixel height (`geotransform[5]`), so a north-up
+        # grid descends and a south-up one ascends.
+        return GeoTransform(*self._geotransform).y_axis(self.rows)
 
     @property
     def x(self) -> np.typing.NDArray:

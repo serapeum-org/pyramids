@@ -911,11 +911,21 @@ mask identically under the old rule and the new one — so this surfaces only on
 own sentinel. Ask `pyramids.base._domain.is_no_data(arr, nodata, rtol=...)` directly if you want the old, looser
 window.
 
-**Coordinate axis arrays can differ in the last ULP.** `RasterBase.get_x_lon_dimension_array` /
-`get_y_lat_dimension_array` moved from an element-wise accumulation to the shared `GeoTransform.x_axis` / `y_axis`,
-which multiplies the index by the cell size instead of adding it repeatedly. The new values are the more accurate
-ones — `10.35` where the walk produced `10.350000000000001` — but any golden file, doctest or notebook output that
-pins the printed coordinate will move. Compare axis arrays with `numpy.allclose`, not with `==` or a repr.
+**`RasterBase.get_x_lon_dimension_array` / `get_y_lat_dimension_array` are removed.** Hard change. They were thin
+wrappers over `GeoTransform.x_axis` / `GeoTransform.y_axis`; use those directly instead — e.g.
+`ds.transform.x_axis(ds.columns)` and `ds.transform.y_axis(ds.rows)`, or `GeoTransform(*geo).y_axis(rows)` when you
+hold a bare geotransform. Two behaviour differences to know when you switch:
+
+- **The axis honours the signed step.** `x_axis` / `y_axis` read the signed `geotransform[1]` / `geotransform[5]`,
+  so a positive `geotransform[5]` (south-up) ascends where the old `get_y_lat_dimension_array` forced a descending
+  axis (it negated its argument and documented it as a *positive* pixel height). A caller that passed
+  `abs(geotransform[5])` must now pass the signed value. This is what fixes `Dataset.y` / `Dataset.lat` reporting
+  coordinates outside a south-up raster's extent, and `Dataset.bbox` is likewise normalised now (always
+  `[min_x, min_y, max_x, max_y]`, no longer inverted for a south-up or east-left grid). The common north-up case
+  is unchanged.
+- **Values can differ in the last ULP.** The axis is `origin + (index + 0.5) * step`, not a repeated element-wise
+  addition, so a printed coordinate can move (`10.35` where the walk produced `10.350000000000001`). Compare axis
+  arrays with `numpy.allclose`, not `==` or a repr.
 
 ### 0.48.0
 

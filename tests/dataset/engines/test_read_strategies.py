@@ -200,13 +200,23 @@ class TestDecimatedRead:
         assert result == "decimated", "the helper's return must pass through"
         io._decimated_read.assert_called_once_with(1, window, (2, 3), "bilinear")
 
-    def test_rejects_masked(self, mocker):
-        """``masked`` with ``out_shape`` raises ``NotImplementedError``."""
-        strat = DecimatedRead()
+    def test_masks_the_decimated_read(self, mocker):
+        """``masked`` decimates, then wraps the result through ``io._to_masked``.
+
+        Test scenario:
+            ``DecimatedRead.read`` reads at ``out_shape`` and, when ``masked``,
+            hands that array (not a fresh read) to ``io._to_masked`` with the
+            same window, so the mask is built from the decimated read.
+        """
         io = mocker.Mock()
-        req = make_request(out_shape=(2, 2), masked=True)
-        with pytest.raises(NotImplementedError, match="masked=True"):
-            strat.read(io, req, None)
+        io._decimated_read.return_value = "decimated"
+        io._to_masked.return_value = "masked"
+        window = Window(0, 0, 4, 4)
+        req = make_request(band=1, out_shape=(2, 3), resampling="bilinear", masked=True)
+        result = DecimatedRead().read(io, req, window)
+        assert result == "masked", "the masked result must pass through"
+        io._decimated_read.assert_called_once_with(1, window, (2, 3), "bilinear")
+        io._to_masked.assert_called_once_with("decimated", 1, window=window)
 
 
 class TestBoundlessRead:
@@ -223,10 +233,11 @@ class TestBoundlessRead:
         assert BoundlessRead().matches(req) is expected, "matches must track boundless"
 
     def test_delegates_to_boundless_read(self, mocker):
-        """Forwards band/window/fill_value to the boundless helper.
+        """Forwards band/window/fill_value and the masked flag to the helper.
 
         Test scenario:
-            ``BoundlessRead.read`` calls ``io._boundless_read`` positionally.
+            ``BoundlessRead.read`` calls ``io._boundless_read`` with the band,
+            window and fill_value positionally and ``masked`` by keyword.
         """
         io = mocker.Mock()
         io._boundless_read.return_value = "padded"
@@ -234,14 +245,23 @@ class TestBoundlessRead:
         req = make_request(band=0, boundless=True, fill_value=7.0)
         result = BoundlessRead().read(io, req, window)
         assert result == "padded", "the helper's return must pass through"
-        io._boundless_read.assert_called_once_with(0, window, 7.0)
+        io._boundless_read.assert_called_once_with(0, window, 7.0, masked=False)
 
-    def test_rejects_masked(self, mocker):
-        """``masked`` with ``boundless`` raises ``NotImplementedError``."""
-        strat, io = BoundlessRead(), mocker.Mock()
-        req, window = make_request(boundless=True, masked=True), Window(0, 0, 2, 2)
-        with pytest.raises(NotImplementedError, match="masked=True"):
-            strat.read(io, req, window)
+    def test_forwards_masked(self, mocker):
+        """``masked`` is forwarded so the helper masks padding and invalid pixels.
+
+        Test scenario:
+            ``BoundlessRead.read`` no longer rejects ``masked``; it passes
+            ``masked=True`` to ``io._boundless_read``, which owns the padding +
+            invalid-pixel mask.
+        """
+        io = mocker.Mock()
+        io._boundless_read.return_value = "masked-padded"
+        window = Window(0, 0, 2, 2)
+        req = make_request(band=0, boundless=True, masked=True)
+        result = BoundlessRead().read(io, req, window)
+        assert result == "masked-padded", "the helper's return must pass through"
+        io._boundless_read.assert_called_once_with(0, window, None, masked=True)
 
     def test_requires_a_window(self, mocker):
         """A boundless read without a window raises ``ValueError``."""

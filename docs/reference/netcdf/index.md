@@ -104,8 +104,9 @@ The values are the **stored** ones — the same array `to_xarray(decode_times=Fa
 needing the optional xarray extra. `to_xarray()` itself decodes a CF time axis to `datetime64[ns]`, so for
 `time` the two differ. For a **spatial** axis that is not necessarily the raster's order: pyramids
 presents rasters north-up, so on a south-to-north file `get_dimension_values("lat")` ascends while
-`read_array()`'s row 0 is the northernmost row. Use `get_y_lat_dimension_array` when you want to index
-rows; use this when you want to know what the file holds.
+`read_array()`'s row 0 is the northernmost row. Use the geotransform-derived axis
+(`nc.transform.y_axis(nc.rows)`) when you want the row centres in raster order; use this when you want to
+know what the file holds.
 
 Whatever the axis, these are the values `sel` selects on. A CF time axis is stored as raw offsets;
 `get_time_variable()` decodes the same axis to date strings, and `sel` accepts either vocabulary:

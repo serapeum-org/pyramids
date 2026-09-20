@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
+from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
 
@@ -87,9 +88,9 @@ class TestRootContainer:
         lats = nc.get_dimension_values("lat")
         assert lats[0] < lats[-1], f"y-asc file should report ascending, got {lats}"
         gt = nc.get_variable("temperature").geotransform
-        rows = NetCDF.get_y_lat_dimension_array(
-            gt[3], abs(gt[5]), nc.get_variable("temperature").rows
-        )
+        # Signed pixel height (gt[5] < 0 for this north-up presentation), matching how
+        # the raster axis is now built; it descends and reverses the stored ascending axis.
+        rows = GeoTransform(*gt).y_axis(nc.get_variable("temperature").rows)
         assert_array_equal(
             np.asarray(rows),
             lats[::-1],
@@ -204,6 +205,35 @@ class TestInMemoryContainer:
             dims=ExtraDimensions(name="time", values=[0, 6, 12, 18, 24]),
         )
         assert nc.get_variable("temp").get_dimension_values("missing") is None
+
+
+class TestSouthUpWritePath:
+    """A south-up geotransform reaches the NetCDF write path and emits an ascending y axis."""
+
+    def test_south_up_from_array_writes_an_ascending_y_coordinate(self, tmp_path):
+        """A south-up (geotransform[5] > 0) input writes a y axis within its extent.
+
+        Test scenario:
+            resolve_geotransform returns a caller's geo verbatim, so a south-up
+            geotransform reaches the write path unnormalised. The written y
+            coordinate must ascend from the origin and stay within the 0..3 extent
+            -- the signed step delivers that; the old abs()-into-a-negating helper
+            wrote a descending axis below the extent ([-0.5, -1.5, -2.5]).
+        """
+        arr = np.arange(12, dtype=np.float64).reshape(3, 4)
+        nc = NetCDF.from_array(
+            arr=arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 0.0, 0.0, 1.0), epsg=3857),
+            variable_name="t",
+        )
+        path = tmp_path / "south_up.nc"
+        nc.to_file(str(path))
+        y = np.asarray(NetCDF.read_file(str(path)).get_dimension_values("y"))
+
+        assert y[0] < y[-1], f"a south-up write must ascend, got {y.tolist()}"
+        assert y.min() >= 0.0, f"y went below the 0..3 extent: {y.tolist()}"
+        assert y.max() <= 3.0, f"y went above the 0..3 extent: {y.tolist()}"
+        assert_array_equal(y, [0.5, 1.5, 2.5])
 
 
 class TestStringTypedCoordinateVariable:
