@@ -85,6 +85,45 @@ def _four_dimensional(times: list[float], levels: list[float], fill: float) -> N
     )
 
 
+NDV_INT = -9999
+
+
+def _typed_cube(values: list, dtype: str, no_data_value: float) -> NetCDF:
+    """A one-step `(time, y, x)` container holding one variable of a given band type.
+
+    Args:
+        values: The cells.
+        dtype: The NumPy dtype to store them as.
+        no_data_value: The sentinel to declare.
+
+    Returns:
+        NetCDF: The container.
+    """
+    return NetCDF.from_array(
+        np.asarray(values, dtype=dtype),
+        geo_ref=GEO,
+        variable_name="t",
+        no_data_value=no_data_value,
+        dims=ExtraDimensions(name="time", values=[0.0]),
+    )
+
+
+def _read_variable(variable: NetCDF) -> np.ndarray:
+    """A variable's cells as float64 with its gaps as NaN.
+
+    Args:
+        variable: The variable.
+
+    Returns:
+        np.ndarray: The values.
+    """
+    values = np.asarray(variable.read_array(), dtype="float64")
+    sentinel = variable.no_data_value[0]
+    if sentinel is not None and not np.isnan(sentinel):
+        values = np.where(values == sentinel, np.nan, values)
+    return values
+
+
 def _read(cube: NetCDF, name: str = "t") -> np.ndarray:
     """One variable's cells as float64 with its gaps as NaN.
 
@@ -433,6 +472,44 @@ class TestNoConflictsFillsFromBothCopies:
             compat="override",
         )
         assert_allclose(_read(merged), np.array([[1.0, np.nan], [np.nan, 4.0]]))
+
+    def test_a_borrowed_value_the_band_cannot_hold_widens_it(self):
+        """The cast back to the first copy's type must not round the value it borrowed.
+
+        Test scenario:
+            The NaN round trip was undone with `.astype(first.dtype)`, so an `int16` band
+            borrowing `2.7` from a float copy stored `2`. The layout check compares only
+            the shape and the dimension names, so nothing stopped the copies differing in
+            band type. xarray answers `[1.0, 2.7, 3.0, 4.0]` here.
+        """
+        first = _typed_cube([[[1, NDV_INT], [3, 4]]], "int16", NDV_INT)
+        second = _typed_cube([[[np.nan, 2.7], [3.0, 4.0]]], "float64", np.nan)
+        merged = NetCDF.merge([first, second]).get_variable("t")
+        assert_allclose(_read_variable(merged), np.array([[1.0, 2.7], [3.0, 4.0]]))
+
+    def test_a_borrowed_value_that_would_wrap_widens_instead(self):
+        """An out-of-range cast is silent in numpy, so it must not be reached.
+
+        Test scenario:
+            `70000.0` into an `int16` band wrapped to `4464` with no warning.
+        """
+        first = _typed_cube([[[1, NDV_INT], [3, 4]]], "int16", NDV_INT)
+        second = _typed_cube([[[np.nan, 70000.0], [3.0, 4.0]]], "float64", np.nan)
+        merged = NetCDF.merge([first, second]).get_variable("t")
+        assert_allclose(_read_variable(merged), np.array([[1.0, 70000.0], [3.0, 4.0]]))
+
+    def test_a_borrowed_value_the_band_can_hold_keeps_the_band_type(self):
+        """Widening is only paid when the value needs it.
+
+        Test scenario:
+            `2.0` is exactly representable in `int16`, so the band stays `int16` — the
+            same judgement `_mask_dtype` makes for a masked raster.
+        """
+        first = _typed_cube([[[1, NDV_INT], [3, 4]]], "int16", NDV_INT)
+        second = _typed_cube([[[np.nan, 2.0], [3.0, 4.0]]], "float64", np.nan)
+        merged = NetCDF.merge([first, second]).get_variable("t")
+        assert merged.dtype == ["int16"]
+        assert_allclose(_read_variable(merged), np.array([[1.0, 2.0], [3.0, 4.0]]))
 
     def test_two_copies_with_nothing_to_fill_keep_the_band_type(self):
         """The conversion to NaN is only paid when a cell is actually taken.

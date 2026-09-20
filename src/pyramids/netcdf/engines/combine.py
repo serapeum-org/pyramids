@@ -506,9 +506,43 @@ def _filled_from(
     if takeable.any():
         filled = np.where(my_gaps, yours, mine)
         if sentinel is not None and not np.isnan(sentinel):
-            filled = np.where(np.isnan(filled), sentinel, filled).astype(
-                values.dtype, copy=False
+            filled = _narrowed(
+                np.where(np.isnan(filled), sentinel, filled), values.dtype
             )
     else:
         filled = values
     return np.asarray(filled)
+
+
+def _narrowed(filled: np.typing.NDArray, dtype: np.dtype) -> np.typing.NDArray:
+    """`filled` back in the band's own type, unless an integer band would lose by it.
+
+    The masking to NaN and back is a float round trip, and casting it straight back to
+    the band's type is right for a float band — that is ordinary precision. On an integer
+    band it is not: a borrowed `2.7` would be stored as `2`, and `70000.0` would wrap to
+    `4464`, both silently. So an integer band takes its type back only when every value
+    is a whole number inside its range, and otherwise the result widens — the same
+    judgement a masked raster's dtype makes.
+
+    Args:
+        filled: The combined values, as floats.
+        dtype: The first copy's band type.
+
+    Returns:
+        numpy.ndarray: `filled` in `dtype`, or as it stands when that would lose a value.
+    """
+    values = filled
+    if not np.issubdtype(dtype, np.integer):
+        values = filled.astype(dtype, copy=False)
+    else:
+        limits = np.iinfo(dtype)
+        whole = bool(np.isfinite(filled).all()) and bool(
+            np.all(filled == np.trunc(filled))
+        )
+        if (
+            whole
+            and limits.min <= float(filled.min())
+            and float(filled.max()) <= limits.max
+        ):
+            values = filled.astype(dtype, copy=False)
+    return values
