@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7769,16 +7769,6 @@ window.</p>
 which multiplies the index by the cell size instead of adding it repeatedly. The new values are the more accurate
 ones — <code>10.35</code> where the walk produced <code>10.350000000000001</code> — but any golden file, doctest or notebook output that
 pins the printed coordinate will move. Compare axis arrays with <code>numpy.allclose</code>, not with <code>==</code> or a repr.</p>
-<p><strong><code>get_y_lat_dimension_array</code> now honours the sign of its step; a positive value ascends.</strong> Hard change, silent.
-<code>RasterBase.get_y_lat_dimension_array(pivot_y, cell_size, rows)</code> used to force a descending (north-to-south) axis:
-it negated its <code>cell_size</code> argument and documented that argument as a <em>positive</em> pixel height. It now passes the
-value straight through as the <strong>signed</strong> <code>geotransform[5]</code>, mirroring <code>get_x_lon_dimension_array</code> — a negative step
-descends (north-up) and a positive step ascends (south-up). A caller that followed the old contract and passed
-<code>abs(geotransform[5])</code> (a positive number) will now get an <strong>ascending</strong> axis where it used to get a descending
-one. Pass the signed <code>geotransform[5]</code> instead. This is what fixes <code>Dataset.y</code> / <code>Dataset.lat</code> reporting
-coordinates outside a south-up raster's own extent; <code>Dataset.bbox</code> is likewise normalised now (always
-<code>[min_x, min_y, max_x, max_y]</code>), so it no longer comes back inverted for a south-up or east-left grid. The
-common north-up case is unchanged.</p>
 <h3 id="0480"><a class="toclink" href="#0480">0.48.0</a><a class="headerlink" href="#0480" title="Permanent link">#</a></h3>
 <p><strong><code>recreate_overviews</code> now rebuilds a band's levels in one cascading pass.</strong> Each deeper level is decimated from
 the level above rather than from the full-resolution band, matching what <code>create_overviews</code> (<code>BuildOverviews</code>)
