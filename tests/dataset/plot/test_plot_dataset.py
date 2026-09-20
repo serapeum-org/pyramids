@@ -666,6 +666,27 @@ class TestPlotDataSet:
         assert len(fig2.axes) == 2, "explicit add_colorbar=True must still draw a bar"
 
     @pytest.mark.plot
+    def test_plot_vector_field_color_with_cmap_none_is_allowed(self):
+        """An explicit ``cmap=None`` alongside ``color=`` is not a conflict (#1128 P3).
+
+        Test scenario:
+            The color=/cmap= guard keys on a real colormap, not mere presence, so
+            a caller forwarding ``cmap=None`` (its default) with ``color="black"``
+            still gets solid arrows rather than a spurious mutual-exclusion error.
+        """
+        dataset = self._uv_dataset()
+        _, ax, _ = dataset.plot_vector_field(
+            u_band=0, v_band=1, kind="quiver", color="black", cmap=None
+        )
+        q = ax.collections[-1]
+        colors = np.unique(
+            np.round(q.cmap(q.norm(np.asarray(q.get_array()))), 3), axis=0
+        )
+        assert len(colors) == 1, (
+            f"color='black' with cmap=None must stay solid, got {len(colors)}"
+        )
+
+    @pytest.mark.plot
     def test_plot_vector_field_band_out_of_range_raises(self):
         """A single-band dataset gives a clear error, not a GDAL/index crash.
 

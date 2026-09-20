@@ -3810,6 +3810,25 @@ class Analysis(_Engine["Dataset"]):
                 name=name,
                 hint=(" plot_vector_field needs two in-range bands (u, v components)."),
             )
+        # Solid colour: cleopatra colours the field by magnitude through a
+        # colormap and has no scalar ``color=`` (its ``color=`` is a magnitude
+        # ``ColorScaling``), so translate a matplotlib colour (``color="black"``)
+        # into a one-colour colormap — the whole field (arrows, barbs, or
+        # streamlines) then renders in that colour. Validated here (cheap,
+        # data-independent) before the band reads below. The conflict guard keys
+        # on a real colormap, not presence, so a caller's ``cmap=None`` is fine.
+        color = kwargs.pop("color", None)
+        if color is not None:
+            if kwargs.get("cmap") is not None:
+                raise ValueError(
+                    "pass either color= (a solid arrow colour) or cmap=, not both"
+                )
+            if not is_color_like(color):
+                raise ValueError(f"color= must be a matplotlib colour, got {color!r}")
+            kwargs["cmap"] = ListedColormap([color])
+            # A single colour has no magnitude scale, so a magnitude colorbar
+            # would be misleading; default it off (an explicit add_colorbar wins).
+            kwargs.setdefault("add_colorbar", False)
         u = self._ds.read_array(band=u_band)
         v = self._ds.read_array(band=v_band)
         x = self._ds.x
@@ -3827,23 +3846,6 @@ class Analysis(_Engine["Dataset"]):
             x = x[::-1]
             u = u[:, ::-1]
             v = v[:, ::-1]
-        # Solid colour: cleopatra colours the field by magnitude through a
-        # colormap and has no scalar ``color=`` (its ``color=`` is a magnitude
-        # ``ColorScaling``), so translate a matplotlib colour (``color="black"``)
-        # into a one-colour colormap — the whole field (arrows, barbs, or
-        # streamlines) then renders in that colour.
-        color = kwargs.pop("color", None)
-        if color is not None:
-            if "cmap" in kwargs:
-                raise ValueError(
-                    "pass either color= (a solid arrow colour) or cmap=, not both"
-                )
-            if not is_color_like(color):
-                raise ValueError(f"color= must be a matplotlib colour, got {color!r}")
-            kwargs["cmap"] = ListedColormap([color])
-            # A single colour has no magnitude scale, so a magnitude colorbar
-            # would be misleading; default it off (an explicit add_colorbar wins).
-            kwargs.setdefault("add_colorbar", False)
         xx, yy = np.meshgrid(x, y)
         glyph = VectorGlyph(xx, yy, u, v, ax=ax, **VectorGlyph.filter_kwargs(kwargs))
         # A caller-supplied ``ax`` is a host to compose onto (e.g. a scalar map
