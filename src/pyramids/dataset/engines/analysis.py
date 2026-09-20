@@ -2578,6 +2578,13 @@ class Analysis(_Engine["Dataset"]):
         comes through here keeps each dimension's length, so the layout is the receiver's
         own: the shape a fold has, one operand with nothing to compare it against.
 
+        The name the variable answers to travels too, as it does through every member
+        along a dimension. Without it a masked variable came back as the placeholder
+        `variable`, so `to_dataframe()` renamed its column and `to_dataframe(variables=…)`
+        refused the variable's own name. `_parent_nc` deliberately does **not** travel:
+        the result no longer holds the store's values, and pointing it back at that store
+        would let a reader recover coordinates for cells that are no longer there.
+
         Args:
             result: The freshly built raster.
 
@@ -2586,6 +2593,11 @@ class Analysis(_Engine["Dataset"]):
         """
         result.meta_data = self._ds.meta_data
         result.band_names = list(self._ds.band_names)
+        # Duck-typed: only a NetCDF variable carries one, and a plain raster has no name
+        # to lose.
+        name = getattr(self._ds, "_source_var_name", None)
+        if name is not None:
+            result._source_var_name = name  # type: ignore[attr-defined]
         self._ds._label_combined(result, self._ds._combine_layout_source(None, None))
         return result
 

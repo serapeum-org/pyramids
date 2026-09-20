@@ -165,15 +165,29 @@ class TestWhenTheStoreCannotNameTheAxes:
         stamps = rebuilt.to_dataframe().index.get_level_values("time")
         assert list(dict.fromkeys(stamps)) == STAMPS
 
-    def test_a_variable_built_in_memory_is_named_for_having_no_name(self):
-        """With no source name to carry, the single column falls back to `variable`.
+    def test_a_variable_built_in_memory_keeps_the_name_it_answers_to(self):
+        """A rebuilt variable is still `t`, even with no store left to read it from.
 
         Test scenario:
-            The receiver is a variable, so the column set is the one name it carries. A
-            rebuilt variable carries none, and the frame is built rather than refused —
-            pinned here because the placeholder is what a caller sees.
+            The receiver is a variable, so the column set is the one name it carries.
+            `fillna` rebuilds the raster, and the name has to be carried across by hand
+            or the column comes back as the placeholder `variable` — which also made
+            `to_dataframe(variables="t")` refuse the variable's own name.
         """
         rebuilt = _container().get_variable("t").fillna(0.0)
+        assert rebuilt._parent_nc is None, "precondition: no store to recover it from"
+        assert list(rebuilt.to_dataframe().columns) == ["t"]
+        assert list(rebuilt.to_dataframe(variables="t").columns) == ["t"]
+
+    def test_a_variable_with_no_name_at_all_falls_back_to_the_placeholder(self):
+        """Nothing to carry is still a frame, on the placeholder name.
+
+        Test scenario:
+            The fallback only applies when there is genuinely no name, which is what a
+            caller sees if one is never set.
+        """
+        rebuilt = _container().get_variable("t").fillna(0.0)
+        rebuilt._source_var_name = None
         assert list(rebuilt.to_dataframe().columns) == ["variable"]
 
     def test_a_store_that_will_not_read_its_dimension_names(self, monkeypatch):

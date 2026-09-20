@@ -15,6 +15,8 @@ from numpy.testing import assert_allclose
 from pyramids.base._errors import AlignmentError
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
+from pyramids.netcdf import ExtraDimensions, NetCDF
+from pyramids.netcdf import GeoReference as NCGeoReference
 
 pytestmark = pytest.mark.core
 
@@ -381,6 +383,35 @@ class TestTheResultKeepsItsIdentity:
         """A flag band still describes the band it flags."""
         assert self._labelled().isnull().band_names == ["reflectance"]
         assert self._labelled().notnull().meta_data == {"source": "sentinel"}
+
+    @pytest.mark.parametrize(
+        "member",
+        ["where", "fillna", "isnull", "notnull"],
+    )
+    def test_a_variable_keeps_the_name_it_answers_to(self, member: str):
+        """A masked variable is still `t`, and `to_dataframe` must still call it that.
+
+        Test scenario:
+            The members along a dimension (`ffill`, `dropna`, ...) carry
+            `_source_var_name` through; these four did not, so the result came back as the
+            placeholder `variable`. That was cosmetic until `variables=` began to be read
+            on a variable receiver, at which point `var.fillna(0.0).to_dataframe(
+            variables="t")` started refusing the variable's own name.
+
+        Args:
+            member: The `Analysis` member to check.
+        """
+        variable = NetCDF.from_array(
+            np.arange(8.0).reshape(2, 2, 2),
+            geo_ref=NCGeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+        ).get_variable("t")
+        arguments = {"where": (np.ones((2, 2, 2), dtype=bool),), "fillna": (0.0,)}
+        result = getattr(variable, member)(*arguments.get(member, ()))
+        assert list(result.to_dataframe().columns) == ["t"]
+        assert list(result.to_dataframe(variables="t").columns) == ["t"]
 
 
 class TestANanOtherIsDeclared:
