@@ -452,6 +452,52 @@ class TestPlotDataSet:
         assert len(fig.axes) == 1, "add_colorbar=False must not add a colorbar axes"
 
     @pytest.mark.plot
+    def test_plot_vector_field_ax_preserves_host_layer(self):
+        """Composing arrows onto a caller ``ax`` keeps the scalar layer (#1128).
+
+        Test scenario:
+            A scalar ``plot`` draws one image onto a host axes; a following
+            ``plot_vector_field(ax=host)`` must add its arrows on top without
+            clearing that image -- the composition the ``ax`` parameter
+            documents. Guards the regression where the vector call wiped
+            ``ax.images`` back to 0.
+        """
+        import matplotlib.pyplot as plt
+
+        scalar = Dataset.from_array(
+            np.random.default_rng(1).standard_normal((6, 6)).astype("float32"),
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
+        fig, host = plt.subplots()
+        scalar.plot(band=0, fig=fig, ax=host)
+        assert len(host.images) == 1, "the scalar layer should be drawn first"
+        self._uv_dataset().plot_vector_field(
+            u_band=0, v_band=1, kind="quiver", ax=host, add_colorbar=False
+        )
+        assert len(host.images) == 1, "the scalar image must survive the vector call"
+        assert len(host.collections) >= 1, "the quiver arrows must be added on top"
+
+    @pytest.mark.plot
+    def test_plot_vector_field_thin_reduces_arrow_count(self):
+        """``thin=n`` subsamples a quiver instead of one arrow per cell (#1128).
+
+        Test scenario:
+            A quiver on a 6x6 grid draws 36 arrows by default; ``thin=3`` must
+            forward through ``filter_kwargs`` to cleopatra and draw strictly
+            fewer, so a dense grid is not an unreadable mesh.
+        """
+        dataset = self._uv_dataset()
+        _, ax_full, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind="quiver")
+        _, ax_thin, _ = dataset.plot_vector_field(
+            u_band=0, v_band=1, kind="quiver", thin=3
+        )
+        n_full = len(ax_full.collections[0].get_offsets())
+        n_thin = len(ax_thin.collections[0].get_offsets())
+        assert n_thin < n_full, (
+            f"thin=3 should reduce arrows: full={n_full} thin={n_thin}"
+        )
+
+    @pytest.mark.plot
     def test_plot_vector_field_band_out_of_range_raises(self):
         """A single-band dataset gives a clear error, not a GDAL/index crash.
 

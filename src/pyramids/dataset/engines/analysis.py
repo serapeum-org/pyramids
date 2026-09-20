@@ -3713,13 +3713,17 @@ class Analysis(_Engine["Dataset"]):
             ax (matplotlib.axes.Axes, optional):
                 Draw the vector field into these axes instead of creating them, which is
                 what lets it be composed onto a shared map (pair it with
-                ``add_colorbar=False``). An axes already carries its figure, so ``ax`` on
-                its own is sufficient and there is no separate ``fig`` parameter here. A
-                new figure/axes is created when left unset. Default is ``None``.
+                ``add_colorbar=False``). Any layers already on the axes — e.g. a scalar
+                :meth:`plot` drawn first — are **preserved**, and the arrows are drawn on
+                top rather than clearing them. An axes already carries its figure, so
+                ``ax`` on its own is sufficient and there is no separate ``fig`` parameter
+                here. A new figure/axes is created when left unset. Default is ``None``.
             **kwargs:
                 Style options forwarded to the ``VectorGlyph`` constructor,
                 filtered via :meth:`VectorGlyph.filter_kwargs` (e.g.
-                ``density``, ``scale``, ``cmap``, ``add_colorbar``). Pass
+                ``density``, ``scale``, ``cmap``, ``add_colorbar``, and
+                ``thin`` — draw every nth grid point so a large ``quiver`` /
+                ``barbs`` grid is not one arrow per cell). Pass
                 ``add_colorbar=False`` when composing onto a shared map.
 
         Returns:
@@ -3757,6 +3761,16 @@ class Analysis(_Engine["Dataset"]):
                 >>> fig, ax, im = ds.plot_vector_field(kind="streamplot", add_colorbar=False)  # doctest: +SKIP
 
                 ```
+            - Compose the arrows over a scalar map on a shared axes; the scalar
+              layer is preserved:
+
+                ```python
+                >>> import matplotlib.pyplot as plt  # doctest: +SKIP
+                >>> fig, host = plt.subplots()  # doctest: +SKIP
+                >>> ds.plot(band=0, fig=fig, ax=host)  # doctest: +SKIP
+                >>> ds.plot_vector_field(u_band=0, v_band=1, ax=host, add_colorbar=False)  # doctest: +SKIP
+
+                ```
         """
         require_cleopatra()
         from cleopatra.glyphs.gridded.vector_glyph import VectorGlyph
@@ -3788,7 +3802,12 @@ class Analysis(_Engine["Dataset"]):
             v = v[:, ::-1]
         xx, yy = np.meshgrid(x, y)
         glyph = VectorGlyph(xx, yy, u, v, ax=ax, **VectorGlyph.filter_kwargs(kwargs))
-        result = glyph.plot(kind=kind)
+        # A caller-supplied ``ax`` is a host to compose onto (e.g. a scalar map
+        # drawn first), which is the documented reason the parameter exists. Tell
+        # cleopatra (>=0.39.0) to keep the host's existing artists instead of
+        # clearing the axes; when we create our own axes there is nothing to
+        # preserve, so composition stays off.
+        result = glyph.plot(kind=kind, compose=ax is not None)
         return result
 
     def plot(
