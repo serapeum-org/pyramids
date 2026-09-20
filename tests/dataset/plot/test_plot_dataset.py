@@ -589,6 +589,53 @@ class TestPlotDataSet:
         )
 
     @pytest.mark.plot
+    def test_plot_vector_field_color_makes_solid_arrows(self):
+        """A matplotlib ``color=`` renders solid single-colour arrows (#1128 P3).
+
+        Test scenario:
+            cleopatra colours arrows by magnitude and has no scalar quiver colour,
+            so pyramids turns ``color="black"`` into a one-colour colormap: every
+            arrow renders black (one unique RGBA), where the default yields many.
+        """
+        dataset = self._uv_dataset()
+        _, ax_def, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind="quiver")
+        _, ax_solid, _ = dataset.plot_vector_field(
+            u_band=0, v_band=1, kind="quiver", color="black"
+        )
+        q_solid = ax_solid.collections[-1]
+        solid = np.unique(
+            np.round(q_solid.cmap(q_solid.norm(np.asarray(q_solid.get_array()))), 3),
+            axis=0,
+        )
+        q_def = ax_def.collections[-1]
+        default = np.unique(
+            np.round(q_def.cmap(q_def.norm(np.asarray(q_def.get_array()))), 3), axis=0
+        )
+        assert len(solid) == 1, (
+            f"color='black' must make one arrow colour, got {len(solid)}"
+        )
+        np.testing.assert_allclose(
+            solid[0], [0.0, 0.0, 0.0, 1.0], err_msg="arrows must be black"
+        )
+        assert len(default) > 1, "the default must colour arrows by magnitude"
+
+    @pytest.mark.plot
+    def test_plot_vector_field_color_and_cmap_conflict_raises(self):
+        """``color=`` and ``cmap=`` are mutually exclusive (#1128 P3).
+
+        Test scenario:
+            Both drive the arrow colouring, so passing both must raise ValueError
+            rather than silently picking one.
+        """
+        from matplotlib.colors import ListedColormap
+
+        dataset = self._uv_dataset()
+        with pytest.raises(ValueError, match="color=.*or cmap="):
+            dataset.plot_vector_field(
+                u_band=0, v_band=1, color="black", cmap=ListedColormap(["red"])
+            )
+
+    @pytest.mark.plot
     def test_plot_vector_field_band_out_of_range_raises(self):
         """A single-band dataset gives a clear error, not a GDAL/index crash.
 

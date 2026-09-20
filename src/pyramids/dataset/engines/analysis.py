@@ -3731,14 +3731,13 @@ class Analysis(_Engine["Dataset"]):
                 ``barbs`` grid is not one arrow per cell; it applies to
                 ``quiver`` / ``barbs`` only — ``streamplot`` ignores it (with a
                 warning), use ``density`` there. Arrows are coloured by vector
-                magnitude through ``cmap``; for a single **solid** colour pass a
-                one-colour colormap, e.g.
-                ``cmap=matplotlib.colors.ListedColormap(["black"])``. A bare
-                ``color=`` is **not** forwarded — it is filtered out by
-                :meth:`VectorGlyph.filter_kwargs` (cleopatra's ``color`` is a
-                magnitude scale object, not a solid colour), so use ``cmap`` for
-                a solid colour. Pass ``add_colorbar=False`` when composing onto a
-                shared map.
+                magnitude through ``cmap``. For a single **solid** colour pass
+                ``color=`` a matplotlib colour (e.g. ``color="black"``): it is
+                turned into a one-colour colormap, so every arrow renders in that
+                colour (equivalent to
+                ``cmap=matplotlib.colors.ListedColormap(["black"])``). ``color=``
+                and ``cmap=`` are mutually exclusive. Pass ``add_colorbar=False``
+                when composing onto a shared map.
 
         Returns:
             tuple:
@@ -3788,6 +3787,7 @@ class Analysis(_Engine["Dataset"]):
         """
         require_cleopatra()
         from cleopatra.glyphs.gridded.vector_glyph import VectorGlyph
+        from matplotlib.colors import ListedColormap
 
         band_count = self._ds.band_count
         for name, idx in (("u_band", u_band), ("v_band", v_band)):
@@ -3814,6 +3814,18 @@ class Analysis(_Engine["Dataset"]):
             x = x[::-1]
             u = u[:, ::-1]
             v = v[:, ::-1]
+        # Solid arrow colour: cleopatra colours arrows by magnitude through a
+        # colormap and has no scalar ``color=`` for a quiver (its ``color=`` is a
+        # magnitude ``ColorScaling``), so translate a matplotlib colour
+        # (``color="black"``) into a one-colour colormap — every arrow then
+        # renders in that colour.
+        color = kwargs.pop("color", None)
+        if color is not None:
+            if "cmap" in kwargs:
+                raise ValueError(
+                    "pass either color= (a solid arrow colour) or cmap=, not both"
+                )
+            kwargs["cmap"] = ListedColormap([color])
         xx, yy = np.meshgrid(x, y)
         glyph = VectorGlyph(xx, yy, u, v, ax=ax, **VectorGlyph.filter_kwargs(kwargs))
         # A caller-supplied ``ax`` is a host to compose onto (e.g. a scalar map
