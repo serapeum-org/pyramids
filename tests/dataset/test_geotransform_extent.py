@@ -330,3 +330,25 @@ class TestDatasetBboxAndAxes:
 
         assert list(ds.bbox) == pytest.approx([0.0, 0.0, 8.0, 8.0])
         np.testing.assert_allclose(np.asarray(ds.y)[:4], [7.5, 6.5, 5.5, 4.5])
+
+    def test_a_rotated_grid_bbox_contains_every_corner(self):
+        """Delegating to `transform.extent` makes `bbox` correct under rotation too.
+
+        Test scenario:
+            The old two-corner arithmetic ignored the rotation terms (`gt[2]`,
+            `gt[4]`) and under-reported a rotated grid's box. The bbox must now
+            equal the shared `transform.extent` derivation and contain all four
+            projected corners.
+        """
+        rot = GeoTransform(10.0, 0.8, 0.6, 20.0, 0.6, -0.8)
+        rows, columns = np.mgrid[0:9, 0:12]
+        arr = (columns + 10 * rows).astype("float64")
+        ds = Dataset.from_array(
+            arr=arr, geo_ref=GeoReference(geo=tuple(rot), epsg=3857)
+        )
+
+        min_x, min_y, max_x, max_y = ds.bbox
+        assert list(ds.bbox) == pytest.approx(list(ds.transform.extent(12, 9)))
+        xs, ys = rot.apply([0, 12, 0, 12], [0, 0, 9, 9])
+        assert min_x <= xs.min() and max_x >= xs.max(), "a corner fell outside x"
+        assert min_y <= ys.min() and max_y >= ys.max(), "a corner fell outside y"
