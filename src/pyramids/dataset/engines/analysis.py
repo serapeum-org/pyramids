@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
@@ -2408,7 +2408,7 @@ class Analysis(_Engine["Dataset"]):
         )
 
     def _attributes_match(self, other: Dataset) -> bool:
-        """Whether the dataset tags and band names agree.
+        """Whether the tags and band names agree.
 
         Args:
             other: The raster to compare with.
@@ -2416,9 +2416,33 @@ class Analysis(_Engine["Dataset"]):
         Returns:
             bool: `True` when both match.
         """
-        return dict(self._ds.meta_data or {}) == dict(other.meta_data or {}) and list(
+        return self._attribute_tags(self._ds) == self._attribute_tags(other) and list(
             self._ds.band_names
         ) == list(other.band_names)
+
+    @staticmethod
+    def _attribute_tags(ds: Dataset) -> dict:
+        """The tags :meth:`identical` compares, whichever shape the raster keeps them in.
+
+        A plain raster keeps them in `meta_data`, a `dict` of GDAL items. A `NetCDF`
+        variable's `meta_data` is a `NetCDFMetadata` — a structured snapshot of the whole
+        *store*, not of this variable — and `dict()` on it raises, which is what made
+        `identical` fail on every variable read from a file. Its own tags are `attrs`,
+        the xarray-shaped mapping, and those are what xarray compares here.
+
+        Reading the snapshot would be wrong even if it were a mapping: every variable in
+        a file answers the same one, so it would say nothing about the variable.
+
+        Args:
+            ds: The raster to read.
+
+        Returns:
+            dict: The tags, empty when the raster carries none.
+        """
+        tags = getattr(ds, "meta_data", None)
+        if not isinstance(tags, Mapping):
+            tags = getattr(ds, "attrs", None)
+        return dict(tags) if isinstance(tags, Mapping) else {}
 
     def fillna(self, value: float | int) -> Dataset:
         """Give every gap a value, so the raster has no missing cells left.
