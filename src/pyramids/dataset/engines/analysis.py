@@ -155,9 +155,9 @@ def _mask_dtype(band: np.dtype, fill: Any) -> np.dtype:
     `float32` raster and octuples a `uint8` one for a value that fits in either. A band
     keeps its own type when it can hold what is written into it:
 
-    - a float band holds any real value at its own precision, NaN included, which is what
-      `fillna` and the operators do with the same fill. It widens only for a magnitude no
-      value of that width can represent — a `float16` band and `70000.0`;
+    - a float band holds any real value at its own precision, NaN and the infinities
+      included — every float width has those — so it widens only for a *finite* magnitude
+      no value of that width can represent: a `float16` band and `70000.0`;
     - an integer band holds an integral sentinel in range — GDAL hands those back as
       floats (`255.0`), which is why the value is checked rather than its Python type.
 
@@ -180,7 +180,8 @@ def _mask_dtype(band: np.dtype, fill: Any) -> np.dtype:
     filler = np.asarray(fill)
     chosen = np.result_type(band, filler)
     if np.issubdtype(band, np.floating):
-        if bool(np.isnan(filler).all()) or bool(np.abs(filler) <= np.finfo(band).max):
+        holds = bool(np.isnan(filler).all()) or bool(np.isinf(filler).all())
+        if holds or bool(np.abs(filler) <= np.finfo(band).max):
             chosen = np.dtype(band)
     elif np.issubdtype(band, np.integer) and not np.isnan(filler).any():
         limits = np.iinfo(band)
@@ -2372,7 +2373,12 @@ class Analysis(_Engine["Dataset"]):
         self._refuse_a_container("fillna")
         values, sentinels, domain = self._operand_arrays(self._ds, None)
         declared = next((one for one in sentinels if one is not None), None)
-        out = np.asarray(np.where(domain, values, value))
+        # The same judgement `where` makes about the same fill, and made before the fill
+        # goes in: `np.where` on a float32 band with `1e300` keeps float32 and overflows
+        # to inf with only a RuntimeWarning, so the band is widened first when it cannot
+        # hold what is being written into it.
+        dtype = _mask_dtype(values.dtype, value)
+        out = np.asarray(np.where(domain, values.astype(dtype, copy=False), value))
         return self._identified(self._rebuilt(out, declared))
 
     def isnull(self) -> Dataset:

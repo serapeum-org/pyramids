@@ -855,6 +855,57 @@ class TestTheResultKeepsItsType:
         assert result.equals(raster)
         assert np.asarray(result.read_array()).dtype == np.float32
 
+    @pytest.mark.parametrize("fill", [np.inf, -np.inf])
+    def test_an_infinity_does_not_widen_a_float_band(self, fill):
+        """Every float width has the infinities, so none of them is a reason to widen.
+
+        Test scenario:
+            The guard asked `abs(fill) <= finfo(band).max`, which `inf` fails — so a
+            `float32` raster doubled for a value it represents exactly, and `where`
+            disagreed with `fillna` about the same fill. The docstring says the band
+            widens only for a magnitude no value of that width can represent.
+
+        Args:
+            fill: The infinity under test.
+        """
+        values = np.arange(1, 10, dtype="float32").reshape(3, 3)
+        raster = Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=-9999.0)
+        assert (
+            np.asarray(raster.where(values > 4, fill).read_array()).dtype == np.float32
+        )
+
+    @pytest.mark.parametrize("fill", [2.5, np.inf, -np.inf, 1e300])
+    def test_where_and_fillna_answer_the_same_type_for_the_same_fill(self, fill):
+        """The two are documented as making one judgement, so they have to make one.
+
+        Test scenario:
+            `fillna` went straight through `np.where`, which under NEP 50 keeps the band
+            type — so `fillna(1e300)` on a `float32` band stored `inf` with nothing but a
+            `RuntimeWarning: overflow encountered in cast`, while `where` widened.
+
+        Args:
+            fill: The fill both members are given.
+        """
+        values = np.arange(1, 10, dtype="float32").reshape(3, 3)
+        raster = Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=-9999.0)
+        masked = np.asarray(raster.where(values > 4, fill).read_array())
+        filled = np.asarray(raster.fillna(fill).read_array())
+        assert masked.dtype == filled.dtype
+
+    def test_fillna_widens_rather_than_overflowing(self):
+        """A fill the band cannot hold must not be stored as an infinity."""
+        values = np.arange(1, 10, dtype="float32").reshape(3, 3)
+        raster = Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=-9999.0)
+        raster_with_gap = Dataset.from_array(
+            np.where(values > 8, -9999.0, values).astype("float32"),
+            geo_ref=GEO_REF,
+            no_data_value=-9999.0,
+        )
+        filled = np.asarray(raster_with_gap.fillna(1e300).read_array())
+        assert filled.dtype == np.float64
+        assert np.isfinite(filled).all(), "the fill must not have overflowed to inf"
+        assert filled.ravel()[-1] == 1e300
+
     def test_a_fractional_other_still_widens_an_integer_band(self):
         """A fill the band cannot hold is a real reason to promote, and still does."""
         values = np.arange(1, 10, dtype="int16").reshape(3, 3)
@@ -920,8 +971,9 @@ class TestAContainerIsRefusedByName:
             "identical": (container,),
         }
         call = getattr(container, member)
+        given = arguments.get(member, ())
         with pytest.raises(ValueError, match=rf"^{member}\(\) works on a raster"):
-            call(*arguments.get(member, ()))
+            call(*given)
 
     def test_the_refusal_names_a_variable_to_call_it_on(self):
         """A refusal that does not say what to do instead is half a refusal."""

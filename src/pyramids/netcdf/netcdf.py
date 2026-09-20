@@ -2083,6 +2083,20 @@ def _variable_nbytes(variable: _HasRasterShape | LabeledArray) -> int:
     return size
 
 
+def _with_receiver(receiver: NetCDF | None, objs: Any) -> list:
+    """The cubes a join should read: `objs`, after the receiver when there is one.
+
+    Args:
+        receiver: The cube the join was reached through, or `None` for a class call.
+        objs: The cubes the caller passed.
+
+    Returns:
+        list: The cubes to join, in order.
+    """
+    cubes = list(objs)
+    return cubes if receiver is None else [receiver, *cubes]
+
+
 class _joins_cubes:  # noqa: N801
     """Descriptor for the two joins: callable on the class, and on a cube.
 
@@ -2093,8 +2107,9 @@ class _joins_cubes:  # noqa: N801
     call puts the receiver at the front of the list, so both spellings answer the same
     cube.
 
-    The wrapped function takes the list as its first argument and no `cls`, since neither
-    join uses one.
+    The wrapped function takes the receiver as its first parameter — the cube it was
+    reached through, or `None` for a class call — and `_with_receiver` turns that into
+    the list to join.
     """
 
     def __init__(self, function: Callable) -> None:
@@ -2117,22 +2132,17 @@ class _joins_cubes:  # noqa: N801
             Callable: The join, with the receiver prepended on an instance call.
         """
 
-        def call(objs: Any, *args: Any, **kwargs: Any) -> NetCDF:
-            """Join `objs`, after the receiver when there is one.
+        def call(*args: Any, **kwargs: Any) -> NetCDF:
+            """Join, with the receiver threaded in as the wrapped function's first argument.
 
             Args:
-                objs: The cubes to join.
                 *args: Passed through.
                 **kwargs: Passed through.
 
             Returns:
                 NetCDF: The joined cube.
             """
-            cubes = list(objs)
-            joined = self._function(
-                cubes if instance is None else [instance, *cubes], *args, **kwargs
-            )
-            return cast("NetCDF", joined)
+            return cast("NetCDF", self._function(instance, *args, **kwargs))
 
         call.__doc__ = self._function.__doc__
         call.__name__ = self._function.__name__
@@ -5941,7 +5951,7 @@ class NetCDF(Dataset):
                 f"Lazy read reopens the variable from its store, and {var_name!r} was "
                 f"rebuilt in memory (by where(), fillna(), isnull() or notnull()), so "
                 f"the store no longer holds these cells. Read it eagerly with "
-                f"read_array(), or write it out first with to_file()."
+                f"read_array()."
             )
         # Thread the eager-resolved raster plane (and its flips) into the lazy build so a variable
         # whose latitude/longitude is not the trailing pair -- selected via `x_dim`/`y_dim` or CF
@@ -7399,7 +7409,7 @@ class NetCDF(Dataset):
         return self.interop.to_dataframe(variables=variables, dropna=dropna)
 
     @_joins_cubes
-    def concat(objs: Any, dim: str) -> NetCDF:  # noqa: N805
+    def concat(self, objs: Any, dim: str) -> NetCDF:
         """Join cubes end to end along one of their dimensions.
 
         Two halves of a time series becoming the whole. Every cube must be on the same
@@ -7454,10 +7464,10 @@ class NetCDF(Dataset):
 
               ```
         """
-        return _concat(objs, dim)
+        return _concat(_with_receiver(self, objs), dim)
 
     @_joins_cubes
-    def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:  # noqa: N805
+    def merge(self, objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
         """Put the variables of several cubes side by side on the grid they share.
 
         **Not** `DatasetCollection.merge`, which means a *spatial mosaic written to a
@@ -7503,7 +7513,7 @@ class NetCDF(Dataset):
 
               ```
         """
-        return _merge(objs, compat=compat)
+        return _merge(_with_receiver(self, objs), compat=compat)
 
     def weighted(
         self,
