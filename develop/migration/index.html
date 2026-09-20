@@ -7764,22 +7764,11 @@ suite's own rasters nothing moves at all — all 473 fixture bands carrying a co
 mask identically under the old rule and the new one — so this surfaces only on data that holds values close to its
 own sentinel. Ask <code>pyramids.base._domain.is_no_data(arr, nodata, rtol=...)</code> directly if you want the old, looser
 window.</p>
-<p><strong><code>RasterBase.get_x_lon_dimension_array</code> / <code>get_y_lat_dimension_array</code> are removed.</strong> Hard change. They were thin
-wrappers over <code>GeoTransform.x_axis</code> / <code>GeoTransform.y_axis</code>; use those directly instead — e.g.
-<code>ds.transform.x_axis(ds.columns)</code> and <code>ds.transform.y_axis(ds.rows)</code>, or <code>GeoTransform(*geo).y_axis(rows)</code> when you
-hold a bare geotransform. Two behaviour differences to know when you switch:</p>
-<ul>
-<li><strong>The axis honours the signed step.</strong> <code>x_axis</code> / <code>y_axis</code> read the signed <code>geotransform[1]</code> / <code>geotransform[5]</code>,
-  so a positive <code>geotransform[5]</code> (south-up) ascends where the old <code>get_y_lat_dimension_array</code> forced a descending
-  axis (it negated its argument and documented it as a <em>positive</em> pixel height). A caller that passed
-  <code>abs(geotransform[5])</code> must now pass the signed value. This is what fixes <code>Dataset.y</code> / <code>Dataset.lat</code> reporting
-  coordinates outside a south-up raster's extent, and <code>Dataset.bbox</code> is likewise normalised now (always
-  <code>[min_x, min_y, max_x, max_y]</code>, no longer inverted for a south-up or east-left grid). The common north-up case
-  is unchanged.</li>
-<li><strong>Values can differ in the last ULP.</strong> The axis is <code>origin + (index + 0.5) * step</code>, not a repeated element-wise
-  addition, so a printed coordinate can move (<code>10.35</code> where the walk produced <code>10.350000000000001</code>). Compare axis
-  arrays with <code>numpy.allclose</code>, not <code>==</code> or a repr.</li>
-</ul>
+<p><strong>Coordinate axis arrays can differ in the last ULP.</strong> <code>RasterBase.get_x_lon_dimension_array</code> /
+<code>get_y_lat_dimension_array</code> moved from an element-wise accumulation to the shared <code>GeoTransform.x_axis</code> / <code>y_axis</code>,
+which multiplies the index by the cell size instead of adding it repeatedly. The new values are the more accurate
+ones — <code>10.35</code> where the walk produced <code>10.350000000000001</code> — but any golden file, doctest or notebook output that
+pins the printed coordinate will move. Compare axis arrays with <code>numpy.allclose</code>, not with <code>==</code> or a repr.</p>
 <h3 id="0480"><a class="toclink" href="#0480">0.48.0</a><a class="headerlink" href="#0480" title="Permanent link">#</a></h3>
 <p><strong><code>recreate_overviews</code> now rebuilds a band's levels in one cascading pass.</strong> Each deeper level is decimated from
 the level above rather than from the full-resolution band, matching what <code>create_overviews</code> (<code>BuildOverviews</code>)
