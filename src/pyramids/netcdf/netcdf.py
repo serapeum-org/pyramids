@@ -7340,6 +7340,11 @@ class NetCDF(Dataset):
         See :meth:`merge` for the other join — several variables on one grid, rather than
         one set of variables over a longer axis.
 
+        Every cube's gaps stay gaps: the result declares the first cube's no-data value
+        and the other cubes' gaps are rewritten to it. The one cell this cannot get right
+        is a later cube holding the first cube's sentinel as a real measurement, which is
+        then read as missing — change one of the sentinels before joining such cubes.
+
         Args:
             objs: The cubes, containers or variables, in the order they are joined.
             dim: The non-spatial dimension to join along.

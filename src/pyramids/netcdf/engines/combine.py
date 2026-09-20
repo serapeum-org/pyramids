@@ -47,6 +47,11 @@ def concat(objs: Any, dim: str) -> NetCDF:
         NetCDF: One cube whose `dim` is as long as the inputs' put together, holding each
         input's coordinates for it in order.
 
+    Every cube's gaps stay gaps: the joined variable declares the first cube's sentinel
+    and the others are rewritten to it. The one case that cannot come out right is a
+    later cube holding the first cube's sentinel as a real measurement — that cell is
+    read as missing afterwards, so change one of the sentinels before joining.
+
     Raises:
         ValueError: `objs` is empty; the cubes carry different variables; a variable does
             not have `dim`; or their band dimensions do not otherwise line up.
@@ -125,6 +130,12 @@ def _joined_values(
 
     Cubes that already agree are concatenated as they are, which keeps an integer band
     integer: the conversion is only paid when it buys something.
+
+    One cell this cannot get right, because only one sentinel can be declared: a later
+    cube that *holds the first cube's sentinel as a measurement* keeps that number, and
+    the joined cube then reads it as missing. Joining cubes whose sentinels collide with
+    each other's data needs one of them changed first
+    (`cube.change_no_data_value(...)`).
 
     Args:
         cubes: The cubes being joined, for their array helpers.
