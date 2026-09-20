@@ -201,8 +201,8 @@ class Variables(_Engine["NetCDF"]):
         # Dataset's own, not a read-normalised one, so a south-up input (gt[5] > 0)
         # reaches this site and writes an ascending y coordinate within its extent
         # (abs(gt[5]) would write a descending axis below the extent).
-        x_values = np.array(GeoTransform(*gt).x_axis(dataset.columns))
-        y_values = np.array(GeoTransform(*gt).y_axis(dataset.rows))
+        x_values = GeoTransform(*gt).x_axis(dataset.columns)
+        y_values = GeoTransform(*gt).y_axis(dataset.rows)
         dim_x = nc._get_or_create_dimension(
             rg, "x", x_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_X
         )
