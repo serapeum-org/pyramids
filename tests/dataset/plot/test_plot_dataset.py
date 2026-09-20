@@ -687,6 +687,33 @@ class TestPlotDataSet:
         )
 
     @pytest.mark.plot
+    @pytest.mark.parametrize("kind", ["quiver", "barbs", "streamplot"])
+    def test_plot_vector_field_color_is_solid_for_every_kind(self, kind: str):
+        """A solid ``color=`` colours arrows, barbs, and streamlines alike (#1128 P3).
+
+        Args:
+            kind: The VectorGlyph kind under test.
+
+        Test scenario:
+            The one-colour colormap reaches ``quiver`` / ``barbs`` / ``streamplot``,
+            so the returned mappable renders one unique colour (black) for each,
+            matching the docstring's "whole field" claim (not just quiver).
+        """
+        dataset = self._uv_dataset()
+        _, _, im = dataset.plot_vector_field(
+            u_band=0, v_band=1, kind=kind, color="black"
+        )
+        colors = np.unique(
+            np.round(im.cmap(im.norm(np.asarray(im.get_array()))), 3), axis=0
+        )
+        assert len(colors) == 1, (
+            f"{kind}: solid color must be one colour, got {len(colors)}"
+        )
+        np.testing.assert_allclose(
+            colors[0], [0.0, 0.0, 0.0, 1.0], err_msg=f"{kind} arrows not black"
+        )
+
+    @pytest.mark.plot
     def test_plot_vector_field_band_out_of_range_raises(self):
         """A single-band dataset gives a clear error, not a GDAL/index crash.
 
