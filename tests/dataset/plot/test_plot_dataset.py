@@ -630,9 +630,10 @@ class TestPlotDataSet:
         from matplotlib.colors import ListedColormap
 
         dataset = self._uv_dataset()
+        red_cmap = ListedColormap(["red"])
         with pytest.raises(ValueError, match="color=.*or cmap="):
             dataset.plot_vector_field(
-                u_band=0, v_band=1, color="black", cmap=ListedColormap(["red"])
+                u_band=0, v_band=1, color="black", cmap=red_cmap
             )
 
     @pytest.mark.plot
