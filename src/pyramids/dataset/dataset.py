@@ -3681,7 +3681,40 @@ class Dataset(RasterBase):
 
     @property
     def bbox(self) -> list:
-        """Bound box [xmin, ymin, xmax, ymax].
+        """The raster's map-space bounding box, ``[xmin, ymin, xmax, ymax]``.
+
+        Always normalised min-before-max on each axis, whatever the
+        geotransform's orientation: a south-up (positive ``geotransform[5]``),
+        east-left (negative ``geotransform[1]``) or rotated grid returns a proper
+        box, not an inverted one. Derived from
+        :meth:`~pyramids.dataset.transform.GeoTransform.extent`.
+
+        Examples:
+            - A north-up raster spans its cells:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.zeros((2, 3)),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=3857),
+                ... )
+                >>> ds.bbox
+                [0.0, 0.0, 3.0, 2.0]
+
+                ```
+            - A south-up raster (positive y step) reports the same box, not an
+              inverted one:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.zeros((2, 3)),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 0.0, 0.0, 1.0), epsg=3857),
+                ... )
+                >>> ds.bbox
+                [0.0, 0.0, 3.0, 2.0]
+
+                ```
 
         See Also:
             - Dataset.bounds: Dataset bounding polygon.
