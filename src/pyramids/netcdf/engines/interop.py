@@ -451,7 +451,9 @@ class Interop(_Engine["NetCDF"]):
             variables: Which data variables become columns, as a name or a sequence of
                 names. `None` (default) takes every gridded variable that shares the band
                 dimensions. On a variable the only name it accepts is that variable's own;
-                anything else is refused rather than ignored. A name may appear once.
+                anything else is refused rather than ignored. A name may appear once, and
+                an empty sequence is refused rather than read as `None` — a frame needs
+                at least one column.
             dropna: Drop the rows that are missing in **every** column. `False` by default,
                 which is what xarray does — its `to_dataframe` has no such argument and
                 keeps a row for every cell. `True` is the convenience for the common "give
@@ -463,8 +465,9 @@ class Interop(_Engine["NetCDF"]):
 
         Raises:
             ValueError: The container has no gridded variables; a name is not one of them;
-                a name was given more than once; or the chosen variables do not share the
-                same band dimensions, so their cells do not line up on one index.
+                a name was given more than once; an empty selection was given; or the
+                chosen variables do not share the same band dimensions, so their cells do
+                not line up on one index.
 
         Examples:
             - A two-step cube of one variable, as pandas sees it:
@@ -515,14 +518,16 @@ class Interop(_Engine["NetCDF"]):
         choose between.
 
         Args:
-            variables: A name, a sequence of names, or `None` for all of them.
+            variables: A name, a sequence of names, or `None` for all of them. An empty
+                sequence is a distinct case from `None`: it asks for no columns at all,
+                which is refused rather than quietly turned into "every variable".
 
         Returns:
-            list[str]: The names.
+            list[str]: The names, never empty.
 
         Raises:
-            ValueError: There are none, one of those named is not a gridded variable, or
-                a name was asked for more than once.
+            ValueError: There are none, one of those named is not a gridded variable, a
+                name was asked for more than once, or the selection is empty.
         """
         nc = self._ds
         if _is_container(nc):

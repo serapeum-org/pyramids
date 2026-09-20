@@ -639,6 +639,10 @@ class _DropNa(_AlongDim):
     def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
         """Keep the steps of `dim` that hold enough data.
 
+        Counting the gaps and taking the surviving steps both read the variable, and both
+        read the one materialisation: a lazily-backed variable is computed once here, as
+        it is for the two fills.
+
         Args:
             nc: The object `dropna` was called on.
             var: The variable.

@@ -43,6 +43,11 @@ def concat(objs: Any, dim: str) -> NetCDF:
     later cube holding the first cube's sentinel as a real measurement — that cell is
     read as missing afterwards, so change one of the sentinels before joining.
 
+    A dimension's CF `(units, calendar)` is carried only when every part declares the
+    same pair for it; a part declaring nothing counts as a disagreement, and the joined
+    axis is left undecodable rather than stamped with a calendar that is wrong for half
+    its steps.
+
     Args:
         objs: The cubes, in the order they are joined. Containers or variables, at least
             one, all on the same grid and all carrying `dim`.
@@ -190,20 +195,26 @@ def _same_sentinel(one: Any, other: Any) -> bool:
 def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
     """Put the variables of several cubes side by side on the grid they share.
 
+    No dimension is joined here, so every one of them has to line up before the cells can:
+    two copies of a variable stamped differently are refused rather than fused into one
+    step carrying the first's stamp. `concat` is the member for putting them end to end.
+
     Args:
         objs: The cubes, containers or variables, at least one and all on the same grid.
         compat: What to do with a variable more than one cube carries. `"no_conflicts"`
             (default) is xarray's rule: the copies are combined cell by cell, each filling
             the gaps of the other, and only a cell both of them hold a value in — a
-            different value — is a conflict. `"override"` takes the first cube's copy as
-            it stands, gaps and all, without reading any other.
+            different value — is a conflict. A borrowed value the first copy's band cannot
+            hold widens that band rather than being truncated into it. `"override"` takes
+            the first cube's copy as it stands, gaps and all, without reading any other.
 
     Returns:
         NetCDF: One container holding the union of the variables, in the order the cubes
         were given.
 
     Raises:
-        ValueError: `objs` is empty, `compat` is unknown, or two cubes disagree about a
+        ValueError: `objs` is empty, `compat` is unknown, two copies of a variable are
+            stamped differently along a band dimension, or two cubes disagree about a
             cell they both judged under `"no_conflicts"`.
         AlignmentError: The cubes are not on the same grid.
     """
@@ -457,11 +468,13 @@ def _merged_values(
         compat: The mode.
 
     Returns:
-        numpy.ndarray: The cells to write.
+        numpy.ndarray: The cells to write, in the first copy's band type unless a
+        borrowed value needs a wider one.
 
     Raises:
         ValueError: Two copies hold different values in a cell both of them judged, or
-            their band dimensions do not line up.
+            their band dimensions do not line up — by name, by shape or by the
+            coordinates they are stamped with.
     """
     cube, part = copies[0]
     values = np.asarray(cube._materialize_variable_array(part))
@@ -491,7 +504,8 @@ def _filled_from(
         name: The variable's name, for the refusals.
 
     Returns:
-        numpy.ndarray: The cells, with what the other copy could add.
+        numpy.ndarray: The cells, with what the other copy could add — in `values`' own
+        band type, or wider when an integer band could not hold a borrowed value.
 
     Raises:
         ValueError: The layouts differ, a band dimension is stamped differently, or a

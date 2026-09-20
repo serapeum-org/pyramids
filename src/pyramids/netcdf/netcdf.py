@@ -5927,7 +5927,30 @@ class NetCDF(Dataset):
         )
 
     def _read_array_lazy(self, chunks: Any, lock: Any, masked: bool) -> ArrayLike:
-        """Lazy (dask) read via ``build_lazy_array``; rejects unsupported combos."""
+        """The dask read, through `build_lazy_array`, once the request can be served.
+
+        A lazy read reopens the variable from its store, so it needs a path and a name to
+        reopen — and it needs the store to still hold the cells being asked for. A raster
+        rebuilt in memory by `where`, `fillna`, `isnull` or `notnull` keeps the name it is
+        called by, for labelling, but its values are its own; without the flag it carries
+        that read reached for `file::name` and failed inside GDAL with a bare
+        `No such file or directory`.
+
+        Args:
+            chunks: The dask chunk specification.
+            lock: The read lock handed to `build_lazy_array`.
+            masked: Whether the caller asked for a masked array, which this read has no
+                answer for.
+
+        Returns:
+            ArrayLike: The dask array.
+
+        Raises:
+            NotImplementedError: `masked=True` was combined with `chunks=`.
+            ValueError: There is no variable name to reopen — the receiver is a container
+                rather than a variable — or the variable was rebuilt in memory, so the
+                store no longer holds these cells. Read it eagerly instead.
+        """
         if masked:
             raise NotImplementedError(
                 "read_array(masked=True) is not supported together with "
@@ -7463,6 +7486,24 @@ class NetCDF(Dataset):
               [0.0, 6.0, 12.0, 18.0]
 
               ```
+            - The same join reached through the first cube, which goes at the front:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo_ref = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> first = NetCDF.from_array(
+              ...     np.array([1.0, 2.0]).reshape(2, 1, 1), geo_ref=geo_ref,
+              ...     variable_name="t", dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... )
+              >>> second = NetCDF.from_array(
+              ...     np.array([3.0, 4.0]).reshape(2, 1, 1), geo_ref=geo_ref,
+              ...     variable_name="t", dims=ExtraDimensions(name="time", values=[12.0, 18.0]),
+              ... )
+              >>> first.concat([second], "time").get_variable("t").read_array().ravel().tolist()
+              [1.0, 2.0, 3.0, 4.0]
+
+              ```
         """
         return _concat(_with_receiver(self, objs), dim)
 
@@ -7478,20 +7519,27 @@ class NetCDF(Dataset):
         Callable either way: `NetCDF.merge([first, second])` merges the list, and
         `first.merge([second])` merges the receiver ahead of it.
 
+        No dimension is joined here, so the copies of a variable have to agree about every
+        one of them, coordinates included — two measurements a hundred hours apart are
+        refused rather than fused into one step carrying the first's stamp. Use
+        :meth:`concat` to put them end to end instead.
+
         Args:
             objs: The cubes, containers or variables, all on the same grid. On an
                 instance call the receiver comes first, ahead of these.
             compat: What to do with a variable more than one cube carries.
                 `"no_conflicts"` (default) is xarray's rule: the copies fill each other's
                 gaps, and only a cell both of them hold a *different* value in is a
-                conflict. `"override"` takes the first cube's copy as it stands, gaps and
-                all, without reading any other.
+                conflict. A value borrowed into a band that cannot hold it widens that
+                band rather than being truncated into it. `"override"` takes the first
+                cube's copy as it stands, gaps and all, without reading any other.
 
         Returns:
             NetCDF: One container holding the union of the variables.
 
         Raises:
-            ValueError: `objs` is empty, `compat` is unknown, or two cubes disagree about a
+            ValueError: `objs` is empty, `compat` is unknown, two copies of a variable are
+                stamped differently along a band dimension, or two cubes disagree about a
                 cell they both judged.
             AlignmentError: The cubes are not on the same grid.
 
@@ -7509,6 +7557,22 @@ class NetCDF(Dataset):
               ...     np.zeros((1, 1)), geo_ref=geo_ref, variable_name="temp"
               ... )
               >>> sorted(NetCDF.merge([rain, temp]).variable_names)
+              ['rain', 'temp']
+
+              ```
+            - The same merge reached through the first cube:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo_ref = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> rain = NetCDF.from_array(
+              ...     np.ones((1, 1)), geo_ref=geo_ref, variable_name="rain"
+              ... )
+              >>> temp = NetCDF.from_array(
+              ...     np.zeros((1, 1)), geo_ref=geo_ref, variable_name="temp"
+              ... )
+              >>> sorted(rain.merge([temp]).variable_names)
               ['rain', 'temp']
 
               ```
