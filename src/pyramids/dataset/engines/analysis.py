@@ -2088,11 +2088,12 @@ class Analysis(_Engine["Dataset"]):
                 NaN. A number writes that number instead, and the result then holds no
                 gaps at all — the declared sentinel comes along unchanged but marks
                 nothing, exactly as after a `fillna`.
-            drop: Trim the result to the smallest rectangle containing every cell that was
-                kept, discarding rows and columns that are masked from edge to edge. The
-                grid is unchanged: the origin moves to the first surviving cell and the
-                cell size stays as it was. Off by default, which keeps every row and
-                column.
+            drop: Trim the result to the smallest rectangle the condition selected a cell
+                in, discarding the rows and columns it was false across. Read off the
+                condition, as xarray reads it: `other` does not save a row, and a cell
+                that was already missing is kept if the condition selected it. The grid is
+                unchanged — the origin moves to the first surviving cell and the cell size
+                stays as it was. Off by default, which keeps every row and column.
 
         Returns:
             Dataset: A new raster on this one's grid and CRS — trimmed to what survived
@@ -2141,11 +2142,13 @@ class Analysis(_Engine["Dataset"]):
         values, sentinels, domain = self._operand_arrays(self._ds, None)
         selected = self._where_condition(cond, values, domain)
         result = self._where_result(values, sentinels, domain, selected, other)
+        if drop:
+            result = self._where_trimmed(result, selected)
         # A raster condition may carry a layout of its own, which the hook has already
         # reconciled with this one's; `_identified` labelled the result from the receiver
         # alone, so the reconciled answer replaces it.
         self._ds._label_combined(result, layout_source)
-        return self._where_trimmed(result) if drop else result
+        return result
 
     def equals(self, other: Any) -> bool:
         """Whether two rasters hold the same values on the same grid.
@@ -2577,30 +2580,31 @@ class Analysis(_Engine["Dataset"]):
         self._ds._label_combined(result, self._ds._combine_layout_source(None, None))
         return result
 
-    def _where_trimmed(self, result: Dataset) -> Dataset:
-        """Trim `result` to the smallest rectangle holding every cell that is not a gap.
+    def _where_trimmed(self, result: Dataset, selected: np.typing.NDArray) -> Dataset:
+        """Trim `result` to the smallest rectangle the condition selected a cell in.
 
-        Read off the **result**, not off the condition: an unselected cell that `other`
-        wrote a value into is data, and a row of them is kept. xarray goes the other way
-        and drops whatever the condition was false at, whether or not `other` filled it.
-        With the default `other` the two coincide, since an unselected cell is then
-        exactly a gap; they part only when `other` is a number, where this keeps the full
-        grid and xarray still trims.
+        Read off the **condition**, not off the result's gaps, which is what xarray does:
+        a row the condition was false across is dropped whether or not `other` wrote a
+        number into it, and a cell that was already missing is kept if the condition
+        selected it. Reading the result instead made `other` cancel the trim entirely and
+        made an all-true condition trim a raster's pre-existing edge gaps away.
 
-        Expressed as a `crop(bbox=...)` on the result rather than as an index slice, so the
-        trimmed raster is georeferenced by the same machinery every other crop uses.
+        Taken as an index slice rather than as a `crop(bbox=...)`: a bbox crop drops the
+        rows and columns that are no-data from edge to edge as well, which is the second
+        half of that same divergence — `crop` trimming gaps the condition had kept.
 
         Args:
             result: The masked raster, on the full grid.
+            selected: True wherever the condition selected a cell, shaped like the cells.
 
         Returns:
-            Dataset: The trimmed raster.
+            Dataset: The trimmed raster, on the same grid, its origin at the first cell
+            that survived.
 
         Raises:
-            ValueError: Every cell is a gap, so there is no rectangle to keep.
+            ValueError: The condition selected nothing, so there is no rectangle to keep.
         """
-        _, _, domain = self._operand_arrays(result, None)
-        flat = domain if domain.ndim == 2 else np.any(domain, axis=0)
+        flat = selected if selected.ndim == 2 else np.any(selected, axis=0)
         rows = np.flatnonzero(np.any(flat, axis=1))
         columns = np.flatnonzero(np.any(flat, axis=0))
         if rows.size == 0 or columns.size == 0:
@@ -2608,21 +2612,36 @@ class Analysis(_Engine["Dataset"]):
                 "where(drop=True) kept no cells, and a raster of no cells cannot be built. "
                 "Check the condition, or leave `drop` off to keep the grid."
             )
-        geo = result.geotransform
-        # Taken as the min and max of the two edge ordinates rather than assuming which
-        # way each axis runs: a south-up geotransform (`geo[5] > 0`) would otherwise put
-        # south above north and be refused by a `crop` that accepts the same box happily.
-        first_x = geo[0] + int(columns[0]) * geo[1]
-        last_x = geo[0] + (int(columns[-1]) + 1) * geo[1]
-        first_y = geo[3] + int(rows[0]) * geo[5]
-        last_y = geo[3] + (int(rows[-1]) + 1) * geo[5]
-        bbox = (
-            min(first_x, last_x),
-            min(first_y, last_y),
-            max(first_x, last_x),
-            max(first_y, last_y),
+        top, bottom = int(rows[0]), int(rows[-1]) + 1
+        left, right = int(columns[0]), int(columns[-1]) + 1
+        cells = np.asarray(result.read_array(unpack=False))
+        block = np.ascontiguousarray(
+            cells[top:bottom, left:right]
+            if cells.ndim == 2
+            else cells[:, top:bottom, left:right]
         )
-        return cast("Dataset", result.crop(bbox=bbox, epsg=result.epsg))
+        geo = result.geotransform
+        # The two skews carry a rotated grid's corner across as well, so this is the same
+        # arithmetic for a north-up, a south-up and a rotated geotransform.
+        shifted = (
+            geo[0] + left * geo[1] + top * geo[2],
+            geo[1],
+            geo[2],
+            geo[3] + left * geo[4] + top * geo[5],
+            geo[4],
+            geo[5],
+        )
+        trimmed = result.__class__._build_dataset(
+            right - left,
+            bottom - top,
+            1 if block.ndim == 2 else block.shape[0],
+            numpy_to_gdal_dtype(block),
+            shifted,
+            result.crs,
+            result.no_data_value[0],
+            array=block,
+        )
+        return self._identified(trimmed)
 
     def _extract_streamed(
         self, band: int | None, exclude_list: list

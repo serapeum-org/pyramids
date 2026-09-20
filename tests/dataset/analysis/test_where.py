@@ -244,10 +244,33 @@ class TestDrop:
         with pytest.raises(ValueError, match="no cells"):
             raster.where(mask, drop=True)
 
-    def test_drop_with_other_keeps_the_written_cells(self):
-        """`other` makes a cell survive, so it is inside the box that is kept."""
+    def test_drop_trims_by_the_condition_even_when_other_fills_the_rest(self):
+        """`other` does not save a row the condition was false across.
+
+        Test scenario:
+            The box was read off the *result*, where a cell `other` wrote a number into
+            is data — so a numeric `other` left nothing to trim and the full grid came
+            back. xarray trims by the condition whatever `other` is: measured,
+            `da.where(da > 9, -1.0, drop=True)` answers shape `(1, 3)` holding
+            `[[10.0, 11.0, 12.0]]`, the same block as without `other`.
+        """
         result = _raster().where(VALUES > 9, -1.0, drop=True)
+        assert (result.rows, result.columns) == (1, 3)
+        assert_allclose(_read(result), np.array([[10.0, 11.0, 12.0]]))
+
+    def test_a_pre_existing_gap_is_not_trimmed_away(self):
+        """A gap the condition selected stays inside the box.
+
+        Test scenario:
+            Reading the result's domain also trimmed the cells that were *already*
+            missing, so an all-true condition on a raster whose edges are gaps came back
+            1x1. Measured on xarray, the same call keeps the full 3x3 and its NaNs.
+        """
+        edges = np.full((3, 4), NDV)
+        edges[1, 1] = 5.0
+        result = _raster(edges).where(np.ones((3, 4), dtype=bool), drop=True)
         assert (result.rows, result.columns) == (3, 4)
+        assert np.isnan(_read(result)).sum() == 11
 
 
 class TestBandsAndLayout:
