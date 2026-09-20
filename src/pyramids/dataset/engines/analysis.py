@@ -3733,8 +3733,12 @@ class Analysis(_Engine["Dataset"]):
                 warning), use ``density`` there. Arrows are coloured by vector
                 magnitude through ``cmap``; for a single **solid** colour pass a
                 one-colour colormap, e.g.
-                ``cmap=matplotlib.colors.ListedColormap(["black"])``. Pass
-                ``add_colorbar=False`` when composing onto a shared map.
+                ``cmap=matplotlib.colors.ListedColormap(["black"])``. A bare
+                ``color=`` is **not** forwarded — it is filtered out by
+                :meth:`VectorGlyph.filter_kwargs` (cleopatra's ``color`` is a
+                magnitude scale object, not a solid colour), so use ``cmap`` for
+                a solid colour. Pass ``add_colorbar=False`` when composing onto a
+                shared map.
 
         Returns:
             tuple:
