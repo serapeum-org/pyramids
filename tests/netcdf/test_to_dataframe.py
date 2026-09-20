@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
 
@@ -151,3 +152,68 @@ class TestRefusals:
         """The refusal lists the columns the caller could have asked for."""
         with pytest.raises(ValueError, match=r"gridded variables are \['t'\]"):
             _container().to_dataframe(variables="rain")
+
+
+class TestAPackedVariable:
+    """A CF-packed variable's fill cells reach the frame as NaN, not as a number."""
+
+    @staticmethod
+    def _packed(tmp_path) -> str:
+        """A one-band NetCDF whose band carries `scale_factor`, `add_offset` and a fill.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+
+        Returns:
+            str: The file's path.
+        """
+        path = str(tmp_path / "packed.nc")
+        dataset = gdal.GetDriverByName("netCDF").Create(path, 2, 1, 1, gdal.GDT_Int16)
+        dataset.SetGeoTransform([0.0, 1.0, 0.0, 1.0, 0.0, -1.0])
+        band = dataset.GetRasterBand(1)
+        band.SetScale(0.1)
+        band.SetOffset(5.0)
+        band.SetNoDataValue(-9999)
+        band.WriteArray(np.array([[10, -9999]], dtype="int16"))
+        dataset = None
+        return path
+
+    def test_the_fill_cell_is_nan(self, tmp_path):
+        """The gap is missing in the frame, as it is in every other reader of the cube.
+
+        Test scenario:
+            The values were unpacked to physical units while the sentinel was read straight
+            off `no_data_value`, which is the *stored* `_FillValue`. The fill cell therefore
+            held `-994.9` — scale and offset applied to `-9999` — and matched nothing, so it
+            arrived in pandas as a measurement. `isnull()` on the same variable answered `1`,
+            because the `Analysis` path unpacks the sentinel first.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        nc = NetCDF.read_file(self._packed(tmp_path))
+        column = nc.to_dataframe().iloc[:, 0].tolist()
+        assert column[0] == pytest.approx(6.0)
+        assert np.isnan(column[1])
+
+    def test_dropna_drops_the_fill_row(self, tmp_path):
+        """Once the cell is NaN, `dropna` can see it.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        nc = NetCDF.read_file(self._packed(tmp_path))
+        assert len(nc.to_dataframe()) == 2
+        assert len(nc.to_dataframe(dropna=True)) == 1
+
+    def test_the_frame_agrees_with_isnull(self, tmp_path):
+        """The two readers of the same cube mark the same cells missing.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        nc = NetCDF.read_file(self._packed(tmp_path))
+        variable = nc.get_variable(nc.variable_names[0])
+        flags = np.asarray(variable.isnull().read_array()).ravel().tolist()
+        missing = [int(np.isnan(value)) for value in nc.to_dataframe().iloc[:, 0]]
+        assert missing == flags

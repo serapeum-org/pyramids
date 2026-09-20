@@ -40,6 +40,7 @@ from pyramids.netcdf.cf import (
     write_attributes_to_md_array,
     write_global_attributes,
 )
+from pyramids.netcdf.engines._along_dim import _read_no_data
 from pyramids.netcdf.engines._weighted import _spatial_names
 from pyramids.netcdf.utils import (
     CF_EPOCH_CALENDAR,
@@ -550,7 +551,12 @@ def _frame_values(nc: NetCDF, var: NetCDF) -> Any:
         The values, shaped `(*band_dim_sizes, rows, cols)`.
     """
     values = np.asarray(nc._materialize_variable_array(var), dtype="float64")
-    sentinel = var.no_data_value[0] if var.no_data_value else None
+    # `_read_no_data`, not `no_data_value`: the values above are physical (unpacked), and
+    # on a CF-packed variable the declared `_FillValue` is the *stored* number. Comparing
+    # the two masks nothing, and the fill cell reaches pandas as a measurement — scale and
+    # offset applied to the sentinel. The helper unpacks it first, which is what every
+    # other reader of the cube uses.
+    sentinel = _read_no_data(var)
     if sentinel is not None and not np.isnan(sentinel):
         values = np.where(values == sentinel, np.nan, values)
     return values
