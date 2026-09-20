@@ -318,8 +318,10 @@ def _features_outside_template(features: FeatureCollection, template: Dataset) -
     pixel sizes, so the check is correct for non-square grids (a single ``cell_size``
     would mis-measure the Y extent). An empty (or all-empty-geometry) FeatureCollection
     has ``NaN`` bounds and also burns to all-nodata, so it is treated as outside too.
-    Rotated or south-up geotransforms are not handled — ``Dataset.bbox`` assumes an
-    axis-aligned, north-up grid (which ``Dataset.create`` always produces).
+    ``Dataset.bbox`` is now normalised for south-up (``geotransform[5] > 0``), east-left
+    (``geotransform[1] < 0``) and rotated grids alike — it reduces all four projected
+    corners — so this comparison is valid for them too; on a rotated grid the box is the
+    axis-aligned bounding box of the footprint, not the exact rotated quadrilateral.
 
     Args:
         features: The vector being rasterised.
