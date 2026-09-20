@@ -8,6 +8,7 @@ flowchart LR
     AN --> S["<b>statistics</b><br/>stats · count_domain_cells · domain_area<br/>get_histogram · normalize"]
     AN --> E["<b>sample / extract</b><br/>extract · sample · overlay"]
     AN --> T["<b>transform</b><br/>apply · combine · fill<br/>sieve · proximity"]
+    AN --> N["<b>missing data</b><br/>where · fillna · isnull · notnull<br/>equals · identical"]
     AN --> M["<b>masks</b><br/>get_mask · mask_flags · footprint<br/>read_masks · create_mask_band"]
     AN --> V["<b>visualize</b><br/>plot · plot_histogram<br/>plot_vector_field · to_image"]
 ```
@@ -266,6 +267,42 @@ of refusing them.
 usage is several times one band. There is no tiled or lazy path yet, so for
 rasters near the memory limit reach for `apply(elementwise=True)` (single-raster,
 streamed) or `read_array(chunks=)` and dask.
+
+## Missing data and comparison
+
+Six members answer the everyday questions about a raster's gaps, spelled as xarray spells them so the
+habit transfers. All six are on `Dataset`, so a `NetCDF` variable has them too.
+
+| Member                      | What it does                                                                     |
+|-----------------------------|----------------------------------------------------------------------------------|
+| `ds.where(cond, other)`     | Keeps the cells `cond` selects and masks the rest; `other` writes a number there. |
+| `ds.fillna(value)`          | Writes `value` into every gap, leaving the cells that hold data untouched.        |
+| `ds.isnull()`               | `uint8` flags, `1` at each gap and `0` at each cell that holds data.             |
+| `ds.notnull()`              | Its complement: `1` at each cell that holds data. Reads as a `where` condition.  |
+| `ds.equals(other)`          | Whether two rasters hold the same values on the same grid; a gap equals a gap.    |
+| `ds.identical(other)`       | `equals`, and the band names and dataset tags agree too.                          |
+
+```python
+from pyramids.dataset import Dataset
+
+dem = Dataset.read_file("dem.tif")
+
+deep = dem.where(dem > 500)                  # the rest become gaps
+zeroed = dem.where(dem > 500, 0.0)           # the rest become 0.0
+trimmed = dem.where(dem > 500, drop=True)    # and the empty rows/columns go
+filled = dem.fillna(0.0)                     # the gaps become 0.0
+gaps = dem.isnull()                          # 1 where a cell is missing
+dem.equals(dem.copy())                       # True — a method, not `==`
+```
+
+`where`'s condition may be a boolean array, another raster on the same grid (which is what a comparison
+such as `dem > 500` produces), or a callable handed the physical values. A condition cell that is itself
+no-data reads as **false**, which is xarray's answer too. `drop=True` trims by the *condition*, so `other`
+does not save a row and a cell that was already missing is kept if the condition selected it.
+
+`equals` and `identical` read the values and the grid, not the declared sentinel or the band type: two
+rasters marking the same gaps with `-9999.0` and `-1.0` are identical, as are a `float64` raster and its
+`float32` copy. Compare `no_data_value` and `dtype` yourself when those matter.
 
 ## Lazy per-pixel operations
 

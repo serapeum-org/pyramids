@@ -5,10 +5,12 @@ A one-line map of every public member the `NetCDF` class itself defines — 96 i
 `__len__`). For the full signatures, arguments and examples, see the rendered
 [NetCDF Class](index.md) reference; this page is the index you scan to find the member you want.
 
-`NetCDF` extends `Dataset`, so it also inherits a further 133 public members it does not redefine — band
-handling, the COG surface, and the rest of the raster API. 118 of those are declared in `Dataset`'s own body
-and the remaining 15 come from `RasterBase` above it. They live in the
-[Dataset reference](../dataset/index.md).
+`NetCDF` extends `Dataset`, so it also inherits a further 139 public members it does not redefine — band
+handling, the COG surface, the missing-data members (`where`, `fillna`, `isnull`, `notnull`, `equals`,
+`identical`) and the rest of the raster API. 124 of those are declared in `Dataset`'s own body and the
+remaining 15 come from `RasterBase` above it. They live in the
+[Dataset reference](../dataset/index.md), the six named above on its
+[Analysis page](../dataset/analysis.md#missing-data-and-comparison).
 
 Two object shapes share this class, and several members behave differently across them:
 

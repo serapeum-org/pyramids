@@ -11,6 +11,7 @@ flowchart LR
     DS --> SP["<b>spatial</b><br/>crop · to_crs · warped_view · resample<br/>align · fill_gaps · wrap_longitude"]
     DS --> AN["<b>analysis</b><br/>stats · zonal_stats · apply · overlay<br/>map_blocks · slope · aspect · hillshade<br/>proximity · cluster"]
     DS --> ND["<b>no-data</b><br/>change_no_data_value · fill · get_mask"]
+    DS --> MD["<b>missing data</b><br/>where · fillna · isnull · notnull<br/>equals · identical"]
     DS --> VE["<b>vectorize</b><br/>to_feature_collection · contour · sieve"]
     DS --> VI["<b>visualize</b><br/>plot · plot_histogram · to_image<br/>color_table · create_overviews · preview"]
     DS --> WR["<b>write</b><br/>to_file — .tif · .nc · .asc<br/>to_cog · to_zarr · to_terrain_rgb"]
