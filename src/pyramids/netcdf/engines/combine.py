@@ -56,6 +56,7 @@ def concat(objs: Any, dim: str) -> NetCDF:
     first = cubes[0]
     names = _shared_variables(cubes, "concat")
     result = None
+    time_attrs: dict = {}
     for name in names:
         parts = [_variable_of(cube, name) for cube in cubes]
         band_names = list(parts[0]._band_dim_names)
@@ -79,7 +80,36 @@ def concat(objs: Any, dim: str) -> NetCDF:
             band_names,
             values_map,
         )
+        time_attrs.update(_carried_time_attrs(parts, band_names))
+    cast("NetCDF", result)._band_dim_time_attrs = time_attrs
     return cast("NetCDF", result)
+
+
+def _carried_time_attrs(parts: list[NetCDF], band_names: list[str]) -> dict:
+    """The CF `(units, calendar)` the joined variable should carry for its dimensions.
+
+    A rebuilt container has no store to read them from, so a join carries the parts'
+    the way every other rebuild in the package does. Without them the joined axis is
+    bare numbers again and a date `sel`, a frequency `reduce` or a decoding `to_xarray`
+    all lose the calendar.
+
+    Args:
+        parts: One variable per cube.
+        band_names: The result's band dimensions.
+
+    Returns:
+        dict: The units per dimension, taken from the first part that declares any.
+    """
+    carried: dict = {}
+    for part in reversed(parts):
+        carried.update(
+            {
+                name: attrs
+                for name, attrs in part._resolved_band_dim_time_attrs().items()
+                if name in band_names
+            }
+        )
+    return carried
 
 
 def _joined_values(
@@ -162,6 +192,7 @@ def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
         )
     cubes = _checked(objs, "merge")
     result = None
+    time_attrs: dict = {}
     taken: dict[str, NetCDF] = {}
     for cube in cubes:
         for name in _variable_names(cube):
@@ -180,6 +211,8 @@ def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
                 list(part._band_dim_names),
                 dict(part._band_dim_values_map),
             )
+            time_attrs.update(_carried_time_attrs([part], list(part._band_dim_names)))
+    cast("NetCDF", result)._band_dim_time_attrs = time_attrs
     return cast("NetCDF", result)
 
 
@@ -310,10 +343,17 @@ def _check_other_dimensions(parts: list[NetCDF], dim: str, name: str) -> None:
         ValueError: The other band dimensions differ in name or in length.
     """
 
-    def layout(part: NetCDF) -> list[tuple[str, int]]:
+    def layout(part: NetCDF) -> list[tuple[str, int, tuple]]:
         sizes = list(part._band_dim_sizes)
+        stamps = part._band_dim_values_map
         return [
-            (other, sizes[index])
+            (
+                other,
+                sizes[index],
+                ()
+                if stamps.get(other) is None
+                else tuple(float(one) for one in stamps[other]),
+            )
             for index, other in enumerate(part._band_dim_names)
             if other != dim
         ]

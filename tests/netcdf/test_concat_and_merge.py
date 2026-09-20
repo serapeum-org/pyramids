@@ -468,3 +468,106 @@ class TestJoiningCubesThatMarkGapsDifferently:
         )
         joined = NetCDF.concat([first, second], "time").get_variable("t")
         assert np.asarray(joined.isnull().read_array()).ravel().tolist() == [0, 1, 0, 0]
+
+
+class TestTheJoinCarriesWhatTheCubesKnow:
+    """A join keeps the metadata every other rebuild keeps, and refuses what it cannot keep."""
+
+    @staticmethod
+    def _stamped(values: list[float], stamps: list[float]) -> NetCDF:
+        """A cube whose `time` carries CF units.
+
+        Args:
+            values: One value per step.
+            stamps: The `time` coordinates.
+
+        Returns:
+            NetCDF: The cube, its `time` declared in hours since an epoch.
+        """
+        cube = NetCDF.from_array(
+            np.array(values).reshape(len(values), 1, 1),
+            geo_ref=GEO,
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=stamps),
+        )
+        cube.get_variable("t")._band_dim_time_attrs = {
+            "time": ("hours since 2020-01-01", "standard")
+        }
+        cube._band_dim_time_attrs = {"time": ("hours since 2020-01-01", "standard")}
+        return cube
+
+    def test_concat_carries_the_cf_time_units(self):
+        """The joined axis is still decodable, as it is after any other rebuild.
+
+        Test scenario:
+            `shift("time")` carried `{'time': ('hours since 2020-01-01', 'standard')}`
+            through; `concat` answered `{}`, so the joined cube's stamps were bare numbers
+            and every date `sel`, frequency `reduce` and `to_xarray(decode_times=True)`
+            lost the calendar.
+        """
+        joined = NetCDF.concat(
+            [
+                self._stamped([1.0, 2.0], [0.0, 6.0]),
+                self._stamped([3.0, 4.0], [12.0, 18.0]),
+            ],
+            "time",
+        )
+        carried = joined.get_variable("t")._resolved_band_dim_time_attrs()
+        assert carried.get("time") == ("hours since 2020-01-01", "standard")
+
+    def test_merge_carries_them_too(self):
+        """The same omission was in `merge`."""
+        merged = NetCDF.merge([self._stamped([1.0, 2.0], [0.0, 6.0])])
+        carried = merged.get_variable("t")._resolved_band_dim_time_attrs()
+        assert carried.get("time") == ("hours since 2020-01-01", "standard")
+
+    def test_disagreeing_coordinates_on_another_dimension_are_refused(self):
+        """Cubes whose other axes are stamped differently do not describe one cube.
+
+        Test scenario:
+            Only the name and the length of each other dimension were compared, so two
+            cubes over different pressure levels joined happily and the result claimed the
+            first cube's levels for both halves.
+        """
+        first = NetCDF.from_array(
+            np.ones((2, 2, 1, 1)),
+            geo_ref=GEO,
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(
+                dims=[("time", [0.0, 6.0]), ("level", [1000.0, 850.0])]
+            ),
+        )
+        second = NetCDF.from_array(
+            np.ones((2, 2, 1, 1)),
+            geo_ref=GEO,
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(
+                dims=[("time", [12.0, 18.0]), ("level", [500.0, 250.0])]
+            ),
+        )
+        with pytest.raises(ValueError, match="level"):
+            NetCDF.concat([first, second], "time")
+
+    def test_agreeing_coordinates_on_another_dimension_join(self):
+        """The same levels on both halves are no obstacle."""
+        levels = [1000.0, 850.0]
+        first = NetCDF.from_array(
+            np.ones((2, 2, 1, 1)),
+            geo_ref=GEO,
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(dims=[("time", [0.0, 6.0]), ("level", levels)]),
+        )
+        second = NetCDF.from_array(
+            np.ones((2, 2, 1, 1)),
+            geo_ref=GEO,
+            variable_name="t",
+            no_data_value=NDV,
+            dims=ExtraDimensions(dims=[("time", [12.0, 18.0]), ("level", levels)]),
+        )
+        joined = NetCDF.concat([first, second], "time").get_variable("t")
+        assert joined._band_dim_values_map["level"] == levels
+        assert joined._band_dim_values_map["time"] == [0.0, 6.0, 12.0, 18.0]
