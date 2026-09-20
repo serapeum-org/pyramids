@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "pyramids-gis"
+abstract: "GIS utility package"
+authors:
+  - family-names: Farrag
+    given-names: Mostafa
+    email: moah.farag@gmail.com
+version: "0.63.0"
+date-released: 2026-09-13
+license: GPL-3.0
+repository-code: "https://github.com/serapeum-org/pyramids"
+url: "https://serapeum-org.github.io/pyramids/"
+keywords:
+  - "GIS"
+  - "gdal"
