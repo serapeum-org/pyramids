@@ -1,6 +1,33 @@
 ﻿# Change log
 
 
+## 0.64.0 (2026-09-21)
+
+### BREAKING CHANGE
+
+- an operator between two NetCDF variables on the same                                                  
+  grid with the same band count, whose band dimension names or sizes                                                     
+  differ, now raises ValueError instead of returning a result without                                                    
+  band dimensions whose planes were paired by position.                                                                  
+
+### Feat
+
+- **analysis**: compose vector fields onto an axes, add solid color= (#1175)
+- **netcdf**: add the missing-data, join and interchange members (#1167)
+- **dataset**: let read_array combine masked=True with out_shape= and boundless=True (#1166)
+- **netcdf**: add rolling, diff, cumsum, shift, the extremum locators and weighted (#1161)
+- **cog**: let read_part return the geotransform of the window it read (#1157)
+- **netcdf**: keep band dimensions through operators, extend reduce, and add coarsen (#1150)
+- **netcdf**: add isel(), let sel() take several dimensions, and fix the band order it declares (#1145)
+- **netcdf**: make the container a mapping, and add the xarray-compatible aliases (#1141)
+
+### Fix
+
+- **dataset,netcdf**: compare a variable's own tags in identical, not the store's (#1177)
+- **dataset**: honor the signed geotransform in the y axis and bbox
+- **plot**: adapt the plot engine to cleopatra 0.39 and restore wheel CI (#1151)
+- **netcdf**: decode a CF time origin with a single-digit seconds field, on the right calendar (#1139)
+
 ## 0.63.0 (2026-09-13)
 
 ### BREAKING CHANGE
