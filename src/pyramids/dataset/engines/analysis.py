@@ -4656,13 +4656,15 @@ class Analysis(_Engine["Dataset"]):
         extra.
 
         The grid is taken from the dataset's 1-D ``x``/``y`` cell-centre
-        arrays, so an **axis-aligned (north-up, unrotated)** geotransform is
-        assumed — as elsewhere in pyramids' extent-based plotting. ``v`` is
-        treated as the northward (``+y``) component. Because ``streamplot``
-        requires strictly-increasing coordinates while a north-up raster's
-        ``y`` is descending, the axis is flipped to ascending and the data
-        rows/cols are mirrored to match; this is a pure relabelling, so each
-        vector stays at its true location for every ``kind``.
+        arrays, so an **axis-aligned (unrotated)** geotransform is assumed —
+        the rotation terms are ignored, as elsewhere in pyramids' extent-based
+        plotting. Orientation is handled, though: ``v`` is treated as the
+        northward (``+y``) component, and because ``streamplot`` requires
+        strictly-increasing coordinates, a descending ``x``/``y`` (e.g. a
+        north-up raster's ``y``) is flipped to ascending with the data
+        rows/cols mirrored to match — a pure relabelling, so each vector keeps
+        its true location for every ``kind``, while an already-ascending
+        (south-up) axis is left as-is.
 
         Args:
             u_band (int, optional):
@@ -4675,14 +4677,33 @@ class Analysis(_Engine["Dataset"]):
             ax (matplotlib.axes.Axes, optional):
                 Draw the vector field into these axes instead of creating them, which is
                 what lets it be composed onto a shared map (pair it with
-                ``add_colorbar=False``). An axes already carries its figure, so ``ax`` on
-                its own is sufficient and there is no separate ``fig`` parameter here. A
-                new figure/axes is created when left unset. Default is ``None``.
+                ``add_colorbar=False``). Any layers already on the axes — e.g. a scalar
+                :meth:`plot` drawn first — are **preserved**, and the arrows are drawn on
+                top rather than clearing them. Because the host is preserved, calling
+                ``plot_vector_field`` again on the same ``ax`` **adds** another field on
+                top rather than replacing the previous one; start from a fresh axes to
+                redraw. An axes already carries its figure, so ``ax`` on its own is
+                sufficient and there is no separate ``fig`` parameter here. A new
+                figure/axes is created when left unset. Default is ``None``.
             **kwargs:
                 Style options forwarded to the ``VectorGlyph`` constructor,
                 filtered via :meth:`VectorGlyph.filter_kwargs` (e.g.
-                ``density``, ``scale``, ``cmap``, ``add_colorbar``). Pass
-                ``add_colorbar=False`` when composing onto a shared map.
+                ``density``, ``scale``, ``cmap``, ``add_colorbar``, ``thin``).
+                ``thin=n`` draws every nth grid point so a large ``quiver`` /
+                ``barbs`` grid is not one arrow per cell; it applies to
+                ``quiver`` / ``barbs`` only — ``streamplot`` ignores it (with a
+                warning), use ``density`` there. Arrows are coloured by vector
+                magnitude through ``cmap``. For a single **solid** colour pass
+                ``color=`` a matplotlib colour (e.g. ``color="black"``): it is
+                turned into a one-colour colormap, so the whole field (arrows,
+                barbs, or streamlines) renders in that colour, and the
+                otherwise-meaningless magnitude colorbar is suppressed by default
+                (equivalent to ``cmap=matplotlib.colors.ListedColormap(["black"])``
+                with ``add_colorbar=False``). ``color=`` and ``cmap=`` are
+                mutually exclusive. (Unlike :meth:`plot`'s ``color=``, which is a
+                magnitude ``ColorScaling``, here ``color=`` is a solid matplotlib
+                colour.) Pass ``add_colorbar=False`` when composing onto a shared
+                map.
 
         Returns:
             tuple:
@@ -4693,8 +4714,10 @@ class Analysis(_Engine["Dataset"]):
 
         Raises:
             ValueError: If ``u_band`` or ``v_band`` is out of range for the
-                dataset, or if ``kind`` is not one of ``"quiver"``,
-                ``"barbs"``, or ``"streamplot"``.
+                dataset, if ``kind`` is not one of ``"quiver"``, ``"barbs"``,
+                or ``"streamplot"``, if both ``color=`` and ``cmap=`` are given
+                (they are mutually exclusive), or if ``color=`` is not a valid
+                matplotlib colour.
 
         Examples:
             - Render a two-band ``(u, v)`` stack as arrows (tagged ``+SKIP``
@@ -4719,9 +4742,30 @@ class Analysis(_Engine["Dataset"]):
                 >>> fig, ax, im = ds.plot_vector_field(kind="streamplot", add_colorbar=False)  # doctest: +SKIP
 
                 ```
+            - Compose the arrows over a scalar map on a shared axes; the scalar
+              layer is preserved:
+
+                ```python
+                >>> import matplotlib.pyplot as plt  # doctest: +SKIP
+                >>> fig, host = plt.subplots()  # doctest: +SKIP
+                >>> ds.plot(band=0, fig=fig, ax=host)  # doctest: +SKIP
+                >>> ds.plot_vector_field(u_band=0, v_band=1, ax=host, add_colorbar=False)  # doctest: +SKIP
+
+                ```
+            - Draw solid black arrows instead of colouring them by magnitude:
+
+                ```python
+                >>> fig, ax, im = ds.plot_vector_field(u_band=0, v_band=1, color="black")  # doctest: +SKIP
+
+                ```
         """
         require_cleopatra()
         from cleopatra.glyphs.gridded.vector_glyph import VectorGlyph
+
+        # Local ([viz]-extra only): matplotlib ships with cleopatra, so it imports
+        # once require_cleopatra() above passes; a module-level import would break a
+        # bare install without the [viz] extra (matplotlib is TYPE_CHECKING-only here).
+        from matplotlib.colors import ListedColormap, is_color_like
 
         band_count = self._ds.band_count
         for name, idx in (("u_band", u_band), ("v_band", v_band)):
@@ -4731,6 +4775,25 @@ class Analysis(_Engine["Dataset"]):
                 name=name,
                 hint=(" plot_vector_field needs two in-range bands (u, v components)."),
             )
+        # Solid colour: cleopatra colours the field by magnitude through a
+        # colormap and has no scalar ``color=`` (its ``color=`` is a magnitude
+        # ``ColorScaling``), so translate a matplotlib colour (``color="black"``)
+        # into a one-colour colormap — the whole field (arrows, barbs, or
+        # streamlines) then renders in that colour. Validated here (cheap,
+        # data-independent) before the band reads below. The conflict guard keys
+        # on a real colormap, not presence, so a caller's ``cmap=None`` is fine.
+        color = kwargs.pop("color", None)
+        if color is not None:
+            if kwargs.get("cmap") is not None:
+                raise ValueError(
+                    "pass either color= (a solid arrow colour) or cmap=, not both"
+                )
+            if not is_color_like(color):
+                raise ValueError(f"color= must be a matplotlib colour, got {color!r}")
+            kwargs["cmap"] = ListedColormap([color])
+            # A single colour has no magnitude scale, so a magnitude colorbar
+            # would be misleading; default it off (an explicit add_colorbar wins).
+            kwargs.setdefault("add_colorbar", False)
         u = self._ds.read_array(band=u_band)
         v = self._ds.read_array(band=v_band)
         x = self._ds.x
@@ -4750,7 +4813,12 @@ class Analysis(_Engine["Dataset"]):
             v = v[:, ::-1]
         xx, yy = np.meshgrid(x, y)
         glyph = VectorGlyph(xx, yy, u, v, ax=ax, **VectorGlyph.filter_kwargs(kwargs))
-        result = glyph.plot(kind=kind)
+        # A caller-supplied ``ax`` is a host to compose onto (e.g. a scalar map
+        # drawn first), which is the documented reason the parameter exists. Tell
+        # cleopatra (>=0.39.0) to keep the host's existing artists instead of
+        # clearing the axes; when we create our own axes there is nothing to
+        # preserve, so composition stays off.
+        result = glyph.plot(kind=kind, compose=ax is not None)
         return result
 
     def plot(

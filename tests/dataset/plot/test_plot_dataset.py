@@ -394,6 +394,47 @@ class TestPlotDataSet:
         assert fig is not None and ax is not None
 
     @pytest.mark.plot
+    def test_plot_vector_field_ascending_y_keeps_vectors_in_place(self):
+        """A south-up (ascending-y) raster skips the y-flip and keeps each (u, v) in place (#1128).
+
+        Test scenario:
+            A south-up geotransform (positive pixel height) makes ``y`` ascend, so the
+            ``y[0] > y[-1]`` flip is skipped. With ``u`` set to the row index (asymmetric
+            across rows), each arrow's position AND its ``(u, v)`` must match the
+            un-flipped ``meshgrid`` + data cell-for-cell. Position alone is invariant to a
+            row reversal (the point set is unchanged), so a row-mirror bug is caught only
+            by checking the vector attached to each cell -- hence the ``U``/``V`` asserts.
+        """
+        rows, cols = 4, 3
+        u = np.repeat(np.arange(rows, dtype="float32"), cols).reshape(rows, cols)
+        v = np.full((rows, cols), 2.0, dtype="float32")
+        geo = (0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+        dataset = Dataset.from_array(
+            np.stack([u, v]), geo_ref=GeoReference(geo=geo, epsg=4326)
+        )
+        assert dataset.y[0] < dataset.y[-1], "y must be ascending to skip the flip"
+        _, ax, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind="quiver")
+        quiver = ax.collections[-1]
+        offsets = np.asarray(quiver.get_offsets())
+        xx, yy = np.meshgrid(dataset.x, dataset.y)
+        np.testing.assert_allclose(
+            offsets[:, 0],
+            xx.ravel(),
+            err_msg="x positions must be the un-flipped meshgrid",
+        )
+        np.testing.assert_allclose(
+            offsets[:, 1],
+            yy.ravel(),
+            err_msg="y positions must be the un-flipped meshgrid",
+        )
+        np.testing.assert_allclose(
+            np.asarray(quiver.U),
+            u.ravel(),
+            err_msg="each arrow's u must stay with its cell (no row mirror on the no-flip path)",
+        )
+        np.testing.assert_allclose(np.asarray(quiver.V), v.ravel())
+
+    @pytest.mark.plot
     def test_plot_vector_field_invalid_kind_raises(self):
         """An unsupported ``kind`` surfaces cleopatra's ``ValueError``.
 
@@ -450,6 +491,227 @@ class TestPlotDataSet:
             u_band=0, v_band=1, kind="quiver", add_colorbar=False
         )
         assert len(fig.axes) == 1, "add_colorbar=False must not add a colorbar axes"
+
+    @pytest.mark.plot
+    def test_plot_vector_field_ax_preserves_host_layer(self):
+        """Composing arrows onto a caller ``ax`` keeps the scalar layer (#1128).
+
+        Test scenario:
+            A scalar ``plot`` draws one image onto a host axes; a following
+            ``plot_vector_field(ax=host)`` must add its arrows on top without
+            clearing that image -- the composition the ``ax`` parameter
+            documents. Guards the regression where the vector call wiped
+            ``ax.images`` back to 0.
+        """
+        import matplotlib.pyplot as plt
+
+        scalar = Dataset.from_array(
+            np.random.default_rng(1).standard_normal((6, 6)).astype("float32"),
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
+        fig, host = plt.subplots()
+        scalar.plot(band=0, fig=fig, ax=host)
+        assert len(host.images) == 1, "the scalar layer should be drawn first"
+        self._uv_dataset().plot_vector_field(
+            u_band=0, v_band=1, kind="quiver", ax=host, add_colorbar=False
+        )
+        assert len(host.images) == 1, "the scalar image must survive the vector call"
+        from matplotlib.quiver import Quiver
+
+        assert isinstance(host.collections[-1], Quiver), (
+            "the added collection must be the quiver, drawn on top of the scalar"
+        )
+
+    @pytest.mark.plot
+    def test_plot_vector_field_repeated_ax_calls_add_fields(self):
+        """Repeated composing onto the same ``ax`` adds fields, not replaces (#1128).
+
+        Test scenario:
+            Because a caller ``ax`` is composed onto (host preserved), a second
+            ``plot_vector_field(ax=host)`` draws another quiver on top rather
+            than replacing the first -- two collections remain. Locks the
+            additive semantics documented on ``ax`` (redraw from a fresh axes).
+        """
+        import matplotlib.pyplot as plt
+
+        dataset = self._uv_dataset()
+        _, host = plt.subplots()
+        dataset.plot_vector_field(u_band=0, v_band=1, ax=host, add_colorbar=False)
+        first = len(host.collections)
+        dataset.plot_vector_field(u_band=0, v_band=1, ax=host, add_colorbar=False)
+        assert len(host.collections) == first + 1, (
+            f"composing again must add a field, got {first} -> {len(host.collections)}"
+        )
+
+    @pytest.mark.plot
+    def test_plot_vector_field_compose_default_colorbar_adds_no_extra_axes(self):
+        """Composing onto a caller ``ax`` draws no colorbar by default (#1128).
+
+        Test scenario:
+            With default ``add_colorbar`` and a caller-supplied ``ax``, cleopatra
+            composes without its own colorbar (the host owns any shared bar), so
+            no extra colorbar axes appears and the host image is preserved. Locks
+            cleopatra's compose-colorbar contract from pyramids' side.
+        """
+        import matplotlib.pyplot as plt
+
+        scalar = Dataset.from_array(
+            np.random.default_rng(2).standard_normal((6, 6)).astype("float32"),
+            geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+        )
+        fig, host = plt.subplots()
+        scalar.plot(band=0, fig=fig, ax=host, add_colorbar=False)
+        n_before = len(fig.axes)
+        self._uv_dataset().plot_vector_field(u_band=0, v_band=1, ax=host)
+        assert len(fig.axes) == n_before, (
+            f"composing must add no colorbar axes by default, got {n_before} -> {len(fig.axes)}"
+        )
+        assert len(host.images) == 1, "the scalar image must survive the composed call"
+
+    @pytest.mark.plot
+    def test_plot_vector_field_thin_reduces_arrow_count(self):
+        """``thin=n`` subsamples a quiver instead of one arrow per cell (#1128).
+
+        Test scenario:
+            A quiver on a 6x6 grid draws 36 arrows by default; ``thin=3`` must
+            forward through ``filter_kwargs`` to cleopatra and draw strictly
+            fewer, so a dense grid is not an unreadable mesh.
+        """
+        dataset = self._uv_dataset()
+        _, ax_full, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind="quiver")
+        _, ax_thin, _ = dataset.plot_vector_field(
+            u_band=0, v_band=1, kind="quiver", thin=3
+        )
+        n_full = len(ax_full.collections[0].get_offsets())
+        n_thin = len(ax_thin.collections[0].get_offsets())
+        assert n_thin < n_full, (
+            f"thin=3 should reduce arrows: full={n_full} thin={n_thin}"
+        )
+
+    @pytest.mark.plot
+    def test_plot_vector_field_color_makes_solid_arrows(self):
+        """A matplotlib ``color=`` renders solid single-colour arrows (#1128 P3).
+
+        Test scenario:
+            cleopatra colours arrows by magnitude and has no scalar quiver colour,
+            so pyramids turns ``color="black"`` into a one-colour colormap: every
+            arrow renders black (one unique RGBA), where the default yields many.
+        """
+        dataset = self._uv_dataset()
+        _, ax_def, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind="quiver")
+        _, ax_solid, _ = dataset.plot_vector_field(
+            u_band=0, v_band=1, kind="quiver", color="black"
+        )
+        q_solid = ax_solid.collections[-1]
+        solid = np.unique(
+            np.round(q_solid.cmap(q_solid.norm(np.asarray(q_solid.get_array()))), 3),
+            axis=0,
+        )
+        q_def = ax_def.collections[-1]
+        default = np.unique(
+            np.round(q_def.cmap(q_def.norm(np.asarray(q_def.get_array()))), 3), axis=0
+        )
+        assert len(solid) == 1, (
+            f"color='black' must make one arrow colour, got {len(solid)}"
+        )
+        np.testing.assert_allclose(
+            solid[0], [0.0, 0.0, 0.0, 1.0], err_msg="arrows must be black"
+        )
+        assert len(default) > 1, "the default must colour arrows by magnitude"
+
+    @pytest.mark.plot
+    def test_plot_vector_field_color_and_cmap_conflict_raises(self):
+        """``color=`` and ``cmap=`` are mutually exclusive (#1128 P3).
+
+        Test scenario:
+            Both drive the arrow colouring, so passing both must raise ValueError
+            rather than silently picking one.
+        """
+        from matplotlib.colors import ListedColormap
+
+        dataset = self._uv_dataset()
+        red_cmap = ListedColormap(["red"])
+        with pytest.raises(ValueError, match="color=.*or cmap="):
+            dataset.plot_vector_field(u_band=0, v_band=1, color="black", cmap=red_cmap)
+
+    @pytest.mark.plot
+    def test_plot_vector_field_invalid_color_raises(self):
+        """An invalid ``color=`` is rejected early with a clear message (#1128 P3).
+
+        Test scenario:
+            A bad colour must raise a pyramids-level ValueError naming ``color=``
+            at the call boundary, not a raw matplotlib error deep in the render.
+        """
+        dataset = self._uv_dataset()
+        with pytest.raises(ValueError, match="color= must be a matplotlib colour"):
+            dataset.plot_vector_field(u_band=0, v_band=1, color="notacolour")
+
+    @pytest.mark.plot
+    def test_plot_vector_field_solid_color_suppresses_colorbar(self):
+        """A solid ``color=`` drops the meaningless magnitude colorbar by default (#1128 P3).
+
+        Test scenario:
+            One colour has no magnitude scale, so a standalone ``color="black"``
+            field must not add a colorbar axes by default (the figure keeps its
+            single axes); an explicit ``add_colorbar=True`` still draws one.
+        """
+        dataset = self._uv_dataset()
+        fig, _, _ = dataset.plot_vector_field(u_band=0, v_band=1, color="black")
+        assert len(fig.axes) == 1, (
+            f"solid color must not add a colorbar, got {len(fig.axes)} axes"
+        )
+        fig2, _, _ = dataset.plot_vector_field(
+            u_band=0, v_band=1, color="black", add_colorbar=True
+        )
+        assert len(fig2.axes) == 2, "explicit add_colorbar=True must still draw a bar"
+
+    @pytest.mark.plot
+    def test_plot_vector_field_color_with_cmap_none_is_allowed(self):
+        """An explicit ``cmap=None`` alongside ``color=`` is not a conflict (#1128 P3).
+
+        Test scenario:
+            The color=/cmap= guard keys on a real colormap, not mere presence, so
+            a caller forwarding ``cmap=None`` (its default) with ``color="black"``
+            still gets solid arrows rather than a spurious mutual-exclusion error.
+        """
+        dataset = self._uv_dataset()
+        _, ax, _ = dataset.plot_vector_field(
+            u_band=0, v_band=1, kind="quiver", color="black", cmap=None
+        )
+        q = ax.collections[-1]
+        colors = np.unique(
+            np.round(q.cmap(q.norm(np.asarray(q.get_array()))), 3), axis=0
+        )
+        assert len(colors) == 1, (
+            f"color='black' with cmap=None must stay solid, got {len(colors)}"
+        )
+
+    @pytest.mark.plot
+    @pytest.mark.parametrize("kind", ["quiver", "barbs", "streamplot"])
+    def test_plot_vector_field_color_is_solid_for_every_kind(self, kind: str):
+        """A solid ``color=`` colours arrows, barbs, and streamlines alike (#1128 P3).
+
+        Args:
+            kind: The VectorGlyph kind under test.
+
+        Test scenario:
+            The one-colour colormap reaches ``quiver`` / ``barbs`` / ``streamplot``,
+            so the returned mappable renders one unique colour (black) for each,
+            matching the docstring's "whole field" claim (not just quiver).
+        """
+        dataset = self._uv_dataset()
+        _, _, im = dataset.plot_vector_field(
+            u_band=0, v_band=1, kind=kind, color="black"
+        )
+        colors = np.unique(
+            np.round(im.cmap(im.norm(np.asarray(im.get_array()))), 3), axis=0
+        )
+        assert len(colors) == 1, (
+            f"{kind}: solid color must be one colour, got {len(colors)}"
+        )
+        np.testing.assert_allclose(
+            colors[0], [0.0, 0.0, 0.0, 1.0], err_msg=f"{kind} arrows not black"
+        )
 
     @pytest.mark.plot
     def test_plot_vector_field_band_out_of_range_raises(self):
