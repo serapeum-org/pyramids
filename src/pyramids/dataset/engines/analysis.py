@@ -153,7 +153,7 @@ _KEEP_NO_DATA = object()
 
 
 def _regapped(values: np.ndarray, domain: np.ndarray, sentinel: Any) -> np.ndarray:
-    """`values` with every cell outside `domain` set back to `sentinel`.
+    """`values` with every cell outside `domain` set back to its band's sentinel.
 
     The members that transform cell values leave the gaps out and put them back here, so a
     gap is never clipped, rounded or cast into a measurement. Writing in place, rather than
@@ -161,18 +161,125 @@ def _regapped(values: np.ndarray, domain: np.ndarray, sentinel: Any) -> np.ndarr
     promote a `float32` band.
 
     Args:
-        values: The transformed cells.
-        domain: True where a cell holds data.
-        sentinel: The value that marks a gap, or `None` when nothing does.
+        values: The transformed cells, 2-D for one band or `(bands, rows, cols)`.
+        domain: True where a cell holds data, shaped like `values`.
+        sentinel: The value that marks a gap — one for every band, or a list holding each
+            band's own, which is what a multi-sensor stack carries. `None`, or a list entry
+            of `None`, leaves that band's gaps as the operation left them.
 
     Returns:
         np.ndarray: The cells, gaps re-marked.
     """
+    marks = list(sentinel) if isinstance(sentinel, (list, tuple)) else [sentinel]
     out = values
-    if sentinel is not None and not domain.all():
+    if not domain.all() and any(one is not None for one in marks):
         out = np.array(values, copy=True)
-        out[~domain] = sentinel
+        if out.ndim == 2:
+            if marks[0] is not None:
+                out[~domain] = marks[0]
+        else:
+            for index in range(out.shape[0]):
+                mark = marks[index] if index < len(marks) else marks[0]
+                if mark is not None:
+                    out[index][~domain[index]] = mark
     return out
+
+
+def _declared_gaps(sentinels: Sequence[Any]) -> Any:
+    """What a result should declare as its gaps, given each band's own sentinel.
+
+    One value when every band declares the same thing — the ordinary single-band and
+    uniform-stack cases, where a scalar keeps the metadata simplest — and the per-band list
+    otherwise. Collapsing a mixed stack onto the first band's sentinel rewrote the others'
+    declarations, and a band holding another band's sentinel as a real value then read as
+    missing.
+
+    Args:
+        sentinels: One sentinel per band, `None` where a band declares none.
+
+    Returns:
+        Any: The scalar the bands agree on, or the list of per-band sentinels.
+    """
+    marks = list(sentinels)
+    agreed = len({repr(one) for one in marks}) <= 1
+    return marks[0] if agreed and marks else marks
+
+
+def _gap_marker(
+    mark: Any, target: np.dtype, domain: np.ndarray, band: int, bands: int
+) -> Any:
+    """What to write into one band's gap cells before the cast fills the rest.
+
+    Args:
+        mark: The band's declared sentinel, or `None`.
+        target: The type being cast to.
+        domain: True where a cell holds data.
+        band: The band's index.
+        bands: How many bands there are.
+
+    Returns:
+        Any: The value to fill that band's plane with.
+
+    Raises:
+        ValueError: The band has gaps, declares no sentinel, and `target` is an integer
+            type, which has no NaN to leave them as.
+    """
+    marker = mark
+    if marker is None:
+        plane = domain if bands == 1 or domain.ndim == 2 else domain[band]
+        if not plane.all():
+            if target.kind != "f":
+                raise ValueError(
+                    f"astype({target.name!r}) would leave {int((~plane).sum())} gap cells "
+                    f"of band {band + 1} unmarked: it declares no no-data value and "
+                    f"{target.name} has no NaN, so every gap would read as an ordinary "
+                    f"number. Pass no_data_value= with one {target.name} holds, or fill "
+                    f"the gaps first."
+                )
+            marker = np.nan
+        else:
+            marker = 0
+    return marker
+
+
+def _refuse_a_sentinel_the_data_holds(
+    cast: np.ndarray,
+    domain: np.ndarray,
+    marks: Sequence[Any],
+    target: np.dtype,
+    bands: int,
+) -> None:
+    """Refuse a cast in which a cell holding data lands on its band's sentinel.
+
+    The mirror of "a gap stays a gap": data has to stay data. A sentinel a real cell
+    already holds — `255` after `clip(0, 255)`, or `-9999` after truncating `-9999.4` —
+    would read as missing from then on.
+
+    Args:
+        cast: The cast cells.
+        domain: True where a cell holds data.
+        marks: Each band's sentinel, `None` where a band declares none.
+        target: The type cast to.
+        bands: How many bands there are.
+
+    Raises:
+        ValueError: A band's data holds its own sentinel.
+    """
+    for band in range(bands):
+        mark = marks[band]
+        if mark is None or not np.isfinite(float(mark)):
+            continue
+        plane = cast if cast.ndim == 2 else cast[band]
+        kept = domain if domain.ndim == 2 else domain[band]
+        collisions = int(np.count_nonzero(plane[kept] == target.type(mark)))
+        if collisions:
+            raise ValueError(
+                f"astype({target.name!r}) would mark {collisions} cell(s) of band "
+                f"{band + 1} that hold data as missing: they already hold {float(mark)} "
+                f"once cast, and that is the value the result declares as its gap. Bound "
+                f"or shift them first (clip), or pass no_data_value= with one the data "
+                f"never takes."
+            )
 
 
 def _holds(target: np.dtype, value: Any) -> bool:
@@ -2800,7 +2907,7 @@ class Analysis(_Engine["Dataset"]):
                 f"clip() needs min at or below max, got min={lower!r} above max={upper!r}."
             )
         values, sentinels, domain = self._operand_arrays(self._ds, None)
-        declared = next((one for one in sentinels if one is not None), None)
+        declared = _declared_gaps(sentinels)
         dtype = values.dtype
         for bound in (lower, upper):
             if bound is not None:
@@ -2886,7 +2993,7 @@ class Analysis(_Engine["Dataset"]):
                 f"round() needs an integer number of decimals, got {decimals!r}."
             )
         values, sentinels, domain = self._operand_arrays(self._ds, None)
-        declared = next((one for one in sentinels if one is not None), None)
+        declared = _declared_gaps(sentinels)
         rounded = np.round(values, int(decimals))
         return self._identified(
             self._rebuilt(_regapped(rounded, domain, declared), declared)
@@ -2967,39 +3074,33 @@ class Analysis(_Engine["Dataset"]):
                 f"integer, or a float — and {target.name} is not one."
             )
         values, sentinels, domain = self._operand_arrays(self._ds, None)
-        declared = next((one for one in sentinels if one is not None), None)
-        sentinel = declared if no_data_value is _KEEP_NO_DATA else no_data_value
-        if sentinel is not None and not _holds(target, sentinel):
-            raise ValueError(
-                f"astype({target.name!r}) cannot mark a gap with {float(sentinel)}, which "
-                f"{target.name} does not hold — cast, it would become an ordinary value and "
-                f"every gap would read as data. Pass no_data_value= with one it does hold."
-            )
-        marker = sentinel
-        if marker is None and not domain.all():
-            if target.kind != "f":
+        bands = 1 if values.ndim == 2 else values.shape[0]
+        if no_data_value is _KEEP_NO_DATA:
+            marks = [sentinels[i] if i < len(sentinels) else None for i in range(bands)]
+        else:
+            marks = [no_data_value] * bands
+        for mark in marks:
+            if mark is not None and not _holds(target, mark):
                 raise ValueError(
-                    f"astype({target.name!r}) would leave {int((~domain).sum())} gap cells "
-                    f"unmarked: the result declares no no-data value and {target.name} has "
-                    f"no NaN, so every gap would read as an ordinary number. Pass "
-                    f"no_data_value= with one {target.name} holds, or fill the gaps first."
+                    f"astype({target.name!r}) cannot mark a gap with {float(mark)}, which "
+                    f"{target.name} does not hold — cast, it would become an ordinary value "
+                    f"and every gap would read as data. Pass no_data_value= with one it "
+                    f"does hold."
                 )
-            marker = np.nan
+        markers = [
+            _gap_marker(mark, target, domain, band, bands)
+            for band, mark in enumerate(marks)
+        ]
         # Filled, never `np.empty`: the cells outside the domain are not cast, so an
         # uninitialised buffer would ship whatever the allocator held as data.
-        cast = np.full(values.shape, marker if marker is not None else 0, dtype=target)
+        cast = np.empty(values.shape, dtype=target)
+        for band in range(bands):
+            plane = cast if values.ndim == 2 else cast[band]
+            plane[...] = markers[band]
         cast[domain] = values[domain].astype(target)
-        if sentinel is not None and np.isfinite(float(sentinel)):
-            collisions = int(np.count_nonzero(cast[domain] == target.type(sentinel)))
-            if collisions:
-                raise ValueError(
-                    f"astype({target.name!r}) would mark {collisions} cell(s) that hold "
-                    f"data as missing: they already hold {float(sentinel)} once cast, and "
-                    f"that is the value the result declares as its gap. Bound or shift "
-                    f"them first (clip), or pass no_data_value= with one the data never "
-                    f"takes."
-                )
-        return self._identified(self._rebuilt(cast, sentinel))
+        _refuse_a_sentinel_the_data_holds(cast, domain, marks, target, bands)
+        declared = marks[0] if len(set(map(repr, marks))) == 1 else marks
+        return self._identified(self._rebuilt(cast, declared))
 
     def isin(self, test_elements: Any) -> Dataset:
         """Flag the cells whose value is one of `test_elements`: `1` if so, `0` if not.

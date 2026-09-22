@@ -128,8 +128,14 @@ class TestClip:
             np.array([[1, 5, 9]], dtype="uint8"), geo_ref=GEO, no_data_value=None
         )
         widened = bytes_.clip(min=300.0)
-        assert widened.dtype != ["uint8"], f"300 does not fit uint8, got {widened.dtype}"
-        assert np.asarray(widened.read_array()).ravel().tolist() == [300.0, 300.0, 300.0]
+        assert widened.dtype != ["uint8"], (
+            f"300 does not fit uint8, got {widened.dtype}"
+        )
+        assert np.asarray(widened.read_array()).ravel().tolist() == [
+            300.0,
+            300.0,
+            300.0,
+        ]
 
     def test_no_bound_is_refused(self):
         """Clipping to nothing is a caller's mistake."""
@@ -246,17 +252,13 @@ class TestAstype:
             declares 255 missing, so three measured cells (255, 300 and 1200 m) read as
             gaps. This is the mirror of "a gap stays a gap": data has to stay data.
         """
-        dem = _raster(
-            np.array([[12.0, 254.0, 255.0, 300.0], [1200.0, NDV, 0.5, 80.0]])
-        )
+        dem = _raster(np.array([[12.0, 254.0, 255.0, 300.0], [1200.0, NDV, 0.5, 80.0]]))
         with pytest.raises(ValueError, match="already hold"):
             dem.clip(0.0, 255.0).astype("uint8", no_data_value=255)
 
     def test_a_sentinel_outside_the_data_is_accepted(self):
         """Bounding one below the sentinel is the fix the refusal asks for."""
-        dem = _raster(
-            np.array([[12.0, 254.0, 255.0, 300.0], [1200.0, NDV, 0.5, 80.0]])
-        )
+        dem = _raster(np.array([[12.0, 254.0, 255.0, 300.0], [1200.0, NDV, 0.5, 80.0]]))
         small = dem.clip(0.0, 254.0).astype("uint8", no_data_value=255)
         assert np.asarray(small.read_array()).ravel().tolist() == [
             12,
@@ -334,6 +336,72 @@ class TestAstype:
         cast = _raster(np.array([[1.0, 2.0, 3.0]])).astype("int32", no_data_value=None)
         assert np.asarray(cast.read_array()).ravel().tolist() == [1, 2, 3]
         assert cast.no_data_value[0] is None
+
+
+class TestABandKeepsItsOwnSentinel:
+    """A multi-band raster may declare a different no-data value per band, and must keep it.
+
+    Band 1 declares `-9999` and band 2 declares `-1`, and band 2 holds a real `-9999` — a
+    multi-sensor stack, where the sentinel is whatever each source used. Collapsing the two
+    onto band 1's rewrote band 2's declaration and turned its measurement into a gap.
+    """
+
+    CELLS = np.array([[[1.0, 2.0], [-9999.0, 4.0]], [[-1.0, 6.0], [-9999.0, 8.0]]])
+
+    def _stack(self) -> Dataset:
+        """The two-band raster with one sentinel each.
+
+        Returns:
+            Dataset: The stack.
+        """
+        return Dataset.from_array(
+            self.CELLS, geo_ref=GEO, no_data_value=[-9999.0, -1.0]
+        )
+
+    def test_the_fixture_reads_one_gap_per_band(self):
+        """The precondition: each band's own sentinel marks exactly one cell."""
+        flags = np.asarray(self._stack().isnull().read_array()).tolist()
+        assert flags == [[[0, 0], [1, 0]], [[1, 0], [0, 0]]]
+
+    @pytest.mark.parametrize(
+        ("member", "call"),
+        [
+            ("round", lambda ds: ds.round()),
+            ("clip", lambda ds: ds.clip(min=-10000.0)),
+            ("astype", lambda ds: ds.astype("int32")),
+        ],
+    )
+    def test_each_band_keeps_its_declaration(self, member: str, call):
+        """The declarations survive the member.
+
+        Args:
+            member: The member under test.
+            call: How to call it.
+        """
+        out = call(self._stack())
+        assert [float(one) for one in out.no_data_value] == [-9999.0, -1.0], (
+            f"{member} rewrote the per-band sentinels as {out.no_data_value}"
+        )
+
+    @pytest.mark.parametrize(
+        ("member", "call"),
+        [
+            ("round", lambda ds: ds.round()),
+            ("clip", lambda ds: ds.clip(min=-10000.0)),
+            ("astype", lambda ds: ds.astype("int32")),
+        ],
+    )
+    def test_a_real_value_does_not_become_a_gap(self, member: str, call):
+        """Band 2's real `-9999` is data, and only band 1's `-9999` is a gap.
+
+        Args:
+            member: The member under test.
+            call: How to call it.
+        """
+        flags = np.asarray(call(self._stack()).isnull().read_array()).tolist()
+        assert flags == [[[0, 0], [1, 0]], [[1, 0], [0, 0]]], (
+            f"{member} changed which cells read as gaps: {flags}"
+        )
 
 
 class TestIsin:
