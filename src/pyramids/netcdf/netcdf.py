@@ -5975,9 +5975,10 @@ class NetCDF(Dataset):
         if self._rebuilt_in_memory:
             raise ValueError(
                 f"Lazy read reopens the variable from its store, and {var_name!r} was "
-                f"rebuilt in memory (by where(), fillna(), isnull() or notnull()), so "
-                f"the store no longer holds these cells. Read it eagerly with "
-                f"read_array()."
+                f"rebuilt in memory — by a cell-wise member such as where() or clip(), by "
+                f"a cut such as sel() or head(), or by a crop or reprojection — so the "
+                f"store no longer holds these cells in this shape and order. Read it "
+                f"eagerly with read_array()."
             )
         # Thread the eager-resolved raster plane (and its flips) into the lazy build so a variable
         # whose latitude/longitude is not the trailing pair -- selected via `x_dim`/`y_dim` or CF
@@ -6145,6 +6146,14 @@ class NetCDF(Dataset):
         wrapped._open_options = self._open_options
         wrapped._gdal_md_arr_ref = None
         wrapped._gdal_rg_ref = None
+        # Everything routed here holds cells this process assembled — a `sel`/`isel` cut and
+        # the Tier 2 band members through `_subset_along_dim`, `squeeze`/`expand_dims`
+        # through `_relabelled`, a crop, a reprojection, a resample. None of them still read
+        # as `parent_file::source_var_name`, which is all the lazy path knows how to reopen,
+        # so `read_array(chunks=)` answered the whole, unselected store variable: a `tail`
+        # of one step read back as four, and a `sortby` came back unsorted. The flag makes
+        # that path refuse in words, exactly as it already does for `where()`/`fillna()`.
+        wrapped._rebuilt_in_memory = True
         return wrapped
 
     def crop(self, *args, **kwargs) -> NetCDF:

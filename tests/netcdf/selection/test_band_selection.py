@@ -479,6 +479,58 @@ class TestADimensionWithoutCoordinates:
         )
 
 
+class TestALazyReadOfACutVariable:
+    """A cut variable no longer reads as its store, and the lazy path must say so.
+
+    `read_array(chunks=...)` reopens the variable from its file by name, which knows
+    nothing of a window, a drop, a sort or a new layout. It used to answer the whole store
+    variable — the same object answering two different arrays depending on `chunks=`.
+    """
+
+    @staticmethod
+    def _cube() -> NetCDF:
+        """The CF store's `temperature`, a `(time=4, pressure_level=3)` cube.
+
+        Returns:
+            NetCDF: The variable.
+        """
+        return NetCDF.read_file(str(CF_STORE))["temperature"]
+
+    def test_the_store_variable_itself_still_reads_lazily(self):
+        """The guard must not touch a variable that is still its store's."""
+        lazy = np.asarray(self._cube().read_array(chunks="auto"))
+        assert lazy.shape == (4, 3, 5, 6), f"whole variable read back as {lazy.shape}"
+
+    @pytest.mark.parametrize(
+        ("member", "call"),
+        [
+            ("tail", lambda v: v.tail(time=1)),
+            ("head", lambda v: v.head(time=2)),
+            ("thin", lambda v: v.thin(time=2)),
+            ("drop_isel", lambda v: v.drop_isel(time=0)),
+            ("drop_sel", lambda v: v.drop_sel(time=0.0)),
+            ("sortby", lambda v: v.sortby("time", ascending=False)),
+            ("drop_duplicates", lambda v: v.drop_duplicates("time")),
+            ("squeeze", lambda v: v.isel(time=[1]).squeeze()),
+            ("expand_dims", lambda v: v.isel(time=1).expand_dims("run", 0.0)),
+            ("isel", lambda v: v.isel(time=[1])),
+            ("sel", lambda v: v.sel(time=6.0)),
+        ],
+    )
+    def test_a_cut_result_refuses_a_lazy_read(self, member: str, call):
+        """Every band member's result refuses `chunks=` instead of re-reading the store.
+
+        Args:
+            member: The member under test.
+            call: How to call it.
+        """
+        cut = call(self._cube())
+        eager = np.asarray(cut.read_array())
+        assert eager.size, f"{member} produced an unreadable result"
+        with pytest.raises(ValueError, match="rebuilt in memory"):
+            cut.read_array(chunks="auto")
+
+
 class TestNoArguments:
     """The droppers need to be told what to drop, and `thin` how far to step."""
 
