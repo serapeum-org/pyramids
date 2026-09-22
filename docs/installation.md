@@ -119,7 +119,7 @@ print(gdal.__version__)          # should print 3.13.x (3.12.x on Windows ARM64)
 | macOS 11+ | arm64 (Apple Silicon) | `macosx_11_0_arm64` | ✅ Supported |
 | Windows 10+ | x64 | `win_amd64` | ✅ Supported |
 | Windows 11+ | ARM64 | `win_arm64` | ✅ Supported (Python 3.12+; see the ARM64 note below) |
-| Alpine (musl) | any | — | ⏸ Built in CI, unpublished — blocked on upstream `pyogrio` musl wheels |
+| Alpine (musl) | x86_64, aarch64 | `musllinux_1_2_*` | ⏸ Self-contained; built + verified in CI, unpublished (#333) |
 
 Distros covered by the Linux wheel out of the box:
 
@@ -134,15 +134,18 @@ If your distro has **glibc < 2.28**, use the conda-forge path instead.
 
 ### Coverage gaps — what has no wheel yet, and why
 
-Every remaining gap waits on something upstream of pyramids; none of
-them can be closed from this repo alone. Progress is tracked in
+Most remaining gaps wait on something upstream of pyramids. The Alpine /
+musl wheel is the exception: it is now built and verified from this repo
+as a **self-contained** wheel (it vendors the vector stack rather than
+waiting on upstream musl wheels), so only its **publication** is pending —
+a maintainer decision on PyPI storage. Progress is tracked in
 [#333](https://github.com/serapeum-org/pyramids/issues/333) (Alpine) and
 [#335](https://github.com/serapeum-org/pyramids/issues/335) (Python 3.15).
 Until a row clears, the workaround column applies.
 
 | Platform / target | Why no wheel today | Ships when | Workaround |
 |---|---|---|---|
-| Alpine / musl Linux | built + verified in CI; `pyogrio` has no musl wheels | pyogrio ships them (#333) | conda-forge |
+| Alpine / musl Linux | self-contained; built + verified; unpublished | PyPI-storage decision (#333) | conda-forge |
 | Python 3.15 | CPython unreleased; ecosystem needs cp315 wheels | after CPython 3.15, ~Oct 2026 (#335) | — |
 | Free-threaded (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | revisit at 3.15 (#683) | standard (GIL) build |
 | Linux glibc < 2.28 | below the oldest maintained manylinux image | never (intentional) | conda-forge |
@@ -170,6 +173,15 @@ set on every build, so drivers cannot silently disappear from a release.
 > stack, because the dependency markers skip shapely/geopandas on
 > Windows ARM64. Use Python 3.12+ or conda-forge instead. The same
 > caveat applies to any deliberate sdist install on Windows ARM64.
+
+> **Alpine / musl note**: the musllinux wheel uses the same self-bundling
+> as win_arm64 — it vendors shapely, geopandas, and pyogrio (and
+> additionally **cftime**, which has no `musllinux_*_aarch64` wheel
+> upstream) under `pyramids/_vendor/`, and strips them from the wheel
+> metadata so a plain `pip install pyramids-gis` on Alpine resolves and
+> imports with no external build and no GDAL system install. It is built
+> and verified on x86_64 and aarch64 Alpine in CI, but is a canary — not
+> yet published (#333). Until it is, use conda-forge on Alpine.
 
 ## System dependencies
 
