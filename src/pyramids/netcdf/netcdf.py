@@ -7399,6 +7399,10 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.cumsum <pyramids.netcdf.engines.selection.Selection.cumsum>`."""
         return self.selection.cumsum(dim, skipna=skipna)
 
+    def cumprod(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.cumprod <pyramids.netcdf.engines.selection.Selection.cumprod>`."""
+        return self.selection.cumprod(dim, skipna=skipna)
+
     def shift(self, dim: str, periods: int = 1, *, fill_value: Any = None) -> NetCDF:
         """Facade — :meth:`Selection.shift <pyramids.netcdf.engines.selection.Selection.shift>`."""
         return self.selection.shift(dim, periods, fill_value=fill_value)

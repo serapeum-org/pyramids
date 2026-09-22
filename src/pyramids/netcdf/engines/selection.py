@@ -57,6 +57,7 @@ from pyramids.netcdf.engines._along_dim import (
     _apply_to_container,
     _apply_to_variable,
     _assert_band_dimension,
+    _CumProd,
     _CumSum,
     _Diff,
     _DropNa,
@@ -2087,6 +2088,59 @@ class Selection(_Engine["NetCDF"]):
         """
         nc = self._ds
         op = _CumSum(skipna=bool(skipna))
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
+    def cumprod(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Multiply the values along a non-spatial dimension, step by step.
+
+        :meth:`cumsum`'s multiplicative twin, and it shares everything else: each step holds
+        the product of itself and every step before it, the dimension keeps its length and
+        its stamps, and a container's auxiliary variables are all carried over.
+
+        Works on a container, multiplying every variable that has `dim`, and on a single
+        variable, returning a variable.
+
+        Args:
+            dim: The non-spatial dimension to multiply along.
+            skipna: When `True` (default), gaps are skipped: a gap multiplies by nothing and
+                holds the product so far, and a step before the first valid cell is a gap —
+                where xarray answers `1.0`, a product of nothing that is not invented here.
+                When `False` the stored values multiply as numpy multiplies them, the
+                sentinel included, and the result declares no no-data value, since the
+                sentinel went into the products.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable. Skipping gaps the
+            values are float64 and declare the variable's no-data value, or NaN when it
+            declares none.
+
+        Raises:
+            ValueError: `dim` is not a band dimension of the variable, or of any gridded
+                variable in the container.
+
+        Examples:
+            - A running product, the gap holding the product so far:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([2.0, 3.0, np.nan, 4.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.cumprod("time").read_array().ravel().tolist()
+              [2.0, 6.0, 6.0, 24.0]
+
+              ```
+        """
+        nc = self._ds
+        op = _CumProd(skipna=bool(skipna))
         if _reduces_as_a_variable(nc):
             result = _apply_to_variable(nc, dim, op)
         else:
