@@ -6,35 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="GIS package">
+        <meta name="description" content="An honest comparison of the Python geospatial libraries for reading, writing and processing rasters, vectors and datacubes, and where pyramids fits among them.">
       
       
       
-        <link rel="canonical" href="https://serapeum-org.github.io/pyramids/develop/tutorials/georeferencing/">
+        <link rel="canonical" href="https://serapeum-org.github.io/pyramids/develop/comparison/">
       
       
-        <link rel="prev" href="../raster-basics/">
+        <link rel="prev" href="../getting-help/">
       
       
-        <link rel="next" href="../datacube-basics/">
+        <link rel="next" href="../examples/">
       
       
         
       
       
-      <link rel="icon" href="../../_images/branding/logo-layers-v2.svg">
+      <link rel="icon" href="../_images/branding/logo-layers-v2.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>Georeferencing (GCPs & RPCs) - pyramids</title>
+        <title>Python raster libraries compared — pyramids, rasterio, rioxarray, GDAL and geopandas - pyramids</title>
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -53,11 +53,11 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="../../assets/stylesheets/panzoom.css">
+      <link rel="stylesheet" href="../assets/stylesheets/panzoom.css">
     
-    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -83,7 +83,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#georeferencing-raw-imagery-gcps-rpcs" class="md-skip">
+        <a href="#reading-and-writing-rasters-in-python-which-library-should-you-use" class="md-skip">
           Skip to content
         </a>
       
@@ -103,9 +103,9 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="pyramids" class="md-header__button md-logo" aria-label="pyramids" data-md-component="logo">
+    <a href=".." title="pyramids" class="md-header__button md-logo" aria-label="pyramids" data-md-component="logo">
       
-  <img src="../../_images/branding/logo-layers-v2.svg" alt="logo">
+  <img src="../_images/branding/logo-layers-v2.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Georeferencing (GCPs & RPCs)
+              Python raster libraries compared — pyramids, rasterio, rioxarray, GDAL and geopandas
             
           </span>
         </div>
@@ -239,7 +239,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../.." class="md-tabs__link">
+      <a href=".." class="md-tabs__link">
         
   
   
@@ -256,11 +256,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../installation/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../installation/" class="md-tabs__link">
           
   
   
@@ -276,13 +278,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../../examples/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../examples/" class="md-tabs__link">
           
   
   
@@ -302,7 +302,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../reference/cli/" class="md-tabs__link">
+        <a href="../reference/cli/" class="md-tabs__link">
           
   
   
@@ -322,7 +322,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../overview/codebase-map/" class="md-tabs__link">
+        <a href="../overview/codebase-map/" class="md-tabs__link">
           
   
   
@@ -342,7 +342,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../how-to/devcontainer/" class="md-tabs__link">
+        <a href="../how-to/devcontainer/" class="md-tabs__link">
           
   
   
@@ -362,7 +362,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../SCOPE/" class="md-tabs__link">
+        <a href="../SCOPE/" class="md-tabs__link">
           
   
   
@@ -402,9 +402,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="pyramids" class="md-nav__button md-logo" aria-label="pyramids" data-md-component="logo">
+    <a href=".." title="pyramids" class="md-nav__button md-logo" aria-label="pyramids" data-md-component="logo">
       
-  <img src="../../_images/branding/logo-layers-v2.svg" alt="logo">
+  <img src="../_images/branding/logo-layers-v2.svg" alt="logo">
 
     </a>
     pyramids
@@ -431,7 +431,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../.." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -447,231 +447,6 @@
   
 
       </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
-        
-          
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Getting Started
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_2">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Getting Started
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../installation/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Installation
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../quickstart/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Quickstart
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../concepts/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Core concepts
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../troubleshooting/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Troubleshooting
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../getting-help/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Getting help
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../comparison/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Comparison with other libraries
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
     </li>
   
 
@@ -699,10 +474,359 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Core concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-help/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting help
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparison with other libraries
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparison with other libraries
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-short-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The short answer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-pyramids-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What pyramids is
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-it-differs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where it differs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-others-are-stronger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the others are stronger
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#honest-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Honest limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#installing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-to-go-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to go next
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
             
   
   
@@ -720,7 +844,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -738,7 +862,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/" class="md-nav__link">
+      <a href="../examples/" class="md-nav__link">
         
   
   
@@ -766,7 +890,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/gallery/" class="md-nav__link">
+      <a href="../examples/gallery/" class="md-nav__link">
         
   
   
@@ -844,7 +968,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/lazy-compute/" class="md-nav__link">
+      <a href="../tutorials/lazy/lazy-compute/" class="md-nav__link">
         
   
   
@@ -872,7 +996,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/lazy-raster/" class="md-nav__link">
+      <a href="../tutorials/lazy/lazy-raster/" class="md-nav__link">
         
   
   
@@ -900,7 +1024,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/lazy-netcdf/" class="md-nav__link">
+      <a href="../tutorials/lazy/lazy-netcdf/" class="md-nav__link">
         
   
   
@@ -928,7 +1052,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/lazy-collection/" class="md-nav__link">
+      <a href="../tutorials/lazy/lazy-collection/" class="md-nav__link">
         
   
   
@@ -956,7 +1080,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/lazy-vector/" class="md-nav__link">
+      <a href="../tutorials/lazy/lazy-vector/" class="md-nav__link">
         
   
   
@@ -984,7 +1108,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/zarr/" class="md-nav__link">
+      <a href="../tutorials/lazy/zarr/" class="md-nav__link">
         
   
   
@@ -1012,7 +1136,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy/kerchunk/" class="md-nav__link">
+      <a href="../tutorials/lazy/kerchunk/" class="md-nav__link">
         
   
   
@@ -1040,7 +1164,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dask/overview/" class="md-nav__link">
+      <a href="../examples/dask/overview/" class="md-nav__link">
         
   
   
@@ -1068,7 +1192,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dask/dataset/" class="md-nav__link">
+      <a href="../examples/dask/dataset/" class="md-nav__link">
         
   
   
@@ -1096,7 +1220,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dask/collection/" class="md-nav__link">
+      <a href="../examples/dask/collection/" class="md-nav__link">
         
   
   
@@ -1124,7 +1248,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dask/feature/" class="md-nav__link">
+      <a href="../examples/dask/feature/" class="md-nav__link">
         
   
   
@@ -1152,7 +1276,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dask/netcdf/" class="md-nav__link">
+      <a href="../examples/dask/netcdf/" class="md-nav__link">
         
   
   
@@ -1238,7 +1362,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/conversions/geotiff-netcdf/" class="md-nav__link">
+      <a href="../examples/conversions/geotiff-netcdf/" class="md-nav__link">
         
   
   
@@ -1266,7 +1390,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/conversions/collection-to-netcdf/" class="md-nav__link">
+      <a href="../examples/conversions/collection-to-netcdf/" class="md-nav__link">
         
   
   
@@ -1294,7 +1418,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/conversions/raster-formats/" class="md-nav__link">
+      <a href="../examples/conversions/raster-formats/" class="md-nav__link">
         
   
   
@@ -1322,7 +1446,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/conversions/vector-formats/" class="md-nav__link">
+      <a href="../examples/conversions/vector-formats/" class="md-nav__link">
         
   
   
@@ -1408,7 +1532,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/reproject-resample-align/" class="md-nav__link">
+      <a href="../examples/operations/reproject-resample-align/" class="md-nav__link">
         
   
   
@@ -1436,7 +1560,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/crop-mask/" class="md-nav__link">
+      <a href="../examples/operations/crop-mask/" class="md-nav__link">
         
   
   
@@ -1464,7 +1588,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/mosaic-merge/" class="md-nav__link">
+      <a href="../examples/operations/mosaic-merge/" class="md-nav__link">
         
   
   
@@ -1492,7 +1616,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/zonal-statistics/" class="md-nav__link">
+      <a href="../examples/operations/zonal-statistics/" class="md-nav__link">
         
   
   
@@ -1520,7 +1644,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/extract-at-points/" class="md-nav__link">
+      <a href="../examples/operations/extract-at-points/" class="md-nav__link">
         
   
   
@@ -1548,7 +1672,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/rasterize-vectorize/" class="md-nav__link">
+      <a href="../examples/operations/rasterize-vectorize/" class="md-nav__link">
         
   
   
@@ -1576,7 +1700,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/vector-tessellation/" class="md-nav__link">
+      <a href="../examples/operations/vector-tessellation/" class="md-nav__link">
         
   
   
@@ -1604,7 +1728,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/terrain-analysis/" class="md-nav__link">
+      <a href="../examples/operations/terrain-analysis/" class="md-nav__link">
         
   
   
@@ -1632,7 +1756,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/nodata-gap-filling/" class="md-nav__link">
+      <a href="../examples/operations/nodata-gap-filling/" class="md-nav__link">
         
   
   
@@ -1660,7 +1784,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/overviews/" class="md-nav__link">
+      <a href="../examples/operations/overviews/" class="md-nav__link">
         
   
   
@@ -1688,7 +1812,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/visualization/" class="md-nav__link">
+      <a href="../examples/operations/visualization/" class="md-nav__link">
         
   
   
@@ -1716,7 +1840,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/windowed-reads/" class="md-nav__link">
+      <a href="../examples/operations/windowed-reads/" class="md-nav__link">
         
   
   
@@ -1744,7 +1868,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/raster-algebra/" class="md-nav__link">
+      <a href="../examples/operations/raster-algebra/" class="md-nav__link">
         
   
   
@@ -1772,7 +1896,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/vector-geometry/" class="md-nav__link">
+      <a href="../examples/operations/vector-geometry/" class="md-nav__link">
         
   
   
@@ -1800,7 +1924,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/operations/color-tables/" class="md-nav__link">
+      <a href="../examples/operations/color-tables/" class="md-nav__link">
         
   
   
@@ -1828,7 +1952,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/processing/pipeline/" class="md-nav__link">
+      <a href="../examples/processing/pipeline/" class="md-nav__link">
         
   
   
@@ -1861,8 +1985,6 @@
                 
   
   
-    
-  
   
   
     
@@ -1873,11 +1995,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
         
           
           <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
@@ -1898,7 +2020,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1916,7 +2038,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../dataset/" class="md-nav__link">
+      <a href="../tutorials/dataset/" class="md-nav__link">
         
   
   
@@ -1944,7 +2066,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../raster-basics/" class="md-nav__link">
+      <a href="../tutorials/raster-basics/" class="md-nav__link">
         
   
   
@@ -1969,37 +2091,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Georeferencing (GCPs & RPCs)
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../tutorials/georeferencing/" class="md-nav__link">
         
   
   
@@ -2015,59 +2110,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#ground-control-points-rubber-sheeting" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Ground-control points (rubber-sheeting)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#rational-polynomial-coefficients-orthorectification" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Rational polynomial coefficients (orthorectification)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#scope" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Scope
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2080,7 +2122,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../datacube-basics/" class="md-nav__link">
+      <a href="../tutorials/datacube-basics/" class="md-nav__link">
         
   
   
@@ -2108,7 +2150,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dataset/dataset/" class="md-nav__link">
+      <a href="../examples/dataset/dataset/" class="md-nav__link">
         
   
   
@@ -2136,7 +2178,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dataset/spatial-operation-methods/" class="md-nav__link">
+      <a href="../examples/dataset/spatial-operation-methods/" class="md-nav__link">
         
   
   
@@ -2164,7 +2206,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dataset/convert-longitude/" class="md-nav__link">
+      <a href="../examples/dataset/convert-longitude/" class="md-nav__link">
         
   
   
@@ -2192,7 +2234,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../dataset_collection/" class="md-nav__link">
+      <a href="../tutorials/dataset_collection/" class="md-nav__link">
         
   
   
@@ -2220,7 +2262,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dataset/dataset_collection/" class="md-nav__link">
+      <a href="../examples/dataset/dataset_collection/" class="md-nav__link">
         
   
   
@@ -2248,7 +2290,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dataset/rgb_animation/" class="md-nav__link">
+      <a href="../examples/dataset/rgb_animation/" class="md-nav__link">
         
   
   
@@ -2276,7 +2318,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dataset/stac-solar-day/" class="md-nav__link">
+      <a href="../examples/dataset/stac-solar-day/" class="md-nav__link">
         
   
   
@@ -2304,7 +2346,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dataset/south-america/" class="md-nav__link">
+      <a href="../examples/dataset/south-america/" class="md-nav__link">
         
   
   
@@ -2332,7 +2374,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dataset/wms-wmts-readers/" class="md-nav__link">
+      <a href="../examples/dataset/wms-wmts-readers/" class="md-nav__link">
         
   
   
@@ -2360,7 +2402,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../cog/" class="md-nav__link">
+      <a href="../tutorials/cog/" class="md-nav__link">
         
   
   
@@ -2388,7 +2430,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/cog/cog-basics/" class="md-nav__link">
+      <a href="../examples/cog/cog-basics/" class="md-nav__link">
         
   
   
@@ -2416,7 +2458,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/cog/cog-real-data/" class="md-nav__link">
+      <a href="../examples/cog/cog-real-data/" class="md-nav__link">
         
   
   
@@ -2444,7 +2486,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dataset/lazy-and-dask-explained/" class="md-nav__link">
+      <a href="../examples/dataset/lazy-and-dask-explained/" class="md-nav__link">
         
   
   
@@ -2472,7 +2514,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dataset/dask-lazy-datasets/" class="md-nav__link">
+      <a href="../examples/dataset/dask-lazy-datasets/" class="md-nav__link">
         
   
   
@@ -2500,7 +2542,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dataset/lazy-dataset-complete/" class="md-nav__link">
+      <a href="../examples/dataset/lazy-dataset-complete/" class="md-nav__link">
         
   
   
@@ -2528,7 +2570,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/dataset/lazy-collection-complete/" class="md-nav__link">
+      <a href="../examples/dataset/lazy-collection-complete/" class="md-nav__link">
         
   
   
@@ -2614,7 +2656,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/zarr/zarr-basics/" class="md-nav__link">
+      <a href="../examples/zarr/zarr-basics/" class="md-nav__link">
         
   
   
@@ -2642,7 +2684,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/zarr/zarr-cube/" class="md-nav__link">
+      <a href="../examples/zarr/zarr-cube/" class="md-nav__link">
         
   
   
@@ -2670,7 +2712,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/zarr/zarr-pyramid-preview/" class="md-nav__link">
+      <a href="../examples/zarr/zarr-pyramid-preview/" class="md-nav__link">
         
   
   
@@ -2698,7 +2740,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/zarr/zarr-foreign-geozarr/" class="md-nav__link">
+      <a href="../examples/zarr/zarr-foreign-geozarr/" class="md-nav__link">
         
   
   
@@ -2784,7 +2826,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../feature/" class="md-nav__link">
+      <a href="../tutorials/feature/" class="md-nav__link">
         
   
   
@@ -2812,7 +2854,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/feature/dask-lazy-features/" class="md-nav__link">
+      <a href="../examples/feature/dask-lazy-features/" class="md-nav__link">
         
   
   
@@ -2840,7 +2882,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/feature/lazy-feature-complete/" class="md-nav__link">
+      <a href="../examples/feature/lazy-feature-complete/" class="md-nav__link">
         
   
   
@@ -2926,7 +2968,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../stac/" class="md-nav__link">
+      <a href="../tutorials/stac/" class="md-nav__link">
         
   
   
@@ -2954,7 +2996,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/stac/stac-local/" class="md-nav__link">
+      <a href="../examples/stac/stac-local/" class="md-nav__link">
         
   
   
@@ -2982,7 +3024,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/stac/stac-cloud-earth-search/" class="md-nav__link">
+      <a href="../examples/stac/stac-cloud-earth-search/" class="md-nav__link">
         
   
   
@@ -3068,7 +3110,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/basemap/basemap-example/" class="md-nav__link">
+      <a href="../examples/basemap/basemap-example/" class="md-nav__link">
         
   
   
@@ -3154,7 +3196,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../netcdf-plotting/" class="md-nav__link">
+      <a href="../tutorials/netcdf-plotting/" class="md-nav__link">
         
   
   
@@ -3182,7 +3224,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/netcdf/dask-lazy-netcdf/" class="md-nav__link">
+      <a href="../examples/netcdf/dask-lazy-netcdf/" class="md-nav__link">
         
   
   
@@ -3210,7 +3252,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/netcdf/lazy-netcdf-complete/" class="md-nav__link">
+      <a href="../examples/netcdf/lazy-netcdf-complete/" class="md-nav__link">
         
   
   
@@ -3288,7 +3330,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/netcdf/ugrid/ugrid-mesh-exploration/" class="md-nav__link">
+      <a href="../examples/netcdf/ugrid/ugrid-mesh-exploration/" class="md-nav__link">
         
   
   
@@ -3316,7 +3358,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/netcdf/ugrid/ugrid-river-channel/" class="md-nav__link">
+      <a href="../examples/netcdf/ugrid/ugrid-river-channel/" class="md-nav__link">
         
   
   
@@ -3344,7 +3386,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../examples/netcdf/ugrid/dask-lazy-ugrid/" class="md-nav__link">
+      <a href="../examples/netcdf/ugrid/dask-lazy-ugrid/" class="md-nav__link">
         
   
   
@@ -3445,7 +3487,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/cli/" class="md-nav__link">
+      <a href="../reference/cli/" class="md-nav__link">
         
   
   
@@ -3523,7 +3565,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/dataset/" class="md-nav__link">
+      <a href="../reference/dataset/" class="md-nav__link">
         
   
   
@@ -3551,7 +3593,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/dataset/io/" class="md-nav__link">
+      <a href="../reference/dataset/io/" class="md-nav__link">
         
   
   
@@ -3579,7 +3621,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/dataset/spatial/" class="md-nav__link">
+      <a href="../reference/dataset/spatial/" class="md-nav__link">
         
   
   
@@ -3607,7 +3649,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/dataset/analysis/" class="md-nav__link">
+      <a href="../reference/dataset/analysis/" class="md-nav__link">
         
   
   
@@ -3635,7 +3677,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/dataset/vectorize/" class="md-nav__link">
+      <a href="../reference/dataset/vectorize/" class="md-nav__link">
         
   
   
@@ -3663,7 +3705,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/dataset/band_metadata/" class="md-nav__link">
+      <a href="../reference/dataset/band_metadata/" class="md-nav__link">
         
   
   
@@ -3691,7 +3733,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/dataset/cell/" class="md-nav__link">
+      <a href="../reference/dataset/cell/" class="md-nav__link">
         
   
   
@@ -3719,7 +3761,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/dataset/georef/" class="md-nav__link">
+      <a href="../reference/dataset/georef/" class="md-nav__link">
         
   
   
@@ -3747,7 +3789,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/dataset/merge/" class="md-nav__link">
+      <a href="../reference/dataset/merge/" class="md-nav__link">
         
   
   
@@ -3783,7 +3825,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/dataset/collection/" class="md-nav__link">
+      <a href="../reference/dataset/collection/" class="md-nav__link">
         
   
   
@@ -3811,7 +3853,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/processing/" class="md-nav__link">
+      <a href="../reference/processing/" class="md-nav__link">
         
   
   
@@ -3839,7 +3881,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/zarr/" class="md-nav__link">
+      <a href="../reference/zarr/" class="md-nav__link">
         
   
   
@@ -3917,7 +3959,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/feature/" class="md-nav__link">
+      <a href="../reference/feature/" class="md-nav__link">
         
   
   
@@ -3945,7 +3987,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/feature/geometry/" class="md-nav__link">
+      <a href="../reference/feature/geometry/" class="md-nav__link">
         
   
   
@@ -3981,7 +4023,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/base/crs/" class="md-nav__link">
+      <a href="../reference/base/crs/" class="md-nav__link">
         
   
   
@@ -4009,7 +4051,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/utm/" class="md-nav__link">
+      <a href="../reference/utm/" class="md-nav__link">
         
   
   
@@ -4037,7 +4079,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/basemap/" class="md-nav__link">
+      <a href="../reference/basemap/" class="md-nav__link">
         
   
   
@@ -4115,7 +4157,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/stac/" class="md-nav__link">
+      <a href="../reference/stac/" class="md-nav__link">
         
   
   
@@ -4143,7 +4185,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/stac/signers/" class="md-nav__link">
+      <a href="../reference/stac/signers/" class="md-nav__link">
         
   
   
@@ -4171,7 +4213,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/stac/assets/" class="md-nav__link">
+      <a href="../reference/stac/assets/" class="md-nav__link">
         
   
   
@@ -4257,7 +4299,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/cog/" class="md-nav__link">
+      <a href="../reference/cog/" class="md-nav__link">
         
   
   
@@ -4285,7 +4327,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/cog/read/" class="md-nav__link">
+      <a href="../reference/cog/read/" class="md-nav__link">
         
   
   
@@ -4313,7 +4355,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/cog/cli/" class="md-nav__link">
+      <a href="../reference/cog/cli/" class="md-nav__link">
         
   
   
@@ -4399,7 +4441,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/" class="md-nav__link">
+      <a href="../reference/netcdf/" class="md-nav__link">
         
   
   
@@ -4427,7 +4469,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/public-api/" class="md-nav__link">
+      <a href="../reference/netcdf/public-api/" class="md-nav__link">
         
   
   
@@ -4455,7 +4497,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/plot/" class="md-nav__link">
+      <a href="../reference/netcdf/plot/" class="md-nav__link">
         
   
   
@@ -4483,7 +4525,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/models/" class="md-nav__link">
+      <a href="../reference/netcdf/models/" class="md-nav__link">
         
   
   
@@ -4511,7 +4553,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/metadata/" class="md-nav__link">
+      <a href="../reference/netcdf/metadata/" class="md-nav__link">
         
   
   
@@ -4539,7 +4581,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/dimensions/" class="md-nav__link">
+      <a href="../reference/netcdf/dimensions/" class="md-nav__link">
         
   
   
@@ -4567,7 +4609,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/utils/" class="md-nav__link">
+      <a href="../reference/netcdf/utils/" class="md-nav__link">
         
   
   
@@ -4595,7 +4637,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/cf/" class="md-nav__link">
+      <a href="../reference/netcdf/cf/" class="md-nav__link">
         
   
   
@@ -4673,7 +4715,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/ugrid/" class="md-nav__link">
+      <a href="../reference/netcdf/ugrid/" class="md-nav__link">
         
   
   
@@ -4701,7 +4743,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/ugrid/dataset/" class="md-nav__link">
+      <a href="../reference/netcdf/ugrid/dataset/" class="md-nav__link">
         
   
   
@@ -4729,7 +4771,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/ugrid/mesh/" class="md-nav__link">
+      <a href="../reference/netcdf/ugrid/mesh/" class="md-nav__link">
         
   
   
@@ -4757,7 +4799,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/ugrid/connectivity/" class="md-nav__link">
+      <a href="../reference/netcdf/ugrid/connectivity/" class="md-nav__link">
         
   
   
@@ -4785,7 +4827,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/ugrid/spatial/" class="md-nav__link">
+      <a href="../reference/netcdf/ugrid/spatial/" class="md-nav__link">
         
   
   
@@ -4813,7 +4855,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/ugrid/interpolation/" class="md-nav__link">
+      <a href="../reference/netcdf/ugrid/interpolation/" class="md-nav__link">
         
   
   
@@ -4841,7 +4883,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/ugrid/io/" class="md-nav__link">
+      <a href="../reference/netcdf/ugrid/io/" class="md-nav__link">
         
   
   
@@ -4869,7 +4911,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/ugrid/models/" class="md-nav__link">
+      <a href="../reference/netcdf/ugrid/models/" class="md-nav__link">
         
   
   
@@ -4897,7 +4939,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/netcdf/ugrid/plot/" class="md-nav__link">
+      <a href="../reference/netcdf/ugrid/plot/" class="md-nav__link">
         
   
   
@@ -4941,7 +4983,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/config/" class="md-nav__link">
+      <a href="../reference/config/" class="md-nav__link">
         
   
   
@@ -5026,7 +5068,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../overview/codebase-map/" class="md-nav__link">
+      <a href="../overview/codebase-map/" class="md-nav__link">
         
   
   
@@ -5054,7 +5096,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../overview/how-it-works/" class="md-nav__link">
+      <a href="../overview/how-it-works/" class="md-nav__link">
         
   
   
@@ -5082,7 +5124,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../overview/architecture/" class="md-nav__link">
+      <a href="../overview/architecture/" class="md-nav__link">
         
   
   
@@ -5110,7 +5152,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../overview/diagrams/" class="md-nav__link">
+      <a href="../overview/diagrams/" class="md-nav__link">
         
   
   
@@ -5195,7 +5237,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/devcontainer/" class="md-nav__link">
+      <a href="../how-to/devcontainer/" class="md-nav__link">
         
   
   
@@ -5223,7 +5265,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/docker/" class="md-nav__link">
+      <a href="../how-to/docker/" class="md-nav__link">
         
   
   
@@ -5251,7 +5293,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/parallel-reads/" class="md-nav__link">
+      <a href="../how-to/parallel-reads/" class="md-nav__link">
         
   
   
@@ -5279,7 +5321,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/pre-commit-hooks/" class="md-nav__link">
+      <a href="../how-to/pre-commit-hooks/" class="md-nav__link">
         
   
   
@@ -5307,7 +5349,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/recipes/" class="md-nav__link">
+      <a href="../how-to/recipes/" class="md-nav__link">
         
   
   
@@ -5385,7 +5427,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/testing/" class="md-nav__link">
+      <a href="../how-to/testing/" class="md-nav__link">
         
   
   
@@ -5413,7 +5455,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../testing/netcdf/fixtures/" class="md-nav__link">
+      <a href="../testing/netcdf/fixtures/" class="md-nav__link">
         
   
   
@@ -5441,7 +5483,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../testing/netcdf/tests/" class="md-nav__link">
+      <a href="../testing/netcdf/tests/" class="md-nav__link">
         
   
   
@@ -5477,7 +5519,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/wheel-build-flow/" class="md-nav__link">
+      <a href="../how-to/wheel-build-flow/" class="md-nav__link">
         
   
   
@@ -5505,7 +5547,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../how-to/faq/" class="md-nav__link">
+      <a href="../how-to/faq/" class="md-nav__link">
         
   
   
@@ -5590,7 +5632,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../SCOPE/" class="md-nav__link">
+      <a href="../SCOPE/" class="md-nav__link">
         
   
   
@@ -5618,7 +5660,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../comparison-other-gis-packages/" class="md-nav__link">
+      <a href="../comparison-other-gis-packages/" class="md-nav__link">
         
   
   
@@ -5646,7 +5688,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ecosystem/" class="md-nav__link">
+      <a href="../ecosystem/" class="md-nav__link">
         
   
   
@@ -5674,7 +5716,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../change-log/" class="md-nav__link">
+      <a href="../change-log/" class="md-nav__link">
         
   
   
@@ -5702,7 +5744,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../migration/" class="md-nav__link">
+      <a href="../migration/" class="md-nav__link">
         
   
   
@@ -5730,7 +5772,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../CODE_OF_CONDUCT/" class="md-nav__link">
+      <a href="../CODE_OF_CONDUCT/" class="md-nav__link">
         
   
   
@@ -5758,7 +5800,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../contributing/" class="md-nav__link">
+      <a href="../contributing/" class="md-nav__link">
         
   
   
@@ -5786,7 +5828,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../LICENSE/" class="md-nav__link">
+      <a href="../LICENSE/" class="md-nav__link">
         
   
   
@@ -5814,7 +5856,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../about/THIRD_PARTY_LICENSES/" class="md-nav__link">
+      <a href="../about/THIRD_PARTY_LICENSES/" class="md-nav__link">
         
   
   
@@ -5842,7 +5884,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../AUTHORS/" class="md-nav__link">
+      <a href="../AUTHORS/" class="md-nav__link">
         
   
   
@@ -5920,7 +5962,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../adr/" class="md-nav__link">
+      <a href="../adr/" class="md-nav__link">
         
   
   
@@ -5948,7 +5990,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../adr/0001-docs-stack/" class="md-nav__link">
+      <a href="../adr/0001-docs-stack/" class="md-nav__link">
         
   
   
@@ -5976,7 +6018,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../adr/0002-type-checking/" class="md-nav__link">
+      <a href="../adr/0002-type-checking/" class="md-nav__link">
         
   
   
@@ -6004,7 +6046,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../adr/0003-io-formats/" class="md-nav__link">
+      <a href="../adr/0003-io-formats/" class="md-nav__link">
         
   
   
@@ -6032,7 +6074,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../adr/0004-dependency-graphing/" class="md-nav__link">
+      <a href="../adr/0004-dependency-graphing/" class="md-nav__link">
         
   
   
@@ -6060,7 +6102,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../adr/0005-versioning-docs/" class="md-nav__link">
+      <a href="../adr/0005-versioning-docs/" class="md-nav__link">
         
   
   
@@ -6088,7 +6130,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../adr/0006-docker-image/" class="md-nav__link">
+      <a href="../adr/0006-docker-image/" class="md-nav__link">
         
   
   
@@ -6116,7 +6158,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../adr/0007-processing-registry-approach/" class="md-nav__link">
+      <a href="../adr/0007-processing-registry-approach/" class="md-nav__link">
         
   
   
@@ -6179,10 +6221,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#ground-control-points-rubber-sheeting" class="md-nav__link">
+  <a href="#the-short-answer" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Ground-control points (rubber-sheeting)
+        The short answer
       
     </span>
   </a>
@@ -6190,10 +6232,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#rational-polynomial-coefficients-orthorectification" class="md-nav__link">
+  <a href="#what-pyramids-is" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Rational polynomial coefficients (orthorectification)
+        What pyramids is
       
     </span>
   </a>
@@ -6201,10 +6243,54 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#scope" class="md-nav__link">
+  <a href="#where-it-differs" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Scope
+        Where it differs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-others-are-stronger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the others are stronger
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#honest-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Honest limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#installing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-to-go-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to go next
       
     </span>
   </a>
@@ -6228,7 +6314,7 @@
 
 
   
-    <a href="https://github.com/serapeum-org/pyramids/edit/master/docs/tutorials/georeferencing.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/serapeum-org/pyramids/edit/master/docs/comparison.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -6237,86 +6323,127 @@
     
       
     
-    <a href="https://github.com/serapeum-org/pyramids/raw/master/docs/tutorials/georeferencing.md" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/serapeum-org/pyramids/raw/master/docs/comparison.md" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
   
 
 
-<h1 id="georeferencing-raw-imagery-gcps-rpcs"><a class="toclink" href="#georeferencing-raw-imagery-gcps-rpcs">Georeferencing raw imagery (GCPs &amp; RPCs)</a><a class="headerlink" href="#georeferencing-raw-imagery-gcps-rpcs" title="Permanent link">#</a></h1>
-<p>Most rasters pyramids handles are already georeferenced by an <strong>affine geotransform</strong> — a clean grid
-aligned to a CRS. Raw imagery is different: a scanned map, a drone frame, or an un-orthorectified
-satellite scene instead carries either <strong>ground-control points</strong> (pixel↔map tie points) or <strong>rational
-polynomial coefficients</strong> (a vendor sensor model). This page shows how to turn both into a normal
-georeferenced raster.</p>
-<p>All of it lives on <code>ds.georef</code> (with flat facades on <code>Dataset</code>) and routes through GDAL.</p>
-<h2 id="ground-control-points-rubber-sheeting"><a class="toclink" href="#ground-control-points-rubber-sheeting">Ground-control points (rubber-sheeting)</a><a class="headerlink" href="#ground-control-points-rubber-sheeting" title="Permanent link">#</a></h2>
-<p>A <code>GroundControlPoint</code> says <em>"pixel <code>(col, row)</code> is at map coordinate <code>(x, y)</code>"</em>. Attach a handful with
-<code>set_gcps</code>, then <code>georeference</code> fits a polynomial (or thin-plate spline) through them and warps the
-pixels onto a regular grid.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">GeoReference</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">GroundControlPoint</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># a raw 8x8 image with no useful geotransform</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">raw</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">64</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float32"</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">8.0</span><span class="p">),</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">1.0</span><span class="p">),</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1"># four corner tie points in EPSG:4326</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="n">raw</span><span class="o">.</span><span class="n">set_gcps</span><span class="p">(</span>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="p">[</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>        <span class="n">GroundControlPoint</span><span class="p">(</span><span class="n">row</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">col</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="mf">50.0</span><span class="p">),</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>        <span class="n">GroundControlPoint</span><span class="p">(</span><span class="n">row</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">col</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="mf">11.0</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="mf">50.0</span><span class="p">),</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>        <span class="n">GroundControlPoint</span><span class="p">(</span><span class="n">row</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">col</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="mf">49.0</span><span class="p">),</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>        <span class="n">GroundControlPoint</span><span class="p">(</span><span class="n">row</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">col</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="mf">11.0</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="mf">49.0</span><span class="p">),</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="p">],</span>
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">projection</span><span class="o">=</span><span class="mi">4326</span><span class="p">,</span>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="p">)</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="nb">print</span><span class="p">(</span><span class="n">raw</span><span class="o">.</span><span class="n">gcp_count</span><span class="p">,</span> <span class="n">raw</span><span class="o">.</span><span class="n">has_gcps</span><span class="p">)</span>          <span class="c1"># 4 True</span>
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="n">georeferenced</span> <span class="o">=</span> <span class="n">raw</span><span class="o">.</span><span class="n">georeference</span><span class="p">()</span>          <span class="c1"># warp from the GCPs (polynomial order 1)</span>
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="nb">print</span><span class="p">(</span><span class="n">georeferenced</span><span class="o">.</span><span class="n">epsg</span><span class="p">)</span>                   <span class="c1"># 4326</span>
-<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="nb">print</span><span class="p">(</span><span class="n">georeferenced</span><span class="o">.</span><span class="n">bbox</span><span class="p">)</span>                   <span class="c1"># ~ [10, 49, 11, 50]</span>
+<h1 id="reading-and-writing-rasters-in-python-which-library-should-you-use"><a class="toclink" href="#reading-and-writing-rasters-in-python-which-library-should-you-use">Reading and writing rasters in Python: which library should you use?</a><a class="headerlink" href="#reading-and-writing-rasters-in-python-which-library-should-you-use" title="Permanent link">#</a></h1>
+<p>Python's geospatial stack has several good libraries and they solve different problems, despite overlapping
+descriptions. This page says what each is for and where <code>pyramids</code> fits — which, for plenty of workloads, is not
+the right answer.</p>
+<h2 id="the-short-answer"><a class="toclink" href="#the-short-answer">The short answer</a><a class="headerlink" href="#the-short-answer" title="Permanent link">#</a></h2>
+<table>
+<thead>
+<tr>
+<th>You want to…</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Read and write raster windows, fast, close to the metal</td>
+<td><a href="https://pypi.org/project/rasterio/">rasterio</a></td>
+</tr>
+<tr>
+<td>Put a CRS on labelled N-D arrays, in an xarray pipeline</td>
+<td><a href="https://pypi.org/project/rioxarray/">rioxarray</a> with <a href="https://pypi.org/project/xarray/">xarray</a></td>
+</tr>
+<tr>
+<td>Work with vector data as a DataFrame</td>
+<td><a href="https://pypi.org/project/geopandas/">geopandas</a></td>
+</tr>
+<tr>
+<td>Reach a GDAL capability no wrapper exposes</td>
+<td><a href="https://pypi.org/project/GDAL/">GDAL</a> Python bindings</td>
+</tr>
+<tr>
+<td>Handle rasters, vectors, datacubes and meshes behind one API</td>
+<td><strong>pyramids</strong></td>
+</tr>
+<tr>
+<td>Do the common GIS operations without assembling the boilerplate</td>
+<td><strong>pyramids</strong></td>
+</tr>
+</tbody>
+</table>
+<p>If your pipeline is already xarray-shaped, rioxarray fits it better than this library. If you need raw windowed
+I/O throughput, rasterio is closer to GDAL and has less between you and it. Neither is worth replacing for the
+sake of one convenience.</p>
+<h2 id="what-pyramids-is"><a class="toclink" href="#what-pyramids-is">What pyramids is</a><a class="headerlink" href="#what-pyramids-is" title="Permanent link">#</a></h2>
+<p>A high-level GIS utility layer built on GDAL/OGR: reading, writing, cropping, reprojecting, aligning,
+mosaicking and rasterizing, with first-class support for Cloud Optimized GeoTIFFs, STAC catalogs, lazy/Dask
+computation, and cloud object stores (S3, GCS, Azure, HTTPS).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"dem.tif"</span><span class="p">)</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">crop</span><span class="p">(</span><span class="n">mask</span><span class="p">)</span><span class="o">.</span><span class="n">to_crs</span><span class="p">(</span><span class="mi">4326</span><span class="p">)</span><span class="o">.</span><span class="n">align</span><span class="p">(</span><span class="n">reference</span><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">ds</span><span class="o">.</span><span class="n">to_file</span><span class="p">(</span><span class="s2">"dem_aligned.tif"</span><span class="p">)</span>
 </code></pre></div>
+<h2 id="where-it-differs"><a class="toclink" href="#where-it-differs">Where it differs</a><a class="headerlink" href="#where-it-differs" title="Permanent link">#</a></h2>
+<p><strong>One API across four data models.</strong> <code>Dataset</code> for rasters, <code>FeatureCollection</code> for vectors,
+<code>DatasetCollection</code> for multi-temporal stacks, <code>NetCDF</code> for labelled cubes and <code>UgridDataset</code> for unstructured
+meshes — all in one package with one set of conventions. Elsewhere that is rasterio plus geopandas plus xarray
+plus something for the mesh, each with its own idea of what a CRS or a nodata value is. Unstructured-grid
+support in particular has few alternatives in this part of the stack.</p>
+<p><strong>Multi-temporal stacks are a first-class object.</strong> <code>DatasetCollection</code> treats a time series of rasters as one
+thing to crop, align and write, rather than a list you loop over.</p>
+<p><strong>The common operations are one call.</strong> Aligning two rasters onto a shared grid, mosaicking a directory,
+rasterizing a vector against a reference — each is a method rather than an assembly of GDAL calls. That is the
+whole proposition, and whether it is worth a dependency depends on how often you write that boilerplate.</p>
+<p><strong>Optional features stay optional.</strong> Plotting, Dask, Parquet and STAC are extras, so a bare install pulls no
+plotting stack:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pip<span class="w"> </span>install<span class="w"> </span>pyramids-gis<span class="w">            </span><span class="c1"># core</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"pyramids-gis[lazy]"</span><span class="w">    </span><span class="c1"># + Dask, Zarr, fsspec, s3fs</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"pyramids-gis[viz]"</span><span class="w">     </span><span class="c1"># + plotting</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"pyramids-gis[stac]"</span><span class="w">    </span><span class="c1"># + STAC catalog access</span>
+</code></pre></div>
+<h2 id="where-the-others-are-stronger"><a class="toclink" href="#where-the-others-are-stronger">Where the others are stronger</a><a class="headerlink" href="#where-the-others-are-stronger" title="Permanent link">#</a></h2>
+<p><strong>rasterio</strong> is the reference for raster I/O in Python — mature, widely deployed, extensively documented, with a
+large community and far more Stack Overflow answers behind it. Its windowed-read API gives you more control than
+this library exposes. For most people writing raster code, rasterio is the correct default and pyramids is only
+worth it if the higher-level operations earn their place.</p>
+<p><strong>rioxarray</strong> is the right answer inside an xarray pipeline. If your data is already <code>DataArray</code>s and you want
+CRS-aware reprojection and clipping on them, adopting a different object model would be a step backwards.</p>
+<p><strong>geopandas</strong> is the standard for vector work and has a far richer analytical surface than
+<code>FeatureCollection</code> — joins, overlays, dissolves and the whole pandas API. pyramids depends on geopandas rather
+than competing with it; <code>FeatureCollection</code> exists to sit beside the raster classes, not to replace a
+GeoDataFrame.</p>
+<p><strong>The GDAL Python bindings</strong> expose everything, because they are GDAL. Any wrapper, this one included, covers a
+subset. When you need a driver option or an algorithm no wrapper surfaces, go straight to the bindings.</p>
+<p><strong>xarray</strong> remains the right model for labelled N-D data. <code>NetCDF</code> here is an xarray-compatible convenience over
+GDAL's NetCDF driver, not a replacement for xarray's ecosystem.</p>
+<h2 id="honest-limitations"><a class="toclink" href="#honest-limitations">Honest limitations</a><a class="headerlink" href="#honest-limitations" title="Permanent link">#</a></h2>
 <ul>
-<li>Use <code>transform="tps"</code> for a thin-plate spline (good for many, irregularly-spaced points).</li>
-<li>Use <code>order=2</code> / <code>order=3</code> for higher-degree polynomials (needs ≥6 / ≥10 points).</li>
-<li>Pass <code>to_epsg=</code> to reproject into another CRS in the same warp, or <code>lazy=True</code> for a VRT-backed view
-  that warps only the window you read.</li>
+<li>A smaller community than rasterio or geopandas: fewer answers when you get stuck, and a smaller pool of
+  people who have hit your bug before.</li>
+<li>GPLv3, where rasterio and geopandas are BSD. That matters for some downstream projects.</li>
+<li>The convenience layer means less direct control than calling GDAL yourself.</li>
+<li>Published wheels bundle GDAL and its native dependencies, which makes installation simple but the wheels
+  large. See <a href="../about/THIRD_PARTY_LICENSES/">third-party licenses</a> for the bundled components; if you use
+  pyramids in a publication, cite <a href="https://gdal.org/en/stable/faq.html#how-do-i-cite-gdal">GDAL</a> as well.</li>
 </ul>
-<p>From the command line:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pyramids<span class="w"> </span>georeference<span class="w"> </span>raw.tif<span class="w"> </span>out.tif<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span>--gcp<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="m">50</span><span class="w"> </span>--gcp<span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="m">11</span><span class="w"> </span><span class="m">50</span><span class="w"> </span>--gcp<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="m">49</span><span class="w"> </span>--gcp<span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="m">11</span><span class="w"> </span><span class="m">49</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span>--gcp-crs<span class="w"> </span><span class="m">4326</span>
+<h2 id="installing"><a class="toclink" href="#installing">Installing</a><a class="headerlink" href="#installing" title="Permanent link">#</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pip<span class="w"> </span>install<span class="w"> </span>pyramids-gis
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>conda<span class="w"> </span>install<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span>pyramids
 </code></pre></div>
-<h2 id="rational-polynomial-coefficients-orthorectification"><a class="toclink" href="#rational-polynomial-coefficients-orthorectification">Rational polynomial coefficients (orthorectification)</a><a class="headerlink" href="#rational-polynomial-coefficients-orthorectification" title="Permanent link">#</a></h2>
-<p>High-resolution satellite scenes ship ~90 RPC coefficients describing the sensor geometry. Read them
-with <code>ds.rpcs</code>, attach them with <code>set_rpcs</code>, and remove terrain distortion with <code>orthorectify</code> —
-ideally against a DEM:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">ds</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="s2">"scene.tif"</span><span class="p">)</span>     <span class="c1"># a scene whose RPCs GDAL read on open</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">if</span> <span class="n">ds</span><span class="o">.</span><span class="n">has_rpcs</span><span class="p">:</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">ortho</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">orthorectify</span><span class="p">(</span><span class="n">dem</span><span class="o">=</span><span class="s2">"dem.tif"</span><span class="p">)</span>          <span class="c1"># DEM-based orthorectification</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="c1"># or, with no DEM, a constant elevation:</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">ortho</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">orthorectify</span><span class="p">(</span><span class="n">rpc_height</span><span class="o">=</span><span class="mf">120.0</span><span class="p">)</span>
-</code></pre></div>
-<p>From the command line:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>pyramids<span class="w"> </span>orthorectify<span class="w"> </span>scene.tif<span class="w"> </span>ortho.tif<span class="w"> </span>--dem<span class="w"> </span>dem.tif
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>pyramids<span class="w"> </span>orthorectify<span class="w"> </span>scene.tif<span class="w"> </span>ortho.tif<span class="w"> </span>--rpc-height<span class="w"> </span><span class="m">120</span>
-</code></pre></div>
-<h2 id="scope"><a class="toclink" href="#scope">Scope</a><a class="headerlink" href="#scope" title="Permanent link">#</a></h2>
-<p>GCPs and RPCs are <em>generic</em> GDAL georeferencing primitives, so they fit pyramids' remit. pyramids
-exposes GDAL's GCP/RPC transformers — it does not implement sensor-specific photogrammetry. See the
-<a href="../../reference/dataset/georef/">Georeferencing reference</a> for the full API.</p>
+<h2 id="where-to-go-next"><a class="toclink" href="#where-to-go-next">Where to go next</a><a class="headerlink" href="#where-to-go-next" title="Permanent link">#</a></h2>
+<ul>
+<li><a href="../quickstart/">Quickstart</a> — the shortest path to a working example</li>
+<li><a href="../concepts/">Core concepts</a> — how Dataset, DatasetCollection and FeatureCollection relate</li>
+<li><a href="../examples/">How do I…?</a> — task-shaped recipes</li>
+</ul>
 
 
 
 
 
 
+
+  
+  
 
 
 
@@ -6346,7 +6473,7 @@ exposes GDAL's GCP/RPC transformers — it does not implement sensor-specific ph
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../raster-basics/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Raster basics">
+          <a href="../getting-help/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Getting help">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -6356,20 +6483,20 @@ exposes GDAL's GCP/RPC transformers — it does not implement sensor-specific ph
                 Previous
               </span>
               <div class="md-ellipsis">
-                Raster basics
+                Getting help
               </div>
             </div>
           </a>
         
         
           
-          <a href="../datacube-basics/" class="md-footer__link md-footer__link--next" aria-label="Next: DatasetCollection basics">
+          <a href="../examples/" class="md-footer__link md-footer__link--next" aria-label="Next: How do I…?">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                DatasetCollection basics
+                How do I…?
               </div>
             </div>
             <div class="md-footer__button md-icon">
@@ -6422,14 +6549,14 @@ exposes GDAL's GCP/RPC transformers — it does not implement sensor-specific ph
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.footer", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "content.code.copy", "content.code.annotate", "content.action.edit", "content.action.view", "content.tooltips", "search.highlight", "search.suggest", "toc.follow", "announce.dismiss"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.footer", "navigation.tabs", "navigation.tabs.sticky", "navigation.top", "content.code.copy", "content.code.annotate", "content.action.edit", "content.action.view", "content.tooltips", "search.highlight", "search.suggest", "toc.follow", "announce.dismiss"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
-        <script src="../../assets/javascripts/panzoom.min.js"></script>
+        <script src="../assets/javascripts/panzoom.min.js"></script>
       
-        <script src="../../assets/javascripts/zoompan.js"></script>
+        <script src="../assets/javascripts/zoompan.js"></script>
       
     
   </body>
