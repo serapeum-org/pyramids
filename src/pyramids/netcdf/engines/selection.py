@@ -1689,7 +1689,8 @@ class Selection(_Engine["NetCDF"]):
             dim: The band dimension to de-duplicate.
             keep: `"first"` (default) keeps the first plane written for a repeated stamp,
                 `"last"` the last one, and `False` drops every stamp that repeats, as
-                pandas' `drop_duplicates` does.
+                pandas' `drop_duplicates` does. A repeated NaN stamp counts as a repeat,
+                as it does in xarray, even though NaN equals nothing.
 
         Returns:
             NetCDF: A variable with each stamp at most once.
@@ -1740,7 +1741,9 @@ class Selection(_Engine["NetCDF"]):
                 f"drop_duplicates() takes keep='first', 'last' or False, got {keep!r}."
             )
         nc = self._ds
-        coords = list(_coordinates_of(nc, dim, "drop_duplicates"))
+        coords = [
+            _stamp_key(stamp) for stamp in _coordinates_of(nc, dim, "drop_duplicates")
+        ]
         counts: dict[Any, int] = {}
         for stamp in coords:
             counts[stamp] = counts.get(stamp, 0) + 1
@@ -4562,6 +4565,26 @@ def _mask_positions(
                 f"variable with no bands, which GDAL has no raster for."
             )
     return positions
+
+
+def _stamp_key(stamp: Any) -> Any:
+    """A stamp as something that can be counted, NaN included.
+
+    NaN equals nothing, itself included, so two NaN stamps landed in two dictionary
+    entries of one each and a repeated NaN was never a duplicate — the case
+    `keep=False` exists for. `NetCDF._dimension_holds` treats two NaNs at the same
+    position as agreeing for the same reason.
+
+    Args:
+        stamp: One coordinate value.
+
+    Returns:
+        Any: The stamp, or a marker standing for "not a number".
+    """
+    key = stamp
+    if isinstance(stamp, float) and stamp != stamp:
+        key = ("nan",)
+    return key
 
 
 def _as_a_sequence_of_positions(selector: Any) -> Any:

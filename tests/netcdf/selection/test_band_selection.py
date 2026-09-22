@@ -495,6 +495,21 @@ class TestDropDuplicates:
         """Nothing to drop is the identity."""
         assert _stamps(_variable().drop_duplicates("time")) == TIMES
 
+    def test_a_repeated_nan_stamp_is_a_repeat(self):
+        """NaN equals nothing, itself included, so it was never counted as a duplicate.
+
+        Test scenario:
+            `da.drop_duplicates("t")` on stamps `[0, nan, nan, 1]` answers `[0, nan, 1]`
+            on xarray 2026.7.0; both spellings here kept all four, and `keep=False` —
+            documented as dropping every stamp that repeats — kept the repeated NaN too.
+        """
+        variable = _variable(times=[0.0, float("nan"), float("nan"), 1.0])
+        kept = _stamps(variable.drop_duplicates("time"))
+        assert len(kept) == 3, f"the repeated NaN survived: {kept}"
+        assert kept[0] == 0.0 and kept[-1] == 1.0
+        dropped = _stamps(variable.drop_duplicates("time", keep=False))
+        assert dropped == [0.0, 1.0], f"keep=False left {dropped}"
+
     def test_an_unknown_keep_is_refused(self):
         """Only `"first"`, `"last"` and `False` mean anything."""
         variable = _variable(self.DUPLICATED)
