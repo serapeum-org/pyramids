@@ -12461,10 +12461,12 @@ class NetCDF(Dataset):
     ) -> gdal.Dimension:
         """Reuse an existing dimension or create a new one.
 
-        If a dimension with `dim_name` already exists in the root group
-        and has the same size as `values`, it is returned directly.
-        On size mismatch, a new dimension with a `_{size}` suffix is
-        created to avoid conflicts.
+        A dimension with `dim_name` is reused only when it holds **the same coordinate
+        values** in the same order, not merely the same number of them. Matching on the
+        size alone silently mislabelled every variable written back on a reordered axis:
+        `sortby("time", ascending=False)` followed by `set_variable` kept the store's own
+        `[0, 6, 12, 18]`, so each plane landed on the wrong stamp. On any mismatch — a
+        different length or different values — a suffixed dimension is created instead.
 
         Args:
             rg: The root group of the multidimensional dataset.
@@ -12477,15 +12479,71 @@ class NetCDF(Dataset):
         Returns:
             gdal.Dimension: The reused or newly created dimension.
         """
-        for existing_dim in rg.GetDimensions() or []:
-            if existing_dim.GetName() == dim_name:
-                if existing_dim.GetSize() == len(values):
-                    return existing_dim
-                # Size mismatch — need a new dimension with a unique name
-                dim_name = f"{dim_name}_{len(values)}"
-                break
+        existing = {
+            dimension.GetName(): dimension for dimension in rg.GetDimensions() or []
+        }
+        reused = existing.get(dim_name)
+        if reused is not None and not NetCDF._dimension_holds(reused, values):
+            reused = None
+            dim_name = NetCDF._unused_dimension_name(existing, dim_name, len(values))
+        return (
+            reused
+            if reused is not None
+            else NetCDF.create_main_dimension(rg, dim_name, dtype, values)
+        )
 
-        return NetCDF.create_main_dimension(rg, dim_name, dtype, values)
+    @staticmethod
+    def _dimension_holds(dimension: gdal.Dimension, values: np.ndarray) -> bool:
+        """Whether an existing dimension already carries exactly `values`, in order.
+
+        A dimension with no indexing variable carries no values to disagree with, so it
+        matches on size alone — that is the axis `isel` exists to serve, and a WRF
+        `bottom_top` is one.
+
+        Args:
+            dimension: The dimension found under the wanted name.
+            values: The coordinate values about to be written.
+
+        Returns:
+            bool: `True` when the dimension can be reused as it stands.
+        """
+        holds = bool(dimension.GetSize() == len(values))
+        if holds:
+            stored = NetCDF._read_band_dim_values(dimension)
+            if stored is not None:
+                wanted = list(np.asarray(values).ravel().tolist())
+                # `one != one` is the NaN test: a NaN stamp equals nothing, itself
+                # included, and two axes that both carry one at the same position agree.
+                holds = len(stored) == len(wanted) and all(
+                    one == other or (one != one and other != other)
+                    for one, other in zip(stored, wanted)
+                )
+        return holds
+
+    @staticmethod
+    def _unused_dimension_name(
+        existing: dict[str, Any], dim_name: str, size: int
+    ) -> str:
+        """A dimension name nothing in the group has taken yet.
+
+        `<name>_<size>` first, which is what a length mismatch has always produced, then
+        `<name>_<size>_2`, `_3` and so on — a reordered axis has the *same* length as the
+        one it clashes with, so the plain suffix can be taken as well.
+
+        Args:
+            existing: The group's dimensions, by name.
+            dim_name: The wanted name.
+            size: How many values the new dimension holds.
+
+        Returns:
+            str: A free name.
+        """
+        candidate = f"{dim_name}_{size}"
+        attempt = 2
+        while candidate in existing:
+            candidate = f"{dim_name}_{size}_{attempt}"
+            attempt += 1
+        return candidate
 
     @property
     def global_attributes(self) -> dict[str, Any]:

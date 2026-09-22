@@ -533,6 +533,87 @@ class TestADimensionWithoutCoordinates:
         )
 
 
+class TestWritingAReorderedAxisBack:
+    """`sortby` then `set_variable` is the canonical workflow, and it must not mislabel.
+
+    A store dimension was reused whenever its name and size matched, without comparing what
+    it holds, so a variable written back under a reordered `time` kept the store's original
+    stamps and every plane landed on the wrong one. One netCDF dimension cannot hold two
+    orders at once, so the reordered axis is written as a dimension of its own.
+    """
+
+    @staticmethod
+    def _written(name: str, call) -> tuple[NetCDF, NetCDF, NetCDF]:
+        """Write a derived variable into the CF store and read it back.
+
+        Args:
+            name: The variable name to write under.
+            call: Builds the variable to write from the source cube.
+
+        Returns:
+            tuple: The container, the source cube and the variable read back.
+        """
+        container = NetCDF.read_file(str(CF_STORE))
+        cube = container["temperature"]
+        container.set_variable(name, call(cube))
+        return container, cube, container.get_variable(name)
+
+    def test_the_stamps_follow_the_planes(self):
+        """The written variable reads back on the order it was written with."""
+        _, _, back = self._written(
+            "reordered", lambda cube: cube.sortby("time", ascending=False)
+        )
+        dim = back._band_dim_names[0]
+        assert list(back._band_dim_values_map[dim]) == [18.0, 12.0, 6.0, 0.0], (
+            f"the written axis reads back as {back._band_dim_values_map[dim]}"
+        )
+
+    def test_the_reordered_axis_is_a_dimension_of_its_own(self):
+        """The store's `time` still holds `[0, 6, 12, 18]` for every other variable."""
+        container, cube, back = self._written(
+            "reordered", lambda c: c.sortby("time", ascending=False)
+        )
+        assert back._band_dim_names[0] != "time", (
+            "a reordered axis cannot be the store's own time dimension"
+        )
+        assert _stamps(container["temperature"]) == TIMES, (
+            "the source variable's own axis must be untouched"
+        )
+
+    def test_each_plane_is_on_its_own_stamp(self):
+        """Selecting 18.0 from the written variable gives the source's 18.0 plane."""
+        _, cube, back = self._written(
+            "reordered", lambda c: c.sortby("time", ascending=False)
+        )
+        dim = back._band_dim_names[0]
+        assert np.array_equal(
+            np.asarray(back.sel(**{dim: 18.0}).read_array()),
+            np.asarray(cube.sel(time=18.0).read_array()),
+        ), "the plane written under 18.0 is not the source's 18.0 plane"
+
+    def test_a_reversing_isel_writes_back_the_same_way(self):
+        """The sibling that reverses an axis without sorting it."""
+        _, _, back = self._written(
+            "reversed", lambda cube: cube.isel(time=slice(None, None, -1))
+        )
+        dim = back._band_dim_names[0]
+        assert list(back._band_dim_values_map[dim]) == [18.0, 12.0, 6.0, 0.0]
+
+    def test_an_unchanged_axis_still_reuses_the_store_dimension(self):
+        """A variable written back on the store's own order must not gain a second axis."""
+        _, cube, back = self._written("copy", lambda c: c)
+        assert back._band_dim_names == cube._band_dim_names, (
+            f"the copy gained new axes: {back._band_dim_names}"
+        )
+        assert _stamps(back) == TIMES
+
+    def test_a_cut_axis_still_writes_under_its_own_name(self):
+        """A shorter axis was already given a dimension of its own, and still is."""
+        _, _, back = self._written("cut", lambda cube: cube.isel(time=[0, 1]))
+        dim = back._band_dim_names[0]
+        assert list(back._band_dim_values_map[dim]) == [0.0, 6.0]
+
+
 class TestALazyReadOfACutVariable:
     """A cut variable no longer reads as its store, and the lazy path must say so.
 
