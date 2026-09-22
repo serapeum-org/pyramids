@@ -1389,6 +1389,8 @@ class Selection(_Engine["NetCDF"]):
         Raises:
             ValueError: No indexers were given, a dimension is not a band dimension, or
                 every step would be dropped — a variable with no bands cannot be built.
+                Dropping *nothing* (an empty list, or a slice that selects nothing) is not
+                an error: it keeps every step, as xarray's does.
             IndexError: A position is outside the dimension.
             TypeError: A selector is not one `isel` accepts.
 
@@ -1437,7 +1439,12 @@ class Selection(_Engine["NetCDF"]):
         for dim_name, selector in indexers.items():
             _assert_band_dimension(nc, dim_name, caller="drop_isel")
             size = nc._band_dim_sizes[nc._band_dim_names.index(dim_name)]
-            dropped = set(_resolve_positional_indices(selector, size, dim_name))
+            # Dropping nothing keeps everything, so an empty selector is a no-op copy
+            # here where `isel` refuses it: `drop_isel(time=[])` is not a request for a
+            # variable with no bands.
+            dropped = set(
+                _resolve_positional_indices(selector, size, dim_name, allow_empty=True)
+            )
             keep[dim_name] = [i for i in range(size) if i not in dropped]
         return _kept(nc, keep, "drop_isel")
 
@@ -4504,7 +4511,9 @@ def _resolve_one_dim(
     return dim_indices
 
 
-def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list[int]:
+def _resolve_positional_indices(
+    selector: Any, size: int, dim_name: str, *, allow_empty: bool = False
+) -> list[int]:
     """Turn one `isel` selector into ascending, deduplicated positions along an axis.
 
     Accepts Python's own index types and nothing else: an `int`, a `list` or `tuple` of
@@ -4520,6 +4529,9 @@ def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list
         selector: An `int`, a `list`/`tuple` of `int`, or a `slice`.
         size: The length of the axis, used to normalise negatives and to bound-check.
         dim_name: The dimension's name, for the error messages.
+        allow_empty: `True` when selecting nothing is a legitimate answer — `drop_isel`,
+            where dropping nothing keeps every step. `False` (default) refuses it, since
+            `isel` of nothing would build a variable with no bands.
 
     Returns:
         list[int]: The positions to keep. A list or an int resolves to ascending,
@@ -4592,15 +4604,23 @@ def _resolve_positional_indices(selector: Any, size: int, dim_name: str) -> list
           ```
     """
     if isinstance(selector, slice):
-        return list(range(*selector.indices(size))) or _refuse_empty_selection(
-            selector, dim_name, size
+        sliced = list(range(*selector.indices(size)))
+        return (
+            sliced
+            if sliced or allow_empty
+            else _refuse_empty_selection(selector, dim_name, size)
         )
     wanted = list(selector) if isinstance(selector, (list, tuple)) else [selector]
     positions = {
         _normalise_index(_as_index(value, selector, dim_name), size, dim_name)
         for value in wanted
     }
-    return sorted(positions) or _refuse_empty_selection(selector, dim_name, size)
+    resolved = sorted(positions)
+    return (
+        resolved
+        if resolved or allow_empty
+        else _refuse_empty_selection(selector, dim_name, size)
+    )
 
 
 def _is_boolean(value: Any) -> bool:

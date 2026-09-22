@@ -216,6 +216,28 @@ class TestDropIsel:
         with pytest.raises(ValueError, match="no bands"):
             variable.drop_isel(time=[0, 1, 2, 3])
 
+    @pytest.mark.parametrize(
+        ("label", "selector"),
+        [("an empty list", []), ("a slice past the end", slice(5, 9))],
+    )
+    def test_dropping_nothing_keeps_everything(self, label: str, selector):
+        """Dropping nothing is not a request for a variable with no bands.
+
+        Test scenario:
+            Both spellings were refused with `isel`'s own message — "isel(time=[]) selects
+            no index of an axis of length 4" — naming a member the caller never called and
+            giving a reason that is the opposite of what would happen. xarray 2026.7.0
+            keeps the whole axis for `drop_isel(time=np.array([], dtype=int))`, and raises
+            `IndexError: arrays used as indices must be of integer (or boolean) type` for
+            a bare `[]` or a slice, which is a numpy indexing artefact rather than a
+            contract worth copying.
+
+        Args:
+            label: What the selector is.
+            selector: The selector under test.
+        """
+        assert _stamps(_variable().drop_isel(time=selector)) == TIMES, label
+
     def test_an_out_of_range_position_is_refused(self):
         """A position outside the axis is an error, as it is in `isel`."""
         variable = _variable()
