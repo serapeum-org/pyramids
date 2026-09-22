@@ -3147,7 +3147,7 @@ class Analysis(_Engine["Dataset"]):
         `False` whatever it is asked for.
 
         Args:
-            test_elements: One value, or a sequence of them.
+            test_elements: One value, or a sequence of them — a list, tuple, set or array.
 
         Returns:
             Dataset: A `uint8` raster on this one's grid, declaring no no-data value.
@@ -3188,7 +3188,15 @@ class Analysis(_Engine["Dataset"]):
         """
         self._refuse_a_container("isin")
         values, _, domain = self._operand_arrays(self._ds, None)
-        flags = np.isin(values, np.asarray(test_elements)) & domain
+        # A `set` survives `np.asarray` as a 0-d object array holding the set itself, so
+        # every comparison is False and the flags come back all zero — which reads as a
+        # `where` condition that blanks the raster. Spelled as a list, it compares.
+        wanted = (
+            list(test_elements)
+            if isinstance(test_elements, (set, frozenset))
+            else test_elements
+        )
+        flags = np.isin(values, np.asarray(wanted)) & domain
         return self._identified(self._rebuilt(flags.astype("uint8"), None))
 
     def _refuse_a_container(self, caller: str) -> None:

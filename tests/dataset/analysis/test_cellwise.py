@@ -484,6 +484,17 @@ class TestIsin:
             equal_nan=True,
         )
 
+    def test_a_set_is_a_sequence_of_values(self):
+        """A set survives `np.asarray` as an object scalar, and flagged nothing.
+
+        Test scenario:
+            `isin({2.0, 5.0})` answered all zeros — a `where` condition that blanks the
+            raster — while `isin([2.0, 5.0])` flagged two cells. The same hazard the label
+            members were taught to read a set for.
+        """
+        flags = np.asarray(_raster().isin({2.0, 5.0}).read_array())
+        assert flags.ravel().tolist() == [0, 1, 0, 0, 1, 0, 0, 0]
+
     def test_a_scalar_is_one_value(self):
         """A bare number is the set of that one number."""
         flags = np.asarray(_raster().isin(6.0).read_array())
