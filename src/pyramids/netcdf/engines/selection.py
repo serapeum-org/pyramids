@@ -1223,6 +1223,27 @@ class Selection(_Engine["NetCDF"]):
               [0.0, 6.0]
 
               ```
+            - xarray's positional spellings, which apply to every band dimension:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.head(2)._band_dim_values_map["time"]
+              [0.0, 6.0]
+              >>> var.head({"time": 3})._band_dim_values_map["time"]
+              [0.0, 6.0, 12.0]
+              >>> var.head(2, time=2)
+              Traceback (most recent call last):
+                  ...
+              ValueError: head() takes either a count or head(dimension=n) keywords, not both...
+
+              ```
             - Zero steps is refused — GDAL has no raster of no bands:
 
               ```python
@@ -1411,6 +1432,21 @@ class Selection(_Engine["NetCDF"]):
               ... ).get_variable("t")
               >>> var.drop_isel(time=1)._band_dim_values_map["time"]
               [0.0, 12.0, 18.0]
+
+              ```
+            - Dropping nothing keeps everything, where `isel` of nothing is refused:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.drop_isel(time=[])._band_dim_values_map["time"]
+              [0.0, 6.0, 12.0, 18.0]
 
               ```
             - A list drops several positions; a negative one counts from the end, as in `isel`:
@@ -1817,6 +1853,21 @@ class Selection(_Engine["NetCDF"]):
               >>> lifted = flat.expand_dims("time", 6.0)
               >>> lifted._band_dim_names, lifted._band_dim_values_map["time"]
               (('time',), [6.0])
+
+              ```
+            - With no value the dimension carries no coordinates, as xarray's does:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> flat = NetCDF.from_array(
+              ...     np.ones((1, 1)),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ... ).get_variable("t")
+              >>> lifted = flat.expand_dims("member")
+              >>> lifted._band_dim_names, lifted._band_dim_values_map["member"]
+              (('member',), None)
 
               ```
             - Two flat rasters lifted onto `time`, then joined into a cube:
