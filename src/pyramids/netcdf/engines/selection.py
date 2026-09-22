@@ -185,6 +185,12 @@ class Selection(_Engine["NetCDF"]):
         Returns:
             NetCDF: Cropped container or variable subset.
 
+        Note:
+            The result sits on a **new grid**, so its spatial axes come back named
+            ``y`` / ``x`` rather than the source's — see
+            :meth:`pyramids.netcdf.NetCDF.to_crs` for why, and for the members that keep
+            the source's names.
+
         Raises:
             ValueError: Both ``mask`` and ``bbox`` were supplied, or
                 ``chunks`` was given on a root container or a rectilinear

@@ -8027,7 +8027,9 @@ class NetCDF(Dataset):
         return result
 
     @staticmethod
-    def _carried_axis_metadata(source: NetCDF | None) -> tuple:
+    def _carried_axis_metadata(
+        source: NetCDF | None,
+    ) -> tuple[tuple[str, str] | None, dict[str, dict[str, str]] | None]:
         """What a rebuilt store should say about its axes, taken from the source.
 
         Two things a rebuild used to invent rather than carry:
@@ -8048,19 +8050,19 @@ class NetCDF(Dataset):
             tuple: `(spatial_names, dim_attrs)`, either of which is `None` when the source
             says nothing about it.
         """
-        if source is None:
-            return None, None
-        try:
-            names = _interop._public_spatial_names(source)
-        except AttributeError:
-            # The documented case: an object that never grew the `_md_array_dims` the
-            # resolution reads. Nothing wider is caught, because a `TypeError` or an
-            # `IndexError` from that code is a defect in it, and swallowing one here
-            # would rename the axes back to `y` / `x` — the #1180 symptom — silently.
-            names = None
-        return names, NetCDF._cf_axis_attributes(
-            source._resolved_band_dim_time_attrs()
-        )
+        names = None
+        attrs = None
+        if source is not None:
+            try:
+                names = _interop._public_spatial_names(source)
+            except AttributeError:
+                # The documented case: an object that never grew the `_md_array_dims` the
+                # resolution reads. Nothing wider is caught, because a `TypeError` or an
+                # `IndexError` from that code is a defect in it, and swallowing one here
+                # would rename the axes back to `y` / `x` — the #1180 symptom — silently.
+                names = None
+            attrs = NetCDF._cf_axis_attributes(source._resolved_band_dim_time_attrs())
+        return names, attrs
 
     @staticmethod
     def _cf_axis_attributes(time_attrs: dict | None) -> dict | None:
@@ -8145,9 +8147,7 @@ class NetCDF(Dataset):
             # refuses attributes addressed to an axis that is not there, which is a
             # caller's typo and not this.
             dim_attrs = {
-                dim: written
-                for dim, written in dim_attrs.items()
-                if dim in band_names
+                dim: written for dim, written in dim_attrs.items() if dim in band_names
             } or None
         if result is None:
             result = NetCDF.from_array(
@@ -8215,6 +8215,25 @@ class NetCDF(Dataset):
 
         Returns:
             NetCDF: Reprojected container or variable subset.
+
+        Notes:
+            The result sits on a **new grid**, so its spatial axes are named `y` / `x`
+            rather than the source's. A member that keeps the grid — `coarsen`, `reduce`,
+            `rolling`, `cumsum`, `diff` — keeps the names with it:
+
+            ```python
+            >>> source.dimension_names              # doctest: +SKIP
+            ['latitude', 'longitude', 'time']
+            >>> source.coarsen("time", 2).dimension_names   # doctest: +SKIP
+            ['latitude', 'longitude', 'time']
+            >>> source.to_crs(3857).dimension_names         # doctest: +SKIP
+            ['time', 'x', 'y']
+
+            ```
+
+            Carrying `latitude` / `longitude` onto a reprojected grid would name axes
+            after coordinates they no longer hold, so the rename is deliberate. It is the
+            same for `resample` and `crop`.
         """
         if self._is_root_container:
             result = self._apply_to_all_variables(
@@ -8703,6 +8722,10 @@ class NetCDF(Dataset):
 
         Returns:
             NetCDF: Resampled container or variable subset.
+
+        See Also:
+            - :meth:`to_crs`: Why the result's spatial axes come back as `y` / `x` while
+              `coarsen` and `reduce` keep the source's names.
         """
         if self._is_root_container:
             result = self._apply_to_all_variables(

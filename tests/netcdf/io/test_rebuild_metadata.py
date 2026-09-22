@@ -612,7 +612,9 @@ class TestAJoinKeepsTheAgreedCalendar:
     """`concat` and `merge` write the units their parts agree on, and only those."""
 
     @staticmethod
-    def _cube(values: list[float], stamps: list[float], units, name: str = "t") -> NetCDF:
+    def _cube(
+        values: list[float], stamps: list[float], units, name: str = "t"
+    ) -> NetCDF:
         """A one-cell cube whose `time` declares `units`, or nothing.
 
         Args:
@@ -671,8 +673,12 @@ class TestAJoinKeepsTheAgreedCalendar:
         """
         joined = NetCDF.concat(
             [
-                self._cube([1.0, 2.0], [0.0, 6.0], ("hours since 2020-01-01", CALENDAR)),
-                self._cube([3.0, 4.0], [12.0, 18.0], ("days since 1990-01-01", CALENDAR)),
+                self._cube(
+                    [1.0, 2.0], [0.0, 6.0], ("hours since 2020-01-01", CALENDAR)
+                ),
+                self._cube(
+                    [3.0, 4.0], [12.0, 18.0], ("days since 1990-01-01", CALENDAR)
+                ),
             ],
             "time",
         )
@@ -711,10 +717,16 @@ class TestAJoinKeepsTheAgreedCalendar:
         merged = NetCDF.merge(
             [
                 self._cube(
-                    [1.0, 2.0], [0.0, 6.0], ("hours since 2020-01-01", CALENDAR), name="a"
+                    [1.0, 2.0],
+                    [0.0, 6.0],
+                    ("hours since 2020-01-01", CALENDAR),
+                    name="a",
                 ),
                 self._cube(
-                    [3.0, 4.0], [0.0, 6.0], ("days since 1990-01-01", CALENDAR), name="b"
+                    [3.0, 4.0],
+                    [0.0, 6.0],
+                    ("days since 1990-01-01", CALENDAR),
+                    name="b",
                 ),
             ]
         )
@@ -756,7 +768,10 @@ class TestAnUnlabelledAxisIsNotStamped:
         Args:
             tmp_path: pytest's temporary directory.
         """
-        assert _time_attrs(self._written([0.0, 6.0, 12.0], tmp_path)) == (UNITS, CALENDAR)
+        assert _time_attrs(self._written([0.0, 6.0, 12.0], tmp_path)) == (
+            UNITS,
+            CALENDAR,
+        )
 
     def test_fabricated_positions_are_not(self, tmp_path):
         """`None` values become `[0, 1, 2]`, which are positions, not hours since 1900.
@@ -895,3 +910,63 @@ class TestTheNewInputsAreChecked:
             "latitude",
             "longitude",
         ]
+
+
+class TestWhichMembersKeepTheNames:
+    """The split `to_crs`' docstring describes: the grid decides, not the member."""
+
+    @staticmethod
+    def _named() -> NetCDF:
+        """A small store on `latitude` / `longitude`.
+
+        Returns:
+            NetCDF: The store.
+        """
+        return NetCDF.from_array(
+            np.arange(24.0).reshape(3, 2, 4),
+            geo_ref=GeoReference(geo=(10.0, 2.0, 0.0, 50.0, 0.0, -2.0), epsg=4326),
+            variable_name="t",
+            spatial_names=("latitude", "longitude"),
+        )
+
+    @pytest.mark.parametrize(
+        ("member", "call"),
+        [
+            ("coarsen", lambda nc: nc.coarsen("time", 3)),
+            ("cumsum", lambda nc: nc.cumsum("time")),
+        ],
+    )
+    def test_a_result_on_the_same_grid_keeps_them(self, member: str, call):
+        """The cells change, the grid does not, so the names still describe it.
+
+        Args:
+            member: The member under test.
+            call: How to call it.
+        """
+        names = sorted(call(self._named()).dimension_names)
+        assert names == ["latitude", "longitude", "time"], f"{member}: {names}"
+
+    @pytest.mark.parametrize(
+        ("member", "call"),
+        [
+            ("to_crs", lambda nc: nc.to_crs(3857)),
+            ("resample", lambda nc: nc.resample(4.0)),
+        ],
+    )
+    def test_a_result_on_a_new_grid_is_named_y_and_x(self, member: str, call):
+        """`latitude` on a web-mercator grid would name an axis after metres.
+
+        Args:
+            member: The member under test.
+            call: How to call it.
+        """
+        names = sorted(call(self._named()).dimension_names)
+        assert names == ["time", "x", "y"], f"{member}: {names}"
+
+    def test_a_crop_is_a_new_grid_too(self):
+        """Documented on `Selection.crop`, and the reason it is worth documenting."""
+        mask = Dataset.from_array(
+            np.ones((2, 2)),
+            geo_ref=GeoReference(geo=(10.0, 2.0, 0.0, 50.0, 0.0, -2.0), epsg=4326),
+        )
+        assert sorted(self._named().crop(mask).dimension_names) == ["time", "x", "y"]
