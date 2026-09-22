@@ -28,6 +28,7 @@ import geopandas as gpd
 import numpy as np
 from shapely import box, contains_xy
 
+from pyramids.base._axes import X_AXIS_NAMES, Y_AXIS_NAMES
 from pyramids.base._utils import carry_band_packing
 from pyramids.base.crs import crs_equal, crs_spec, sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
@@ -5029,25 +5030,35 @@ def _refuse_a_container(nc: NetCDF, caller: str) -> None:
 
 
 def _spatial_dimension_names(nc: NetCDF) -> set[str]:
-    """The names of `nc`'s spatial axes — its own, and its store's.
+    """The names of `nc`'s spatial axes — its own, and the grid axes of its store.
 
-    A variable's dimensions are its band dimensions plus the two that make up the grid, so
-    what is left after the band ones are removed is spatial. The parent container's are
-    taken too: a name that is a spatial axis of the store is one `set_variable` would
-    collide with even when this variable does not carry that axis itself.
+    Two sources, each asked only what it can answer:
+
+    - the variable's own dimensions minus its own band dimensions, which is the pair that
+      makes up its grid — often a materialised spelling such as `subset_lat_4_-1_5`;
+    - the parent container's dimensions that *name* a grid axis (`lat`, `lon`, `y`, `x`,
+      `rlat`, `easting`, …), since a store's own spatial axes keep their plain names.
+
+    The parent's **non**-spatial dimensions are deliberately not taken. Subtracting this
+    variable's band dimensions from the parent's whole list called every other axis
+    spatial, `time` included, so `squeeze()` on a store variable — whose own dimension
+    list is empty, being freshly built in memory — could not be undone by `expand_dims`,
+    the inverse the two docstrings point at.
 
     Args:
         nc: The variable.
 
     Returns:
-        set[str]: The spatial names, empty when the store declares no dimension names.
+        set[str]: The spatial names, empty when nothing declares any.
     """
-    names: set[str] = set()
-    for candidate in (nc, getattr(nc, "_parent_nc", None)):
-        if candidate is None:
-            continue
-        declared = candidate.dimension_names or []
-        names.update(set(declared) - set(nc._band_dim_names))
+    names = set(nc.dimension_names or []) - set(nc._band_dim_names)
+    parent = getattr(nc, "_parent_nc", None)
+    if parent is not None:
+        names.update(
+            name
+            for name in (parent.dimension_names or [])
+            if name.lower() in X_AXIS_NAMES or name.lower() in Y_AXIS_NAMES
+        )
     return names
 
 

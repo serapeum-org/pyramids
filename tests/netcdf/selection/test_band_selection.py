@@ -540,6 +540,28 @@ class TestExpandDims:
         with pytest.raises(ValueError, match="spatial"):
             cube.expand_dims("lat")
 
+    def test_a_squeezed_store_variable_can_be_lifted_back(self):
+        """`squeeze` and `expand_dims` are documented as each other's inverse.
+
+        Test scenario:
+            The spatial check subtracted the *variable's* band dimensions from the
+            *parent's* whole dimension list, so every store dimension the squeezed result
+            no longer carried — `time` included — counted as spatial, and putting the axis
+            back was refused with "'time' is a spatial axis".
+        """
+        cube = NetCDF.read_file(str(CF_STORE))["temperature"]
+        step = cube.isel(time=[0]).squeeze()
+        assert step._band_dim_names == ("pressure_level",)
+        back = step.expand_dims("time", 0.0)
+        assert back._band_dim_names == ("time", "pressure_level")
+        assert _stamps(back) == [0.0]
+
+    def test_a_store_spatial_axis_is_still_refused(self):
+        """The refusal the narrowing must not lose: the store's own `lat`."""
+        cube = NetCDF.read_file(str(CF_STORE))["temperature"]
+        with pytest.raises(ValueError, match="spatial"):
+            cube.expand_dims("lat")
+
     def test_a_list_value_is_refused(self):
         """xarray's `expand_dims(member=[0.0, 1.0])` builds a length-2 axis; this cannot.
 
