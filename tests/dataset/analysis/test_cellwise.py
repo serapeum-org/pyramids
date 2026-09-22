@@ -699,33 +699,53 @@ class TestClipRefusesANonNumberBound:
         )
 
 
-class TestASentinelAFloatCannotRepresentExactly:
-    """A gap is marked by an exact value, so a sentinel that drifts marks the wrong cells.
+class TestASentinelSnappedToTheNewType:
+    """A float sentinel is snapped to the target, and the result declares what it wrote.
 
-    `_holds` asked only whether a value was inside the type's range, so a sentinel the type
-    rounds to something else was accepted and quietly changed — and the value it landed on
-    then read as missing.
+    A float64 raster marked `-9999.9` is the ordinary case for a downcast to float32, and
+    the value the cast can hold is `-9999.900390625`. Declaring that, and writing it into
+    the gaps, keeps every gap a gap. Refusing the cast instead — on the grounds that the
+    sentinel is not bit-exact — blocked the commonest reason to call `astype` at all,
+    including the netCDF fill value `9.96921e+36`.
     """
 
-    def test_a_sentinel_that_rounds_to_another_value_is_refused(self):
-        """`1e-50` is inside float32's range but rounds to `0.0`, which is real data here."""
+    @pytest.mark.parametrize("sentinel", [-9999.9, -999.9, 9.96921e36, 1e20])
+    def test_an_inexact_sentinel_is_snapped_not_refused(self, sentinel: float):
+        """The cast goes ahead, and the gap is still the gap.
+
+        Args:
+            sentinel: The declared no-data value, none of them exact in float32.
+        """
+        raster = _raster(np.array([[1.0, sentinel]]), no_data_value=sentinel)
+        cast = raster.astype("float32")
+        declared = float(cast.no_data_value[0])
+        assert declared == float(np.float32(sentinel)), (
+            f"the declaration should be the snapped value, got {declared}"
+        )
+        assert np.asarray(cast.isnull().read_array()).ravel().tolist() == [0, 1], (
+            "the snapped sentinel must still mark exactly the gap cell"
+        )
+
+    def test_a_sentinel_that_snaps_onto_data_is_still_refused(self):
+        """`1e-50` snaps to `0.0`, and this raster holds a real `0.0`."""
         raster = _raster(np.array([[0.0, 1e-50, 2.0]]), no_data_value=1e-50)
-        with pytest.raises(ValueError, match="no_data_value"):
+        with pytest.raises(ValueError, match="already hold"):
             raster.astype("float32")
 
-    def test_float16_refuses_the_default_sentinel(self):
-        """`-9999` is inside float16's range but stores as `-10000.0`.
+    def test_float16_snaps_the_default_sentinel(self):
+        """`-9999` is inside float16's range and stores as `-10000.0`."""
+        cast = _raster().astype("float16")
+        assert float(cast.no_data_value[0]) == -10000.0
+        assert np.asarray(cast.isnull().read_array()).sum() == 1
 
-        Test scenario:
-            The cast used to declare `-10000.0` as the gap marker, so a real `-10000.0`
-            read as missing while the cells marked `-9999` no longer did.
-        """
-        raster = _raster()
+    def test_a_sentinel_past_the_range_is_still_refused(self):
+        """`-99999` is beyond float16 entirely, and no snapping saves it."""
+        raster = _raster(np.array([[1.0, -99999.0]]), no_data_value=-99999.0)
         with pytest.raises(ValueError, match="no_data_value"):
             raster.astype("float16")
 
-    def test_an_exactly_representable_sentinel_still_passes(self):
-        """`-9999` is exact in float32, and that cast is unaffected."""
+    def test_an_exact_sentinel_is_unchanged(self):
+        """`-9999` is exact in float32, and that cast is untouched."""
         cast = _raster().astype("float32")
         assert float(cast.no_data_value[0]) == NDV
         assert np.asarray(cast.isnull().read_array()).sum() == 1
@@ -773,9 +793,9 @@ class TestHolds:
             ("float32", np.inf, True),
             ("float16", -99999.0, False),
             ("float16", 65504.0, True),
-            ("float16", -9999.0, False),
-            ("float32", 1e-50, False),
-            ("float32", 0.1, False),
+            ("float16", -9999.0, True),
+            ("float32", 1e-50, True),
+            ("float32", 0.1, True),
             ("float64", 0.1, True),
             ("float32", -np.inf, True),
             ("uint8", 255, True),
@@ -788,8 +808,8 @@ class TestHolds:
         ],
     )
     def test_the_rule(self, dtype: str, value, expected: bool):
-        """A float holds a value it can represent **exactly** and every non-finite one; an
-        integer only a whole number inside its range.
+        """A float takes anything inside its range and every non-finite value; an integer
+        only a whole number inside its range.
 
         Args:
             dtype: The target type.

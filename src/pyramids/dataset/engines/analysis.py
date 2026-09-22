@@ -283,31 +283,31 @@ def _refuse_a_sentinel_the_data_holds(
 
 
 def _holds(target: np.dtype, value: Any) -> bool:
-    """Whether `target` holds `value` exactly, so it can mark a gap.
+    """Whether `target` can carry `value` as a sentinel at all.
 
-    Exactly, not approximately: a gap is recognised by comparing a cell against the
-    declared sentinel, so a value the type rounds to something else marks the cells that
-    hold *that* value instead. `1e-50` is inside `float32`'s range and stores as `0.0`,
-    which is ordinary data; `-9999.0` is inside `float16`'s range and stores as
-    `-10000.0`.
+    A float target takes any value inside its range: the sentinel is **snapped** to the
+    type on the way in (`-9999.9` into `float32` is declared and written as
+    `-9999.900390625`), and `is_stored_no_data` recognises a gap with the slack a sentinel
+    picks up passing through storage, so a value that merely loses precision marks exactly
+    the cells it should. What must not happen is a snapped sentinel landing on a cell that
+    holds data — `1e-50` into `float32` snaps to `0.0` — and that is
+    :func:`_refuse_a_sentinel_the_data_holds`'s question, asked of the cast cells rather
+    than guessed from the type.
+
+    An integer target is stricter, because no snapping keeps a gap a gap there: a fraction
+    or an out-of-range value wraps into an ordinary number.
 
     Args:
         target: The band type.
         value: The candidate sentinel.
 
     Returns:
-        bool: `True` for a float type and any value it represents exactly, NaN and the
+        bool: `True` for a float type and any value inside its range, NaN and the
         infinities included; for an integer type, only a whole number inside its range.
     """
     number = float(value)
     if np.issubdtype(target, np.floating):
-        # The range test comes first: casting a magnitude the type cannot reach warns
-        # `overflow encountered in cast` before answering `inf`, and a library should not
-        # make numpy complain to decide something it can decide by comparison.
-        limit = float(np.finfo(target).max)
-        fits = not np.isfinite(number) or (
-            abs(number) <= limit and float(target.type(number)) == number
-        )
+        fits = not np.isfinite(number) or abs(number) <= float(np.finfo(target).max)
     else:
         limits = np.iinfo(target)
         fits = (
@@ -3043,9 +3043,10 @@ class Analysis(_Engine["Dataset"]):
             dtype: The target type — anything `numpy.dtype` accepts that GDAL can store as a
                 real number: signed or unsigned integers, or floats.
             no_data_value: The sentinel the result declares. Left out, it is the raster's
-                own, provided the new type can hold it. Pass one when it cannot, or `None`
-                for a result that declares none — which a gap-holding raster allows only
-                into a float type.
+                own, snapped to the new type — `-9999.9` into `float32` is declared as
+                `-9999.900390625`, the value its gap cells then hold. Pass one when the new
+                type cannot carry the raster's own at all, or `None` for a result that
+                declares none — which a gap-holding raster allows only into a float type.
 
         Returns:
             Dataset: A raster on this one's grid, in `dtype`.
@@ -3053,10 +3054,12 @@ class Analysis(_Engine["Dataset"]):
         Raises:
             TypeError: `dtype` is not a real numeric type — a boolean, a complex number or a
                 string has no GDAL band type here.
-            ValueError: The sentinel does not fit `dtype`. `-9999` into `uint8` would wrap
-                to `241`, a real value, and the gaps would become data; NaN has no integer
-                at all. Or the raster holds gaps, the result would declare no sentinel, and
-                `dtype` is an integer type, which has no NaN to leave them as.
+            ValueError: The sentinel is outside `dtype`'s range, or is a fraction where
+                `dtype` is an integer type — `-9999` into `uint8` would wrap to `241`, a
+                real value, and the gaps would become data; NaN has no integer at all. Or a
+                cell holding data lands on the sentinel once cast. Or the raster holds gaps,
+                the result would declare no sentinel, and `dtype` is an integer type, which
+                has no NaN to leave them as.
 
         Examples:
             - Floats cast to `int32`, the gap still a gap:
@@ -3115,6 +3118,11 @@ class Analysis(_Engine["Dataset"]):
                     f"and every gap would read as data. Pass no_data_value= with one it "
                     f"does hold."
                 )
+        # Snapped to the target before anything is written or declared, so the value the
+        # result declares is exactly the value its gap cells hold. A float sentinel loses
+        # precision here (`-9999.9` into float32 becomes `-9999.900390625`); what it must
+        # not do is land on a cell holding data, which is checked after the cast.
+        marks = [None if mark is None else float(target.type(mark)) for mark in marks]
         markers = [
             _gap_marker(mark, target, domain, band, bands)
             for band, mark in enumerate(marks)
