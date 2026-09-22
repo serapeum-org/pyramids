@@ -37,7 +37,9 @@ def _normalize(name: str) -> str:
 
 def _record_row(path: str, data: bytes) -> list[str]:
     """Return the RECORD row (path, sha256=<b64>, size) for `data`."""
-    digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+    digest = (
+        base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+    )
     return [path, f"sha256={digest}", str(len(data))]
 
 
@@ -77,7 +79,9 @@ def strip_wheel(wheel: Path) -> int:
     for row in csv.reader(io.StringIO(data[record_name].decode("utf-8"))):
         if not row:
             continue
-        out_rows.append(_record_row(meta_name, new_meta) if row[0] == meta_name else row)
+        out_rows.append(
+            _record_row(meta_name, new_meta) if row[0] == meta_name else row
+        )
     buf = io.StringIO()
     csv.writer(buf, lineterminator="\n").writerows(out_rows)
     data[record_name] = buf.getvalue().encode("utf-8")

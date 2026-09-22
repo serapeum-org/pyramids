@@ -34,7 +34,9 @@ def _load_strip_module():
 
 def _record_row(path: str, data: bytes) -> list:
     """Return the RECORD row (path, sha256=<b64>, size) for `data`."""
-    digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+    digest = (
+        base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+    )
     return [path, f"sha256={digest}", str(len(data))]
 
 
@@ -97,8 +99,14 @@ def test_strip_rewrites_the_record_hash(tmp_path):
     with zipfile.ZipFile(wheel) as zf:
         metadata = zf.read("pyramids_gis-0.0.0.dist-info/METADATA")
         record = zf.read("pyramids_gis-0.0.0.dist-info/RECORD").decode("utf-8")
-    expected = base64.urlsafe_b64encode(hashlib.sha256(metadata).digest()).rstrip(b"=").decode()
-    row = next(r for r in csv.reader(io.StringIO(record)) if r and r[0].endswith("/METADATA"))
+    expected = (
+        base64.urlsafe_b64encode(hashlib.sha256(metadata).digest())
+        .rstrip(b"=")
+        .decode()
+    )
+    row = next(
+        r for r in csv.reader(io.StringIO(record)) if r and r[0].endswith("/METADATA")
+    )
     assert row[1] == f"sha256={expected}"
     assert row[2] == str(len(metadata))
 
@@ -107,6 +115,9 @@ def test_strip_fails_when_nothing_to_remove(tmp_path):
     """A wheel with no geopandas/Shapely lines is a signal of drift, so the strip fails."""
     module = _load_strip_module()
     wheel = tmp_path / "pyramids_gis-0.0.0-cp312-cp312-musllinux_1_2_x86_64.whl"
-    _write_wheel(wheel, b"Metadata-Version: 2.1\nName: pyramids-gis\nRequires-Dist: numpy>=2.0.0\n")
+    _write_wheel(
+        wheel,
+        b"Metadata-Version: 2.1\nName: pyramids-gis\nRequires-Dist: numpy>=2.0.0\n",
+    )
     with pytest.raises(SystemExit):
         module.strip_wheel(wheel)
