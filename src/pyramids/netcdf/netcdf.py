@@ -12484,10 +12484,31 @@ class NetCDF(Dataset):
         existing = {
             dimension.GetName(): dimension for dimension in rg.GetDimensions() or []
         }
+        wanted = dim_name
         reused = existing.get(dim_name)
         if reused is not None and not NetCDF._dimension_holds(reused, values):
-            reused = None
-            dim_name = NetCDF._unused_dimension_name(existing, dim_name, len(values))
+            # A suffixed sibling may already hold exactly these coordinates: the same
+            # reordered axis written twice must land on one dimension, not on `time_4` and
+            # then `time_4_2`, which would leave a CF reader looking at two unrelated axes
+            # carrying the same stamps.
+            reused = next(
+                (
+                    sibling
+                    for name, sibling in existing.items()
+                    if name.startswith(f"{wanted}_")
+                    and NetCDF._dimension_holds(sibling, values)
+                ),
+                None,
+            )
+            if reused is None:
+                dim_name = NetCDF._unused_dimension_name(existing, wanted, len(values))
+            written = reused.GetName() if reused is not None else dim_name
+            warnings.warn(
+                f"the axis holds different coordinate values from the store's own "
+                f"{wanted!r}, which one netCDF dimension cannot carry at once, so it was "
+                f"written as {written!r}. Select on the result under that name.",
+                stacklevel=2,
+            )
         return (
             reused
             if reused is not None

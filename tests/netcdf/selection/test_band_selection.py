@@ -721,6 +721,45 @@ class TestWritingAReorderedAxisBack:
         dim = back._band_dim_names[0]
         assert list(back._band_dim_values_map[dim]) == [18.0, 12.0, 6.0, 0.0]
 
+    def test_the_same_reordered_axis_is_written_once(self):
+        """Two variables sorted the same way share one dimension.
+
+        Test scenario:
+            The reuse check asked only about the dimension under the wanted name, so the
+            second write minted `time_4_2` beside the identical `time_4`. A loop writing
+            N descending variables left N axes in the file, all holding the same stamps.
+        """
+        container = NetCDF.read_file(str(CF_STORE))
+        cube = container["temperature"]
+        with pytest.warns(UserWarning, match="different coordinate values"):
+            container.set_variable("a", cube.sortby("time", ascending=False))
+            container.set_variable("b", cube.sortby("time", ascending=False))
+        first = container.get_variable("a")._band_dim_names[0]
+        second = container.get_variable("b")._band_dim_names[0]
+        assert first == second, f"the two writes landed on {first} and {second}"
+        assert sum(
+            name.startswith("time") for name in container.dimension_names
+        ) == 2, f"expected time and one sibling, got {container.dimension_names}"
+
+    def test_a_differently_ordered_axis_still_gets_its_own(self):
+        """Two different orders are two axes, because one dimension cannot hold both."""
+        container = NetCDF.read_file(str(CF_STORE))
+        cube = container["temperature"]
+        with pytest.warns(UserWarning, match="different coordinate values"):
+            container.set_variable("down", cube.sortby("time", ascending=False))
+            container.set_variable("cut", cube.isel(time=[0, 1]))
+        assert (
+            container.get_variable("down")._band_dim_names[0]
+            != container.get_variable("cut")._band_dim_names[0]
+        )
+
+    def test_the_rename_is_announced(self):
+        """A silent rename breaks every later `sel(time=...)`, so it is warned about."""
+        container = NetCDF.read_file(str(CF_STORE))
+        cube = container["temperature"]
+        with pytest.warns(UserWarning, match="Select on the result under that name"):
+            container.set_variable("down", cube.sortby("time", ascending=False))
+
     def test_an_unchanged_axis_still_reuses_the_store_dimension(self):
         """A variable written back on the store's own order must not gain a second axis."""
         _, cube, back = self._written("copy", lambda c: c)
