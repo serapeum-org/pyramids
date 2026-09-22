@@ -1112,6 +1112,10 @@ def _create_extra_dimensions(
         )
         carried = (dim_attrs or {}).get(dim_name)
         if carried:
+            # `SetIndexingVariable` is skipped on the netCDF driver, so the coordinate
+            # array is reached by name there. `_create_dimension` has just created it, so
+            # the `is not None` below is a guard against a driver that refuses rather than
+            # a path any supported store takes — it is not covered, and cannot be.
             indexing = created.GetIndexingVariable() or rg.OpenMDArray(dim_name)
             if indexing is not None:
                 write_attributes_to_md_array(indexing, carried)
