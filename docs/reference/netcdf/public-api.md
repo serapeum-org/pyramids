@@ -12,8 +12,9 @@ handling, the COG surface, the missing-data members (`where`, `fillna`, `isnull`
 `identical`), the cell-wise members (`clip`, `round`, `astype`, `isin`) and the rest of the raster API.
 128 of those are declared in `Dataset`'s own body and the
 remaining 13 come from `RasterBase` above it. They live in the
-[Dataset reference](../dataset/index.md), the six named above on its
-[Analysis page](../dataset/analysis.md#missing-data-and-comparison).
+[Dataset reference](../dataset/index.md) — the missing-data six under
+[Missing data and comparison](../dataset/analysis.md#missing-data-and-comparison) and the four cell-wise
+members under [Cell-wise transforms](../dataset/analysis.md#cell-wise-transforms).
 
 Two object shapes share this class, and several members behave differently across them:
 
@@ -110,7 +111,7 @@ A variable with no raster plane is the exception — see each member's docstring
 | `tail()`           | Keeps the last `n` steps along a band dim; five along every one by default.          |
 | `thin()`           | Keeps every `n`-th step along a band dim, from the first.                            |
 | `sortby()`         | Reorders a band dim by its own coordinates, each plane with its stamp — `ascending`. |
-| `drop_duplicates()`| Drops the steps whose stamp repeats — what `concat` can leave — `keep`.              |
+| `drop_duplicates()` | Drops the steps whose stamp repeats — what `concat` can leave — `keep`.             |
 | `squeeze()`        | Drops the band dims of length one; never a spatial axis.                             |
 | `expand_dims()`    | Adds a length-one band dim, outermost — lifts a raster into a cube before `concat`.  |
 | `open_mfdataset()` | Stacks one variable across many files into a single lazy dask array.                 |
