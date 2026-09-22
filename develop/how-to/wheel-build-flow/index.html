@@ -6640,11 +6640,18 @@ release, plus 8 unpublished musl canary wheels:</p>
 </tbody>
 </table>
 <p><strong>Total published: 23 wheels + 1 sdist.</strong> One <strong>CI canary</strong> family builds and
-verifies on every run but is deliberately <strong>not published</strong> because pip could
-not resolve pyramids-gis on those platforms yet:</p>
+fully verifies on every run but is deliberately <strong>not published</strong> yet:</p>
 <ul>
-<li><code>build-musl-wheels</code>: <code>musllinux_1_2</code> x86_64 + aarch64 (cp311–cp314) — blocked
-  on upstream pyogrio musllinux wheels (#333; geopandas hard-requires pyogrio).</li>
+<li><code>build-musl-wheels</code>: <code>musllinux_1_2</code> x86_64 + aarch64 (cp311–cp314). pyogrio
+  ships no musllinux wheels (and geopandas hard-requires it), so — like the
+  win_arm64 wheel — each musl wheel <strong>vendors the vector stack</strong> (shapely +
+  pyogrio + geopandas) into <code>pyramids/_vendor/</code>, plus <strong><code>cftime</code></strong> (which ships
+  no musllinux-<strong>aarch64</strong> wheel), and drops those deps from the built wheel's
+  metadata (<code>ci/strip-vendored-deps-from-wheel.py</code>, since no PEP 508 marker
+  distinguishes musl from glibc). So <code>pip install pyramids-gis</code> resolves on
+  Alpine with <strong>no external pyogrio/cftime</strong> — <code>verify-alpine</code> proves it on both
+  arches. It stays a canary pending the publish decision (#333): ~8 more fat
+  wheels per release pushes the project toward PyPI's 10 GB storage cap.</li>
 </ul>
 <p>The <code>win_arm64</code> wheels (<code>build-winarm64-wheels</code>, cp312–cp314; numpy/scipy ship
 no cp311 arm64 wheels) are built from source via vcpkg. GDAL comes from the
@@ -6767,7 +6774,7 @@ the <strong>conda-forge install path</strong>:</p>
 </tr>
 <tr>
 <td>Alpine / musl Linux</td>
-<td>built + verified in CI, unpublished (pyogrio has no musl wheels)</td>
+<td>self-contained wheel built + verified in CI, unpublished (PyPI storage)</td>
 <td>conda-forge</td>
 <td>#333</td>
 </tr>
@@ -6832,7 +6839,7 @@ Amazon Linux 2023 with a ~30 MB wheel (vs ~47 MB under conda-extract).</p>
 <td>musllinux (Alpine)</td>
 <td>#333</td>
 <td><strong>built, unpublished</strong></td>
-<td>canaries green in CI; blocked on pyogrio musl wheels</td>
+<td>self-contained (vendors vector stack); held on the PyPI-storage decision</td>
 </tr>
 <tr>
 <td>Windows ARM64</td>
@@ -6913,83 +6920,92 @@ Python C API ABI.</p>
 <a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a>│
 <a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a>├── build-musl-wheels (2 canary jobs: x86_64 + aarch64, musllinux_1_2 image)
 <a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a>│   └── same before-all/config.sh flow with musl deltas (apk prereqs,
-<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a>│       no HAVE_PREAD64 for sqlite); repair --plat musllinux_1_2_&lt;arch&gt;;
-<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>│       artifacts named canary-musl-&lt;arch&gt; so the release job can NEVER
-<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a>│       pick them up (see Publishing).
-<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a>│
-<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a>├── build-macos-wheels (2 jobs in matrix: arm64 + x86_64, both on macos-14)
-<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a>│   ├── CIBW_BEFORE_ALL: ci/setup-gdal-from-pixi.sh (conda-extract)
-<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a>│   │   → on macOS this script additionally installs symlinks for
-<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a>│   │     clang/clang++/otool/install_name_tool/codesign/lipo/strip/...
-<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a>│   │     into /usr/local/bin pointing at the real Xcode toolchain
-<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>│   │     binaries. macos-14 runners SIGKILL xcodebuild on every
-<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a>│   │     /usr/bin/&lt;tool&gt; invocation (the xcrun dispatch), so the
-<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a>│   │     symlinks let PATH lookups resolve to working binaries
-<a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a>│   │     directly. clang/clang++ are wrapper scripts that ALSO export
-<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a>│   │     SDKROOT + DEVELOPER_DIR before exec'ing the real binary so
-<a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a>│   │     the toolchain clang can find system headers.
-<a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a>│   ├── For arch == arm64: native build via pixi --frozen
-<a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a>│   ├── For arch == x86_64: cross-compile path
-<a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a>│   │   → ci/setup-gdal-from-pixi.sh delegates to
-<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a>│   │     ci/setup-gdal-micromamba.sh (pixi can't install for a
-<a id="__codelineno-1-57" name="__codelineno-1-57" href="#__codelineno-1-57"></a>│   │     non-host platform; micromamba natively supports
-<a id="__codelineno-1-58" name="__codelineno-1-58" href="#__codelineno-1-58"></a>│   │     --platform osx-64). Re-solves the same dep range pin
-<a id="__codelineno-1-59" name="__codelineno-1-59" href="#__codelineno-1-59"></a>│   │     declared in [tool.pixi.feature.wheel-build.dependencies].
-<a id="__codelineno-1-60" name="__codelineno-1-60" href="#__codelineno-1-60"></a>│   │   → cibuildwheel sets ARCHFLAGS=-arch x86_64 and runs the
-<a id="__codelineno-1-61" name="__codelineno-1-61" href="#__codelineno-1-61"></a>│   │     build venv under Rosetta.
-<a id="__codelineno-1-62" name="__codelineno-1-62" href="#__codelineno-1-62"></a>│   ├── CIBW_REPAIR_WHEEL_COMMAND uses delocate-wheel
-<a id="__codelineno-1-63" name="__codelineno-1-63" href="#__codelineno-1-63"></a>│   │   (macOS equivalent of auditwheel — patches @loader_path)
-<a id="__codelineno-1-64" name="__codelineno-1-64" href="#__codelineno-1-64"></a>│   └── upload-artifact: wheels-macos-arm64 / wheels-macos-x86_64
-<a id="__codelineno-1-65" name="__codelineno-1-65" href="#__codelineno-1-65"></a>│
-<a id="__codelineno-1-66" name="__codelineno-1-66" href="#__codelineno-1-66"></a>├── build-windows-wheels (1 job, windows-2022, builds 4 wheels)
-<a id="__codelineno-1-67" name="__codelineno-1-67" href="#__codelineno-1-67"></a>│   └── cibuildwheel:
-<a id="__codelineno-1-68" name="__codelineno-1-68" href="#__codelineno-1-68"></a>│       ├── CIBW_BEFORE_ALL: powershell -File ci/setup-gdal-from-pixi.ps1
-<a id="__codelineno-1-69" name="__codelineno-1-69" href="#__codelineno-1-69"></a>│       │   → installs pixi → extracts Library/bin DLLs → C:/gdal-prefix
-<a id="__codelineno-1-70" name="__codelineno-1-70" href="#__codelineno-1-70"></a>│       │   → writes ${BuildPrefix}/GDAL_VERSION (parsed from
-<a id="__codelineno-1-71" name="__codelineno-1-71" href="#__codelineno-1-71"></a>│       │     conda-meta/gdal-X.Y.Z-*.json — Windows conda-forge gdal
-<a id="__codelineno-1-72" name="__codelineno-1-72" href="#__codelineno-1-72"></a>│       │     doesn't ship a usable gdal-config)
-<a id="__codelineno-1-73" name="__codelineno-1-73" href="#__codelineno-1-73"></a>│       ├── For each of cp311, cp312, cp313, cp314: same vendor + build steps
-<a id="__codelineno-1-74" name="__codelineno-1-74" href="#__codelineno-1-74"></a>│       └── CIBW_REPAIR_WHEEL_COMMAND uses
-<a id="__codelineno-1-75" name="__codelineno-1-75" href="#__codelineno-1-75"></a>│           `delvewheel repair --analyze-existing`
-<a id="__codelineno-1-76" name="__codelineno-1-76" href="#__codelineno-1-76"></a>│           → bundles _gdal.pyd's direct deps AND the GDAL plugin
-<a id="__codelineno-1-77" name="__codelineno-1-77" href="#__codelineno-1-77"></a>│             DLLs' transitive deps (netcdf.dll, hdf5.dll, ...) into
-<a id="__codelineno-1-78" name="__codelineno-1-78" href="#__codelineno-1-78"></a>│             pyramids_gis.libs/, patches PE import tables.
-<a id="__codelineno-1-79" name="__codelineno-1-79" href="#__codelineno-1-79"></a>│       └── upload-artifact: wheels-windows-AMD64
-<a id="__codelineno-1-80" name="__codelineno-1-80" href="#__codelineno-1-80"></a>│
-<a id="__codelineno-1-81" name="__codelineno-1-81" href="#__codelineno-1-81"></a>├── build-winarm64-wheels (1 job, windows-11-arm, builds 3 wheels)
-<a id="__codelineno-1-82" name="__codelineno-1-82" href="#__codelineno-1-82"></a>│   └── cibuildwheel (cp312–cp314; no cp311 — see CIBW_BUILD comment):
-<a id="__codelineno-1-83" name="__codelineno-1-83" href="#__codelineno-1-83"></a>│       ├── CIBW_BEFORE_ALL: powershell -File ci/setup-gdal-from-vcpkg.ps1
-<a id="__codelineno-1-84" name="__codelineno-1-84" href="#__codelineno-1-84"></a>│       │   → bootstraps vcpkg at the pinned baseline, builds GDAL 3.12.4
-<a id="__codelineno-1-85" name="__codelineno-1-85" href="#__codelineno-1-85"></a>│       │     + PROJ/GEOS/... from the manifest (ci/vcpkg.json), mirrors
-<a id="__codelineno-1-86" name="__codelineno-1-86" href="#__codelineno-1-86"></a>│       │     the Library/ layout, collects port licenses, writes
-<a id="__codelineno-1-87" name="__codelineno-1-87" href="#__codelineno-1-87"></a>│       │     GDAL_VERSION (cache skipped on workflow_run, like Linux)
-<a id="__codelineno-1-88" name="__codelineno-1-88" href="#__codelineno-1-88"></a>│       ├── For each Python: same vendor + build steps, PLUS
-<a id="__codelineno-1-89" name="__codelineno-1-89" href="#__codelineno-1-89"></a>│       │   install-and-vendor-osgeo.py vendors the vector stack
-<a id="__codelineno-1-90" name="__codelineno-1-90" href="#__codelineno-1-90"></a>│       │   (shapely + geopandas + pyogrio, hash-pinned, built from
-<a id="__codelineno-1-91" name="__codelineno-1-91" href="#__codelineno-1-91"></a>│       │   sdist) into src/pyramids/_vendor/ — win_arm64 only
-<a id="__codelineno-1-92" name="__codelineno-1-92" href="#__codelineno-1-92"></a>│       └── CIBW_REPAIR_WHEEL_COMMAND: one delvewheel repair
-<a id="__codelineno-1-93" name="__codelineno-1-93" href="#__codelineno-1-93"></a>│           --analyze-existing pass owns ALL DLLs, including the
-<a id="__codelineno-1-94" name="__codelineno-1-94" href="#__codelineno-1-94"></a>│           vendored .pyds' GEOS/GDAL imports (one shared copy)
-<a id="__codelineno-1-95" name="__codelineno-1-95" href="#__codelineno-1-95"></a>│       └── upload-artifact: wheels-winarm64
-<a id="__codelineno-1-96" name="__codelineno-1-96" href="#__codelineno-1-96"></a>│
-<a id="__codelineno-1-97" name="__codelineno-1-97" href="#__codelineno-1-97"></a>├── verify-debian12 / verify-rocky9 (full hermetic suite on glibc 2.36 / 2.34
-<a id="__codelineno-1-98" name="__codelineno-1-98" href="#__codelineno-1-98"></a>│   containers — distros the old 2_39 wheel could never install on) and
-<a id="__codelineno-1-99" name="__codelineno-1-99" href="#__codelineno-1-99"></a>│   verify-alpine (full core suite for the musl canary — vector I/O via a
-<a id="__codelineno-1-100" name="__codelineno-1-100" href="#__codelineno-1-100"></a>│   canary-built pyogrio musl wheel, since PyPI has none). All three
-<a id="__codelineno-1-101" name="__codelineno-1-101" href="#__codelineno-1-101"></a>│   run with --security-opt seccomp=unconfined (the netCDF driver needs
-<a id="__codelineno-1-102" name="__codelineno-1-102" href="#__codelineno-1-102"></a>│   userfaultfd for /vsizip reads — see docs/troubleshooting.md).
-<a id="__codelineno-1-103" name="__codelineno-1-103" href="#__codelineno-1-103"></a>│
-<a id="__codelineno-1-104" name="__codelineno-1-104" href="#__codelineno-1-104"></a>├── verify-winarm64 (3 cells: 3.12/3.13/3.14 on windows-11-arm) —
-<a id="__codelineno-1-105" name="__codelineno-1-105" href="#__codelineno-1-105"></a>│   plain `pip install &lt;wheel&gt;` (markers resolving, the real user
-<a id="__codelineno-1-106" name="__codelineno-1-106" href="#__codelineno-1-106"></a>│   path), then ci/verify-wheel.py against the bare closure BEFORE
-<a id="__codelineno-1-107" name="__codelineno-1-107" href="#__codelineno-1-107"></a>│   test deps land; the 3.12 cell also runs the hermetic core suite.
-<a id="__codelineno-1-108" name="__codelineno-1-108" href="#__codelineno-1-108"></a>│
-<a id="__codelineno-1-109" name="__codelineno-1-109" href="#__codelineno-1-109"></a>└── release (workflow_run only; needs EVERY build + test + verify job,
-<a id="__codelineno-1-110" name="__codelineno-1-110" href="#__codelineno-1-110"></a>    canary verifies included — a red canary blocks the publish)
-<a id="__codelineno-1-111" name="__codelineno-1-111" href="#__codelineno-1-111"></a>    → gathers {sdist,wheels-*} artifacts (canary-* names can't match),
-<a id="__codelineno-1-112" name="__codelineno-1-112" href="#__codelineno-1-112"></a>      asserts the exact composition (1 sdist + 4 wheels x 5 platforms
-<a id="__codelineno-1-113" name="__codelineno-1-113" href="#__codelineno-1-113"></a>      + 3 win_arm64, zero musllinux), attaches everything to the
-<a id="__codelineno-1-114" name="__codelineno-1-114" href="#__codelineno-1-114"></a>      GitHub release, and publishes to PyPI.
+<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a>│       no HAVE_PREAD64 for sqlite); before-build ALSO vendors the vector
+<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a>│       stack (shapely + pyogrio + geopandas) + cftime into _vendor/ like
+<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a>│       win_arm64 (cftime has no musllinux-aarch64 wheel); repair --plat
+<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a>│       musllinux_1_2_&lt;arch&gt;; then ci/strip-vendored-deps-from-wheel.py drops
+<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a>│       geopandas/Shapely/cftime from the wheel metadata (no PEP 508 marker
+<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a>│       distinguishes musl from glibc), so the wheel is self-contained;
+<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a>│       artifacts named canary-musl-&lt;arch&gt; so the release job can NEVER pick
+<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a>│       them up (see Publishing).
+<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a>│
+<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a>├── build-macos-wheels (2 jobs in matrix: arm64 + x86_64, both on macos-14)
+<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a>│   ├── CIBW_BEFORE_ALL: ci/setup-gdal-from-pixi.sh (conda-extract)
+<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a>│   │   → on macOS this script additionally installs symlinks for
+<a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a>│   │     clang/clang++/otool/install_name_tool/codesign/lipo/strip/...
+<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a>│   │     into /usr/local/bin pointing at the real Xcode toolchain
+<a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a>│   │     binaries. macos-14 runners SIGKILL xcodebuild on every
+<a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a>│   │     /usr/bin/&lt;tool&gt; invocation (the xcrun dispatch), so the
+<a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a>│   │     symlinks let PATH lookups resolve to working binaries
+<a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a>│   │     directly. clang/clang++ are wrapper scripts that ALSO export
+<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a>│   │     SDKROOT + DEVELOPER_DIR before exec'ing the real binary so
+<a id="__codelineno-1-57" name="__codelineno-1-57" href="#__codelineno-1-57"></a>│   │     the toolchain clang can find system headers.
+<a id="__codelineno-1-58" name="__codelineno-1-58" href="#__codelineno-1-58"></a>│   ├── For arch == arm64: native build via pixi --frozen
+<a id="__codelineno-1-59" name="__codelineno-1-59" href="#__codelineno-1-59"></a>│   ├── For arch == x86_64: cross-compile path
+<a id="__codelineno-1-60" name="__codelineno-1-60" href="#__codelineno-1-60"></a>│   │   → ci/setup-gdal-from-pixi.sh delegates to
+<a id="__codelineno-1-61" name="__codelineno-1-61" href="#__codelineno-1-61"></a>│   │     ci/setup-gdal-micromamba.sh (pixi can't install for a
+<a id="__codelineno-1-62" name="__codelineno-1-62" href="#__codelineno-1-62"></a>│   │     non-host platform; micromamba natively supports
+<a id="__codelineno-1-63" name="__codelineno-1-63" href="#__codelineno-1-63"></a>│   │     --platform osx-64). Re-solves the same dep range pin
+<a id="__codelineno-1-64" name="__codelineno-1-64" href="#__codelineno-1-64"></a>│   │     declared in [tool.pixi.feature.wheel-build.dependencies].
+<a id="__codelineno-1-65" name="__codelineno-1-65" href="#__codelineno-1-65"></a>│   │   → cibuildwheel sets ARCHFLAGS=-arch x86_64 and runs the
+<a id="__codelineno-1-66" name="__codelineno-1-66" href="#__codelineno-1-66"></a>│   │     build venv under Rosetta.
+<a id="__codelineno-1-67" name="__codelineno-1-67" href="#__codelineno-1-67"></a>│   ├── CIBW_REPAIR_WHEEL_COMMAND uses delocate-wheel
+<a id="__codelineno-1-68" name="__codelineno-1-68" href="#__codelineno-1-68"></a>│   │   (macOS equivalent of auditwheel — patches @loader_path)
+<a id="__codelineno-1-69" name="__codelineno-1-69" href="#__codelineno-1-69"></a>│   └── upload-artifact: wheels-macos-arm64 / wheels-macos-x86_64
+<a id="__codelineno-1-70" name="__codelineno-1-70" href="#__codelineno-1-70"></a>│
+<a id="__codelineno-1-71" name="__codelineno-1-71" href="#__codelineno-1-71"></a>├── build-windows-wheels (1 job, windows-2022, builds 4 wheels)
+<a id="__codelineno-1-72" name="__codelineno-1-72" href="#__codelineno-1-72"></a>│   └── cibuildwheel:
+<a id="__codelineno-1-73" name="__codelineno-1-73" href="#__codelineno-1-73"></a>│       ├── CIBW_BEFORE_ALL: powershell -File ci/setup-gdal-from-pixi.ps1
+<a id="__codelineno-1-74" name="__codelineno-1-74" href="#__codelineno-1-74"></a>│       │   → installs pixi → extracts Library/bin DLLs → C:/gdal-prefix
+<a id="__codelineno-1-75" name="__codelineno-1-75" href="#__codelineno-1-75"></a>│       │   → writes ${BuildPrefix}/GDAL_VERSION (parsed from
+<a id="__codelineno-1-76" name="__codelineno-1-76" href="#__codelineno-1-76"></a>│       │     conda-meta/gdal-X.Y.Z-*.json — Windows conda-forge gdal
+<a id="__codelineno-1-77" name="__codelineno-1-77" href="#__codelineno-1-77"></a>│       │     doesn't ship a usable gdal-config)
+<a id="__codelineno-1-78" name="__codelineno-1-78" href="#__codelineno-1-78"></a>│       ├── For each of cp311, cp312, cp313, cp314: same vendor + build steps
+<a id="__codelineno-1-79" name="__codelineno-1-79" href="#__codelineno-1-79"></a>│       └── CIBW_REPAIR_WHEEL_COMMAND uses
+<a id="__codelineno-1-80" name="__codelineno-1-80" href="#__codelineno-1-80"></a>│           `delvewheel repair --analyze-existing`
+<a id="__codelineno-1-81" name="__codelineno-1-81" href="#__codelineno-1-81"></a>│           → bundles _gdal.pyd's direct deps AND the GDAL plugin
+<a id="__codelineno-1-82" name="__codelineno-1-82" href="#__codelineno-1-82"></a>│             DLLs' transitive deps (netcdf.dll, hdf5.dll, ...) into
+<a id="__codelineno-1-83" name="__codelineno-1-83" href="#__codelineno-1-83"></a>│             pyramids_gis.libs/, patches PE import tables.
+<a id="__codelineno-1-84" name="__codelineno-1-84" href="#__codelineno-1-84"></a>│       └── upload-artifact: wheels-windows-AMD64
+<a id="__codelineno-1-85" name="__codelineno-1-85" href="#__codelineno-1-85"></a>│
+<a id="__codelineno-1-86" name="__codelineno-1-86" href="#__codelineno-1-86"></a>├── build-winarm64-wheels (1 job, windows-11-arm, builds 3 wheels)
+<a id="__codelineno-1-87" name="__codelineno-1-87" href="#__codelineno-1-87"></a>│   └── cibuildwheel (cp312–cp314; no cp311 — see CIBW_BUILD comment):
+<a id="__codelineno-1-88" name="__codelineno-1-88" href="#__codelineno-1-88"></a>│       ├── CIBW_BEFORE_ALL: powershell -File ci/setup-gdal-from-vcpkg.ps1
+<a id="__codelineno-1-89" name="__codelineno-1-89" href="#__codelineno-1-89"></a>│       │   → bootstraps vcpkg at the pinned baseline, builds GDAL 3.12.4
+<a id="__codelineno-1-90" name="__codelineno-1-90" href="#__codelineno-1-90"></a>│       │     + PROJ/GEOS/... from the manifest (ci/vcpkg.json), mirrors
+<a id="__codelineno-1-91" name="__codelineno-1-91" href="#__codelineno-1-91"></a>│       │     the Library/ layout, collects port licenses, writes
+<a id="__codelineno-1-92" name="__codelineno-1-92" href="#__codelineno-1-92"></a>│       │     GDAL_VERSION (cache skipped on workflow_run, like Linux)
+<a id="__codelineno-1-93" name="__codelineno-1-93" href="#__codelineno-1-93"></a>│       ├── For each Python: same vendor + build steps, PLUS
+<a id="__codelineno-1-94" name="__codelineno-1-94" href="#__codelineno-1-94"></a>│       │   install-and-vendor-osgeo.py vendors the vector stack
+<a id="__codelineno-1-95" name="__codelineno-1-95" href="#__codelineno-1-95"></a>│       │   (shapely + geopandas + pyogrio, hash-pinned, built from
+<a id="__codelineno-1-96" name="__codelineno-1-96" href="#__codelineno-1-96"></a>│       │   sdist) into src/pyramids/_vendor/ — win_arm64 and the musl
+<a id="__codelineno-1-97" name="__codelineno-1-97" href="#__codelineno-1-97"></a>│       │   canary (the two platforms with no upstream vector wheels)
+<a id="__codelineno-1-98" name="__codelineno-1-98" href="#__codelineno-1-98"></a>│       └── CIBW_REPAIR_WHEEL_COMMAND: one delvewheel repair
+<a id="__codelineno-1-99" name="__codelineno-1-99" href="#__codelineno-1-99"></a>│           --analyze-existing pass owns ALL DLLs, including the
+<a id="__codelineno-1-100" name="__codelineno-1-100" href="#__codelineno-1-100"></a>│           vendored .pyds' GEOS/GDAL imports (one shared copy)
+<a id="__codelineno-1-101" name="__codelineno-1-101" href="#__codelineno-1-101"></a>│       └── upload-artifact: wheels-winarm64
+<a id="__codelineno-1-102" name="__codelineno-1-102" href="#__codelineno-1-102"></a>│
+<a id="__codelineno-1-103" name="__codelineno-1-103" href="#__codelineno-1-103"></a>├── verify-debian12 / verify-rocky9 (full hermetic suite on glibc 2.36 / 2.34
+<a id="__codelineno-1-104" name="__codelineno-1-104" href="#__codelineno-1-104"></a>│   containers — distros the old 2_39 wheel could never install on) and
+<a id="__codelineno-1-105" name="__codelineno-1-105" href="#__codelineno-1-105"></a>│   verify-alpine (2 cells: x86_64 + aarch64, native — checkout on the glibc
+<a id="__codelineno-1-106" name="__codelineno-1-106" href="#__codelineno-1-106"></a>│   host, then install + verify inside python:3.12-alpine via `docker run`,
+<a id="__codelineno-1-107" name="__codelineno-1-107" href="#__codelineno-1-107"></a>│   since JS actions can't run in an arm64 musl container). Installs ONLY the
+<a id="__codelineno-1-108" name="__codelineno-1-108" href="#__codelineno-1-108"></a>│   self-contained wheel (--only-binary=:all:, no external pyogrio) and runs
+<a id="__codelineno-1-109" name="__codelineno-1-109" href="#__codelineno-1-109"></a>│   the full core suite. All run with --security-opt seccomp=unconfined (the
+<a id="__codelineno-1-110" name="__codelineno-1-110" href="#__codelineno-1-110"></a>│   netCDF driver needs userfaultfd for /vsizip reads — see
+<a id="__codelineno-1-111" name="__codelineno-1-111" href="#__codelineno-1-111"></a>│   docs/troubleshooting.md).
+<a id="__codelineno-1-112" name="__codelineno-1-112" href="#__codelineno-1-112"></a>│
+<a id="__codelineno-1-113" name="__codelineno-1-113" href="#__codelineno-1-113"></a>├── verify-winarm64 (3 cells: 3.12/3.13/3.14 on windows-11-arm) —
+<a id="__codelineno-1-114" name="__codelineno-1-114" href="#__codelineno-1-114"></a>│   plain `pip install &lt;wheel&gt;` (markers resolving, the real user
+<a id="__codelineno-1-115" name="__codelineno-1-115" href="#__codelineno-1-115"></a>│   path), then ci/verify-wheel.py against the bare closure BEFORE
+<a id="__codelineno-1-116" name="__codelineno-1-116" href="#__codelineno-1-116"></a>│   test deps land; the 3.12 cell also runs the hermetic core suite.
+<a id="__codelineno-1-117" name="__codelineno-1-117" href="#__codelineno-1-117"></a>│
+<a id="__codelineno-1-118" name="__codelineno-1-118" href="#__codelineno-1-118"></a>└── release (workflow_run only; needs EVERY build + test + verify job,
+<a id="__codelineno-1-119" name="__codelineno-1-119" href="#__codelineno-1-119"></a>    canary verifies included — a red canary blocks the publish)
+<a id="__codelineno-1-120" name="__codelineno-1-120" href="#__codelineno-1-120"></a>    → gathers {sdist,wheels-*} artifacts (canary-* names can't match),
+<a id="__codelineno-1-121" name="__codelineno-1-121" href="#__codelineno-1-121"></a>      asserts the exact composition (1 sdist + 4 wheels x 5 platforms
+<a id="__codelineno-1-122" name="__codelineno-1-122" href="#__codelineno-1-122"></a>      + 3 win_arm64, zero musllinux), attaches everything to the
+<a id="__codelineno-1-123" name="__codelineno-1-123" href="#__codelineno-1-123"></a>      GitHub release, and publishes to PyPI.
 </code></pre></div>
 <p>After all build jobs finish, <code>test-wheels</code> runs a 16-cell matrix
 (4 OSes × 4 Python versions) installing each wheel in a clean Python
