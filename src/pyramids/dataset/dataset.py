@@ -934,6 +934,22 @@ class Dataset(RasterBase):
         """
         return self.analysis.identical(*args, **kwargs)
 
+    def clip(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.clip <pyramids.dataset.engines.Analysis.clip>`."""
+        return self.analysis.clip(*args, **kwargs)
+
+    def round(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.round <pyramids.dataset.engines.Analysis.round>`."""
+        return self.analysis.round(*args, **kwargs)
+
+    def astype(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.astype <pyramids.dataset.engines.Analysis.astype>`."""
+        return self.analysis.astype(*args, **kwargs)
+
+    def isin(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.isin <pyramids.dataset.engines.Analysis.isin>`."""
+        return self.analysis.isin(*args, **kwargs)
+
     def notnull(self, *args, **kwargs):
         """Facade — delegates to :meth:`Analysis.notnull <pyramids.dataset.engines.Analysis.notnull>`."""
         return self.analysis.notnull(*args, **kwargs)

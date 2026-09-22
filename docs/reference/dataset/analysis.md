@@ -9,6 +9,7 @@ flowchart LR
     AN --> E["<b>sample / extract</b><br/>extract · sample · overlay"]
     AN --> T["<b>transform</b><br/>apply · combine · fill<br/>sieve · proximity"]
     AN --> N["<b>missing data</b><br/>where · fillna · isnull · notnull<br/>equals · identical"]
+    AN --> C["<b>cell-wise</b><br/>clip · round · astype · isin"]
     AN --> M["<b>masks</b><br/>get_mask · mask_flags · footprint<br/>read_masks · create_mask_band"]
     AN --> V["<b>visualize</b><br/>plot · plot_histogram<br/>plot_vector_field · to_image"]
 ```
@@ -303,6 +304,60 @@ does not save a row and a cell that was already missing is kept if the condition
 `equals` and `identical` read the values and the grid, not the declared sentinel or the band type: two
 rasters marking the same gaps with `-9999.0` and `-1.0` are identical, as are a `float64` raster and its
 `float32` copy. Compare `no_data_value` and `dtype` yourself when those matter.
+
+## Cell-wise transforms
+
+Four members that transform or test each cell, again spelled as xarray spells them and again on `Dataset`,
+so a `NetCDF` variable has them too.
+
+| Member                           | What it does                                                             |
+|----------------------------------|--------------------------------------------------------------------------|
+| `ds.clip(min, max)`              | Bounds the values to `[min, max]`; either bound may be left out.          |
+| `ds.round(decimals)`             | Rounds to `decimals` places; halves round to even, as numpy does.         |
+| `ds.astype(dtype, no_data_value)`| Changes the band type; the gaps are re-marked for the new type.           |
+| `ds.isin(values)`                | `uint8` flags, `1` where a cell's value is one of `values`.               |
+
+```python
+from pyramids.dataset import Dataset
+
+dem = Dataset.read_file("dem.tif")
+landcover = Dataset.read_file("landcover.tif")
+
+bounded = dem.clip(0.0, 3000.0)                  # below-sea-level cells to 0
+metres = dem.round()                             # whole metres
+small = dem.clip(0.0, 254.0).astype("uint8", no_data_value=255)  # 255 left free to mark gaps
+water = landcover.isin([80, 90])                 # the water classes, as a condition
+lakes = landcover.where(water)
+```
+
+!!! note "`clip` means two things in this package"
+
+    `Dataset.clip(min, max)` bounds **values**, the way xarray and numpy use the name, while
+    `UgridDataset.clip(mask)` clips **geometry** — what most GIS tools mean by it, and what `Dataset`
+    spells [`crop`](index.md). `NetCDF.head(n)` likewise returns a cube where `DatasetCollection.head(n)`
+    returns a preview array. The xarray names are the right ones to adopt here; the collision is worth
+    knowing about when reading across the two classes.
+
+`round` with a negative `decimals` can push an integer band past its own range — numpy wraps a `uint8`
+255 to 4 — so the result widens instead, exactly as `clip` widens for a bound the band cannot hold.
+
+`astype` refuses a sentinel that any cell already holds once cast — `clip(0.0, 255.0)` with
+`no_data_value=255` would clamp every cell at or above 255 onto the sentinel and read them as missing
+ever after, which is why the bound above is 254.
+
+**A gap stays a gap in all four.** The gaps are left out of the operation and re-marked afterwards,
+because operating on the stored array would turn missing cells into measurements: clipping would lift a
+`-9999.0` gap to the lower bound, and rounding turns a `-9999.5` sentinel into `-10000.0`, which no longer
+matches what was declared. `isin` flags a gap `0` even when the set holds the gap's own sentinel — it is
+missing, not that value.
+
+**`astype` refuses a sentinel the new type cannot hold** rather than letting it wrap into a real value:
+`-9999` into `uint8` would become `241`, and every gap would read as data. Pass `no_data_value=` with one
+the type does hold. The cells that hold data cast as numpy casts them, and a value outside the target's
+range is not refused: numpy leaves an out-of-range float cast undefined (on x86 `300.0` into `uint8` comes
+out `44`). `clip` first when that matters, as the example does.
+
+`clip` refuses `min` above `max`, where numpy would quietly set every cell to `max`.
 
 ## Lazy per-pixel operations
 

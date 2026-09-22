@@ -247,6 +247,68 @@ class TestDiff:
             container.diff("time", **kwargs)
 
 
+class TestCumprod:
+    """`cumprod` is the running product, `cumsum`'s multiplicative twin."""
+
+    def test_skipping_gaps(self):
+        """A gap multiplies by nothing, holds the product so far, and a leading gap stays one.
+
+        Test scenario:
+            Measured on xarray 2026.7.0 with one mid-series gap: `da.cumprod("time")` on
+            `[[1, 2], [3, nan], [5, 6], [7, 8]]` answers `[[1, 2], [3, 2], [15, 12],
+            [105, 96]]` — the gap holds its column's product. Before the first valid cell
+            this keeps a gap where xarray answers `1.0`, as `cumsum` keeps one where xarray
+            answers `0.0`.
+        """
+        masked = _masked()
+        product = np.nancumprod(masked, axis=0)
+        seen = np.cumsum(~np.isnan(masked), axis=0) > 0
+        result = _container().cumprod("time")
+        assert_allclose(_read(result), np.where(seen, product, np.nan), equal_nan=True)
+        read = _read(result)
+        assert np.all(np.isnan(read[:, ALL_MASKED[0], ALL_MASKED[1]]))
+        assert np.all(np.isnan(read[:2, LEADING_GAP[0], LEADING_GAP[1]]))
+
+    def test_the_mid_series_gap_holds_the_product(self):
+        """The one case xarray was measured on, cell for cell."""
+        cells = np.array([[[1.0, 2.0]], [[3.0, NDV]], [[5.0, 6.0]], [[7.0, 8.0]]])
+        container = NetCDF.from_array(
+            cells,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+            variable_name="v",
+            no_data_value=NDV,
+            dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+        )
+        read = _read(container.cumprod("time"))
+        assert_allclose(read.ravel(), [1.0, 2.0, 3.0, 2.0, 15.0, 12.0, 105.0, 96.0])
+
+    def test_without_skipping_the_stored_values_multiply(self):
+        """`skipna=False` runs `np.cumprod` over the stored values, sentinel included."""
+        values = _values()
+        result = _container(values).cumprod("time", skipna=False)
+        stored = np.asarray(_variable(result).read_array())
+        assert_allclose(stored, np.cumprod(values, axis=0))
+
+    def test_the_last_step_is_the_product(self):
+        """The running product's last step equals `reduce(how="prod")`."""
+        container = _container()
+        last = _read(container.cumprod("time"))[-1]
+        total = _read(container.reduce("time", "prod"))[0]
+        assert_allclose(last, total, equal_nan=True)
+
+    def test_a_variable_multiplies_like_its_container(self):
+        """`get_variable("v").cumprod(...)` holds what `cumprod(...).get_variable("v")` does."""
+        container = _container()
+        through_variable = _read(_variable(container).cumprod("time"))
+        through_container = _read(container.cumprod("time"))
+        assert_allclose(through_variable, through_container, equal_nan=True)
+
+    def test_the_stamps_are_kept(self):
+        """A running product keeps the dimension's length and its coordinates."""
+        result = _variable(_container().cumprod("time"))
+        assert result._band_dim_values_map["time"] == TIMES
+
+
 class TestCumsum:
     """`cumsum` is a running total along the dimension."""
 
