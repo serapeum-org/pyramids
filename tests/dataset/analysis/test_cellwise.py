@@ -158,6 +158,21 @@ class TestClip:
         with pytest.raises(ValueError, match="min"):
             raster.clip(6.0, 2.0)
 
+    @pytest.mark.parametrize("bounds", [{"min": np.nan}, {"max": np.nan}])
+    def test_a_nan_bound_is_refused(self, bounds: dict):
+        """NaN compares false against everything, so np.clip would blank the raster.
+
+        Test scenario:
+            `clip(min=np.nan)` used to answer `[nan, -9999.0, nan]` — every data cell NaN
+            while the raster still declares `-9999.0`, so `isnull` flagged none of them.
+
+        Args:
+            bounds: The NaN bound under test.
+        """
+        raster = _raster()
+        with pytest.raises(ValueError, match="NaN"):
+            raster.clip(**bounds)
+
     def test_on_a_store_variable(self):
         """A bound that actually moves cells, on a variable read from a file.
 

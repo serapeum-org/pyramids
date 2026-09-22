@@ -2845,8 +2845,10 @@ class Analysis(_Engine["Dataset"]):
             same judgement :meth:`where` and :meth:`fillna` make.
 
         Raises:
-            ValueError: Neither bound is given, or `min` is above `max` — numpy would
-                quietly set every cell to `max` there, which is never what was meant.
+            ValueError: Neither bound is given, `min` is above `max` — numpy would quietly
+                set every cell to `max` there, which is never what was meant — or a bound
+                is NaN, which numpy compares false against everything, leaving every cell
+                NaN and unflagged.
             TypeError: A bound is not a real number.
 
         Examples:
@@ -2908,6 +2910,16 @@ class Analysis(_Engine["Dataset"]):
                 not isinstance(bound, Real) or isinstance(bound, (bool, np.bool_))
             ):
                 raise TypeError(f"clip() needs a number for a bound; got {bound!r}.")
+            if (
+                bound is not None
+                and not np.isfinite(float(bound))
+                and np.isnan(float(bound))
+            ):
+                raise ValueError(
+                    "clip() cannot bound anything with NaN: every cell would come back "
+                    "NaN, and a raster that declares another sentinel does not read those "
+                    "as missing. Drop the bound, or use where() to mask."
+                )
         if lower is not None and upper is not None and lower > upper:
             raise ValueError(
                 f"clip() needs min at or below max, got min={lower!r} above max={upper!r}."
