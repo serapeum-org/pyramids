@@ -229,6 +229,30 @@ class TestDropIsel:
         """The dropped planes go, not only their coordinates."""
         assert _first_column(_variable().drop_isel(time=[0, 3])) == [3.0, 5.0]
 
+    def test_a_numpy_array_of_positions_drops_them(self):
+        """Positions are computed, not typed, and come back as an integer array.
+
+        Test scenario:
+            `np.flatnonzero(...)` and `np.where(...)[0]` produce positions, and the
+            refusal pointed the caller at `sel`, which takes coordinate *values*.
+        """
+        stamps = np.array([0.0, 6.0, 12.0, 18.0])
+        positions = np.flatnonzero(stamps > 6.0)
+        assert _stamps(_variable().drop_isel(time=positions)) == [0.0, 6.0]
+
+    def test_a_boolean_array_still_points_at_sel(self):
+        """A mask selects by flag, which is `drop_sel`'s job, so the refusal stands.
+
+        Test scenario:
+            Only an *integer* array is read as positions. A boolean one is a mask, and
+            `drop_sel(time=mask)` is where masks are answered, so the positional path
+            keeps refusing it and names the label member.
+        """
+        variable = _variable()
+        with pytest.raises(TypeError, match="needs an int") as info:
+            variable.drop_isel(time=np.array([True, False, True, False]))
+        assert "sel(" in str(info.value), info.value
+
     def test_dropping_everything_is_refused(self):
         """A variable with no bands cannot be built."""
         variable = _variable()

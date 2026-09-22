@@ -1403,12 +1403,15 @@ class Selection(_Engine["NetCDF"]):
     def drop_isel(self, **indexers: Any) -> NetCDF:
         """Drop steps by **position** along one or more band dimensions.
 
-        The complement of :meth:`isel`: each selector is read exactly as `isel` reads it,
+        The complement of :meth:`isel`: each selector is read as `isel` reads it — an
+        integer array besides, since positions are usually computed rather than typed —
         and the positions it names are the ones removed.
 
         Args:
             **indexers: `dimension=selector` pairs — an index, a `list` or `tuple` of them,
-                or a `slice`.
+                a numpy array of them, or a `slice`. `np.flatnonzero(...)` and
+                `np.where(...)[0]` are how positions are usually built, so an integer array
+                is read here even though :meth:`isel` refuses one.
 
         Returns:
             NetCDF: A variable without the dropped steps, its coordinates cut to match.
@@ -1486,7 +1489,12 @@ class Selection(_Engine["NetCDF"]):
             # here where `isel` refuses it: `drop_isel(time=[])` is not a request for a
             # variable with no bands.
             dropped = set(
-                _resolve_positional_indices(selector, size, dim_name, allow_empty=True)
+                _resolve_positional_indices(
+                    _as_a_sequence_of_positions(selector),
+                    size,
+                    dim_name,
+                    allow_empty=True,
+                )
             )
             keep[dim_name] = [i for i in range(size) if i not in dropped]
         return _kept(nc, keep, "drop_isel")
@@ -4554,6 +4562,30 @@ def _mask_positions(
                 f"variable with no bands, which GDAL has no raster for."
             )
     return positions
+
+
+def _as_a_sequence_of_positions(selector: Any) -> Any:
+    """`selector` with an integer array spelled as a list, everything else untouched.
+
+    Positions are computed, not typed: `np.flatnonzero(mask)`, `np.where(...)[0]` and
+    `np.argsort(...)` all hand back an integer `numpy.ndarray`. `isel` deliberately refuses
+    one — its Notes say so, and a test pins it — but `drop_isel` is new, and refusing the
+    canonical way of producing positions while pointing the caller at `sel` (which takes
+    *values*) helps nobody.
+
+    A boolean array is left alone, so the resolver's own "does not take booleans" refusal
+    still answers it: a mask belongs to `sel`, where it selects by flag.
+
+    Args:
+        selector: What the caller passed for one dimension.
+
+    Returns:
+        Any: A `list` of `int` for an integer array, `selector` itself otherwise.
+    """
+    resolved = selector
+    if isinstance(selector, np.ndarray) and selector.dtype.kind in "iu":
+        resolved = [int(one) for one in selector.ravel().tolist()]
+    return resolved
 
 
 def _as_a_sequence_of_labels(selector: Any) -> Any:
