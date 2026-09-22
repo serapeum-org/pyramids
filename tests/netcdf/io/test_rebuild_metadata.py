@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
@@ -236,3 +237,191 @@ class TestSetVariableReusesTheStoresAxes:
         assert added != ["latitude", "longitude"], (
             "a half-resolution grid must not reuse the store's own axes"
         )
+
+
+class TestWhatTheRebuildCarries:
+    """`_carried_axis_metadata` decides what a rebuilt store is told about its axes.
+
+    The members reach it with a source variable; these call it directly, because the
+    branches below are the ones a store variable never takes — no source at all, a source
+    whose axes cannot be resolved, and a dimension that declares units but no calendar.
+    """
+
+    def test_no_source_carries_nothing(self):
+        """A rebuild with nothing to inherit from keeps today's naming and writes no CF."""
+        assert NetCDF._carried_axis_metadata(None) == (None, None)
+
+    def test_a_store_variable_carries_both(self):
+        """The ordinary case: the source's axis names and its CF time attributes."""
+        store = _store()
+        names, attrs = NetCDF._carried_axis_metadata(
+            store.get_variable(store.variable_names[0])
+        )
+        assert sorted(names) == ["latitude", "longitude"], names
+        assert attrs == {"time": {"units": UNITS, "calendar": CALENDAR}}, attrs
+
+    def test_an_unresolvable_source_carries_no_names(self):
+        """A source that cannot answer about its axes must not break the rebuild.
+
+        Test scenario:
+            `_public_spatial_names` reads the parent's dimension list positionally. An
+            object that raises on the way through leaves the names unresolved, and the
+            rebuild falls back to `y` / `x` rather than failing.
+        """
+
+        class _Unresolvable:
+            """A source whose axes cannot be read."""
+
+            _band_dim_names = ()
+
+            @property
+            def dimension_names(self):
+                """Raise, as a half-built object would.
+
+                Raises:
+                    AttributeError: Always.
+                """
+                raise AttributeError("no dimensions here")
+
+            def _resolved_band_dim_time_attrs(self):
+                """No CF attributes either.
+
+                Returns:
+                    dict: Empty.
+                """
+                return {}
+
+        assert NetCDF._carried_axis_metadata(_Unresolvable()) == (None, None)
+
+    @pytest.mark.parametrize(
+        ("pair", "expected"),
+        [
+            ((UNITS, CALENDAR), {"units": UNITS, "calendar": CALENDAR}),
+            ((UNITS, None), {"units": UNITS}),
+            ((None, CALENDAR), {"calendar": CALENDAR}),
+        ],
+        ids=["both", "units-only", "calendar-only"],
+    )
+    def test_only_what_the_axis_declares_is_written(self, pair: tuple, expected: dict):
+        """A half-declared axis writes the half it has, and an empty one writes nothing.
+
+        Args:
+            pair: The `(units, calendar)` the source reports.
+            expected: What should be written onto the axis.
+        """
+
+        class _Source:
+            """A source reporting one band dimension with the given CF pair."""
+
+            _band_dim_names = ("time",)
+            dimension_names = ["time", "latitude", "longitude"]
+            _parent_nc = None
+            _md_spatial_dims = None
+
+            def _resolved_band_dim_time_attrs(self):
+                """The CF pair under test.
+
+                Returns:
+                    dict: One entry for `time`.
+                """
+                return {"time": pair}
+
+        _, attrs = NetCDF._carried_axis_metadata(_Source())
+        assert attrs == {"time": expected}, attrs
+
+    def test_an_axis_that_declares_neither_is_left_out(self):
+        """No CF pair means no attributes, not an empty mapping."""
+
+        class _Bare:
+            """A source whose band dimension declares nothing."""
+
+            _band_dim_names = ("time",)
+            dimension_names = ["time", "latitude", "longitude"]
+            _parent_nc = None
+            _md_spatial_dims = None
+
+            def _resolved_band_dim_time_attrs(self):
+                """No units, no calendar.
+
+                Returns:
+                    dict: One entry holding an empty pair.
+                """
+                return {"time": (None, None)}
+
+        assert NetCDF._carried_axis_metadata(_Bare())[1] is None
+
+
+class TestResolvingASpatialDimension:
+    """`_spatial_dimension` finds the store's own axis, or creates one.
+
+    The container is built in memory and writable — the fixture on disk is read-only, so
+    the "create one" branch cannot run against it. Building it with `spatial_names` also
+    exercises the new parameter on the public `from_array`.
+    """
+
+    @staticmethod
+    def _container() -> NetCDF:
+        """A writable container whose axes are named for their geography.
+
+        Returns:
+            NetCDF: A 4x4 container on `latitude` / `longitude`.
+        """
+        return NetCDF.from_array(
+            np.arange(16.0).reshape(4, 4),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 4.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+            spatial_names=("latitude", "longitude"),
+        )
+
+    @staticmethod
+    def _resolve(container: NetCDF, preferred: str, values, dim_type):
+        """Ask the resolver for an axis.
+
+        Args:
+            container: The container to resolve in.
+            preferred: The name to create under.
+            values: The coordinate values wanted.
+            dim_type: The GDAL horizontal axis type.
+
+        Returns:
+            The resolved dimension.
+        """
+        return NetCDF._spatial_dimension(
+            container._raster.GetRootGroup(),
+            preferred,
+            np.asarray(values, dtype="float64"),
+            gdal.ExtendedDataType.Create(gdal.GDT_Float64),
+            dim_type,
+        )
+
+    def test_the_parameter_names_the_axes(self):
+        """`spatial_names` is what the store ends up declaring."""
+        assert sorted(self._container().dimension_names) == ["latitude", "longitude"]
+
+    def test_an_axis_holding_the_same_values_is_reused(self):
+        """The store's own `latitude` answers a request for its own coordinates."""
+        container = self._container()
+        wanted = container.get_dimension_values("latitude")
+        resolved = self._resolve(container, "y", wanted, gdal.DIM_TYPE_HORIZONTAL_Y)
+        assert resolved.GetName() == "latitude", resolved.GetName()
+
+    def test_a_different_grid_creates_its_own_axis(self):
+        """Half the rows is a different axis, whatever it is called."""
+        container = self._container()
+        wanted = list(container.get_dimension_values("latitude"))[::2]
+        resolved = self._resolve(container, "y", wanted, gdal.DIM_TYPE_HORIZONTAL_Y)
+        assert resolved.GetName() != "latitude", "a coarser axis reused the store's own"
+        assert resolved.GetSize() == len(wanted), resolved.GetSize()
+
+    def test_the_other_axis_is_not_borrowed(self):
+        """An axis of the wrong role is never reused, even when the values would match.
+
+        Test scenario:
+            Asked for a horizontal *Y* axis holding `longitude`'s values, the resolver must
+            not hand back `longitude` — the role is part of the identity, so a square grid
+            cannot make one axis stand in for the other.
+        """
+        container = self._container()
+        wanted = container.get_dimension_values("longitude")
+        resolved = self._resolve(container, "y", wanted, gdal.DIM_TYPE_HORIZONTAL_Y)
+        assert resolved.GetName() != "longitude", "the X axis was borrowed for Y"
