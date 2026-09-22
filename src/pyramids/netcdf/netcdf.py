@@ -8632,7 +8632,9 @@ class NetCDF(Dataset):
         return self.selection.sortby(dim, ascending=ascending)
 
     def drop_duplicates(self, dim: str, *, keep: Any = "first") -> NetCDF:
-        """Facade — :meth:`Selection.drop_duplicates <pyramids.netcdf.engines.selection.Selection.drop_duplicates>`."""
+        """Facade — :meth:`Selection.drop_duplicates
+        <pyramids.netcdf.engines.selection.Selection.drop_duplicates>`.
+        """
         return self.selection.drop_duplicates(dim, keep=keep)
 
     def squeeze(self, dim: str | None = None) -> NetCDF:

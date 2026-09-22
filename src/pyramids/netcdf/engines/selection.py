@@ -1561,7 +1561,9 @@ class Selection(_Engine["NetCDF"]):
         """Reorder a band dimension by its own coordinate values.
 
         Each plane travels with its stamp, so the cells and the coordinates are reordered
-        together. A stable sort keeps equal stamps in the order they were written.
+        together. The sort is stable: equal stamps keep the order they were written when
+        ascending, and `ascending=False` reverses the whole result, so they come back in
+        the opposite order — which is what xarray's `sortby` does too.
 
         Args:
             dim: The band dimension to sort.
@@ -1698,10 +1700,11 @@ class Selection(_Engine["NetCDF"]):
     def squeeze(self, dim: str | None = None) -> NetCDF:
         """Drop the band dimensions of length one.
 
-        The data does not move — a length-one axis contributes nothing to the band count —
-        so only the layout changes. **Band dimensions only:** xarray's `squeeze` drops a
-        length-one *spatial* axis too, and a raster cannot lose one; a one-row raster keeps
-        its row.
+        No cell changes and no plane is reordered — a length-one axis contributes nothing
+        to the band count — but the result is a new raster holding a copy of the bands, as
+        every derived variable here is; xarray's `squeeze` is a view. **Band dimensions
+        only:** xarray's also drops a length-one *spatial* axis, and a raster cannot lose
+        one; a one-row raster keeps its row.
 
         Args:
             dim: The one dimension to drop, which must be length one. `None` (default) drops
@@ -1781,7 +1784,8 @@ class Selection(_Engine["NetCDF"]):
         """Add a band dimension of length one, outermost.
 
         The step that lifts a raster into a cube before :meth:`NetCDF.concat` joins it to
-        others along the new dimension. The data does not move.
+        others along the new dimension. No cell changes, though the bands are copied into
+        the new variable, as :meth:`squeeze` copies them.
 
         Args:
             dim: The new dimension's name, which must not already be a band dimension or a

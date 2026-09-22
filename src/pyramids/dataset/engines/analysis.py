@@ -2842,7 +2842,9 @@ class Analysis(_Engine["Dataset"]):
         Returns:
             Dataset: A raster on this one's grid, carrying its band names and metadata. The
             band keeps its type when both bounds fit it, and widens when one does not — the
-            same judgement :meth:`where` and :meth:`fillna` make.
+            same judgement :meth:`where` and :meth:`fillna` make. A CF-packed band is the
+            exception: the bounds apply to the physical values, so the result holds those
+            (`float64`) with the packing dropped.
 
         Raises:
             ValueError: Neither bound is given, `min` is above `max` — numpy would quietly
@@ -2953,7 +2955,9 @@ class Analysis(_Engine["Dataset"]):
                 does. Halves round to even, also as numpy does.
 
         Returns:
-            Dataset: A raster on this one's grid, in the band's own type.
+            Dataset: A raster on this one's grid, in the band's own type — except for a
+            CF-packed band, whose physical values are what is rounded, so the result holds
+            those (`float64`) with the packing dropped, as an xarray decoded array does.
 
         Raises:
             TypeError: `decimals` is not an integer.
