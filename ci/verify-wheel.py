@@ -26,6 +26,7 @@ heredoc in the workflow) so the script reads cleanly and adding a check
 doesn't require fighting YAML + shell quoting.
 """
 
+import glob
 import os
 import platform
 import subprocess
@@ -339,15 +340,23 @@ _HDF4_PLATFORMS = ("darwin", "win32-amd64")
 _OS_TRUST_PLATFORMS = ("win32-arm64",)
 # Platforms whose wheel vendors the vector stack (shapely + geopandas +
 # pyogrio) because upstream ships no wheels there — see
-# _check_vendored_vector_stack.
-_VENDORED_VECTOR_PLATFORMS = ("win32-arm64",)
+# _check_vendored_vector_stack. win_arm64: shapely/pyogrio have no ARM64
+# wheels; musl: pyogrio has no musllinux wheels (and geopandas requires it).
+_VENDORED_VECTOR_PLATFORMS = ("win32-arm64", "linux-musl")
 
 
 def _platform_slug() -> str:
-    """Return `sys.platform`, suffixed with the machine arch on Windows."""
+    """Return `sys.platform`, distinguishing the vendoring platforms.
+
+    Suffixed with the machine arch on Windows (win_arm64 vendors the vector
+    stack); on Linux, musl is separated from glibc as `linux-musl` since no
+    PEP 508 marker expresses it and only the musl wheel vendors the stack.
+    """
     slug = sys.platform
     if slug == "win32":
         slug = f"win32-{platform.machine().lower()}"
+    elif slug.startswith("linux") and glob.glob("/lib/ld-musl-*.so.1"):
+        slug = "linux-musl"
     return slug
 
 

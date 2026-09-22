@@ -19,6 +19,7 @@ during local editable installs.
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import platform
@@ -728,6 +729,23 @@ def _is_win_arm64() -> bool:
     return result
 
 
+def _is_musllinux() -> bool:
+    """Return True when this build TARGETS musl Linux (Alpine / musllinux).
+
+    pyogrio ships no musllinux wheels (and geopandas hard-requires it), so —
+    exactly as on win_arm64 — the wheel must carry its own shapely + pyogrio +
+    geopandas under `_vendor/`. Unlike win_arm64 there is no PEP 508 marker for
+    musl vs glibc (Alpine and Debian share `sys_platform`/`platform_machine`),
+    so the vendored deps are instead dropped from the built wheel's metadata by
+    ci/strip-vendored-deps-from-wheel.py. Detect musl by the loader the C
+    library installs: musllinux images ship `/lib/ld-musl-<arch>.so.1`; glibc
+    manylinux images do not.
+    """
+    if not sys.platform.startswith("linux"):
+        return False
+    return bool(glob.glob("/lib/ld-musl-*.so.1"))
+
+
 def _copy_dist_info_licenses(dist_info: Path, src_pyramids: Path) -> None:
     """Ship a vendored package's license texts under `_licenses/<pkg>/`.
 
@@ -786,17 +804,21 @@ def _assert_vector_stack_complete(vendored: list, src_pyramids: Path) -> None:
 
 
 def vendor_vector_stack_into_package() -> None:
-    """Vendor shapely + pyogrio + geopandas into the win_arm64 wheel.
+    """Vendor shapely + pyogrio + geopandas into the win_arm64 / musl wheel.
 
-    Neither shapely nor pyogrio publishes win_arm64 wheels, so the
-    platform markers in `[project.dependencies]` skip them (and
-    geopandas) there and this function supplies the wheel's own copies:
+    Neither shapely nor pyogrio publishes win_arm64 wheels, and pyogrio
+    publishes no musllinux wheels either (geopandas hard-requires it), so on
+    both platforms the wheel supplies its own copies. On win_arm64 the platform
+    markers in `[project.dependencies]` skip shapely/geopandas; on musl — where
+    no PEP 508 marker can express glibc-vs-musl — the same deps are dropped from
+    the built wheel's metadata by ci/strip-vendored-deps-from-wheel.py instead.
 
     1. fetch the hash-pinned artifacts (`--require-hashes`) and build
-       shapely + pyogrio from sdist for the CURRENT Python against the
-       vcpkg prefix (GEOS/GDAL headers + import libs staged by
-       ci/setup-gdal-from-vcpkg.ps1); the pure-Python geopandas wheel
-       arrives through the same verified `pip wheel` run,
+       shapely + pyogrio from sdist for the CURRENT Python against the build
+       prefix (GEOS/GDAL headers staged by ci/setup-gdal-from-vcpkg.ps1 on
+       Windows, or compiled into <prefix> by ci/source-build/build-gdal-stack.sh
+       on musl); the pure-Python geopandas wheel arrives through the same
+       verified `pip wheel` run,
     2. `pip install --target` the RAW wheels and copy the top-level
        entries into `src/pyramids/_vendor/`, where the runtime
        bootstrap already puts them on sys.path (the same mechanism as
@@ -814,17 +836,25 @@ def vendor_vector_stack_into_package() -> None:
     """
     prefix = _build_prefix()
     bin_dir, _, lib_dir = _data_layout_roots(prefix)
-    include_dir = prefix / "Library" / "include"
     src_pyramids = REPO_ROOT / "src" / "pyramids"
     vendor_dir = src_pyramids / "_vendor"
 
     env = os.environ.copy()
+    env["GDAL_VERSION"] = _gdal_version()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+    # shapely and pyogrio locate GEOS/GDAL from these header + lib path env vars
+    # — the way the win_arm64 build resolves them, where there is no *-config
+    # binary. On the from-source Unix prefix (musllinux, /usr/local) geos-config
+    # and gdal-config are also on PATH via the prepend above, but exporting the
+    # paths too keeps the build robust if geos-config was not installed. Windows
+    # nests the headers under Library/; the Unix prefix uses the standard
+    # include/.
+    on_windows = sys.platform == "win32" or os.name == "nt"
+    include_dir = prefix / "Library" / "include" if on_windows else prefix / "include"
     env["GEOS_INCLUDE_PATH"] = str(include_dir)
     env["GEOS_LIBRARY_PATH"] = str(lib_dir)
     env["GDAL_INCLUDE_PATH"] = str(include_dir)
     env["GDAL_LIBRARY_PATH"] = str(lib_dir)
-    env["GDAL_VERSION"] = _gdal_version()
-    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
 
     with tempfile.TemporaryDirectory(prefix="vector-stack-") as tmp:
         raw = Path(tmp) / "raw"
@@ -886,7 +916,7 @@ def vendor_vector_stack_into_package() -> None:
 
 
 def remove_stale_vector_stack() -> None:
-    """Drop vector-stack leftovers when NOT building for win_arm64.
+    """Drop vector-stack leftovers when NOT building for win_arm64 or musl.
 
     vendor_vector_stack_into_package() writes into the source tree, and
     the package-data globs shipping `_vendor/{shapely,geopandas,pyogrio}`
@@ -915,7 +945,7 @@ def main() -> None:
         return
     install_gdal_python_bindings()
     vendor_osgeo_into_package()
-    if _is_win_arm64():
+    if _is_win_arm64() or _is_musllinux():
         vendor_vector_stack_into_package()
     else:
         remove_stale_vector_stack()
