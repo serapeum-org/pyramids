@@ -61,6 +61,19 @@ _VECTOR_STACK_PINS = {
     ),
 }
 
+# cftime ships no musllinux-aarch64 wheel (only x86_64), and it is an
+# unconditional runtime dep, so the aarch64 musl wheel must carry its own copy —
+# the same "no upstream wheel here" case as the vector stack, for one more
+# package. Vendored on ALL musl for a single code path (x86_64 has a wheel, but
+# vendoring both arches avoids an arch split); dropped from the wheel metadata by
+# ci/strip-vendored-deps-from-wheel.py. musl only — win_arm64 has a cftime wheel.
+_MUSL_EXTRA_PINS = {
+    "cftime": (
+        "1.6.5",
+        "8225fed6b9b43fb87683ebab52130450fc1730011150d3092096a90e54d1e81e",
+    ),
+}
+
 
 def _gdal_version() -> str:
     """Return the concrete GDAL version that BEFORE_ALL resolved.
@@ -779,8 +792,8 @@ def _copy_vector_stack_tree(target: Path, src_pyramids: Path, vendor_dir: Path) 
     return vendored
 
 
-def _assert_vector_stack_complete(vendored: list, src_pyramids: Path) -> None:
-    """Hard-fail unless every pinned package vendored with a license.
+def _assert_vector_stack_complete(vendored: list, required, src_pyramids: Path) -> None:
+    """Hard-fail unless every `required` package vendored with a license.
 
     The wheel redistributes these packages' binaries, so shipping their
     license texts is a hard requirement, not best-effort — and the
@@ -789,17 +802,15 @@ def _assert_vector_stack_complete(vendored: list, src_pyramids: Path) -> None:
     stopped matching the LICENSE* glob (e.g. a rename to COPYING or a
     new PEP 639 layout).
     """
-    for required in ("shapely", "pyogrio", "geopandas"):
-        if required not in vendored:
+    for name in required:
+        if name not in vendored:
             raise RuntimeError(
-                f"vector-stack vendoring did not produce _vendor/{required} "
-                f"(got: {vendored})"
+                f"vendoring did not produce _vendor/{name} (got: {vendored})"
             )
-        license_dir = src_pyramids / "_licenses" / required
+        license_dir = src_pyramids / "_licenses" / name
         if not license_dir.is_dir() or not any(license_dir.iterdir()):
             raise RuntimeError(
-                f"vector-stack vendoring shipped no license text for "
-                f"{required} under {license_dir}"
+                f"vendoring shipped no license text for {name} under {license_dir}"
             )
 
 
@@ -856,20 +867,29 @@ def vendor_vector_stack_into_package() -> None:
     env["GDAL_INCLUDE_PATH"] = str(include_dir)
     env["GDAL_LIBRARY_PATH"] = str(lib_dir)
 
-    with tempfile.TemporaryDirectory(prefix="vector-stack-") as tmp:
+    pins_map = dict(_VECTOR_STACK_PINS)
+    no_binary = ["shapely", "pyogrio"]
+    required = ["shapely", "pyogrio", "geopandas"]
+    if _is_musllinux():
+        # cftime has no musllinux-aarch64 wheel — vendor it too (_MUSL_EXTRA_PINS).
+        pins_map.update(_MUSL_EXTRA_PINS)
+        no_binary.append("cftime")
+        required.append("cftime")
+
+    with tempfile.TemporaryDirectory(prefix="vendor-wheels-") as tmp:
         raw = Path(tmp) / "raw"
         target = Path(tmp) / "target"
-        requirements = Path(tmp) / "vector-stack-requirements.txt"
+        requirements = Path(tmp) / "vendor-requirements.txt"
         requirements.write_text(
             "".join(
                 f"{pkg}=={version} --hash=sha256:{sha256}\n"
-                for pkg, (version, sha256) in _VECTOR_STACK_PINS.items()
+                for pkg, (version, sha256) in pins_map.items()
             ),
             encoding="utf-8",
         )
-        pins = ", ".join(f"{p}=={v}" for p, (v, _) in _VECTOR_STACK_PINS.items())
+        pins = ", ".join(f"{p}=={v}" for p, (v, _) in pins_map.items())
         print(
-            f"[install-and-vendor-osgeo] building the win_arm64 vector stack "
+            f"[install-and-vendor-osgeo] building the vendored wheels "
             f"({pins}) from hash-pinned PyPI artifacts",
             flush=True,
         )
@@ -884,7 +904,7 @@ def vendor_vector_stack_into_package() -> None:
                 "--require-hashes",
                 "--no-deps",
                 "--no-binary",
-                "shapely,pyogrio",
+                ",".join(no_binary),
                 "-w",
                 str(raw),
             ],
@@ -908,9 +928,9 @@ def vendor_vector_stack_into_package() -> None:
 
         vendored = _copy_vector_stack_tree(target, src_pyramids, vendor_dir)
 
-    _assert_vector_stack_complete(vendored, src_pyramids)
+    _assert_vector_stack_complete(vendored, required, src_pyramids)
     print(
-        f"[install-and-vendor-osgeo] vendored vector stack: {', '.join(vendored)}",
+        f"[install-and-vendor-osgeo] vendored: {', '.join(vendored)}",
         flush=True,
     )
 
@@ -926,7 +946,7 @@ def remove_stale_vector_stack() -> None:
     ci/verify-wheel.py asserts the same absence on the consuming side.
     """
     src_pyramids = REPO_ROOT / "src" / "pyramids"
-    for pkg in _VECTOR_STACK_PINS:
+    for pkg in (*_VECTOR_STACK_PINS, *_MUSL_EXTRA_PINS):
         for stale in (
             src_pyramids / "_vendor" / pkg,
             src_pyramids / "_licenses" / pkg,

@@ -47,7 +47,9 @@ from osgeo import gdal, ogr, osr  # noqa: F401 — ogr import is a smoke test
 # The same bootstrap-first constraint covers the vector stack: on
 # win_arm64 these three live under pyramids/_vendor and only resolve
 # after `import pyramids` (everywhere else they are real PyPI installs
-# pulled in by the wheel's dependencies).
+# pulled in by the wheel's dependencies). cftime is the same story on musl
+# (no musllinux-aarch64 wheel — the wheel vendors it there).
+import cftime
 import geopandas
 import pyogrio
 import shapely
@@ -388,6 +390,12 @@ def _check_vendored_vector_stack() -> None:
     vendor_root = (pkg_root / "_vendor").resolve()
     if _platform_slug() in _VENDORED_VECTOR_PLATFORMS:
         _assert_vector_stack_vendored(vendor_root)
+        # musl additionally vendors cftime (no musllinux-aarch64 wheel upstream).
+        if _platform_slug() == "linux-musl":
+            resolved = Path(cftime.__file__).resolve()
+            if not resolved.is_relative_to(vendor_root):
+                _fail(f"cftime resolved to {resolved}, not the vendored copy")
+            print(f"vendored cftime OK — {cftime.__version__} imports from _vendor.")
     else:
         _assert_vector_stack_absent(pkg_root, vendor_root)
 

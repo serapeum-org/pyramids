@@ -61,21 +61,23 @@ _METADATA = (
     "Requires-Dist: numpy>=2.0.0\n"
     f"Requires-Dist: geopandas>=1.0.0 {_MUSL_MARKER}\n"
     f"Requires-Dist: Shapely>=2.1.0 {_MUSL_MARKER}\n"
+    "Requires-Dist: cftime>=1.6.4\n"
     "Requires-Dist: pyproj>=3.7.0\n\nProject description.\n"
 ).encode("utf-8")
 
 
-def test_strip_removes_geopandas_and_shapely(tmp_path):
-    """The strip drops exactly the geopandas + Shapely Requires-Dist lines."""
+def test_strip_removes_the_vendored_deps(tmp_path):
+    """The strip drops exactly the geopandas + Shapely + cftime Requires-Dist lines."""
     module = _load_strip_module()
     wheel = tmp_path / "pyramids_gis-0.0.0-cp312-cp312-musllinux_1_2_x86_64.whl"
     _write_wheel(wheel, _METADATA)
     removed = module.strip_wheel(wheel)
-    assert removed == 2
+    assert removed == 3
     with zipfile.ZipFile(wheel) as zf:
         metadata = zf.read("pyramids_gis-0.0.0.dist-info/METADATA").decode("utf-8")
     assert "geopandas" not in metadata
     assert "Shapely" not in metadata
+    assert "cftime" not in metadata
 
 
 def test_strip_keeps_the_other_dependencies(tmp_path):

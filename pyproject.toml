@@ -182,6 +182,7 @@ pyramids = [
     "_vendor/shapely/**/*",
     "_vendor/geopandas/**/*",
     "_vendor/pyogrio/**/*",
+    "_vendor/cftime/**/*",
     "_data/gdal_data/*",
     "_data/proj_data/*",
     "_data/gdalplugins/*",

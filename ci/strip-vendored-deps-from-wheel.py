@@ -24,9 +24,11 @@ import zipfile
 from pathlib import Path
 
 # PEP 503 normalized names of the deps the musl wheel vendors and must not
-# declare (pyogrio is not a direct dep — it is dropped transitively by removing
-# geopandas, which hard-requires it).
-_DROP = {"geopandas", "shapely"}
+# declare. pyogrio is not a direct dep — it is dropped transitively by removing
+# geopandas (which hard-requires it). cftime is dropped because it has no
+# musllinux-aarch64 wheel, so the wheel vendors its own copy (see
+# ci/install-and-vendor-osgeo.py).
+_DROP = {"geopandas", "shapely", "cftime"}
 _NAME_RE = re.compile(r"^Requires-Dist:\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)")
 
 
