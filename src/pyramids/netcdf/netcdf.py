@@ -12718,12 +12718,125 @@ class NetCDF(Dataset):
         Returns:
             gdal.Dimension: The reused or newly created dimension.
         """
+        found = NetCDF._matching_spatial_dimension(rg, values, dim_type)
+        return found or NetCDF._get_or_create_dimension(
+            rg, preferred, values, dtype, dim_type
+        )
+
+    @staticmethod
+    def _matching_spatial_dimension(
+        rg: gdal.Group, values: np.ndarray, dim_type
+    ) -> gdal.Dimension | None:
+        """The store's own axis for these coordinates, or `None` when it has none.
+
+        Args:
+            rg: The root group.
+            values: The coordinate values wanted.
+            dim_type: `gdal.DIM_TYPE_HORIZONTAL_X` or `..._Y`.
+
+        Returns:
+            gdal.Dimension | None: The matching dimension.
+        """
+        found = None
         for existing in rg.GetDimensions() or []:
             if existing.GetType() != dim_type:
                 continue
-            if NetCDF._dimension_holds(existing, values):
-                return existing
-        return NetCDF._get_or_create_dimension(rg, preferred, values, dtype, dim_type)
+            if NetCDF._holds_the_same_grid_axis(existing, values):
+                found = existing
+                break
+        return found
+
+    @staticmethod
+    def _spatial_axes(
+        rg: gdal.Group,
+        x_values: np.ndarray,
+        y_values: np.ndarray,
+        dtype,
+        names: tuple[str, str],
+    ) -> tuple:
+        """The `(column, row)` dimensions for a grid — the store's own pair, or a new one.
+
+        The decision is taken for **both** axes together. Resolving them one at a time let a
+        variable be declared against a pair drawn from two naming systems: on a y-ascending
+        store, `set_variable`'s north-up row coordinates never match the store's ascending
+        `lat` while its columns match `lon` exactly, so the result was `(y, lon)` with a
+        stray `y` left in the store. Either the store describes this grid or it does not.
+
+        Args:
+            rg: The root group.
+            x_values: The column coordinates.
+            y_values: The row coordinates.
+            dtype: The coordinate array's type.
+            names: The `(row, column)` names to create under when the store has no pair.
+
+        Returns:
+            tuple: `(dim_x, dim_y)`.
+        """
+        row_name, column_name = names
+        matched_x = NetCDF._matching_spatial_dimension(
+            rg, x_values, gdal.DIM_TYPE_HORIZONTAL_X
+        )
+        matched_y = NetCDF._matching_spatial_dimension(
+            rg, y_values, gdal.DIM_TYPE_HORIZONTAL_Y
+        )
+        if matched_x is not None and matched_y is not None:
+            return matched_x, matched_y
+        return (
+            NetCDF._get_or_create_dimension(
+                rg, column_name, x_values, dtype, gdal.DIM_TYPE_HORIZONTAL_X
+            ),
+            NetCDF._get_or_create_dimension(
+                rg, row_name, y_values, dtype, gdal.DIM_TYPE_HORIZONTAL_Y
+            ),
+        )
+
+    @staticmethod
+    def _holds_the_same_grid_axis(
+        dimension: gdal.Dimension, values: np.ndarray
+    ) -> bool:
+        """Whether a spatial dimension carries the coordinates about to be written.
+
+        Two differences from `_dimension_holds`, which answers the same question for a band
+        axis and is deliberately left alone:
+
+        - **A tolerance, not equality.** `set_variable` does not read the store's
+          coordinates; it recomputes cell centres from the derived geotransform, and that
+          round trip — stored values to `(origin, step)` and back — is bit-exact only on
+          dyadic spacings. On an ordinary 0.1 degree grid, and on any float32 axis, the
+          recomputed centres differ in the last few ulps, and matching on `==` meant the
+          store silently gained a second pair of axes on almost every real file.
+        - **Coordinates are required.** `_dimension_holds` falls back to the size when a
+          dimension has no indexing variable, which is right for a band axis that never had
+          coordinates. Here it would let any coordinate-less horizontal axis of the same
+          width — what a curvilinear or WRF store has — stand in for a grid it says nothing
+          about.
+
+        Args:
+            dimension: A candidate dimension of the wanted horizontal type.
+            values: The coordinate values about to be written.
+
+        Returns:
+            bool: `True` when the dimension carries these coordinates.
+        """
+        stored = (
+            NetCDF._read_band_dim_values(dimension)
+            if dimension.GetIndexingVariable() is not None
+            else None
+        )
+        wanted = np.asarray(values, dtype="float64").ravel()
+        same = stored is not None and len(stored) == len(wanted)
+        if same:
+            held = np.asarray(stored, dtype="float64").ravel()
+            # Scaled to the axis' own step, so the slack is a fraction of a cell rather
+            # than an absolute distance that would mean one thing in degrees and another
+            # in metres.
+            step = float(np.abs(np.diff(held)).max()) if len(held) > 1 else 1.0
+            same = bool(
+                np.allclose(
+                    held, wanted, rtol=0.0, atol=abs(step) * 1e-6, equal_nan=True
+                )
+            )
+        return same
 
     @staticmethod
     def _dimension_holds(dimension: gdal.Dimension, values: np.ndarray) -> bool:

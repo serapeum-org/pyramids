@@ -287,6 +287,136 @@ class TestSetVariableReusesTheStoresAxes:
         )
 
 
+class TestReuseOnRealisticGrids:
+    """The reuse rule has to fire on the grids people actually have.
+
+    `set_variable` does not read the store's coordinates — it recomputes cell centres from
+    the derived geotransform — and that round trip is bit-exact only on dyadic spacings.
+    Matching on `==` meant a second pair of axes on almost every real file, silently.
+    """
+
+    @staticmethod
+    def _container(step: float, dtype: str) -> NetCDF:
+        """A container on a `step`-degree grid, named `lat` / `lon`.
+
+        Args:
+            step: The cell size in degrees.
+            dtype: The cells' dtype.
+
+        Returns:
+            NetCDF: The container.
+        """
+        return NetCDF.from_array(
+            np.arange(20.0, dtype=dtype).reshape(4, 5),
+            geo_ref=GeoReference(geo=(3.0, step, 0.0, 50.0, 0.0, -step), epsg=4326),
+            variable_name="t",
+            spatial_names=("lat", "lon"),
+        )
+
+    @pytest.mark.parametrize(
+        ("step", "dtype"),
+        [(0.1, "float32"), (0.1, "float64"), (2.5, "float64")],
+        ids=["0.1deg-float32", "0.1deg-float64", "2.5deg-dyadic"],
+    )
+    def test_a_realistic_grid_is_reused(self, step: float, dtype: str):
+        """No second pair, whatever the spacing and whatever the dtype.
+
+        Test scenario:
+            Only the dyadic 2.5-degree case passed before: the 0.1-degree grids differ in
+            the last ulps after the geotransform round trip, so the store gained `x` / `y`
+            beside its own `lat` / `lon` — #1194's symptom, unfixed on the common case.
+
+        Args:
+            step: The cell size under test.
+            dtype: The cells' dtype.
+        """
+        container = self._container(step, dtype)
+        variable = container.get_variable("t")
+        container.set_variable(
+            "added",
+            Dataset.from_array(
+                np.asarray(variable.read_array()),
+                geo_ref=GeoReference(geo=variable.geotransform, epsg=variable.epsg),
+                no_data_value=variable.no_data_value[0],
+            ),
+        )
+        assert sorted(container.dimension_names) == ["lat", "lon"], (
+            f"a second pair was created on a {step} degree {dtype} grid: "
+            f"{container.dimension_names}"
+        )
+
+    def test_a_genuinely_different_grid_is_still_not_reused(self):
+        """The tolerance is a fraction of a cell, not a licence to match anything."""
+        container = self._container(0.1, "float64")
+        variable = container.get_variable("t")
+        shifted = GeoReference(geo=(3.5, 0.1, 0.0, 50.0, 0.0, -0.1), epsg=variable.epsg)
+        container.set_variable(
+            "shifted",
+            Dataset.from_array(
+                np.asarray(variable.read_array()),
+                geo_ref=shifted,
+                no_data_value=variable.no_data_value[0],
+            ),
+        )
+        assert len(container.dimension_names) > 2, (
+            f"a grid shifted by five cells reused the store's axes: "
+            f"{container.dimension_names}"
+        )
+
+    def test_a_coordinate_less_axis_is_never_borrowed(self):
+        """An axis that says nothing about itself is not evidence of anything.
+
+        Test scenario:
+            A curvilinear or WRF store has horizontal dimensions with no 1-D coordinate
+            variable. Matching on size alone let one of those stand in for a grid it says
+            nothing about — here a bare 4-long axis accepted `[100, 200, 300, 400]`.
+        """
+        memory = gdal.GetDriverByName("MEM").CreateMultiDimensional("m")
+        rg = memory.GetRootGroup()
+        rg.CreateDimension("mystery_x", gdal.DIM_TYPE_HORIZONTAL_X, None, 4)
+        resolved = NetCDF._spatial_dimension(
+            rg,
+            "x",
+            np.array([100.0, 200.0, 300.0, 400.0]),
+            gdal.ExtendedDataType.Create(gdal.GDT_Float64),
+            gdal.DIM_TYPE_HORIZONTAL_X,
+        )
+        assert resolved.GetName() == "x", (
+            f"a coordinate-less axis was borrowed: {resolved.GetName()}"
+        )
+
+
+class TestTheSpatialPairIsDecidedTogether:
+    """Either the store describes this grid or it does not — never half of it."""
+
+    Y_ASCENDING = (
+        Path(__file__).parents[2] / "data" / "netcdf" / "cf__5v__1d4-4d1__y-asc.nc"
+    )
+
+    def test_a_y_ascending_store_gets_a_clean_pair(self):
+        """A store whose rows ascend must not yield a pair from two naming systems.
+
+        Test scenario:
+            `set_variable` writes north-up rows, so on a y-ascending store the request
+            never matches the stored ascending `lat` while the columns match `lon`
+            exactly. Resolving the axes one at a time declared the new variable on
+            `('y', 'lon')` and left a stray `y` in the store.
+        """
+        store = NetCDF.read_file(str(self.Y_ASCENDING))
+        variable = store.get_variable("temperature")
+        plane = np.asarray(variable.read_array())[0]
+        store.set_variable(
+            "added",
+            Dataset.from_array(
+                plane,
+                geo_ref=GeoReference(geo=variable.geotransform, epsg=variable.epsg),
+                no_data_value=variable.no_data_value[0],
+            ),
+        )
+        added = list(store.get_variable("added").dimension_names or [])
+        assert added == ["y", "x"], f"the pair mixes naming systems: {added}"
+
+
 class TestWhatTheRebuildCarries:
     """`_carried_axis_metadata` decides what a rebuilt store is told about its axes.
 

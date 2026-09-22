@@ -207,11 +207,8 @@ class Variables(_Engine["NetCDF"]):
         # `latitude` used to gain an `x` / `y` pair beside its own, describing the same
         # grid, with the new variable declared against the pair the store never had
         # (#1194).
-        dim_x = nc._spatial_dimension(
-            rg, _COLUMN_AXIS, x_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_X
-        )
-        dim_y = nc._spatial_dimension(
-            rg, _ROW_AXIS, y_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_Y
+        dim_x, dim_y = nc._spatial_axes(
+            rg, x_values, y_values, coord_dtype, (_ROW_AXIS, _COLUMN_AXIS)
         )
 
         md_arr = _build_variable_mdarray(
