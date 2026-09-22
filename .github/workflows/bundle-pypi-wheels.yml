@@ -724,14 +724,18 @@ jobs:
           name: canary-musl-${{ matrix.arch }}
           path: wheelhouse
 
-      # Install ONLY the wheel inside Alpine: it vendors the vector stack and the
-      # strip step removed geopandas/Shapely from its metadata, so
-      # --only-binary=:all: resolves just the remaining deps (numpy/pandas/pyproj/
-      # scipy/cftime/hpc-utils/PyYAML) as musl wheels and pulls NO external
-      # pyogrio. If the strip regressed, pip would try the non-existent pyogrio
-      # musl wheel and fail here — the self-containment guarantee under test.
-      # verify-wheel.py then asserts the vendored stack imports from _vendor, and
-      # the hermetic core suite (base, netCDF, io, dataset, feature) runs.
+      # Install ONLY the wheel inside Alpine, then import the vendored stack with
+      # NO test tooling in the env yet: it vendors shapely/pyogrio/geopandas
+      # (+ cftime) and the strip step removed those from its metadata, so
+      # --only-binary=:all: resolves just the remaining real deps
+      # (numpy/pandas/pyproj/scipy/hpc-utils/PyYAML + the pure-Python
+      # packaging/certifi) as musl wheels and pulls NO external pyogrio/cftime.
+      # The bare-install import is the self-containment guarantee under test, and
+      # it runs BEFORE any pytest install ON PURPOSE: a dep the wheel needs but
+      # never declared (e.g. packaging, which the vendored geopandas imports)
+      # fails here instead of being masked by pytest dragging it in. Only then
+      # does the job install pytest, run verify-wheel.py (asserts the vendored
+      # stack imports from _vendor), and run the hermetic core suite.
       - name: Install + verify the self-contained wheel on Alpine
         shell: bash
         run: |
@@ -740,6 +744,7 @@ jobs:
               set -eu
               WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*musllinux_1_2_${{ matrix.arch }}.whl)
               pip install "${WHEEL}" --only-binary=:all:
+              python -c "import pyramids, geopandas, pyogrio, shapely, cftime"
               pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
               python ci/verify-wheel.py
               pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread \
