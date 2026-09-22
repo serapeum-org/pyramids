@@ -4743,7 +4743,8 @@ def _windowed(
         NetCDF: The cut variable.
 
     Raises:
-        ValueError: `indexers` is empty and there is no default.
+        ValueError: `indexers` is empty and there is no default, or the receiver has no
+            band dimension for an empty call to window.
     """
     if not indexers:
         if default is None:
@@ -4751,6 +4752,12 @@ def _windowed(
                 f"{caller}() requires at least one keyword argument, e.g. {caller}(time=2)."
             )
         indexers = {name: default for name in nc._band_dim_names}
+        if not indexers:
+            raise ValueError(
+                f"{caller}() needs a band dimension to window, and this has none — a "
+                f"single raster plane, or a container, carries no axis to cut. Call it "
+                f"on a variable that has one."
+            )
     keep: dict[str, list[int]] = {}
     for dim_name, n in indexers.items():
         _assert_band_dimension(nc, dim_name, caller=caller)
@@ -4774,8 +4781,15 @@ def _kept(nc: NetCDF, keep: dict[str, list[int]], caller: str) -> NetCDF:
         NetCDF: The cut variable.
 
     Raises:
-        ValueError: A dimension would keep no positions.
+        ValueError: A dimension would keep no positions, or no dimension is named at all —
+            with nothing to cut the receiver itself would be handed back, and that is the
+            engine's `weakref.proxy` to its dataset, which dies with the object it proxies.
     """
+    if not keep:
+        raise ValueError(
+            f"{caller}() names no dimension to cut, so there is nothing to build a "
+            f"variable from."
+        )
     for dim_name, positions in keep.items():
         if not positions:
             raise ValueError(

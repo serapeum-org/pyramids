@@ -494,6 +494,27 @@ class TestNoArguments:
         with pytest.raises(ValueError, match="at least one keyword"):
             variable.drop_sel()
 
+    def test_a_variable_with_no_band_dimensions_is_refused(self):
+        """`head()` must never hand back the engine's view of its own dataset.
+
+        Test scenario:
+            A flat `(y, x)` variable has no band dimension, so there is no axis to window.
+            The bare call used to fall through with nothing to cut and return the engine's
+            `weakref.proxy`, which dies with the temporary it was taken from: the chained
+            `...get_variable("t").head().read_array()` raised `ReferenceError`.
+        """
+        flat = NetCDF.from_array(
+            np.ones((2, 3)), geo_ref=GEO, variable_name="t"
+        ).get_variable("t")
+        with pytest.raises(ValueError, match=r"head\(\) needs a band dimension"):
+            flat.head()
+
+    def test_a_container_is_refused_by_name(self):
+        """`tail()` on a container refuses instead of silently answering the container."""
+        container = NetCDF.read_file(str(CF_STORE))
+        with pytest.raises(ValueError, match=r"tail\(\) needs a band dimension"):
+            container.tail()
+
     def test_thin_with_nothing_is_refused(self):
         """`thin()` has no default step, unlike `head()` and `tail()`.
 
