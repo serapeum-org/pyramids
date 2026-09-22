@@ -442,9 +442,10 @@ class TestWhatTheRebuildCarries:
         """A source that cannot answer about its axes must not break the rebuild.
 
         Test scenario:
-            `_public_spatial_names` reads the parent's dimension list positionally. An
-            object that raises on the way through leaves the names unresolved, and the
-            rebuild falls back to `y` / `x` rather than failing.
+            `_public_spatial_names` reaches the axes through `_spatial_names`, which reads
+            the variable's `_md_array_dims`. An object that raises `AttributeError` on the
+            way through leaves the names unresolved, and the rebuild falls back to
+            `y` / `x` rather than failing.
         """
 
         class _Unresolvable:
@@ -453,7 +454,7 @@ class TestWhatTheRebuildCarries:
             _band_dim_names = ()
 
             @property
-            def dimension_names(self):
+            def _md_array_dims(self):
                 """Raise, as a half-built object would.
 
                 Raises:
@@ -492,9 +493,10 @@ class TestWhatTheRebuildCarries:
             """A source reporting one band dimension with the given CF pair."""
 
             _band_dim_names = ("time",)
-            dimension_names = ["time", "latitude", "longitude"]
-            _parent_nc = None
+            _md_array_dims = ["time", "latitude", "longitude"]
             _md_spatial_dims = None
+            _parent_nc = None
+            _source_var_name = None
 
             def _resolved_band_dim_time_attrs(self):
                 """The CF pair under test.
@@ -514,9 +516,10 @@ class TestWhatTheRebuildCarries:
             """A source whose band dimension declares nothing."""
 
             _band_dim_names = ("time",)
-            dimension_names = ["time", "latitude", "longitude"]
-            _parent_nc = None
+            _md_array_dims = ["time", "latitude", "longitude"]
             _md_spatial_dims = None
+            _parent_nc = None
+            _source_var_name = None
 
             def _resolved_band_dim_time_attrs(self):
                 """No units, no calendar.

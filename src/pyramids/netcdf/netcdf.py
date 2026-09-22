@@ -8052,7 +8052,11 @@ class NetCDF(Dataset):
             return None, None
         try:
             names = _interop._public_spatial_names(source)
-        except (AttributeError, IndexError, TypeError):
+        except AttributeError:
+            # The documented case: an object that never grew the `_md_array_dims` the
+            # resolution reads. Nothing wider is caught, because a `TypeError` or an
+            # `IndexError` from that code is a defect in it, and swallowing one here
+            # would rename the axes back to `y` / `x` — the #1180 symptom — silently.
             names = None
         return names, NetCDF._cf_axis_attributes(
             source._resolved_band_dim_time_attrs()
