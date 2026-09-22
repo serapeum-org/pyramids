@@ -406,6 +406,20 @@ class TestDropSel:
         with pytest.raises(KeyError, match="Available values"):
             variable.drop_sel(time=99.0)
 
+    def test_every_missing_label_is_explained(self):
+        """Two labels can fail for two reasons, and both belong in the message.
+
+        Test scenario:
+            Only the first reason was quoted, and it ran into the next sentence with no
+            separator, so a second, differently-broken label was named but unexplained.
+        """
+        variable = _variable()
+        with pytest.raises(KeyError) as info:
+            variable.drop_sel(time=[99.0, "nope"])
+        message = str(info.value)
+        assert "99.0:" in message and "'nope':" in message, message
+        assert "] Pass" not in message, f"missing separator: {message}"
+
     def test_a_cf_date_string_drops_what_sel_selects(self):
         """A CF time string is resolved the way `sel` resolves it.
 

@@ -1605,8 +1605,12 @@ class Selection(_Engine["NetCDF"]):
                     missing.append(label)
                     reasons.append(str(unmatched).strip("\"'"))
             if missing and errors == "raise":
+                explained = "; ".join(
+                    f"{label!r}: {reason}" for label, reason in zip(missing, reasons)
+                )
                 raise KeyError(
-                    f"drop_sel() found {missing!r} nowhere on {dim_name!r} ({reasons[0]}) "
+                    f"drop_sel() found {missing!r} nowhere on {dim_name!r}. "
+                    f"{explained.rstrip('.')}. "
                     f"Pass errors='ignore' to drop the labels that are there and skip "
                     f"the rest."
                 )
@@ -5178,12 +5182,14 @@ def _refuse_a_container(nc: NetCDF, caller: str) -> None:
     """
     if not _reduces_as_a_variable(nc):
         variables = getattr(nc, "variable_names", None) or []
-        example = (
-            f"nc.get_variable({variables[0]!r})." if variables else "a variable's "
+        where = (
+            f" Call it on one of them: `nc.get_variable({variables[0]!r}).{caller}(...)`."
+            if variables
+            else " Call it on one of the container's variables."
         )
         raise ValueError(
             f"{caller}() works on one variable's bands, and a container has none of its "
-            f"own — its variables do. Call it on one of them: `{example}{caller}(...)`."
+            f"own — its variables do.{where}"
         )
 
 
