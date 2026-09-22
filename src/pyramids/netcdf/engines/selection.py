@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 import operator
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, cast
@@ -1182,20 +1182,29 @@ class Selection(_Engine["NetCDF"]):
             result = _subset_along_dim(result, dim_name, dim_indices)
         return result
 
-    def head(self, **indexers: int) -> NetCDF:
+    def head(self, indexers: Any = None, **indexers_kwargs: int) -> NetCDF:
         """Keep the first `n` steps along one or more band dimensions.
 
+        **Band dimensions only**, where xarray's `head` also windows the spatial axes: a
+        raster's rows and columns are its grid, so `head()` on a `(time, lat, lon)` cube
+        keeps every row and column, while xarray's would keep the first five of each.
+
         Args:
-            **indexers: `dimension=n` pairs, `n` a whole number of at least 1. With none,
-                the first five steps along **every** band dimension, which is xarray's
-                default. Asking for more than a dimension holds keeps it whole.
+            indexers: xarray's positional spellings — a count applied to every band
+                dimension (`head(2)`), or a mapping of them (`head({"time": 2})`). `None`
+                (default) reads the keywords instead, and the two cannot be mixed.
+            **indexers_kwargs: `dimension=n` pairs, `n` a whole number of at least 1. With
+                neither these nor `indexers`, the first five steps along **every** band
+                dimension, which is xarray's default. Asking for more than a dimension
+                holds keeps it whole.
 
         Returns:
             NetCDF: A variable holding the kept steps, its coordinates cut to match.
 
         Raises:
-            ValueError: A dimension is not a band dimension, or `n` is below 1 — GDAL has no
-                raster of no bands, where xarray answers an empty axis.
+            ValueError: A dimension is not a band dimension, `n` is below 1 — GDAL has no
+                raster of no bands, where xarray answers an empty axis — the receiver has
+                no band dimension at all, or both spellings were used at once.
             TypeError: `n` is not an integer.
 
         Examples:
@@ -1236,24 +1245,29 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.tail: The last `n` steps instead.
             NetCDF.isel: Any positions, by index.
         """
-        return _windowed(
-            self._ds, indexers, "head", _head_positions, default=_DEFAULT_WINDOW
+        wanted, count = _window_arguments(
+            indexers, indexers_kwargs, "head", _DEFAULT_WINDOW
         )
+        return _windowed(self._ds, wanted, "head", _head_positions, default=count)
 
-    def tail(self, **indexers: int) -> NetCDF:
+    def tail(self, indexers: Any = None, **indexers_kwargs: int) -> NetCDF:
         """Keep the last `n` steps along one or more band dimensions.
 
-        :meth:`head` from the other end, with the same arguments and refusals.
+        :meth:`head` from the other end, with the same arguments and refusals, band
+        dimensions only.
 
         Args:
-            **indexers: `dimension=n` pairs, `n` a whole number of at least 1. With none,
-                the last five steps along every band dimension.
+            indexers: A count for every band dimension (`tail(2)`) or a mapping of them,
+                as in xarray. `None` (default) reads the keywords instead.
+            **indexers_kwargs: `dimension=n` pairs, `n` a whole number of at least 1. With
+                neither, the last five steps along every band dimension.
 
         Returns:
             NetCDF: A variable holding the kept steps, its coordinates cut to match.
 
         Raises:
-            ValueError: A dimension is not a band dimension, or `n` is below 1.
+            ValueError: A dimension is not a band dimension, `n` is below 1, the receiver
+                has no band dimension, or both spellings were used at once.
             TypeError: `n` is not an integer.
 
         Examples:
@@ -1292,23 +1306,30 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.head: The first `n` steps instead.
             NetCDF.thin: Every `n`-th step.
         """
-        return _windowed(
-            self._ds, indexers, "tail", _tail_positions, default=_DEFAULT_WINDOW
+        wanted, count = _window_arguments(
+            indexers, indexers_kwargs, "tail", _DEFAULT_WINDOW
         )
+        return _windowed(self._ds, wanted, "tail", _tail_positions, default=count)
 
-    def thin(self, **indexers: int) -> NetCDF:
+    def thin(self, indexers: Any = None, **indexers_kwargs: int) -> NetCDF:
         """Keep every `n`-th step along one or more band dimensions, starting at the first.
 
+        Band dimensions only, as :meth:`head` is.
+
         Args:
-            **indexers: `dimension=n` pairs, `n` a whole number of at least 1. At least one
-                is needed: unlike `head` and `tail`, xarray gives `thin` no default step.
+            indexers: A step for every band dimension (`thin(2)`) or a mapping of them, as
+                in xarray. `None` (default) reads the keywords instead.
+            **indexers_kwargs: `dimension=n` pairs, `n` a whole number of at least 1. One
+                of the two is needed: unlike `head` and `tail`, xarray gives `thin` no
+                default step.
 
         Returns:
             NetCDF: A variable holding the kept steps, its coordinates cut to match.
 
         Raises:
-            ValueError: No dimension is given, a dimension is not a band dimension, or `n`
-                is below 1 — xarray refuses a zero step the same way.
+            ValueError: No dimension is given, a dimension is not a band dimension, `n` is
+                below 1 — xarray refuses a zero step the same way — or both spellings were
+                used at once.
             TypeError: `n` is not an integer.
 
         Examples:
@@ -1349,7 +1370,8 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.head: A contiguous run from the start.
             NetCDF.isel: Any positions, a stepped slice included.
         """
-        return _windowed(self._ds, indexers, "thin", _thin_positions, default=None)
+        wanted, count = _window_arguments(indexers, indexers_kwargs, "thin", None)
+        return _windowed(self._ds, wanted, "thin", _thin_positions, default=count)
 
     def drop_isel(self, **indexers: Any) -> NetCDF:
         """Drop steps by **position** along one or more band dimensions.
@@ -4772,6 +4794,47 @@ def _thin_positions(size: int, n: int) -> list[int]:
         list[int]: The positions.
     """
     return list(range(0, size, n))
+
+
+def _window_arguments(
+    indexers: Any, keywords: dict, caller: str, default: int | None
+) -> tuple[dict, int | None]:
+    """Read the three spellings xarray accepts for a window into one plan.
+
+    `head(time=2)` is this package's own; `head(2)` and `head({"time": 2})` are xarray's,
+    and both used to raise `TypeError: head() takes 1 positional argument but 2 were
+    given`. A bare count applies to every band dimension, which is what a bare call does.
+
+    Args:
+        indexers: The positional argument — a count, a mapping, or `None`.
+        keywords: The `dimension=n` keywords.
+        caller: The member, for the refusals.
+        default: The count a bare call takes, or `None` when a bare call is refused.
+
+    Returns:
+        tuple: The per-dimension counts, and the count to apply when there are none.
+
+    Raises:
+        ValueError: Both spellings were used at once, as xarray refuses too.
+        TypeError: The positional argument is neither a mapping nor an integer.
+    """
+    if indexers is not None and keywords:
+        raise ValueError(
+            f"{caller}() takes either a count or {caller}(dimension=n) keywords, not "
+            f"both, as xarray refuses the same mixture."
+        )
+    wanted = dict(keywords)
+    count = default
+    if isinstance(indexers, Mapping):
+        wanted = dict(indexers)
+    elif indexers is not None:
+        if isinstance(indexers, bool) or not isinstance(indexers, (int, np.integer)):
+            raise TypeError(
+                f"{caller}() takes an integer count or a mapping of them, got "
+                f"{indexers!r}."
+            )
+        count = int(indexers)
+    return wanted, count
 
 
 def _windowed(

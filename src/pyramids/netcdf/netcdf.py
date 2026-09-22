@@ -8607,17 +8607,17 @@ class NetCDF(Dataset):
         """
         return self.selection.sel(method=method, tolerance=tolerance, **kwargs)
 
-    def head(self, **indexers: int) -> NetCDF:
+    def head(self, indexers: Any = None, **indexers_kwargs: int) -> NetCDF:
         """Facade — :meth:`Selection.head <pyramids.netcdf.engines.selection.Selection.head>`."""
-        return self.selection.head(**indexers)
+        return self.selection.head(indexers, **indexers_kwargs)
 
-    def tail(self, **indexers: int) -> NetCDF:
+    def tail(self, indexers: Any = None, **indexers_kwargs: int) -> NetCDF:
         """Facade — :meth:`Selection.tail <pyramids.netcdf.engines.selection.Selection.tail>`."""
-        return self.selection.tail(**indexers)
+        return self.selection.tail(indexers, **indexers_kwargs)
 
-    def thin(self, **indexers: int) -> NetCDF:
+    def thin(self, indexers: Any = None, **indexers_kwargs: int) -> NetCDF:
         """Facade — :meth:`Selection.thin <pyramids.netcdf.engines.selection.Selection.thin>`."""
-        return self.selection.thin(**indexers)
+        return self.selection.thin(indexers, **indexers_kwargs)
 
     def drop_isel(self, **indexers: Any) -> NetCDF:
         """Facade — :meth:`Selection.drop_isel <pyramids.netcdf.engines.selection.Selection.drop_isel>`."""

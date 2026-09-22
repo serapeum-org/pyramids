@@ -104,6 +104,60 @@ class TestHeadTailThin:
         assert _stamps(variable.head()) == [0.0, 1.0, 2.0, 3.0, 4.0]
         assert _stamps(variable.tail()) == [3.0, 4.0, 5.0, 6.0, 7.0]
 
+    @pytest.mark.parametrize(
+        ("member", "expected"),
+        [
+            ("head", [0.0, 6.0]),
+            ("tail", [12.0, 18.0]),
+            ("thin", [0.0, 12.0]),
+        ],
+    )
+    def test_a_positional_count_applies_to_every_band_dimension(
+        self, member: str, expected: list
+    ):
+        """xarray's `da.head(2)` spelling, which raised `TypeError` here.
+
+        Args:
+            member: The window under test.
+            expected: The stamps xarray keeps for that member.
+        """
+        call = getattr(_variable(), member)
+        assert _stamps(call(2)) == expected
+
+    @pytest.mark.parametrize("member", ["head", "tail", "thin"])
+    def test_a_mapping_is_read_as_the_keywords_are(self, member: str):
+        """xarray's `da.head({"time": 2})` spelling.
+
+        Args:
+            member: The window under test.
+        """
+        variable = _variable()
+        assert _stamps(getattr(variable, member)({"time": 2})) == _stamps(
+            getattr(_variable(), member)(time=2)
+        )
+
+    @pytest.mark.parametrize("member", ["head", "tail", "thin"])
+    def test_both_spellings_at_once_are_refused(self, member: str):
+        """xarray refuses the same mixture, with the same reason.
+
+        Args:
+            member: The window under test.
+        """
+        variable = _variable()
+        with pytest.raises(ValueError, match="both"):
+            getattr(variable, member)(2, time=2)
+
+    @pytest.mark.parametrize("member", ["head", "tail", "thin"])
+    def test_a_positional_non_integer_is_refused(self, member: str):
+        """A window is counted in whole steps, positionally too.
+
+        Args:
+            member: The window under test.
+        """
+        variable = _variable()
+        with pytest.raises(TypeError, match="integer"):
+            getattr(variable, member)("time")
+
     @pytest.mark.parametrize("member", ["head", "tail", "thin"])
     def test_zero_is_refused(self, member: str):
         """No raster of no bands can be built, where xarray answers an empty axis.
