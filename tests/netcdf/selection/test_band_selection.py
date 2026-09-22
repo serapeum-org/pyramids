@@ -737,9 +737,9 @@ class TestWritingAReorderedAxisBack:
         first = container.get_variable("a")._band_dim_names[0]
         second = container.get_variable("b")._band_dim_names[0]
         assert first == second, f"the two writes landed on {first} and {second}"
-        assert sum(
-            name.startswith("time") for name in container.dimension_names
-        ) == 2, f"expected time and one sibling, got {container.dimension_names}"
+        assert (
+            sum(name.startswith("time") for name in container.dimension_names) == 2
+        ), f"expected time and one sibling, got {container.dimension_names}"
 
     def test_a_differently_ordered_axis_still_gets_its_own(self):
         """Two different orders are two axes, because one dimension cannot hold both."""
