@@ -119,6 +119,54 @@ class TestARebuildKeepsTheSpatialAxisNames:
         names = sorted(NetCDF.read_file(str(out)).dimension_names)
         assert names == ["latitude", "longitude", "time"], names
 
+    def test_the_written_file_keeps_its_georeference(self, tmp_path):
+        """Naming the axes must not cost the grid — the gap that let a regression through.
+
+        Test scenario:
+            `NetCDF.lon` / `NetCDF.lat` knew only `lon` / `x` and `lat` / `y`, so a store
+            carrying `latitude` / `longitude` found no coordinate array and
+            `_compute_geotransform` fell back to GDAL's index-space placeholder: the
+            reopened file reported `(0.0, 1.0, 0, 512.0, 0, -1.0)` and `xy(0, 0)` of
+            `(0.5, 511.5)` instead of the source's grid. Asserting the names alone did not
+            notice.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        store = _store()
+        source = store.get_variable(store.variable_names[0]).geotransform
+        out = tmp_path / "coarse.nc"
+        store.coarsen("time", 2).to_file(str(out))
+        back = NetCDF.read_file(str(out))
+        assert tuple(back.geotransform) == tuple(source), (
+            f"the written file lost its georeference: {tuple(back.geotransform)}"
+        )
+        assert back.xy(0, 0) == (0.0, 90.0), back.xy(0, 0)
+
+    @pytest.mark.parametrize(
+        "names",
+        [None, ("latitude", "longitude"), ("lat", "lon"), ("y", "x")],
+        ids=["default", "cf-long", "cf-short", "explicit-y-x"],
+    )
+    def test_every_naming_round_trips_the_same_grid(self, names, tmp_path):
+        """Whatever the axes are called, the grid that comes back is the one written.
+
+        Args:
+            names: The `(row, column)` names under test, or `None` for the default.
+            tmp_path: pytest's temporary directory.
+        """
+        geo = (10.0, 2.0, 0.0, 50.0, 0.0, -2.0)
+        extra = {} if names is None else {"spatial_names": names}
+        built = NetCDF.from_array(
+            np.arange(12.0).reshape(3, 4),
+            geo_ref=GeoReference(geo=geo, epsg=4326),
+            variable_name="t",
+            **extra,
+        )
+        out = tmp_path / f"{'-'.join(names) if names else 'default'}.nc"
+        built.to_file(str(out))
+        assert tuple(NetCDF.read_file(str(out)).geotransform) == geo
+
     def test_an_in_memory_build_still_gets_y_and_x(self):
         """A variable with no store to inherit from keeps today's names."""
         built = NetCDF.from_array(

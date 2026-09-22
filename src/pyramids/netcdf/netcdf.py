@@ -160,6 +160,17 @@ _MAX_GROUP_DEPTH = 32
 # that logs nothing is one nobody can diagnose. Both handlers report through this at DEBUG.
 logger = logging.getLogger(__name__)
 
+_X_AXIS_VARIABLE_NAMES = ("lon", "longitude", "x")
+"""The spellings :attr:`NetCDF.lon` accepts for the column axis, most specific first.
+
+A rebuilt store carries the source's own name for its grid, so `longitude` reaches this
+lookup as readily as `x` does; a store that spells it neither way has no 1-D coordinate
+array for the axis, and the geotransform is taken from the store instead.
+"""
+
+_Y_AXIS_VARIABLE_NAMES = ("lat", "latitude", "y")
+""":data:`_X_AXIS_VARIABLE_NAMES` for the row axis."""
+
 
 class _LazyVariableDict(dict):
     """Dict that loads NetCDF variables on first access per key.
@@ -2630,15 +2641,22 @@ class NetCDF(Dataset):
     def lon(self) -> np.typing.NDArray:
         """Longitude / x-coordinate values as a 1D array.
 
-        Looks for a variable named `"lon"` first, then `"x"`.
+        Looks for a variable named `"lon"`, then `"longitude"`, then `"x"` — the three
+        spellings `cf.build_coordinate_attrs` already treats as the same axis. Knowing
+        only `lon` and `x` meant a store that spells it `longitude` — which every CF file
+        this package reads may — found nothing here, and `_compute_geotransform` fell back
+        to GDAL's index-space placeholder, so the file reported pixel indices as world
+        coordinates.
 
         Returns:
-            np.ndarray or None: Flattened coordinate array, or None if
-            neither `lon` nor `x` exists in the dataset.
+            np.ndarray or None: Flattened coordinate array, or None if none of the three
+            spellings exists in the dataset.
         """
-        lon = self._read_variable("lon")
-        if lon is None:
-            lon = self._read_variable("x")
+        lon = None
+        for name in _X_AXIS_VARIABLE_NAMES:
+            lon = self._read_variable(name)
+            if lon is not None:
+                break
 
         result: np.ndarray
         if lon is not None:
@@ -2651,15 +2669,18 @@ class NetCDF(Dataset):
     def lat(self) -> np.typing.NDArray:
         """Latitude / y-coordinate values as a 1D array.
 
-        Looks for a variable named `"lat"` first, then `"y"`.
+        Looks for a variable named `"lat"`, then `"latitude"`, then `"y"` — the spellings
+        :attr:`lon` accepts, on the other axis.
 
         Returns:
-            np.ndarray or None: Flattened coordinate array, or None if
-            neither `lat` nor `y` exists in the dataset.
+            np.ndarray or None: Flattened coordinate array, or None if none of the three
+            spellings exists in the dataset.
         """
-        lat = self._read_variable("lat")
-        if lat is None:
-            lat = self._read_variable("y")
+        lat = None
+        for name in _Y_AXIS_VARIABLE_NAMES:
+            lat = self._read_variable(name)
+            if lat is not None:
+                break
 
         result: np.ndarray
         if lat is not None:
