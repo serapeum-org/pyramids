@@ -207,12 +207,14 @@ jobs:
           retention-days: 3
 
   build-musl-wheels:
-    # CANARY ONLY — built and verified but NOT published (#333): a naive
-    # `pip install pyramids-gis` on Alpine currently fails upstream of us
-    # (geopandas hard-requires pyogrio, which ships no musllinux wheels and
-    # whose sdist needs gdal-config). Publishing waits on upstream pyogrio
-    # musl wheels. The `canary-` artifact prefix keeps these out of the
-    # release job's `{sdist,wheels-*}` download pattern.
+    # CANARY (not published yet — see #333): the wheel is now SELF-CONTAINED —
+    # install-and-vendor-osgeo.py vendors shapely/pyogrio/geopandas into it (as
+    # on win_arm64), and the strip step below drops those deps from its metadata
+    # (no PEP 508 marker can express musl vs glibc), so `pip install
+    # pyramids-gis` on Alpine needs no external pyogrio. Kept a canary — the
+    # `canary-` prefix keeps it out of the release job's `{sdist,wheels-*}`
+    # download — pending the PyPI-storage decision: publishing ~8 fat musl
+    # wheels per release pushes the project toward PyPI's 10 GB cap.
     if: >-
       github.event_name != 'workflow_run' ||
       (github.event.workflow_run.conclusion == 'success' &&
@@ -302,33 +304,15 @@ jobs:
         shell: bash
         run: bash ci/check-wheel-size.sh wheelhouse
 
-      # pyogrio has no musllinux wheels on PyPI (the #333 publish blocker).
-      # Build one here against the canary's own GDAL stack (restored from the
-      # tar that before-all wrote into .srcbuild-cache/) so verify-alpine can
-      # exercise the FULL suite, vector I/O included, and so the recipe is a
-      # ready-made upstream contribution. Canary-only — never published.
-      - name: Build pyogrio musllinux wheel against the canary stack
+      # The wheel now vendors shapely/pyogrio/geopandas (install-and-vendor-
+      # osgeo.py runs its vector-stack vendoring on musl, as on win_arm64). No
+      # PEP 508 marker can drop those deps on musl, so strip the geopandas +
+      # Shapely Requires-Dist from the built wheel's metadata — otherwise
+      # `pip install pyramids-gis` on Alpine would still fetch geopandas and its
+      # musl-wheel-less pyogrio. Runs on the glibc runner (host-side zip edit).
+      - name: Strip the vendored vector-stack deps from the musl wheels
         shell: bash
-        run: |
-          set -euo pipefail
-          docker run --rm -v "$PWD:/project" -w /project \
-            quay.io/pypa/musllinux_1_2_${{ matrix.arch }} bash -c '
-              set -euo pipefail
-              STACK_TAR=$(ls -t .srcbuild-cache/gdal-stack-*-musl-*.tar.gz | head -1)
-              tar -C / -xzf "${STACK_TAR}"
-              export PATH="/usr/local/bin:${PATH}"
-              export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64"
-              PYBIN=$(ls -d /opt/python/cp312*/bin | head -1)
-              "${PYBIN}/pip" wheel "pyogrio==0.13.0" --no-deps -w /tmp/pyogrio-raw
-              auditwheel repair --plat "musllinux_1_2_$(uname -m)" \
-                  -w /project/pyogrio-wheelhouse /tmp/pyogrio-raw/pyogrio-*.whl
-            '
-          ls -lah pyogrio-wheelhouse/
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: canary-pyogrio-${{ matrix.arch }}
-          path: pyogrio-wheelhouse/*.whl
+        run: python ci/strip-vendored-deps-from-wheel.py wheelhouse
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -708,11 +692,13 @@ jobs:
           python3.12 -m pytest -vvv -o "pythonpath=" --timeout=60
           --timeout-method=thread -m "core and not vfs and not slow" tests/
 
-  # Alpine/musl canary (#333, not published). PyPI's pyogrio still has no
-  # musllinux wheels (the publish blocker), so build-musl-wheels compiles a
-  # canary pyogrio against its own stack; with it installed, vector I/O works
-  # and this job runs the full core suite (base, netCDF, io, grib, dataset,
-  # feature).
+  # Alpine/musl canary (#333, not published). The musl wheel is now
+  # SELF-CONTAINED — it vendors shapely/pyogrio/geopandas and the strip step
+  # dropped those from its metadata — so a plain `pip install` needs no external
+  # pyogrio. This job installs ONLY the wheel (--only-binary=:all: proves it: a
+  # strip regression would fail here on the missing pyogrio musl wheel, the
+  # exact failure PyPI Alpine users hit) and runs the full core suite (base,
+  # netCDF, io, dataset, feature).
   verify-alpine:
     needs: build-musl-wheels
     runs-on: ubuntu-latest
@@ -736,31 +722,23 @@ jobs:
           name: canary-musl-x86_64
           path: wheelhouse
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: canary-pyogrio-x86_64
-          path: pyogrio-wheelhouse
-
-      # Install the canary-built pyogrio wheel FIRST: with the distribution
-      # already present, `pip install geopandas` resolves its pyogrio>=0.7.2
-      # requirement instead of falling back to the sdist (the exact failure
-      # PyPI Alpine users would hit — see #333). Everything else still
-      # installs explicitly because the pyramids wheel itself goes in
-      # --no-deps.
-      - name: Install wheel + canary pyogrio (full vector I/O)
+      # Install ONLY the wheel: it vendors the vector stack and the strip step
+      # removed geopandas/Shapely from its metadata, so --only-binary=:all:
+      # resolves just the remaining deps (numpy/pandas/pyproj/scipy/cftime/
+      # hpc-utils/PyYAML) as musl wheels and pulls NO external pyogrio. If the
+      # strip regressed, pip would try the non-existent pyogrio musl wheel and
+      # fail here — which is exactly the self-containment guarantee under test.
+      - name: Install the self-contained wheel (no external pyogrio)
         shell: bash
         run: |
           WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*musllinux_1_2_x86_64.whl)
-          pip install "${WHEEL}" --no-deps
-          pip install pyogrio-wheelhouse/pyogrio-*.whl --only-binary=:all:
-          pip install numpy pandas scipy shapely pyproj PyYAML cftime hpc-utils packaging --only-binary=:all:
-          pip install geopandas --only-binary=:all:
+          pip install "${WHEEL}" --only-binary=:all:
           pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
 
       - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
         run: python ci/verify-wheel.py
 
-      - name: Run hermetic core test suite (full — vector I/O via canary pyogrio)
+      - name: Run hermetic core test suite (full — vector I/O via the vendored stack)
         run: >-
           pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread
           -m "core and not vfs and not slow"
