@@ -698,10 +698,20 @@ jobs:
   # pyogrio. This job installs ONLY the wheel (--only-binary=:all: proves it: a
   # strip regression would fail here on the missing pyogrio musl wheel, the
   # exact failure PyPI Alpine users hit) and runs the full core suite (base,
-  # netCDF, io, dataset, feature).
+  # netCDF, io, dataset, feature). One cell per arch, each in a NATIVE
+  # python:3.12-alpine container (no emulation): x86_64 on ubuntu-latest,
+  # aarch64 on the ubuntu-24.04-arm runner.
   verify-alpine:
     needs: build-musl-wheels
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runs-on: ubuntu-latest
+          - arch: aarch64
+            runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
     container:
@@ -719,7 +729,7 @@ jobs:
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: canary-musl-x86_64
+          name: canary-musl-${{ matrix.arch }}
           path: wheelhouse
 
       # Install ONLY the wheel: it vendors the vector stack and the strip step
@@ -731,7 +741,7 @@ jobs:
       - name: Install the self-contained wheel (no external pyogrio)
         shell: bash
         run: |
-          WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*musllinux_1_2_x86_64.whl)
+          WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*musllinux_1_2_${{ matrix.arch }}.whl)
           pip install "${WHEEL}" --only-binary=:all:
           pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
 
