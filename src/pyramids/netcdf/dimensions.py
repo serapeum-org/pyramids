@@ -8,6 +8,18 @@ from typing import Any
 
 Number = int | float
 
+ROW_AXIS = "y"
+"""The row dimension's name when nothing else names it — what an in-memory build gets.
+
+`from_array` creates the axis with this name, `_spatial_names` falls back to it for a
+variable whose store declares none, and `_public_spatial_names` accepts it beside whatever
+a store does declare. Those sit on opposite sides of one round trip, so they read this one
+definition rather than each keeping its own copy of `"y"`.
+"""
+
+COLUMN_AXIS = "x"
+"""The column dimension's name when nothing else names it. See `ROW_AXIS`."""
+
 
 def _strip_braces(value: str) -> str:
     """Extract the inner content of a braced string.

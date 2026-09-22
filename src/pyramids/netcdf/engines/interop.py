@@ -40,12 +40,9 @@ from pyramids.netcdf.cf import (
     write_attributes_to_md_array,
     write_global_attributes,
 )
+from pyramids.netcdf.dimensions import COLUMN_AXIS, ROW_AXIS
 from pyramids.netcdf.engines._along_dim import _read_no_data
-from pyramids.netcdf.engines._weighted import (
-    _COLUMN_ALIAS,
-    _ROW_ALIAS,
-    _spatial_names,
-)
+from pyramids.netcdf.engines._weighted import _spatial_names
 from pyramids.netcdf.utils import (
     CF_EPOCH_CALENDAR,
     cf_epoch_units,
@@ -652,8 +649,8 @@ def _public_spatial_names(var: NetCDF) -> tuple[str, str]:
         return declared[indices[1]], declared[indices[0]]
     known = set(declared)
     return (
-        row if row in known else _ROW_ALIAS,
-        column if column in known else _COLUMN_ALIAS,
+        row if row in known else ROW_AXIS,
+        column if column in known else COLUMN_AXIS,
     )
 
 

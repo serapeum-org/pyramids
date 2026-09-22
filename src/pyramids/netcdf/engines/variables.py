@@ -51,7 +51,7 @@ from pyramids.netcdf.cf import (
     write_attributes_to_md_array,
     write_global_attributes,
 )
-from pyramids.netcdf.dimensions import ClassicDimensionInfo
+from pyramids.netcdf.dimensions import COLUMN_AXIS, ROW_AXIS, ClassicDimensionInfo
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +208,7 @@ class Variables(_Engine["NetCDF"]):
         # grid, with the new variable declared against the pair the store never had
         # (#1194).
         dim_x, dim_y = nc._spatial_axes(
-            rg, x_values, y_values, coord_dtype, (_ROW_AXIS, _COLUMN_AXIS)
+            rg, x_values, y_values, coord_dtype, (ROW_AXIS, COLUMN_AXIS)
         )
 
         md_arr = _build_variable_mdarray(
@@ -760,13 +760,6 @@ def _build_variable_mdarray(
         md_arr = rg.CreateMDArray(variable_name, [dim_y, dim_x], data_dtype)
     md_arr.Write(arr)
     return md_arr
-
-
-_ROW_AXIS = "y"
-"""The row dimension's name when the caller names none — what an in-memory build gets."""
-
-_COLUMN_AXIS = "x"
-"""The column dimension's name when the caller names none."""
 
 
 def from_array(
@@ -1491,7 +1484,7 @@ def _create_netcdf_from_array(
     # `reduce`, `coarsen`, `rolling`, `cumsum` and `diff` hand back axes the source
     # never had, on the object and on the written file (#1180). A caller who names
     # none, and every in-memory build, keeps `y` / `x`.
-    row_name, column_name = spatial_names or (_ROW_AXIS, _COLUMN_AXIS)
+    row_name, column_name = spatial_names or (ROW_AXIS, COLUMN_AXIS)
     dim_x = NetCDF._create_dimension(
         rg,
         column_name,

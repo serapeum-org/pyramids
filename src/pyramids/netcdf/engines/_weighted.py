@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 
 from pyramids.base.crs import crs_from_user_input, crs_spec, require_crs_spec
+from pyramids.netcdf.dimensions import COLUMN_AXIS, ROW_AXIS
 from pyramids.netcdf.engines._along_dim import (
     _Applied,
     _carry_auxiliaries,
@@ -50,12 +51,6 @@ _WEIGHTED_HOWS = ("mean", "sum", "sum_of_weights", "std", "var")
 `weighted().quantile()` offers one: it needs the values sorted per cell against a running weight,
 which is a different algorithm from these sums, so `reduce(how="quantile")` remains the
 unweighted answer."""
-
-_ROW_ALIAS = "y"
-"""The name `from_array` gives the row axis, accepted for any store's row dimension."""
-
-_COLUMN_ALIAS = "x"
-"""The name `from_array` gives the column axis, accepted for any store's column dimension."""
 
 
 def _weighted_result(
@@ -256,9 +251,9 @@ def _removed_dimensions(
     for name in names:
         if name in var._band_dim_names:
             gone.append(name)
-        elif name in (row, _ROW_ALIAS):
+        elif name in (row, ROW_AXIS):
             gone.append(store_row)
-        elif name in (column, _COLUMN_ALIAS):
+        elif name in (column, COLUMN_AXIS):
             gone.append(store_column)
     return gone
 
@@ -279,7 +274,7 @@ def _takes_part(var: NetCDF, names: tuple[str, ...]) -> bool:
         spatial axes.
     """
     row, column = _spatial_names(var)
-    known = {*var._band_dim_names, row, column, _ROW_ALIAS, _COLUMN_ALIAS}
+    known = {*var._band_dim_names, row, column, ROW_AXIS, COLUMN_AXIS}
     return all(name in known for name in names)
 
 
@@ -332,7 +327,7 @@ def _spatial_names(var: NetCDF) -> tuple[str, str]:
     band dimension *between* the spatial axes, as in `(time, lat, lev, lon)`, does not mislead
     it. Without that record the last two declared dimensions are taken, and a variable that
     declares none at all — one built in memory, or derived by an operator — answers the
-    `y` / `x` a rebuild gives it. `_ROW_ALIAS` / `_COLUMN_ALIAS` are accepted beside whatever
+    `y` / `x` a rebuild gives it. `ROW_AXIS` / `COLUMN_AXIS` are accepted beside whatever
     comes back, so `dims=("y", "x")` reaches the grid either way.
 
     Args:
@@ -349,7 +344,7 @@ def _spatial_names(var: NetCDF) -> tuple[str, str]:
     elif len(declared) >= 2:
         names = (declared[-2], declared[-1])
     else:
-        names = (_ROW_ALIAS, _COLUMN_ALIAS)
+        names = (ROW_AXIS, COLUMN_AXIS)
     return names
 
 
@@ -416,16 +411,16 @@ def _weighted_axes(var: NetCDF, dims: Any) -> tuple[tuple[int, ...], tuple[str, 
     for name in names:
         if name in band_names:
             axis = band_names.index(name)
-        elif name in (row_name, _ROW_ALIAS):
+        elif name in (row_name, ROW_AXIS):
             axis = len(band_names)
             spatial += 1
-        elif name in (column_name, _COLUMN_ALIAS):
+        elif name in (column_name, COLUMN_AXIS):
             axis = len(band_names) + 1
             spatial += 1
         else:
             available = list(
                 dict.fromkeys(
-                    [*band_names, row_name, column_name, _ROW_ALIAS, _COLUMN_ALIAS]
+                    [*band_names, row_name, column_name, ROW_AXIS, COLUMN_AXIS]
                 )
             )
             raise ValueError(
