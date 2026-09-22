@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6393,18 +6393,20 @@
 
 
 <h1 id="netcdf-public-api"><a class="toclink" href="#netcdf-public-api"><code>NetCDF</code> — public API</a><a class="headerlink" href="#netcdf-public-api" title="Permanent link">#</a></h1>
-<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 96 in all: 62 methods, 27 properties,
+<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 106 in all: 72 methods, 27 properties,
 6 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
 <code>__len__</code>). <code>concat</code> and <code>merge</code> are counted among the methods: each is callable on the class
 (<code>NetCDF.concat([a, b], dim)</code>) and on a cube (<code>a.concat([b], dim)</code>, which joins the
 receiver first). For the full signatures, arguments and examples, see the rendered
 <a href="../">NetCDF Class</a> reference; this page is the index you scan to find the member you want.</p>
-<p><code>NetCDF</code> extends <code>Dataset</code>, so it also inherits a further 137 public members it does not redefine — band
+<p><code>NetCDF</code> extends <code>Dataset</code>, so it also inherits a further 141 public members it does not redefine — band
 handling, the COG surface, the missing-data members (<code>where</code>, <code>fillna</code>, <code>isnull</code>, <code>notnull</code>, <code>equals</code>,
-<code>identical</code>) and the rest of the raster API. 124 of those are declared in <code>Dataset</code>'s own body and the
+<code>identical</code>), the cell-wise members (<code>clip</code>, <code>round</code>, <code>astype</code>, <code>isin</code>) and the rest of the raster API.
+128 of those are declared in <code>Dataset</code>'s own body and the
 remaining 13 come from <code>RasterBase</code> above it. They live in the
-<a href="../../dataset/">Dataset reference</a>, the six named above on its
-<a href="../../dataset/analysis/#missing-data-and-comparison">Analysis page</a>.</p>
+<a href="../../dataset/">Dataset reference</a> — the missing-data six under
+<a href="../../dataset/analysis/#missing-data-and-comparison">Missing data and comparison</a> and the four cell-wise
+members under <a href="../../dataset/analysis/#cell-wise-transforms">Cell-wise transforms</a>.</p>
 <p>Two object shapes share this class, and several members behave differently across them:</p>
 <ul>
 <li>a <strong>Container</strong> — what <code>read_file</code> / <code>from_bytes</code> / <code>from_array</code> return; <code>band_count == 0</code>; describes the file.</li>
@@ -6665,6 +6667,42 @@ A variable with no raster plane is the exception — see each member's docstring
 <td>Selects bands by position along one or more band dims; works without coordinates.</td>
 </tr>
 <tr>
+<td><code>drop_sel()</code></td>
+<td>Drops bands by coordinate value — the complement of <code>sel</code>; <code>errors</code>.</td>
+</tr>
+<tr>
+<td><code>drop_isel()</code></td>
+<td>Drops bands by position — the complement of <code>isel</code>.</td>
+</tr>
+<tr>
+<td><code>head()</code></td>
+<td>Keeps the first <code>n</code> steps along a band dim; five along every one by default.</td>
+</tr>
+<tr>
+<td><code>tail()</code></td>
+<td>Keeps the last <code>n</code> steps along a band dim; five along every one by default.</td>
+</tr>
+<tr>
+<td><code>thin()</code></td>
+<td>Keeps every <code>n</code>-th step along a band dim, from the first.</td>
+</tr>
+<tr>
+<td><code>sortby()</code></td>
+<td>Reorders a band dim by its own coordinates, each plane with its stamp — <code>ascending</code>.</td>
+</tr>
+<tr>
+<td><code>drop_duplicates()</code></td>
+<td>Drops the steps whose stamp repeats — what <code>concat</code> can leave — <code>keep</code>.</td>
+</tr>
+<tr>
+<td><code>squeeze()</code></td>
+<td>Drops the band dims of length one; never a spatial axis.</td>
+</tr>
+<tr>
+<td><code>expand_dims()</code></td>
+<td>Adds a length-one band dim, outermost — lifts a raster into a cube before <code>concat</code>.</td>
+</tr>
+<tr>
 <td><code>open_mfdataset()</code></td>
 <td>Stacks one variable across many files into a single lazy dask array.</td>
 </tr>
@@ -6687,6 +6725,10 @@ A variable with no raster plane is the exception — see each member's docstring
 <tr>
 <td><code>cumsum()</code></td>
 <td>Totals the values along <code>dim</code>, step by step — <code>skipna</code>.</td>
+</tr>
+<tr>
+<td><code>cumprod()</code></td>
+<td>Multiplies the values along <code>dim</code>, step by step — <code>skipna</code>.</td>
 </tr>
 <tr>
 <td><code>shift()</code></td>
