@@ -5,10 +5,10 @@
 
 ### BREAKING CHANGE
 
-- an operator between two NetCDF variables on the same                                                  
-  grid with the same band count, whose band dimension names or sizes                                                     
-  differ, now raises ValueError instead of returning a result without                                                    
-  band dimensions whose planes were paired by position.                                                                  
+- an operator between two NetCDF variables on the same  
+  grid with the same band count, whose band dimension names or sizes  
+  differ, now raises ValueError instead of returning a result without  
+  band dimensions whose planes were paired by position.  
 
 ### Feat
 
