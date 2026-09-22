@@ -695,12 +695,11 @@ jobs:
   # Alpine/musl canary (#333, not published). The musl wheel is now
   # SELF-CONTAINED — it vendors shapely/pyogrio/geopandas and the strip step
   # dropped those from its metadata — so a plain `pip install` needs no external
-  # pyogrio. This job installs ONLY the wheel (--only-binary=:all: proves it: a
-  # strip regression would fail here on the missing pyogrio musl wheel, the
-  # exact failure PyPI Alpine users hit) and runs the full core suite (base,
-  # netCDF, io, dataset, feature). One cell per arch, each in a NATIVE
-  # python:3.12-alpine container (no emulation): x86_64 on ubuntu-latest,
-  # aarch64 on the ubuntu-24.04-arm runner.
+  # pyogrio. Checkout + artifact download run on the glibc host (JS actions can
+  # not run in an arm64 musl container — no arm64-musl node is injected), then
+  # the install + verify + full core suite run INSIDE a native python:3.12-alpine
+  # via `docker run`: x86_64 on ubuntu-latest, aarch64 on ubuntu-24.04-arm
+  # (native, no emulation).
   verify-alpine:
     needs: build-musl-wheels
     runs-on: ${{ matrix.runs-on }}
@@ -714,15 +713,8 @@ jobs:
             runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
-    container:
-      image: python:3.12-alpine
-      options: --security-opt seccomp=unconfined
     timeout-minutes: 30
     steps:
-      - name: Install bash (alpine ships only busybox sh)
-        shell: sh
-        run: apk add --no-cache bash
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
@@ -732,28 +724,28 @@ jobs:
           name: canary-musl-${{ matrix.arch }}
           path: wheelhouse
 
-      # Install ONLY the wheel: it vendors the vector stack and the strip step
-      # removed geopandas/Shapely from its metadata, so --only-binary=:all:
-      # resolves just the remaining deps (numpy/pandas/pyproj/scipy/cftime/
-      # hpc-utils/PyYAML) as musl wheels and pulls NO external pyogrio. If the
-      # strip regressed, pip would try the non-existent pyogrio musl wheel and
-      # fail here — which is exactly the self-containment guarantee under test.
-      - name: Install the self-contained wheel (no external pyogrio)
+      # Install ONLY the wheel inside Alpine: it vendors the vector stack and the
+      # strip step removed geopandas/Shapely from its metadata, so
+      # --only-binary=:all: resolves just the remaining deps (numpy/pandas/pyproj/
+      # scipy/cftime/hpc-utils/PyYAML) as musl wheels and pulls NO external
+      # pyogrio. If the strip regressed, pip would try the non-existent pyogrio
+      # musl wheel and fail here — the self-containment guarantee under test.
+      # verify-wheel.py then asserts the vendored stack imports from _vendor, and
+      # the hermetic core suite (base, netCDF, io, dataset, feature) runs.
+      - name: Install + verify the self-contained wheel on Alpine
         shell: bash
         run: |
-          WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*musllinux_1_2_${{ matrix.arch }}.whl)
-          pip install "${WHEEL}" --only-binary=:all:
-          pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
-
-      - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
-        run: python ci/verify-wheel.py
-
-      - name: Run hermetic core test suite (full — vector I/O via the vendored stack)
-        run: >-
-          pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread
-          -m "core and not vfs and not slow"
-          tests/base tests/netcdf tests/io
-          tests/dataset tests/feature
+          docker run --rm -v "$PWD:/project" -w /project \
+            --security-opt seccomp=unconfined python:3.12-alpine sh -c '
+              set -eu
+              WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*musllinux_1_2_${{ matrix.arch }}.whl)
+              pip install "${WHEEL}" --only-binary=:all:
+              pip install pytest pytest-env pytest-mock pytest-timeout --only-binary=:all:
+              python ci/verify-wheel.py
+              pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread \
+                -m "core and not vfs and not slow" \
+                tests/base tests/netcdf tests/io tests/dataset tests/feature
+            '
 
   # Native win_arm64 verification (no emulation — the runner executes
   # its own arch), one cell per shipped Python: `pip install <wheel>`
