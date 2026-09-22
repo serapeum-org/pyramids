@@ -330,6 +330,14 @@ water = landcover.isin([80, 90])                 # the water classes, as a condi
 lakes = landcover.where(water)
 ```
 
+!!! note "`clip` means two things in this package"
+
+    `Dataset.clip(min, max)` bounds **values**, the way xarray and numpy use the name, while
+    `UgridDataset.clip(mask)` clips **geometry** — what most GIS tools mean by it, and what `Dataset`
+    spells [`crop`](index.md). `NetCDF.head(n)` likewise returns a cube where `DatasetCollection.head(n)`
+    returns a preview array. The xarray names are the right ones to adopt here; the collision is worth
+    knowing about when reading across the two classes.
+
 `round` with a negative `decimals` can push an integer band past its own range — numpy wraps a `uint8`
 255 to 4 — so the result widens instead, exactly as `clip` widens for a bound the band cannot hold.
 

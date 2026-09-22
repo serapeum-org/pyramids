@@ -185,6 +185,28 @@ def _regapped(values: np.ndarray, domain: np.ndarray, sentinel: Any) -> np.ndarr
     return out
 
 
+def _same_gap(one: Any, other: Any) -> bool:
+    """Whether two bands declare the same gap marker.
+
+    Compared by value, not by `repr`: GDAL hands a sentinel back as `numpy.float64` while a
+    caller passes a Python `float`, and `-9999.0` is the same declaration either way. Two
+    NaN markers agree as well, though NaN equals nothing.
+
+    Args:
+        one: One band's sentinel, or `None`.
+        other: Another band's sentinel, or `None`.
+
+    Returns:
+        bool: `True` when they declare the same thing.
+    """
+    if one is None or other is None:
+        same = one is None and other is None
+    else:
+        left, right = float(one), float(other)
+        same = left == right or (left != left and right != right)
+    return same
+
+
 def _declared_gaps(sentinels: Sequence[Any]) -> Any:
     """What a result should declare as its gaps, given each band's own sentinel.
 
@@ -201,7 +223,7 @@ def _declared_gaps(sentinels: Sequence[Any]) -> Any:
         Any: The scalar the bands agree on, or the list of per-band sentinels.
     """
     marks = list(sentinels)
-    agreed = len({repr(one) for one in marks}) <= 1
+    agreed = all(_same_gap(one, marks[0]) for one in marks)
     return marks[0] if agreed and marks else marks
 
 
@@ -2918,11 +2940,7 @@ class Analysis(_Engine["Dataset"]):
                 not isinstance(bound, Real) or isinstance(bound, (bool, np.bool_))
             ):
                 raise TypeError(f"clip() needs a number for a bound; got {bound!r}.")
-            if (
-                bound is not None
-                and not np.isfinite(float(bound))
-                and np.isnan(float(bound))
-            ):
+            if bound is not None and np.isnan(float(bound)):
                 raise ValueError(
                     "clip() cannot bound anything with NaN: every cell would come back "
                     "NaN, and a raster that declares another sentinel does not read those "
@@ -3147,8 +3165,7 @@ class Analysis(_Engine["Dataset"]):
             plane[...] = markers[band]
         cast[domain] = values[domain].astype(target)
         _refuse_a_sentinel_the_data_holds(cast, domain, marks, target, bands)
-        declared = marks[0] if len(set(map(repr, marks))) == 1 else marks
-        return self._identified(self._rebuilt(cast, declared))
+        return self._identified(self._rebuilt(cast, _declared_gaps(marks)))
 
     def isin(self, test_elements: Any) -> Dataset:
         """Flag the cells whose value is one of `test_elements`: `1` if so, `0` if not.

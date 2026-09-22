@@ -690,6 +690,17 @@ class TestRegappingBandByBand:
         assert _declared_gaps([-9999.0, -1.0]) == [-9999.0, -1.0]
         assert _declared_gaps([]) == []
 
+    def test_agreement_is_judged_by_value(self):
+        """GDAL hands a sentinel back as `numpy.float64`; a caller passes a `float`.
+
+        Test scenario:
+            The comparison was by `repr`, so `[-9999.0, np.float64(-9999.0)]` counted as
+            two different declarations and came back as a per-band list.
+        """
+        assert _declared_gaps([-9999.0, np.float64(-9999.0)]) == -9999.0
+        assert _declared_gaps([np.nan, float("nan")]) != [np.nan, float("nan")]
+        assert _declared_gaps([-9999.0, None]) == [-9999.0, None]
+
 
 class TestAContainerIsRefusedByName:
     """A container has no raster of its own, and the four say so as `where` does."""
