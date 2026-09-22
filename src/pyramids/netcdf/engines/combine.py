@@ -93,8 +93,11 @@ def concat(objs: Any, dim: str) -> NetCDF:
             band_names,
             values_map,
             # The parts share a grid — `_check_other_dimensions` refuses them otherwise —
-            # so the first one's axis names and CF attributes describe the join too.
+            # so the first one's axis names describe the join. Its CF units do not: parts
+            # that disagree about the calendar leave the axis bare rather than adopt one
+            # part's, which is what the carry below decides.
             source=parts[0],
+            carry_time_attrs=False,
         )
         time_attrs.update(_carried_time_attrs(parts, band_names))
     cast("NetCDF", result)._band_dim_time_attrs = time_attrs
@@ -249,6 +252,7 @@ def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
             list(part._band_dim_names),
             dict(part._band_dim_values_map),
             source=part,
+            carry_time_attrs=False,
         )
         carried = _carried_time_attrs([part], list(part._band_dim_names))
         for dim, attrs in carried.items():

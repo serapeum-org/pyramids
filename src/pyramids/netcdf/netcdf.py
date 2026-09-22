@@ -8056,6 +8056,7 @@ class NetCDF(Dataset):
         band_names,
         values_map,
         source=None,
+        carry_time_attrs=True,
     ):
         """Add a reduced variable into the result container, building it lazily.
 
@@ -8071,6 +8072,11 @@ class NetCDF(Dataset):
             source: The variable this one is derived from, whose axis names and CF time
                 attributes the rebuilt store should carry (#1179, #1180). `None` keeps the
                 `y` / `x` naming and writes no CF attributes.
+            carry_time_attrs: Whether the source's `(units, calendar)` describe the result.
+                `concat` and `merge` pass `False`: a join whose parts disagree about the
+                calendar must leave the axis bare rather than adopt one part's, which is
+                the policy `_label_combined` follows and
+                `test_disagreeing_units_are_dropped_rather_than_guessed` pins.
 
         Returns:
             NetCDF: The container, built on the first call and added to afterwards.
@@ -8081,6 +8087,15 @@ class NetCDF(Dataset):
             else None
         )
         spatial_names, dim_attrs = NetCDF._carried_axis_metadata(source)
+        # Names describe a grid, so they travel only while the grid is the source's. A
+        # `weighted` collapses the spatial axes to one cell, and calling that single cell
+        # `lat` leaves the store with two different lengths under one name — which is what
+        # the rename to `y` / `x` was protecting against
+        # (tests/netcdf/selection/test_weighted_edges.py).
+        if spatial_names is not None and not NetCDF._same_grid(source, arr, geo):
+            spatial_names = None
+        if not carry_time_attrs:
+            dim_attrs = None
         if result is None:
             result = NetCDF.from_array(
                 arr,
@@ -12594,6 +12609,24 @@ class NetCDF(Dataset):
             if reused is not None
             else NetCDF.create_main_dimension(rg, dim_name, dtype, values)
         )
+
+    @staticmethod
+    def _same_grid(source: NetCDF, arr: np.ndarray, geo: tuple) -> bool:
+        """Whether a rebuilt array still sits on `source`'s grid.
+
+        Args:
+            source: The variable the result derives from.
+            arr: The result's cells; its trailing two axes are rows and columns.
+            geo: The result's geotransform.
+
+        Returns:
+            bool: `True` when the shape and the transform are the source's, so the
+            source's axis names describe the result as well.
+        """
+        shaped = np.shape(arr)
+        if len(shaped) < 2 or (shaped[-2], shaped[-1]) != (source.rows, source.columns):
+            return False
+        return tuple(geo or ()) == tuple(source.geotransform or ())
 
     @staticmethod
     def _spatial_dimension(
