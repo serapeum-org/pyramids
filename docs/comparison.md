@@ -15,7 +15,7 @@ the right answer.
 | You want to… | Use |
 |---|---|
 | Read and write raster windows, fast, close to the metal | [rasterio](https://pypi.org/project/rasterio/) |
-| Put a CRS on labelled N-D arrays, in an xarray pipeline | [rioxarray](https://pypi.org/project/rioxarray/) + [xarray](https://pypi.org/project/xarray/) |
+| Put a CRS on labelled N-D arrays, in an xarray pipeline | [rioxarray][rioxarray] with [xarray][xarray] |
 | Work with vector data as a DataFrame | [geopandas](https://pypi.org/project/geopandas/) |
 | Reach a GDAL capability no wrapper exposes | [GDAL](https://pypi.org/project/GDAL/) Python bindings |
 | Handle rasters, vectors, datacubes and meshes behind one API | **pyramids** |
@@ -107,3 +107,6 @@ conda install -c conda-forge pyramids
 - [Quickstart](quickstart.md) — the shortest path to a working example
 - [Core concepts](concepts.md) — how Dataset, DatasetCollection and FeatureCollection relate
 - [How do I…?](examples/index.md) — task-shaped recipes
+
+[rioxarray]: https://pypi.org/project/rioxarray/
+[xarray]: https://pypi.org/project/xarray/
