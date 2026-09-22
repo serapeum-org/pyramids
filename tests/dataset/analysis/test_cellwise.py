@@ -229,6 +229,40 @@ class TestAstype:
         assert np.asarray(cast.read_array()).dtype == np.float32
         assert cast._band_dim_names == variable._band_dim_names
 
+    def test_a_nan_gap_without_a_declared_sentinel_stays_nan(self):
+        """A float cast keeps the gap, whether or not the raster declares a sentinel.
+
+        Test scenario:
+            A raster that declares nothing but holds NaN is a gap-holding raster — the same
+            `_domain_mask` treats those cells as gaps. xarray's `astype("float32")` keeps
+            the NaN; the cells must not come back holding whatever memory was allocated.
+        """
+        cells = np.array([[1.0, np.nan, 3.0, np.nan]])
+        cast = _raster(cells, no_data_value=None).astype("float32")
+        assert_allclose(
+            np.asarray(cast.read_array(), dtype="float64").ravel(),
+            [1.0, np.nan, 3.0, np.nan],
+            equal_nan=True,
+        )
+
+    def test_an_integer_cast_of_an_unmarked_gap_is_refused(self):
+        """An integer band has no NaN, so an unmarked gap has nowhere to go.
+
+        Test scenario:
+            `no_data_value=None` asks for a result that declares no sentinel, and the
+            raster holds a gap. Casting it into `int32` leaves that cell with no way to
+            read as missing, so the caller is asked for a sentinel instead.
+        """
+        raster = _raster()
+        with pytest.raises(ValueError, match="no_data_value"):
+            raster.astype("int32", no_data_value=None)
+
+    def test_a_gapless_raster_casts_with_no_sentinel(self):
+        """`no_data_value=None` is fine when there is no gap to mark."""
+        cast = _raster(np.array([[1.0, 2.0, 3.0]])).astype("int32", no_data_value=None)
+        assert np.asarray(cast.read_array()).ravel().tolist() == [1, 2, 3]
+        assert cast.no_data_value[0] is None
+
 
 class TestIsin:
     """`isin` flags the cells whose value is in a set; a gap is in no set."""

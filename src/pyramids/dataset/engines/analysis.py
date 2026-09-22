@@ -2894,13 +2894,17 @@ class Analysis(_Engine["Dataset"]):
         refused — numpy leaves an out-of-range float cast undefined (on x86 `300.0` into
         `uint8` comes out `44`). :meth:`clip` first when that matters. The gaps are not
         cast at all: they are re-marked with the target's sentinel, so a missing cell
-        stays missing.
+        stays missing. A raster that declares no sentinel but holds NaN is gap-holding
+        too — those cells are written back as NaN, which only a float target has, so an
+        integer cast that would leave them unmarked is refused.
 
         Args:
             dtype: The target type — anything `numpy.dtype` accepts that GDAL can store as a
                 real number: signed or unsigned integers, or floats.
             no_data_value: The sentinel the result declares. Left out, it is the raster's
-                own, provided the new type can hold it. Pass one when it cannot.
+                own, provided the new type can hold it. Pass one when it cannot, or `None`
+                for a result that declares none — which a gap-holding raster allows only
+                into a float type.
 
         Returns:
             Dataset: A raster on this one's grid, in `dtype`.
@@ -2910,7 +2914,8 @@ class Analysis(_Engine["Dataset"]):
                 string has no GDAL band type here.
             ValueError: The sentinel does not fit `dtype`. `-9999` into `uint8` would wrap
                 to `241`, a real value, and the gaps would become data; NaN has no integer
-                at all.
+                at all. Or the raster holds gaps, the result would declare no sentinel, and
+                `dtype` is an integer type, which has no NaN to leave them as.
 
         Examples:
             - Floats cast to `int32`, the gap still a gap:
@@ -2964,11 +2969,21 @@ class Analysis(_Engine["Dataset"]):
                 f"{target.name} does not hold — cast, it would become an ordinary value and "
                 f"every gap would read as data. Pass no_data_value= with one it does hold."
             )
-        cast = np.empty(values.shape, dtype=target)
+        marker = sentinel
+        if marker is None and not domain.all():
+            if target.kind != "f":
+                raise ValueError(
+                    f"astype({target.name!r}) would leave {int((~domain).sum())} gap cells "
+                    f"unmarked: the result declares no no-data value and {target.name} has "
+                    f"no NaN, so every gap would read as an ordinary number. Pass "
+                    f"no_data_value= with one {target.name} holds, or fill the gaps first."
+                )
+            marker = np.nan
+        # Filled, never `np.empty`: the cells outside the domain are not cast, so an
+        # uninitialised buffer would ship whatever the allocator held as data.
+        cast = np.full(values.shape, marker if marker is not None else 0, dtype=target)
         cast[domain] = values[domain].astype(target)
-        return self._identified(
-            self._rebuilt(_regapped(cast, domain, sentinel), sentinel)
-        )
+        return self._identified(self._rebuilt(cast, sentinel))
 
     def isin(self, test_elements: Any) -> Dataset:
         """Flag the cells whose value is one of `test_elements`: `1` if so, `0` if not.
