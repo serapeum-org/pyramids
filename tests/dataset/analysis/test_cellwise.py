@@ -226,6 +226,32 @@ class TestRound:
         raster = _raster(cells, no_data_value=-9999.5)
         assert np.asarray(raster.round().isnull().read_array()).sum() == 1
 
+    def test_an_integer_band_is_widened_rather_than_wrapped(self):
+        """numpy wraps `uint8` 255 to 4 when rounding to tens; clip widens instead.
+
+        Test scenario:
+            `np.round(np.array([255], dtype="uint8"), -1)` is `[4]`, and xarray agrees —
+            but 255 m coming back as 4 m is silent corruption, and this PR refuses the
+            same kind of wrap in `astype` and `clip`.
+        """
+        band = Dataset.from_array(
+            np.array([[255, 6]], dtype="uint8"), geo_ref=GEO, no_data_value=None
+        )
+        rounded = band.round(-1)
+        assert np.asarray(rounded.read_array()).ravel().tolist() == [260.0, 10.0]
+        assert rounded.dtype != ["uint8"], (
+            f"expected a widened band, got {rounded.dtype}"
+        )
+
+    def test_an_integer_band_that_stays_in_range_keeps_its_type(self):
+        """The widening is the exception, not the rule."""
+        band = Dataset.from_array(
+            np.array([[14, 26]], dtype="uint8"), geo_ref=GEO, no_data_value=None
+        )
+        rounded = band.round(-1)
+        assert np.asarray(rounded.read_array()).ravel().tolist() == [10, 30]
+        assert rounded.dtype == ["uint8"]
+
     def test_a_non_integer_decimals_is_refused(self):
         """`decimals` counts digits, so it is a whole number."""
         raster = _raster()

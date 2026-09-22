@@ -330,6 +330,9 @@ water = landcover.isin([80, 90])                 # the water classes, as a condi
 lakes = landcover.where(water)
 ```
 
+`round` with a negative `decimals` can push an integer band past its own range — numpy wraps a `uint8`
+255 to 4 — so the result widens instead, exactly as `clip` widens for a bound the band cannot hold.
+
 `astype` refuses a sentinel that any cell already holds once cast — `clip(0.0, 255.0)` with
 `no_data_value=255` would clamp every cell at or above 255 onto the sentinel and read them as missing
 ever after, which is why the bound above is 254.

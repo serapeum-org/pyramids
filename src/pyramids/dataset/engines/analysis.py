@@ -2958,7 +2958,9 @@ class Analysis(_Engine["Dataset"]):
         Args:
             decimals: How many decimal places to keep. `0` (default) rounds to whole
                 numbers; a negative count rounds to tens, hundreds and so on, as numpy
-                does. Halves round to even, also as numpy does.
+                does. Halves round to even, also as numpy does. Rounding an **integer**
+                band to tens can leave its range — numpy wraps `uint8` 255 to 4 — so the
+                result widens instead, and only when it must.
 
         Returns:
             Dataset: A raster on this one's grid, in the band's own type — except for a
@@ -3023,6 +3025,16 @@ class Analysis(_Engine["Dataset"]):
         values, sentinels, domain = self._operand_arrays(self._ds, None)
         declared = _declared_gaps(sentinels)
         rounded = np.round(values, int(decimals))
+        if values.dtype.kind in "iu" and int(decimals) < 0:
+            # Rounding an integer band to tens can leave its own type: numpy wraps there,
+            # so `uint8` 255 rounds to 4 and `int8` 127 to -126 — silent corruption of the
+            # kind `clip` widens to avoid. The result widens the same way, and only when
+            # it must.
+            wide = np.round(values.astype("float64"), int(decimals))
+            limits = np.iinfo(values.dtype)
+            inside = wide[domain] if domain.any() else wide
+            fits = bool(((inside >= limits.min) & (inside <= limits.max)).all())
+            rounded = wide.astype(values.dtype, copy=False) if fits else wide
         return self._identified(
             self._rebuilt(_regapped(rounded, domain, declared), declared)
         )
