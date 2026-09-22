@@ -391,11 +391,15 @@ def _check_vendored_vector_stack() -> None:
     if _platform_slug() in _VENDORED_VECTOR_PLATFORMS:
         _assert_vector_stack_vendored(vendor_root)
         # musl additionally vendors cftime (no musllinux-aarch64 wheel upstream).
+        # Check the resolved path only — NOT cftime.__version__, which cftime
+        # computes lazily via importlib.metadata.version("cftime") and would raise
+        # PackageNotFoundError (the vendored copy ships the package, not its
+        # .dist-info). Nothing in pyramids reads cftime.__version__.
         if _platform_slug() == "linux-musl":
             resolved = Path(cftime.__file__).resolve()
             if not resolved.is_relative_to(vendor_root):
                 _fail(f"cftime resolved to {resolved}, not the vendored copy")
-            print(f"vendored cftime OK — {cftime.__version__} imports from _vendor.")
+            print("vendored cftime OK — imports from _vendor.")
     else:
         _assert_vector_stack_absent(pkg_root, vendor_root)
 
