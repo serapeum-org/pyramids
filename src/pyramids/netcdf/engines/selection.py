@@ -1573,6 +1573,16 @@ class Selection(_Engine["NetCDF"]):
                     f"coordinates. Use drop_isel() to drop by position."
                 )
             wanted = _as_a_sequence_of_labels(selector)
+            # A mask is one selector, not a sequence of labels: dropping what `sel` would
+            # keep is the complement the two members are paired as. xarray raises
+            # `KeyError: '[True, False, ...] not found in axis'` here instead.
+            masked = _mask_positions(
+                wanted, nc._band_dim_values_map.get(dim_name), dim_name
+            )
+            if masked is not None:
+                size = nc._band_dim_sizes[nc._band_dim_names.index(dim_name)]
+                keep[dim_name] = [i for i in range(size) if i not in set(masked)]
+                continue
             if not isinstance(wanted, (list, tuple)):
                 wanted = [wanted]
             dropped: set[int] = set()
@@ -4502,6 +4512,48 @@ def _resolve_selector_indices(
     return indices, available
 
 
+def _mask_positions(
+    selector: Any, coords: list | None, dim_name: str
+) -> list[int] | None:
+    """The positions a boolean mask selects, or `None` when `selector` is not a mask.
+
+    xarray reads a boolean array or list of the axis' own length as a mask —
+    `da.sel(time=[True, False, True, False])` keeps the first and third steps — and so does
+    this. Read as labels instead, `True` and `False` match the coordinates `1.0` and `0.0`,
+    so a mask quietly answered one band; that is a wrong answer rather than a loud one, and
+    the ndarray spelling is exactly what `other.time.values > 6` hands over.
+
+    Args:
+        selector: The already-normalised selector.
+        coords: The dimension's coordinate values, or `None` when it has none.
+        dim_name: The dimension, for the refusals.
+
+    Returns:
+        list[int] | None: The selected positions, or `None` when this is not a mask.
+
+    Raises:
+        ValueError: The flags do not cover the axis, or the mask selects no step at all —
+            a variable with no bands cannot be built.
+    """
+    positions = None
+    values = list(selector) if isinstance(selector, (list, tuple)) else None
+    if values and all(isinstance(one, (bool, np.bool_)) for one in values):
+        length = len(coords) if coords is not None else 0
+        if len(values) != length:
+            raise ValueError(
+                f"A boolean selector is a mask, and this one carries {len(values)} flags "
+                f"for {dim_name!r}, which has {length}. Pass one flag per step, or select "
+                f"by value."
+            )
+        positions = [index for index, flag in enumerate(values) if flag]
+        if not positions:
+            raise ValueError(
+                f"A boolean mask that selects no step of {dim_name!r} would build a "
+                f"variable with no bands, which GDAL has no raster for."
+            )
+    return positions
+
+
 def _as_a_sequence_of_labels(selector: Any) -> Any:
     """`selector` with an array or a set spelled as a list, everything else untouched.
 
@@ -4542,7 +4594,8 @@ def _resolve_one_dim(
     Args:
         nc: The variable the keyword is resolved against.
         dim_name: The dimension to narrow.
-        selector: A coordinate value, a list of them, or a slice.
+        selector: A coordinate value, a list of them, a boolean mask of the axis' own
+            length, or a slice.
         method: `None` for an exact match, `"nearest"` to snap.
         tolerance: The furthest a `"nearest"` snap may travel.
 
@@ -4557,6 +4610,9 @@ def _resolve_one_dim(
     selector = _as_a_sequence_of_labels(selector)
 
     coords = nc._band_dim_values_map.get(dim_name)
+    masked = _mask_positions(selector, coords, dim_name)
+    if masked is not None:
+        return masked
     if coords is None:
         raise ValueError(
             f"No coordinate values available for dimension {dim_name!r}. "

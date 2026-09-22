@@ -312,6 +312,54 @@ class TestDropSel:
         """
         assert _stamps(_variable().sel(time=np.array([6.0, 12.0]))) == [6.0, 12.0]
 
+    @pytest.mark.parametrize(
+        ("label", "mask"),
+        [
+            ("an array", np.array([True, False, True, False])),
+            ("a list", [True, False, True, False]),
+        ],
+    )
+    def test_a_boolean_mask_selects_the_flagged_steps(self, label: str, mask):
+        """xarray reads a boolean of the axis' own length as a mask, and so does this.
+
+        Test scenario:
+            `sel` read `True`/`False` as coordinate values, matched `False == 0.0`, and
+            answered a single band where xarray keeps two — a silently wrong subset, and
+            the ndarray spelling is exactly the one `other.time.values > 6` produces.
+
+        Args:
+            label: The spelling under test.
+            mask: The mask itself.
+        """
+        assert _stamps(_variable().sel(time=mask)) == [0.0, 12.0], label
+
+    def test_a_boolean_mask_drops_the_flagged_steps(self):
+        """`drop_sel` is `sel`'s complement, mask included.
+
+        Test scenario:
+            xarray raises `KeyError: '[True, False, True, False] not found in axis'` here;
+            dropping what `sel` would keep is the answer that follows from the pairing the
+            two members are documented as.
+        """
+        mask = np.array([True, False, True, False])
+        assert _stamps(_variable().drop_sel(time=mask)) == [6.0, 18.0]
+
+    def test_a_mask_that_selects_nothing_is_refused(self):
+        """A variable with no bands cannot be built, mask or not."""
+        variable = _variable()
+        with pytest.raises(ValueError, match="no bands"):
+            variable.sel(time=[False, False, False, False])
+
+    def test_a_mask_that_does_not_cover_the_axis_is_refused(self):
+        """Two flags for a four-step axis is a mistake, not a pair of labels.
+
+        Test scenario:
+            Read as labels, `[True, False]` matched `False == 0.0` and answered one band.
+        """
+        variable = _variable()
+        with pytest.raises(ValueError, match="2 flags"):
+            variable.sel(time=[True, False])
+
     def test_the_refusal_carries_the_underlying_reason(self):
         """A label nowhere on the axis says what the axis does hold."""
         variable = _variable()
