@@ -1501,18 +1501,23 @@ class Selection(_Engine["NetCDF"]):
                     f"drop_sel() drops by coordinate value, and {dim_name!r} has no "
                     f"coordinates. Use drop_isel() to drop by position."
                 )
-            wanted = selector if isinstance(selector, (list, tuple)) else [selector]
+            wanted = _as_a_sequence_of_labels(selector)
+            if not isinstance(wanted, (list, tuple)):
+                wanted = [wanted]
             dropped: set[int] = set()
             missing = []
+            reasons = []
             for label in wanted:
                 try:
                     dropped.update(_resolve_one_dim(nc, dim_name, label, None, None))
-                except (ValueError, KeyError):
+                except (ValueError, KeyError) as unmatched:
                     missing.append(label)
+                    reasons.append(str(unmatched).strip("\"'"))
             if missing and errors == "raise":
                 raise KeyError(
-                    f"drop_sel() found {missing!r} nowhere on {dim_name!r}. Pass "
-                    f"errors='ignore' to drop the labels that are there and skip the rest."
+                    f"drop_sel() found {missing!r} nowhere on {dim_name!r} ({reasons[0]}) "
+                    f"Pass errors='ignore' to drop the labels that are there and skip "
+                    f"the rest."
                 )
             size = nc._band_dim_sizes[nc._band_dim_names.index(dim_name)]
             keep[dim_name] = [i for i in range(size) if i not in dropped]
@@ -4398,6 +4403,30 @@ def _resolve_selector_indices(
     return indices, available
 
 
+def _as_a_sequence_of_labels(selector: Any) -> Any:
+    """`selector` with an array or a set spelled as a list, everything else untouched.
+
+    Labels rarely come in typed by hand: they come from `other.time.values`, from
+    `np.unique(...)`, from a set built to deduplicate. Those arrive as a `numpy.ndarray` or
+    a `set`, which the resolvers read as one opaque label — an array then reached a truth
+    test and raised `The truth value of an array with more than one element is ambiguous`,
+    while a set matched nothing at all. A slice, a scalar, a string and a list are returned
+    as they are.
+
+    Args:
+        selector: What the caller passed for one dimension.
+
+    Returns:
+        Any: A `list` for an array or a set, `selector` itself otherwise.
+    """
+    resolved = selector
+    if isinstance(selector, np.ndarray):
+        resolved = selector.ravel().tolist() if selector.ndim else selector.item()
+    elif isinstance(selector, (set, frozenset)):
+        resolved = list(selector)
+    return resolved
+
+
 def _resolve_one_dim(
     nc: NetCDF,
     dim_name: str,
@@ -4426,6 +4455,7 @@ def _resolve_one_dim(
         KeyError: A `"nearest"` request found nothing within `tolerance`.
     """
     _assert_band_dimension(nc, dim_name, caller="sel")
+    selector = _as_a_sequence_of_labels(selector)
 
     coords = nc._band_dim_values_map.get(dim_name)
     if coords is None:

@@ -204,6 +204,38 @@ class TestDropSel:
         with pytest.raises(ValueError, match="no bands"):
             variable.drop_sel(time=TIMES)
 
+    def test_a_numpy_array_of_labels_drops_them(self):
+        """Labels taken from another array are the natural way to call this.
+
+        Test scenario:
+            `other.time.values` and `np.unique(...)` hand back a numpy array. It was read
+            as one opaque label, so `errors="raise"` claimed labels that are present were
+            "nowhere", and `errors="ignore"` dropped nothing at all. xarray drops both.
+        """
+        labels = np.array([6.0, 12.0])
+        assert _stamps(_variable().drop_sel(time=labels)) == [0.0, 18.0]
+        kept = _variable().drop_sel(time=labels, errors="ignore")
+        assert _stamps(kept) == [0.0, 18.0]
+
+    def test_a_set_of_labels_drops_them(self):
+        """A set is a sequence of labels too, not one label."""
+        assert _stamps(_variable().drop_sel(time={6.0, 12.0})) == [0.0, 18.0]
+
+    def test_sel_reads_a_numpy_array_of_labels_too(self):
+        """The same normalisation serves `sel`, which raised on an array before.
+
+        Test scenario:
+            `sel(time=np.array([6.0, 12.0]))` raised `ValueError: The truth value of an
+            array with more than one element is ambiguous` from deep inside the resolver.
+        """
+        assert _stamps(_variable().sel(time=np.array([6.0, 12.0]))) == [6.0, 12.0]
+
+    def test_the_refusal_carries_the_underlying_reason(self):
+        """A label nowhere on the axis says what the axis does hold."""
+        variable = _variable()
+        with pytest.raises(KeyError, match="Available values"):
+            variable.drop_sel(time=99.0)
+
     def test_a_cf_date_string_drops_what_sel_selects(self):
         """A CF time string is resolved the way `sel` resolves it.
 
