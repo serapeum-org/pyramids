@@ -10,16 +10,19 @@ an empty array.
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-import inspect
-
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
-from pyramids.netcdf.engines.selection import Selection
+from pyramids.netcdf.engines.selection import (
+    Selection,
+    _kept,
+    _spatial_dimension_names,
+)
 
 pytestmark = pytest.mark.core
 
@@ -769,6 +772,78 @@ class TestAContainerIsRefusedByName:
         """
         variable = NetCDF.read_file(str(CF_STORE))["temperature"]
         assert getattr(variable, member)(*arguments) is not None
+
+
+class TestTheHelpersOwnGuards:
+    """The guards the members themselves can no longer reach, called directly.
+
+    Each exists so a future caller cannot walk into the defect it closes: `_kept` refuses
+    an empty plan rather than handing back the engine's `weakref.proxy`,
+    `_spatial_dimension_names` tolerates a variable with no parent container, and
+    `_unused_dimension_name` keeps suffixing until the name is free.
+    """
+
+    def test_kept_refuses_a_plan_that_names_nothing(self):
+        """No dimension to cut means there is nothing to build a variable from."""
+        variable = _variable()
+        with pytest.raises(ValueError, match="names no dimension"):
+            _kept(variable, {}, "head")
+
+    def test_spatial_names_without_a_parent_container(self):
+        """A variable whose cells this process built carries no parent to borrow from.
+
+        Test scenario:
+            `isnull()` deliberately drops `_parent_nc` — its cells are its own — so
+            `expand_dims` on such a result has only the variable's own dimensions to
+            check a name against.
+        """
+        standalone = _variable().isnull()
+        assert standalone._parent_nc is None, (
+            "isnull() was expected to drop the parent reference"
+        )
+        assert _spatial_dimension_names(standalone) == set()
+
+    def test_a_taken_suffix_is_stepped_past(self):
+        """`time_4` already exists, so the next free name is `time_4_2`."""
+        assert (
+            NetCDF._unused_dimension_name({"time": None, "time_4": None}, "time", 4)
+            == "time_4_2"
+        )
+        assert (
+            NetCDF._unused_dimension_name({"time_4": None, "time_4_2": None}, "time", 4)
+            == "time_4_3"
+        )
+
+    def test_a_dimension_without_an_indexing_variable_is_reused_on_size(self):
+        """A dimension carrying no coordinates has no values to disagree with.
+
+        Test scenario:
+            WRF's `bottom_top` is 27 model levels with no coordinate variable. Such a
+            dimension is reused on its size alone, because there is nothing to compare —
+            the alternative would be a second axis for every write.
+        """
+
+        class _Unindexed:
+            """A GDAL dimension with a size and no indexing variable."""
+
+            def GetSize(self):  # noqa: N802 - GDAL's own spelling
+                """The axis length.
+
+                Returns:
+                    int: The length.
+                """
+                return 3
+
+            def GetIndexingVariable(self):  # noqa: N802 - GDAL's own spelling
+                """The coordinate variable, of which there is none.
+
+                Returns:
+                    None: Always.
+                """
+                return None
+
+        assert NetCDF._dimension_holds(_Unindexed(), np.array([10.0, 20.0, 30.0]))
+        assert not NetCDF._dimension_holds(_Unindexed(), np.array([10.0, 20.0]))
 
 
 class TestTheFacadesAgreeWithTheEngine:

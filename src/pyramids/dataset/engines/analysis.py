@@ -301,7 +301,13 @@ def _holds(target: np.dtype, value: Any) -> bool:
     """
     number = float(value)
     if np.issubdtype(target, np.floating):
-        fits = not np.isfinite(number) or float(target.type(number)) == number
+        # The range test comes first: casting a magnitude the type cannot reach warns
+        # `overflow encountered in cast` before answering `inf`, and a library should not
+        # make numpy complain to decide something it can decide by comparison.
+        limit = float(np.finfo(target).max)
+        fits = not np.isfinite(number) or (
+            abs(number) <= limit and float(target.type(number)) == number
+        )
     else:
         limits = np.iinfo(target)
         fits = (

@@ -20,7 +20,7 @@ from numpy.testing import assert_allclose
 
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
-from pyramids.dataset.engines.analysis import _holds
+from pyramids.dataset.engines.analysis import _declared_gaps, _holds, _regapped
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -609,6 +609,49 @@ class TestAPackedStoreVariable:
         bound = float(np.median(physical))
         clipped = np.asarray(variable.clip(min=bound).read_array(), dtype="float64")
         assert np.allclose(clipped, np.clip(physical, bound, None))
+
+
+class TestRegappingBandByBand:
+    """`_regapped` puts each band's gaps back with that band's own sentinel.
+
+    The members reach it with a list of sentinels, one per band, and a band that declares
+    none must be left exactly as the operation left it — there is no value to write there.
+    """
+
+    def test_a_band_that_declares_nothing_is_left_alone(self):
+        """A `None` entry writes nothing into that band."""
+        values = np.array([[[1.0, 2.0]], [[3.0, 4.0]]])
+        domain = np.array([[[True, False]], [[False, True]]])
+        out = _regapped(values, domain, [-9999.0, None])
+        assert out.tolist() == [[[1.0, -9999.0]], [[3.0, 4.0]]]
+
+    def test_a_single_band_with_no_sentinel_is_left_alone(self):
+        """The 2-D path, where the one sentinel is `None`."""
+        values = np.array([[1.0, 2.0]])
+        domain = np.array([[True, False]])
+        assert _regapped(values, domain, [None]).tolist() == [[1.0, 2.0]]
+
+    def test_a_short_list_falls_back_to_the_first_sentinel(self):
+        """A stack whose sentinel list is shorter than its bands marks the rest alike."""
+        values = np.array([[[1.0, 2.0]], [[3.0, 4.0]]])
+        domain = np.array([[[True, False]], [[False, True]]])
+        assert _regapped(values, domain, [-1.0]).tolist() == [
+            [[1.0, -1.0]],
+            [[-1.0, 4.0]],
+        ]
+
+    def test_a_full_domain_is_returned_untouched(self):
+        """With no gap there is nothing to re-mark, and the array is not copied."""
+        values = np.array([[1.0, 2.0]])
+        domain = np.array([[True, True]])
+        assert _regapped(values, domain, [-9999.0]) is values
+
+    def test_declared_gaps_collapses_agreement(self):
+        """One sentinel when the bands agree, the list when they do not."""
+        assert _declared_gaps([-9999.0, -9999.0]) == -9999.0
+        assert _declared_gaps([None, None]) is None
+        assert _declared_gaps([-9999.0, -1.0]) == [-9999.0, -1.0]
+        assert _declared_gaps([]) == []
 
 
 class TestAContainerIsRefusedByName:
