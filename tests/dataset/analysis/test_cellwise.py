@@ -237,6 +237,51 @@ class TestAstype:
         assert cast.no_data_value[0] == 255
         assert np.asarray(cast.isnull().read_array()).sum() == 1
 
+    def test_a_sentinel_that_collides_with_data_is_refused(self):
+        """A sentinel a real cell already holds would delete that measurement.
+
+        Test scenario:
+            The recipe the docs used to give — `clip(0, 255).astype("uint8",
+            no_data_value=255)` — clamps every cell at or above 255 to 255 and then
+            declares 255 missing, so three measured cells (255, 300 and 1200 m) read as
+            gaps. This is the mirror of "a gap stays a gap": data has to stay data.
+        """
+        dem = _raster(
+            np.array([[12.0, 254.0, 255.0, 300.0], [1200.0, NDV, 0.5, 80.0]])
+        )
+        with pytest.raises(ValueError, match="already hold"):
+            dem.clip(0.0, 255.0).astype("uint8", no_data_value=255)
+
+    def test_a_sentinel_outside_the_data_is_accepted(self):
+        """Bounding one below the sentinel is the fix the refusal asks for."""
+        dem = _raster(
+            np.array([[12.0, 254.0, 255.0, 300.0], [1200.0, NDV, 0.5, 80.0]])
+        )
+        small = dem.clip(0.0, 254.0).astype("uint8", no_data_value=255)
+        assert np.asarray(small.read_array()).ravel().tolist() == [
+            12,
+            254,
+            254,
+            254,
+            254,
+            255,
+            0,
+            80,
+        ]
+        assert np.asarray(small.isnull().read_array()).sum() == 1
+
+    def test_a_kept_sentinel_that_the_cast_collides_with_is_refused(self):
+        """Truncation can move a real value onto the sentinel too.
+
+        Test scenario:
+            `-9999.4` is data and `-9999.0` is the gap. Casting to `int32` truncates
+            towards zero, so the measurement lands exactly on the sentinel and would be
+            read as missing from then on.
+        """
+        raster = _raster(np.array([[1.0, -9999.4], [-9999.0, 4.0]]))
+        with pytest.raises(ValueError, match="already hold"):
+            raster.astype("int32")
+
     def test_a_nan_sentinel_cannot_mark_an_integer_band(self):
         """No integer means NaN, so the caller has to name one."""
         raster = _raster(np.where(CELLS == NDV, np.nan, CELLS), no_data_value=np.nan)

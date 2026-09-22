@@ -2989,6 +2989,16 @@ class Analysis(_Engine["Dataset"]):
         # uninitialised buffer would ship whatever the allocator held as data.
         cast = np.full(values.shape, marker if marker is not None else 0, dtype=target)
         cast[domain] = values[domain].astype(target)
+        if sentinel is not None and np.isfinite(float(sentinel)):
+            collisions = int(np.count_nonzero(cast[domain] == target.type(sentinel)))
+            if collisions:
+                raise ValueError(
+                    f"astype({target.name!r}) would mark {collisions} cell(s) that hold "
+                    f"data as missing: they already hold {float(sentinel)} once cast, and "
+                    f"that is the value the result declares as its gap. Bound or shift "
+                    f"them first (clip), or pass no_data_value= with one the data never "
+                    f"takes."
+                )
         return self._identified(self._rebuilt(cast, sentinel))
 
     def isin(self, test_elements: Any) -> Dataset:

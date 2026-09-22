@@ -325,10 +325,14 @@ landcover = Dataset.read_file("landcover.tif")
 
 bounded = dem.clip(0.0, 3000.0)                  # below-sea-level cells to 0
 metres = dem.round()                             # whole metres
-small = dem.clip(0.0, 255.0).astype("uint8", no_data_value=255)
+small = dem.clip(0.0, 254.0).astype("uint8", no_data_value=255)  # 255 left free to mark gaps
 water = landcover.isin([80, 90])                 # the water classes, as a condition
 lakes = landcover.where(water)
 ```
+
+`astype` refuses a sentinel that any cell already holds once cast — `clip(0.0, 255.0)` with
+`no_data_value=255` would clamp every cell at or above 255 onto the sentinel and read them as missing
+ever after, which is why the bound above is 254.
 
 **A gap stays a gap in all four.** The gaps are left out of the operation and re-marked afterwards,
 because operating on the stored array would turn missing cells into measurements: clipping would lift a
