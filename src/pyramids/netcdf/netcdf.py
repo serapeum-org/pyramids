@@ -12290,6 +12290,48 @@ class NetCDF(Dataset):
                 format.
 
         Examples:
+            - The grid is named `y` / `x` unless the caller says otherwise, and
+              `spatial_names` is how a rebuild keeps the source store's own names:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import GeoReference, NetCDF
+                >>> cells = np.arange(4.0).reshape(2, 2)
+                >>> geo_ref = GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326)
+                >>> sorted(NetCDF.from_array(cells, geo_ref=geo_ref, variable_name="t").dimension_names)
+                ['x', 'y']
+                >>> named = NetCDF.from_array(
+                ...     cells,
+                ...     geo_ref=geo_ref,
+                ...     variable_name="t",
+                ...     spatial_names=("latitude", "longitude"),
+                ... )
+                >>> sorted(named.dimension_names)
+                ['latitude', 'longitude']
+
+                ```
+            - A band dimension declares the CF units it is given, and they survive the
+              write — which is what lets the written file decode its own stamps:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+                >>> cube = NetCDF.from_array(
+                ...     np.arange(8.0).reshape(2, 2, 2),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+                ...     variable_name="t",
+                ...     dims=ExtraDimensions(
+                ...         name="time",
+                ...         values=[0.0, 6.0],
+                ...         attrs={"time": {"units": "hours since 2000-01-01", "calendar": "standard"}},
+                ...     ),
+                ... )
+                >>> cube.get_variable("t")._resolved_band_dim_time_attrs()
+                {'time': ('hours since 2000-01-01', 'standard')}
+                >>> cube.get_variable("t")._band_dim_values_map["time"]
+                [0.0, 6.0]
+
+                ```
             - Wrap a 2-D array and read the variable back off the container:
                 ```python
                 >>> import numpy as np
