@@ -815,3 +815,83 @@ class TestTheGridComparisonToleratesRecomputation:
         var, _ = self._source()
         arr = np.zeros((var.rows // 2, var.columns))
         assert not NetCDF._same_grid(var, arr, tuple(var.geotransform))
+
+
+class TestTheNewInputsAreChecked:
+    """`spatial_names` and `attrs` refuse what they used to fail on obscurely."""
+
+    @staticmethod
+    def _build(**kwargs) -> NetCDF:
+        """A 3-D store built with the keyword under test.
+
+        Args:
+            **kwargs: Passed straight to `from_array`.
+
+        Returns:
+            NetCDF: The store.
+        """
+        return NetCDF.from_array(
+            np.arange(24.0).reshape(3, 2, 4),
+            geo_ref=GeoReference(geo=(10.0, 2.0, 0.0, 50.0, 0.0, -2.0), epsg=4326),
+            variable_name="t",
+            **kwargs,
+        )
+
+    @pytest.mark.parametrize(
+        "names",
+        [("a", "b", "c"), ("only",), (1, 2), ("", "")],
+        ids=["three", "one", "not-strings", "empty"],
+    )
+    def test_a_malformed_pair_names_the_parameter(self, names):
+        """Before, these surfaced as unpacking or SWIG errors from deep in GDAL.
+
+        Args:
+            names: The malformed `spatial_names` under test.
+        """
+        with pytest.raises(ValueError, match="spatial_names must be two non-empty"):
+            self._build(spatial_names=names)
+
+    def test_one_name_for_both_axes_is_refused(self):
+        """`RuntimeError: A dimension with same name already exists` said nothing useful."""
+        with pytest.raises(ValueError, match="two different axes"):
+            self._build(spatial_names=("same", "same"))
+
+    def test_a_well_formed_pair_is_accepted(self):
+        """The check must not stand in the way of the naming it guards."""
+        assert sorted(self._build(spatial_names=("lat", "lon")).dimension_names) == [
+            "lat",
+            "lon",
+            "time",
+        ]
+
+    def test_attrs_for_a_dimension_that_is_not_there_are_refused(self):
+        """A typo used to write nothing and leave the axis bare — #1179's symptom."""
+        with pytest.raises(ValueError, match="'tmie'"):
+            self._build(
+                dims=ExtraDimensions(
+                    dims=[("time", [0.0, 6.0, 12.0])], attrs={"tmie": {"units": UNITS}}
+                )
+            )
+
+    def test_attrs_for_a_dimension_that_is_there_are_accepted(self):
+        """The spelling that does name an axis still writes."""
+        built = self._build(
+            dims=ExtraDimensions(
+                dims=[("time", [0.0, 6.0, 12.0])],
+                attrs={"time": {"units": UNITS, "calendar": CALENDAR}},
+            )
+        )
+        assert _time_attrs(built) == (UNITS, CALENDAR)
+
+    def test_a_reduce_that_collapses_the_declared_axis_still_rebuilds(self):
+        """The carry is trimmed to the dimensions the result kept, so the check is safe.
+
+        Test scenario:
+            The source declares CF units for `time`; `reduce` collapses `time` entirely.
+            Carrying that key into `from_array` unfiltered would now raise on every full
+            reduce of a CF store.
+        """
+        assert sorted(_store().reduce("time", how="mean").dimension_names) == [
+            "latitude",
+            "longitude",
+        ]

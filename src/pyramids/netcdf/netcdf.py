@@ -8139,6 +8139,16 @@ class NetCDF(Dataset):
             spatial_names = None
         if time_attrs is not None:
             dim_attrs = NetCDF._cf_axis_attributes(time_attrs)
+        if dim_attrs:
+            # A `reduce` collapses the very dimension the source declared units for, so
+            # what is carried is trimmed to the dimensions the result kept. `from_array`
+            # refuses attributes addressed to an axis that is not there, which is a
+            # caller's typo and not this.
+            dim_attrs = {
+                dim: written
+                for dim, written in dim_attrs.items()
+                if dim in band_names
+            } or None
         if result is None:
             result = NetCDF.from_array(
                 arr,

@@ -918,6 +918,8 @@ def from_array(
     if variable_name is None:
         variable_name = "data"
 
+    _require_spatial_names(spatial_names)
+    _require_known_dimensions(dims.attrs, resolved_extra_dims)
     cf_attrs = attrs.as_dict()
 
     dst_ds = _create_netcdf_from_array(
@@ -940,6 +942,58 @@ def from_array(
     result = Container(dst_ds)
 
     return result
+
+
+def _require_spatial_names(spatial_names: tuple[str, str] | None) -> None:
+    """Refuse a `spatial_names` the dimension creation would only fail on later.
+
+    Unchecked, the four ways to get it wrong surface as an unpacking error, a SWIG
+    argument-type message, or `RuntimeError: A dimension with same name already exists` —
+    none of which names the parameter the caller passed.
+
+    Args:
+        spatial_names: The `(row, column)` names, or `None` for the default.
+
+    Raises:
+        ValueError: `spatial_names` is not two distinct non-empty strings.
+    """
+    if spatial_names is not None:
+        names = tuple(spatial_names)
+        if len(names) != 2 or not all(isinstance(one, str) and one for one in names):
+            raise ValueError(
+                "spatial_names must be two non-empty strings naming the row and column "
+                f"axes, got {spatial_names!r}."
+            )
+        if names[0] == names[1]:
+            raise ValueError(
+                f"spatial_names must name two different axes, got {names[0]!r} for both."
+            )
+
+
+def _require_known_dimensions(
+    attrs: dict[str, dict[str, str]] | None, resolved: list[tuple[str, list]]
+) -> None:
+    """Refuse CF attributes addressed to a dimension the array does not have.
+
+    A misspelled key, or one left over from a dimension the caller dropped, used to do
+    nothing at all — the attributes were quietly not written and the axis came back bare,
+    which is the same symptom as #1179 with none of its cause.
+
+    Args:
+        attrs: The `ExtraDimensions.attrs` mapping, or `None`.
+        resolved: The `(name, values)` pairs of every non-spatial dimension.
+
+    Raises:
+        ValueError: A key of `attrs` names no non-spatial dimension.
+    """
+    known = {name for name, _ in resolved}
+    unknown = sorted(set(attrs or {}) - known)
+    if unknown:
+        raise ValueError(
+            f"attrs names {', '.join(repr(one) for one in unknown)}, which "
+            f"{'are' if len(unknown) > 1 else 'is'} not among the dimensions of this "
+            f"array ({', '.join(sorted(known)) or 'none'})."
+        )
 
 
 def _coordinate_attrs(dims: ExtraDimensions) -> dict[str, dict[str, str]] | None:
