@@ -1582,38 +1582,7 @@ class Selection(_Engine["NetCDF"]):
                     f"drop_sel() drops by coordinate value, and {dim_name!r} has no "
                     f"coordinates. Use drop_isel() to drop by position."
                 )
-            wanted = _as_a_sequence_of_labels(selector)
-            # A mask is one selector, not a sequence of labels: dropping what `sel` would
-            # keep is the complement the two members are paired as. xarray raises
-            # `KeyError: '[True, False, ...] not found in axis'` here instead.
-            masked = _mask_positions(
-                wanted, nc._band_dim_values_map.get(dim_name), dim_name
-            )
-            if masked is not None:
-                size = nc._band_dim_sizes[nc._band_dim_names.index(dim_name)]
-                keep[dim_name] = [i for i in range(size) if i not in set(masked)]
-                continue
-            if not isinstance(wanted, (list, tuple)):
-                wanted = [wanted]
-            dropped: set[int] = set()
-            missing = []
-            reasons = []
-            for label in wanted:
-                try:
-                    dropped.update(_resolve_one_dim(nc, dim_name, label, None, None))
-                except (ValueError, KeyError) as unmatched:
-                    missing.append(label)
-                    reasons.append(str(unmatched).strip("\"'"))
-            if missing and errors == "raise":
-                explained = "; ".join(
-                    f"{label!r}: {reason}" for label, reason in zip(missing, reasons)
-                )
-                raise KeyError(
-                    f"drop_sel() found {missing!r} nowhere on {dim_name!r}. "
-                    f"{explained.rstrip('.')}. "
-                    f"Pass errors='ignore' to drop the labels that are there and skip "
-                    f"the rest."
-                )
+            dropped = _labelled_positions(nc, dim_name, selector, errors)
             size = nc._band_dim_sizes[nc._band_dim_names.index(dim_name)]
             keep[dim_name] = [i for i in range(size) if i not in dropped]
         return _kept(nc, keep, "drop_sel")
@@ -4534,6 +4503,56 @@ def _resolve_selector_indices(
     return indices, available
 
 
+def _labelled_positions(
+    nc: NetCDF, dim_name: str, selector: Any, errors: str
+) -> set[int]:
+    """The positions `drop_sel` should remove along one dimension.
+
+    Args:
+        nc: The variable.
+        dim_name: The dimension, already validated as one with coordinates.
+        selector: What the caller passed for it — a label, a sequence of them, or a mask.
+        errors: `"raise"` to refuse a label the dimension does not hold, `"ignore"` to
+            skip it.
+
+    Returns:
+        set[int]: The positions to drop.
+
+    Raises:
+        KeyError: A label is nowhere on the dimension and `errors="raise"`. The message
+            pairs each missing label with the resolver's own reason for it.
+    """
+    coords = nc._band_dim_values_map.get(dim_name)
+    wanted = _as_a_sequence_of_labels(selector)
+    # A mask is one selector, not a sequence of labels: dropping what `sel` would keep is
+    # the complement the two members are paired as. xarray raises
+    # `KeyError: '[True, False, ...] not found in axis'` here instead.
+    masked = _mask_positions(wanted, coords, dim_name)
+    if masked is not None:
+        return set(masked)
+    if not isinstance(wanted, (list, tuple)):
+        wanted = [wanted]
+    dropped: set[int] = set()
+    missing = []
+    reasons = []
+    for label in wanted:
+        try:
+            dropped.update(_resolve_one_dim(nc, dim_name, label, None, None))
+        except (ValueError, KeyError) as unmatched:
+            missing.append(label)
+            reasons.append(str(unmatched).strip("\"'"))
+    if missing and errors == "raise":
+        explained = "; ".join(
+            f"{label!r}: {reason}" for label, reason in zip(missing, reasons)
+        )
+        raise KeyError(
+            f"drop_sel() found {missing!r} nowhere on {dim_name!r}. "
+            f"{explained.rstrip('.')}. "
+            f"Pass errors='ignore' to drop the labels that are there and skip the rest."
+        )
+    return dropped
+
+
 def _mask_positions(
     selector: Any, coords: list | None, dim_name: str
 ) -> list[int] | None:
@@ -4591,7 +4610,7 @@ def _stamp_key(stamp: Any) -> Any:
         Any: The stamp, or a marker standing for "not a number".
     """
     key = stamp
-    if isinstance(stamp, float) and stamp != stamp:
+    if isinstance(stamp, float) and math.isnan(stamp):
         key = ("nan",)
     return key
 
@@ -5114,7 +5133,7 @@ def _windowed(
                 f"{caller}() needs a step: {caller}(2) for every band dimension, or "
                 f"{caller}(time=2) for one."
             )
-        indexers = {name: default for name in nc._band_dim_names}
+        indexers = dict.fromkeys(nc._band_dim_names, default)
         if not indexers:
             raise ValueError(
                 f"{caller}() needs a band dimension to window, and this has none — a "

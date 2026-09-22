@@ -149,9 +149,9 @@ class TestHeadTailThin:
         Args:
             member: The window under test.
         """
-        variable = _variable()
+        call = getattr(_variable(), member)
         with pytest.raises(ValueError, match="both"):
-            getattr(variable, member)(2, time=2)
+            call(2, time=2)
 
     @pytest.mark.parametrize("member", ["head", "tail", "thin"])
     def test_an_empty_mapping_windows_nothing(self, member: str):
@@ -176,9 +176,9 @@ class TestHeadTailThin:
         Args:
             member: The window under test.
         """
-        variable = _variable()
+        call = getattr(_variable(), member)
         with pytest.raises(TypeError, match="integer"):
-            getattr(variable, member)("time")
+            call("time")
 
     @pytest.mark.parametrize("member", ["head", "tail", "thin"])
     def test_zero_is_refused(self, member: str):
@@ -417,7 +417,8 @@ class TestDropSel:
         with pytest.raises(KeyError) as info:
             variable.drop_sel(time=[99.0, "nope"])
         message = str(info.value)
-        assert "99.0:" in message and "'nope':" in message, message
+        assert "99.0:" in message, message
+        assert "'nope':" in message, message
         assert "] Pass" not in message, f"missing separator: {message}"
 
     def test_a_cf_date_string_drops_what_sel_selects(self):
@@ -520,7 +521,8 @@ class TestDropDuplicates:
         variable = _variable(times=[0.0, float("nan"), float("nan"), 1.0])
         kept = _stamps(variable.drop_duplicates("time"))
         assert len(kept) == 3, f"the repeated NaN survived: {kept}"
-        assert kept[0] == 0.0 and kept[-1] == 1.0
+        assert kept[0] == 0.0, kept
+        assert kept[-1] == 1.0, kept
         dropped = _stamps(variable.drop_duplicates("time", keep=False))
         assert dropped == [0.0, 1.0], f"keep=False left {dropped}"
 
@@ -878,8 +880,10 @@ class TestWritingAReorderedAxisBack:
         """
         container = NetCDF.read_file(str(CF_STORE))
         cube = container["temperature"]
+        reordered = cube.sortby("time", ascending=False)
         with pytest.warns(UserWarning, match="different coordinate values"):
-            container.set_variable("a", cube.sortby("time", ascending=False))
+            container.set_variable("a", reordered)
+        with pytest.warns(UserWarning, match="different coordinate values"):
             container.set_variable("b", cube.sortby("time", ascending=False))
         first = container.get_variable("a")._band_dim_names[0]
         second = container.get_variable("b")._band_dim_names[0]
@@ -894,6 +898,7 @@ class TestWritingAReorderedAxisBack:
         cube = container["temperature"]
         with pytest.warns(UserWarning, match="different coordinate values"):
             container.set_variable("down", cube.sortby("time", ascending=False))
+        with pytest.warns(UserWarning, match="different coordinate values"):
             container.set_variable("cut", cube.isel(time=[0, 1]))
         assert (
             container.get_variable("down")._band_dim_names[0]
@@ -951,9 +956,9 @@ class TestAContainerIsRefusedByName:
             member: The member under test.
             arguments: What to call it with.
         """
-        container = NetCDF.read_file(str(CF_STORE))
+        call = getattr(NetCDF.read_file(str(CF_STORE)), member)
         with pytest.raises(ValueError, match="container") as info:
-            getattr(container, member)(*arguments)
+            call(*arguments)
         assert f"{member}()" in str(info.value), (
             f"the refusal should name {member}: {info.value}"
         )
@@ -978,8 +983,8 @@ class TestAContainerIsRefusedByName:
             member: The member under test.
             arguments: What to call it with.
         """
-        variable = NetCDF.read_file(str(CF_STORE))["temperature"]
-        assert getattr(variable, member)(*arguments) is not None
+        call = getattr(NetCDF.read_file(str(CF_STORE))["temperature"], member)
+        assert call(*arguments) is not None
 
 
 class TestTheHelpersOwnGuards:

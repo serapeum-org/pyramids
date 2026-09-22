@@ -8,6 +8,7 @@ Owns the Analysis family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import logging
+import math
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -174,15 +175,32 @@ def _regapped(values: np.ndarray, domain: np.ndarray, sentinel: Any) -> np.ndarr
     out = values
     if not domain.all() and any(one is not None for one in marks):
         out = np.array(values, copy=True)
-        if out.ndim == 2:
-            if marks[0] is not None:
-                out[~domain] = marks[0]
-        else:
-            for index in range(out.shape[0]):
-                mark = marks[index] if index < len(marks) else marks[0]
-                if mark is not None:
-                    out[index][~domain[index]] = mark
+        planes = (
+            [(out, domain, marks[0])]
+            if out.ndim == 2
+            else [
+                (out[index], domain[index], _mark_for(marks, index))
+                for index in range(out.shape[0])
+            ]
+        )
+        for plane, kept, mark in planes:
+            if mark is not None:
+                plane[~kept] = mark
     return out
+
+
+def _mark_for(marks: list, index: int) -> Any:
+    """The sentinel for one band of a stack.
+
+    Args:
+        marks: The sentinels, one per band — or fewer, when the caller passed one for a
+            stack, which every band then shares.
+        index: The band's index.
+
+    Returns:
+        Any: That band's sentinel, or the first when the list is shorter than the stack.
+    """
+    return marks[index] if index < len(marks) else marks[0]
 
 
 def _same_gap(one: Any, other: Any) -> bool:
@@ -203,7 +221,7 @@ def _same_gap(one: Any, other: Any) -> bool:
         same = one is None and other is None
     else:
         left, right = float(one), float(other)
-        same = left == right or (left != left and right != right)
+        same = left == right or (math.isnan(left) and math.isnan(right))
     return same
 
 

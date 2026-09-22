@@ -323,9 +323,11 @@ class TestAstype:
             declares 255 missing, so three measured cells (255, 300 and 1200 m) read as
             gaps. This is the mirror of "a gap stays a gap": data has to stay data.
         """
-        dem = _raster(np.array([[12.0, 254.0, 255.0, 300.0], [1200.0, NDV, 0.5, 80.0]]))
+        bounded = _raster(
+            np.array([[12.0, 254.0, 255.0, 300.0], [1200.0, NDV, 0.5, 80.0]])
+        ).clip(0.0, 255.0)
         with pytest.raises(ValueError, match="already hold"):
-            dem.clip(0.0, 255.0).astype("uint8", no_data_value=255)
+            bounded.astype("uint8", no_data_value=255)
 
     def test_a_sentinel_outside_the_data_is_accepted(self):
         """Bounding one below the sentinel is the fix the refusal asks for."""

@@ -12535,13 +12535,30 @@ class NetCDF(Dataset):
             stored = NetCDF._read_band_dim_values(dimension)
             if stored is not None:
                 wanted = list(np.asarray(values).ravel().tolist())
-                # `one != one` is the NaN test: a NaN stamp equals nothing, itself
-                # included, and two axes that both carry one at the same position agree.
                 holds = len(stored) == len(wanted) and all(
-                    one == other or (one != one and other != other)
-                    for one, other in zip(stored, wanted)
+                    NetCDF._same_stamp(one, other) for one, other in zip(stored, wanted)
                 )
         return holds
+
+    @staticmethod
+    def _same_stamp(one: Any, other: Any) -> bool:
+        """Whether two coordinate values stand for the same step.
+
+        A NaN stamp equals nothing, itself included, so the two are compared for
+        not-a-number rather than for equality when either is one: two axes that both carry
+        a NaN at the same position do agree about that position.
+
+        Args:
+            one: The stored stamp.
+            other: The stamp about to be written.
+
+        Returns:
+            bool: `True` when they are the same step.
+        """
+        same = bool(one == other)
+        if not same and isinstance(one, float) and isinstance(other, float):
+            same = math.isnan(one) and math.isnan(other)
+        return same
 
     @staticmethod
     def _unused_dimension_name(
