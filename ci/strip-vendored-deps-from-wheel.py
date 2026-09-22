@@ -132,7 +132,7 @@ def _iter_wheels(args: list[str]):
         path = Path(arg)
         if path.is_dir():
             yield from sorted(path.glob("*.whl"))
-        elif path.suffix == ".whl":
+        elif path.suffix == ".whl" and path.is_file():
             yield path
         else:
             raise SystemExit(f"not a wheel or directory: {path}")

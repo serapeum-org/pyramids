@@ -181,3 +181,11 @@ def test_iter_wheels_rejects_a_non_wheel_argument(tmp_path):
     junk.write_text("not a wheel")
     with pytest.raises(SystemExit, match="not a wheel or directory"):
         list(module._iter_wheels([str(junk)]))
+
+
+def test_iter_wheels_rejects_a_missing_wheel_path(tmp_path):
+    """A .whl path that does not exist is rejected up front, not yielded to fail later."""
+    module = _load_strip_module()
+    missing = tmp_path / "typo-name.whl"
+    with pytest.raises(SystemExit, match="not a wheel or directory"):
+        list(module._iter_wheels([str(missing)]))
