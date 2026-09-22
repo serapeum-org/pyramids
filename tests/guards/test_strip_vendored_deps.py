@@ -144,3 +144,40 @@ def test_strip_rejects_a_surviving_vendored_dep(tmp_path, monkeypatch):
     _write_wheel(wheel, _METADATA)
     with pytest.raises(SystemExit, match="cftime"):
         module.strip_wheel(wheel)
+
+
+def test_main_strips_every_wheel_in_a_directory(tmp_path, capsys):
+    """main() strips each wheel found under a directory argument and reports it."""
+    module = _load_strip_module()
+    wheel = tmp_path / "pyramids_gis-0.0.0-cp312-cp312-musllinux_1_2_x86_64.whl"
+    _write_wheel(wheel, _METADATA)
+    module.main([str(tmp_path)])
+    assert "stripped 3 vendored dep line(s)" in capsys.readouterr().out
+    with zipfile.ZipFile(wheel) as zf:
+        metadata = zf.read("pyramids_gis-0.0.0.dist-info/METADATA").decode("utf-8")
+    assert "geopandas" not in metadata
+
+
+def test_main_strips_a_wheel_file_argument(tmp_path, capsys):
+    """main() accepts a .whl file path directly, not only a directory."""
+    module = _load_strip_module()
+    wheel = tmp_path / "pyramids_gis-0.0.0-cp312-cp312-musllinux_1_2_x86_64.whl"
+    _write_wheel(wheel, _METADATA)
+    module.main([str(wheel)])
+    assert "stripped 3 vendored dep line(s)" in capsys.readouterr().out
+
+
+def test_main_fails_when_no_wheels_found(tmp_path):
+    """main() exits nonzero when the arguments name no wheels at all."""
+    module = _load_strip_module()
+    with pytest.raises(SystemExit, match="no wheels"):
+        module.main([str(tmp_path)])
+
+
+def test_iter_wheels_rejects_a_non_wheel_argument(tmp_path):
+    """A path that is neither a directory nor a .whl is a hard error."""
+    module = _load_strip_module()
+    junk = tmp_path / "notes.txt"
+    junk.write_text("not a wheel")
+    with pytest.raises(SystemExit, match="not a wheel or directory"):
+        list(module._iter_wheels([str(junk)]))
