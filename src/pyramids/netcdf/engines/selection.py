@@ -1742,14 +1742,18 @@ class Selection(_Engine["NetCDF"]):
         others along the new dimension. The data does not move.
 
         Args:
-            dim: The new dimension's name.
-            value: Its single coordinate value. `0` by default.
+            dim: The new dimension's name, which must not already be a band dimension or a
+                spatial axis of this variable or of the store it came from.
+            value: Its single coordinate value. `0` by default. One value, not a list —
+                xarray's `expand_dims(member=[0.0, 1.0])` builds a length-two axis, and
+                the way to that here is a plane each, joined with `NetCDF.concat`.
 
         Returns:
             NetCDF: A variable with `dim` first, length one.
 
         Raises:
             ValueError: `dim` is already a band dimension, or names a spatial axis.
+            TypeError: `value` is a list, tuple, set or array rather than one value.
 
         Examples:
             - A flat raster lifted onto a `time` axis:
@@ -1791,6 +1795,20 @@ class Selection(_Engine["NetCDF"]):
             raise ValueError(
                 f"expand_dims() adds a new dimension, and {dim!r} is already one of "
                 f"{tuple(nc._band_dim_names)}."
+            )
+        spatial = _spatial_dimension_names(nc)
+        if dim in spatial:
+            raise ValueError(
+                f"expand_dims() adds a band dimension, and {dim!r} is a spatial axis of "
+                f"this variable or of the store it came from. A raster's rows and columns "
+                f"are its grid, not a band axis, and a band dimension under that name "
+                f"collides with the store's own when the result is written back."
+            )
+        if isinstance(value, (list, tuple, set, np.ndarray)):
+            raise TypeError(
+                f"expand_dims() adds a dimension of length one, so it takes one "
+                f"coordinate value, not {value!r}. Build each plane and join them with "
+                f"NetCDF.concat() for a longer axis."
             )
         values_map = {dim: [value], **nc._band_dim_values_map}
         return _relabelled(
@@ -4800,6 +4818,29 @@ def _kept(nc: NetCDF, keep: dict[str, list[int]], caller: str) -> NetCDF:
     for dim_name, positions in keep.items():
         result = _subset_along_dim(result, dim_name, positions)
     return result
+
+
+def _spatial_dimension_names(nc: NetCDF) -> set[str]:
+    """The names of `nc`'s spatial axes — its own, and its store's.
+
+    A variable's dimensions are its band dimensions plus the two that make up the grid, so
+    what is left after the band ones are removed is spatial. The parent container's are
+    taken too: a name that is a spatial axis of the store is one `set_variable` would
+    collide with even when this variable does not carry that axis itself.
+
+    Args:
+        nc: The variable.
+
+    Returns:
+        set[str]: The spatial names, empty when the store declares no dimension names.
+    """
+    names: set[str] = set()
+    for candidate in (nc, getattr(nc, "_parent_nc", None)):
+        if candidate is None:
+            continue
+        declared = candidate.dimension_names or []
+        names.update(set(declared) - set(nc._band_dim_names))
+    return names
 
 
 def _coordinates_of(nc: NetCDF, dim_name: str, caller: str) -> list:

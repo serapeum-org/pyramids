@@ -396,6 +396,28 @@ class TestExpandDims:
         joined = NetCDF.concat([first, second], "time").get_variable("t")
         assert _stamps(joined) == [0.0, 6.0]
 
+    def test_a_spatial_axis_name_is_refused(self):
+        """The docstring promised this refusal; it did not exist.
+
+        Test scenario:
+            `expand_dims("lat")` on a CF variable built a band dimension named after the
+            store's own latitude axis. `set_variable` then renamed it to `lat_1` on write,
+            so the result claimed a dimension the store does not have under that name.
+        """
+        cube = NetCDF.read_file(str(CF_STORE))["temperature"]
+        with pytest.raises(ValueError, match="spatial"):
+            cube.expand_dims("lat")
+
+    def test_a_list_value_is_refused(self):
+        """xarray's `expand_dims(member=[0.0, 1.0])` builds a length-2 axis; this cannot.
+
+        Test scenario:
+            The list was stored as the single coordinate of a length-one axis, giving
+            stamps `[[0.0, 1.0]]` that `sel(member=0.0)` could never match.
+        """
+        with pytest.raises(TypeError, match="one coordinate value"):
+            self._flat().expand_dims("member", [0.0, 1.0])
+
     def test_an_existing_dimension_is_refused(self):
         """The name has to be new."""
         variable = _variable()
