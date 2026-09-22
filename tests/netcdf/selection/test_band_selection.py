@@ -154,6 +154,22 @@ class TestHeadTailThin:
             getattr(variable, member)(2, time=2)
 
     @pytest.mark.parametrize("member", ["head", "tail", "thin"])
+    def test_an_empty_mapping_windows_nothing(self, member: str):
+        """xarray reads `da.head({})` as "window nothing", not as the bare default.
+
+        Test scenario:
+            An empty mapping was indistinguishable from no positional argument at all, so
+            `head({})` took five steps along every band dimension and `thin({})` was
+            refused. xarray keeps the whole axis for all three.
+
+        Args:
+            member: The window under test.
+        """
+        stamps = [float(i) for i in range(8)]
+        variable = _variable(times=stamps)
+        assert _stamps(getattr(variable, member)({})) == stamps
+
+    @pytest.mark.parametrize("member", ["head", "tail", "thin"])
     def test_a_positional_non_integer_is_refused(self, member: str):
         """A window is counted in whole steps, positionally too.
 
@@ -1106,7 +1122,5 @@ class TestNoArguments:
             takes, so the call is refused the way `drop_isel()` refuses one.
         """
         variable = _variable(times=[float(i) for i in range(8)])
-        with pytest.raises(
-            ValueError, match="thin\\(\\) requires at least one keyword"
-        ):
+        with pytest.raises(ValueError, match=r"thin\(\) needs a step"):
             variable.thin()

@@ -1269,7 +1269,7 @@ class Selection(_Engine["NetCDF"]):
         """
         _refuse_a_container(self._ds, "head")
         wanted, count = _window_arguments(
-            indexers, indexers_kwargs, "head", _DEFAULT_WINDOW
+            self._ds, indexers, indexers_kwargs, "head", _DEFAULT_WINDOW, _whole_axis
         )
         return _windowed(self._ds, wanted, "head", _head_positions, default=count)
 
@@ -1331,7 +1331,7 @@ class Selection(_Engine["NetCDF"]):
         """
         _refuse_a_container(self._ds, "tail")
         wanted, count = _window_arguments(
-            indexers, indexers_kwargs, "tail", _DEFAULT_WINDOW
+            self._ds, indexers, indexers_kwargs, "tail", _DEFAULT_WINDOW, _whole_axis
         )
         return _windowed(self._ds, wanted, "tail", _tail_positions, default=count)
 
@@ -1386,7 +1386,7 @@ class Selection(_Engine["NetCDF"]):
               >>> var.thin()
               Traceback (most recent call last):
                   ...
-              ValueError: thin() requires at least one keyword argument...
+              ValueError: thin() needs a step: thin(2) for every band dimension, or...
 
               ```
 
@@ -1395,7 +1395,9 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.isel: Any positions, a stepped slice included.
         """
         _refuse_a_container(self._ds, "thin")
-        wanted, count = _window_arguments(indexers, indexers_kwargs, "thin", None)
+        wanted, count = _window_arguments(
+            self._ds, indexers, indexers_kwargs, "thin", None, _single_step
+        )
         return _windowed(self._ds, wanted, "thin", _thin_positions, default=count)
 
     def drop_isel(self, **indexers: Any) -> NetCDF:
@@ -4874,6 +4876,30 @@ def _refuse_empty_selection(selector: Any, dim_name: str, size: int) -> NoReturn
     )
 
 
+def _whole_axis(size: int) -> int:
+    """The `head`/`tail` count that keeps an axis of `size` whole.
+
+    Args:
+        size: The axis length.
+
+    Returns:
+        int: `size`.
+    """
+    return size
+
+
+def _single_step(size: int) -> int:
+    """The `thin` step that keeps an axis whole, whatever its length.
+
+    Args:
+        size: The axis length, unused — every step is kept at a step of one.
+
+    Returns:
+        int: `1`.
+    """
+    return 1
+
+
 _DEFAULT_WINDOW = 5
 """How many steps `head` and `tail` take when called with no arguments — xarray's."""
 
@@ -4943,7 +4969,12 @@ def _thin_positions(size: int, n: int) -> list[int]:
 
 
 def _window_arguments(
-    indexers: Any, keywords: dict, caller: str, default: int | None
+    nc: NetCDF,
+    indexers: Any,
+    keywords: dict,
+    caller: str,
+    default: int | None,
+    whole: Any,
 ) -> tuple[dict, int | None]:
     """Read the three spellings xarray accepts for a window into one plan.
 
@@ -4952,10 +4983,13 @@ def _window_arguments(
     given`. A bare count applies to every band dimension, which is what a bare call does.
 
     Args:
+        nc: The receiver, whose band dimensions an empty mapping spans.
         indexers: The positional argument — a count, a mapping, or `None`.
         keywords: The `dimension=n` keywords.
         caller: The member, for the refusals.
         default: The count a bare call takes, or `None` when a bare call is refused.
+        whole: `size -> n`, the count that keeps a dimension of that length whole. The
+            axis length for `head` and `tail`, a step of one for `thin`.
 
     Returns:
         tuple: The per-dimension counts, and the count to apply when there are none.
@@ -4973,6 +5007,13 @@ def _window_arguments(
     count = default
     if isinstance(indexers, Mapping):
         wanted = dict(indexers)
+        if not wanted:
+            # An empty mapping names no dimension to window, which xarray answers with the
+            # whole axis — not with the five-step default a *bare* call takes.
+            wanted = {
+                name: whole(size)
+                for name, size in zip(nc._band_dim_names, nc._band_dim_sizes)
+            }
     elif indexers is not None:
         if isinstance(indexers, bool) or not isinstance(indexers, (int, np.integer)):
             raise TypeError(
@@ -5006,7 +5047,8 @@ def _windowed(
     if not indexers:
         if default is None:
             raise ValueError(
-                f"{caller}() requires at least one keyword argument, e.g. {caller}(time=2)."
+                f"{caller}() needs a step: {caller}(2) for every band dimension, or "
+                f"{caller}(time=2) for one."
             )
         indexers = {name: default for name in nc._band_dim_names}
         if not indexers:
