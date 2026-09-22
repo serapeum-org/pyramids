@@ -402,6 +402,13 @@ def _check_vendored_vector_stack() -> None:
             print("vendored cftime OK — imports from _vendor.")
     else:
         _assert_vector_stack_absent(pkg_root, vendor_root)
+    # cftime is vendored on musl ONLY (no musllinux-aarch64 wheel); every other
+    # platform — including win_arm64, which vendors the vector stack but not
+    # cftime — installs it from PyPI, so a `_vendor/cftime` there is a stale
+    # build-tree leak of a musl-built binary. Assert it is gone (mirrors
+    # remove_stale_vector_stack, which deletes it on those builds).
+    if _platform_slug() != "linux-musl":
+        _assert_cftime_absent(pkg_root, vendor_root)
 
 
 def _assert_vector_stack_vendored(vendor_root: Path) -> None:
@@ -435,6 +442,23 @@ def _assert_vector_stack_absent(pkg_root: Path, vendor_root: Path) -> None:
                     "vendored on win_arm64 only; a stale build tree "
                     "leaked into this wheel"
                 )
+
+
+def _assert_cftime_absent(pkg_root: Path, vendor_root: Path) -> None:
+    """Fail if a stale vendored cftime leaked into a non-musl wheel.
+
+    cftime is vendored on musl only; every other platform installs it from
+    PyPI, so a `_vendor/cftime` (or its license dir) is a stale build tree
+    leaking a musl-built binary. Mirrors remove_stale_vector_stack's cftime
+    removal on the build side.
+    """
+    for stale in (vendor_root / "cftime", pkg_root / "_licenses" / "cftime"):
+        if stale.exists():
+            _fail(
+                f"{stale.relative_to(pkg_root)} present in a "
+                f"{_platform_slug()} wheel — cftime is vendored on musl only; "
+                "a stale build tree leaked into this wheel"
+            )
     print(
         "vendored-vector check OK — no vector stack in this wheel; "
         "the platform installs it from PyPI."

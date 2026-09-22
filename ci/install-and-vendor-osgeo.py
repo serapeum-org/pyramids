@@ -939,11 +939,13 @@ def remove_stale_vector_stack() -> None:
     """Drop vector-stack leftovers when NOT building for win_arm64 or musl.
 
     vendor_vector_stack_into_package() writes into the source tree, and
-    the package-data globs shipping `_vendor/{shapely,geopandas,pyogrio}`
-    are unconditional — a leftover from an earlier win_arm64 build (e.g.
-    a local cibuildwheel experiment) would silently ride into every other
-    platform's wheel built from the same tree. Delete rather than trust;
-    ci/verify-wheel.py asserts the same absence on the consuming side.
+    the package-data globs shipping `_vendor/{shapely,geopandas,pyogrio,cftime}`
+    are unconditional — a leftover from an earlier win_arm64 or musl build
+    (e.g. a local cibuildwheel experiment) would silently ride into every
+    other platform's wheel built from the same tree. Delete rather than trust;
+    ci/verify-wheel.py asserts the same absence on the consuming side (the
+    vector stack via _assert_vector_stack_absent, cftime via
+    _assert_cftime_absent).
     """
     src_pyramids = REPO_ROOT / "src" / "pyramids"
     for pkg in (*_VECTOR_STACK_PINS, *_MUSL_EXTRA_PINS):
