@@ -718,8 +718,9 @@ class TestExpandDims:
             The list was stored as the single coordinate of a length-one axis, giving
             stamps `[[0.0, 1.0]]` that `sel(member=0.0)` could never match.
         """
+        flat = self._flat()
         with pytest.raises(TypeError, match="one coordinate value"):
-            self._flat().expand_dims("member", [0.0, 1.0])
+            flat.expand_dims("member", [0.0, 1.0])
 
     def test_an_existing_dimension_is_refused(self):
         """The name has to be new."""
@@ -880,11 +881,12 @@ class TestWritingAReorderedAxisBack:
         """
         container = NetCDF.read_file(str(CF_STORE))
         cube = container["temperature"]
-        reordered = cube.sortby("time", ascending=False)
+        first_write = cube.sortby("time", ascending=False)
+        second_write = cube.sortby("time", ascending=False)
         with pytest.warns(UserWarning, match="different coordinate values"):
-            container.set_variable("a", reordered)
+            container.set_variable("a", first_write)
         with pytest.warns(UserWarning, match="different coordinate values"):
-            container.set_variable("b", cube.sortby("time", ascending=False))
+            container.set_variable("b", second_write)
         first = container.get_variable("a")._band_dim_names[0]
         second = container.get_variable("b")._band_dim_names[0]
         assert first == second, f"the two writes landed on {first} and {second}"
@@ -896,10 +898,12 @@ class TestWritingAReorderedAxisBack:
         """Two different orders are two axes, because one dimension cannot hold both."""
         container = NetCDF.read_file(str(CF_STORE))
         cube = container["temperature"]
+        reordered = cube.sortby("time", ascending=False)
+        cut = cube.isel(time=[0, 1])
         with pytest.warns(UserWarning, match="different coordinate values"):
-            container.set_variable("down", cube.sortby("time", ascending=False))
+            container.set_variable("down", reordered)
         with pytest.warns(UserWarning, match="different coordinate values"):
-            container.set_variable("cut", cube.isel(time=[0, 1]))
+            container.set_variable("cut", cut)
         assert (
             container.get_variable("down")._band_dim_names[0]
             != container.get_variable("cut")._band_dim_names[0]
@@ -909,8 +913,9 @@ class TestWritingAReorderedAxisBack:
         """A silent rename breaks every later `sel(time=...)`, so it is warned about."""
         container = NetCDF.read_file(str(CF_STORE))
         cube = container["temperature"]
+        reordered = cube.sortby("time", ascending=False)
         with pytest.warns(UserWarning, match="Select on the result under that name"):
-            container.set_variable("down", cube.sortby("time", ascending=False))
+            container.set_variable("down", reordered)
 
     def test_an_unchanged_axis_still_reuses_the_store_dimension(self):
         """A variable written back on the store's own order must not gain a second axis."""
