@@ -1762,7 +1762,7 @@ class Selection(_Engine["NetCDF"]):
             values_map,
         )
 
-    def expand_dims(self, dim: str, value: Any = 0) -> NetCDF:
+    def expand_dims(self, dim: str, value: Any = None) -> NetCDF:
         """Add a band dimension of length one, outermost.
 
         The step that lifts a raster into a cube before :meth:`NetCDF.concat` joins it to
@@ -1771,9 +1771,11 @@ class Selection(_Engine["NetCDF"]):
         Args:
             dim: The new dimension's name, which must not already be a band dimension or a
                 spatial axis of this variable or of the store it came from.
-            value: Its single coordinate value. `0` by default. One value, not a list —
-                xarray's `expand_dims(member=[0.0, 1.0])` builds a length-two axis, and
-                the way to that here is a plane each, joined with `NetCDF.concat`.
+            value: Its single coordinate value. `None` (default) gives the dimension no
+                coordinates at all, as xarray's `expand_dims("member")` does — a stamp
+                nothing said is not invented here. One value, not a list: xarray's
+                `expand_dims(member=[0.0, 1.0])` builds a length-two axis, and the way to
+                that here is a plane each, joined with `NetCDF.concat`.
 
         Returns:
             NetCDF: A variable with `dim` first, length one.
@@ -1837,7 +1839,10 @@ class Selection(_Engine["NetCDF"]):
                 f"coordinate value, not {value!r}. Build each plane and join them with "
                 f"NetCDF.concat() for a longer axis."
             )
-        values_map = {dim: [value], **nc._band_dim_values_map}
+        values_map = {
+            dim: None if value is None else [value],
+            **nc._band_dim_values_map,
+        }
         return _relabelled(
             nc,
             (dim, *nc._band_dim_names),

@@ -8639,7 +8639,7 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.squeeze <pyramids.netcdf.engines.selection.Selection.squeeze>`."""
         return self.selection.squeeze(dim)
 
-    def expand_dims(self, dim: str, value: Any = 0) -> NetCDF:
+    def expand_dims(self, dim: str, value: Any = None) -> NetCDF:
         """Facade — :meth:`Selection.expand_dims <pyramids.netcdf.engines.selection.Selection.expand_dims>`."""
         return self.selection.expand_dims(dim, value)
 

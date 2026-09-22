@@ -16,7 +16,10 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+import inspect
+
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+from pyramids.netcdf.engines.selection import Selection
 
 pytestmark = pytest.mark.core
 
@@ -482,6 +485,24 @@ class TestExpandDims:
         joined = NetCDF.concat([first, second], "time").get_variable("t")
         assert _stamps(joined) == [0.0, 6.0]
 
+    def test_no_value_means_no_coordinates(self):
+        """xarray's `da.expand_dims("member")` creates no `member` coordinate.
+
+        Test scenario:
+            The default used to be `0`, so the result carried a stamp the store never
+            said anything about — the very thing `_subset_along_dim` refuses to invent for
+            a dimension that has none. A band dimension without coordinates is already a
+            supported shape (WRF's `bottom_top`).
+        """
+        lifted = self._flat().expand_dims("member")
+        assert lifted._band_dim_names == ("member",)
+        assert lifted._band_dim_values_map["member"] is None
+
+    def test_a_value_given_is_still_carried(self):
+        """Naming one is how a lifted raster gets a stamp to be joined on."""
+        lifted = self._flat().expand_dims("level", 850.0)
+        assert _stamps(lifted, "level") == [850.0]
+
     def test_a_spatial_axis_name_is_refused(self):
         """The docstring promised this refusal; it did not exist.
 
@@ -666,6 +687,52 @@ class TestWritingAReorderedAxisBack:
         _, _, back = self._written("cut", lambda cube: cube.isel(time=[0, 1]))
         dim = back._band_dim_names[0]
         assert list(back._band_dim_values_map[dim]) == [0.0, 6.0]
+
+
+class TestTheFacadesAgreeWithTheEngine:
+    """A facade that spells its own default can disagree with the member it forwards to.
+
+    `NetCDF.expand_dims` kept `value=0` after the engine's default became `None`, so every
+    call through the public name still invented a coordinate while the engine's own default
+    did not.
+    """
+
+    MEMBERS = [
+        "head",
+        "tail",
+        "thin",
+        "drop_isel",
+        "drop_sel",
+        "sortby",
+        "drop_duplicates",
+        "squeeze",
+        "expand_dims",
+        "cumprod",
+    ]
+
+    @pytest.mark.parametrize("member", MEMBERS)
+    def test_the_defaults_match(self, member: str):
+        """Every parameter's default is the engine's.
+
+        Args:
+            member: The member under test.
+        """
+        facade = inspect.signature(getattr(NetCDF, member))
+        engine = inspect.signature(getattr(Selection, member))
+        facade_defaults = {
+            name: parameter.default
+            for name, parameter in facade.parameters.items()
+            if name != "self"
+        }
+        engine_defaults = {
+            name: parameter.default
+            for name, parameter in engine.parameters.items()
+            if name != "self"
+        }
+        assert facade_defaults == engine_defaults, (
+            f"NetCDF.{member} and Selection.{member} disagree: "
+            f"{facade_defaults} vs {engine_defaults}"
+        )
 
 
 class TestALazyReadOfACutVariable:
