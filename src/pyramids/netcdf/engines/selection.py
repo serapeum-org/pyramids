@@ -1245,6 +1245,7 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.tail: The last `n` steps instead.
             NetCDF.isel: Any positions, by index.
         """
+        _refuse_a_container(self._ds, "head")
         wanted, count = _window_arguments(
             indexers, indexers_kwargs, "head", _DEFAULT_WINDOW
         )
@@ -1306,6 +1307,7 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.head: The first `n` steps instead.
             NetCDF.thin: Every `n`-th step.
         """
+        _refuse_a_container(self._ds, "tail")
         wanted, count = _window_arguments(
             indexers, indexers_kwargs, "tail", _DEFAULT_WINDOW
         )
@@ -1370,6 +1372,7 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.head: A contiguous run from the start.
             NetCDF.isel: Any positions, a stepped slice included.
         """
+        _refuse_a_container(self._ds, "thin")
         wanted, count = _window_arguments(indexers, indexers_kwargs, "thin", None)
         return _windowed(self._ds, wanted, "thin", _thin_positions, default=count)
 
@@ -1431,6 +1434,7 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.drop_sel: Drop by coordinate value.
         """
         nc = self._ds
+        _refuse_a_container(nc, "drop_isel")
         if not indexers:
             raise ValueError(
                 "drop_isel() requires at least one keyword argument, e.g. drop_isel(time=0)."
@@ -1514,6 +1518,7 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.drop_isel: Drop by position, for a dimension with no coordinates.
         """
         nc = self._ds
+        _refuse_a_container(nc, "drop_sel")
         if errors not in ("raise", "ignore"):
             raise ValueError(
                 f"drop_sel() takes errors='raise' or 'ignore', got {errors!r}."
@@ -1608,6 +1613,7 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.concat: Joining out-of-order parts is what leaves an axis unsorted.
         """
         nc = self._ds
+        _refuse_a_container(nc, "sortby")
         coords = _coordinates_of(nc, dim, "sortby")
         order = [int(i) for i in np.argsort(np.asarray(coords), kind="stable")]
         if not ascending:
@@ -1669,6 +1675,7 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.concat: What leaves a repeated stamp when two parts overlap.
             NetCDF.sortby: Put the axis in order first, if it is not.
         """
+        _refuse_a_container(self._ds, "drop_duplicates")
         if keep not in ("first", "last") and keep is not False:
             raise ValueError(
                 f"drop_duplicates() takes keep='first', 'last' or False, got {keep!r}."
@@ -1744,6 +1751,7 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.expand_dims: The inverse — add a length-one dimension.
         """
         nc = self._ds
+        _refuse_a_container(nc, "squeeze")
         names = list(nc._band_dim_names)
         sizes = list(nc._band_dim_sizes)
         if dim is not None:
@@ -1827,6 +1835,7 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.concat: Join the lifted rasters along the new dimension.
         """
         nc = self._ds
+        _refuse_a_container(nc, "expand_dims")
         if dim in nc._band_dim_names:
             raise ValueError(
                 f"expand_dims() adds a new dimension, and {dim!r} is already one of "
@@ -4936,6 +4945,32 @@ def _kept(nc: NetCDF, keep: dict[str, list[int]], caller: str) -> NetCDF:
     for dim_name, positions in keep.items():
         result = _subset_along_dim(result, dim_name, positions)
     return result
+
+
+def _refuse_a_container(nc: NetCDF, caller: str) -> None:
+    """Refuse a container by name: the band members cut one variable's bands.
+
+    A container's raster is a placeholder — its variables hold the cells — so there is
+    nothing to cut along. Without this the caller met whichever internal guard came first:
+    `squeeze()` and `expand_dims()` died with `IndexError: list index out of range` from
+    inside the band reader, which names nothing the caller wrote.
+
+    Args:
+        nc: The receiver.
+        caller: The member named in the refusal.
+
+    Raises:
+        ValueError: The receiver is a container.
+    """
+    if not _reduces_as_a_variable(nc):
+        variables = getattr(nc, "variable_names", None) or []
+        example = (
+            f"nc.get_variable({variables[0]!r})." if variables else "a variable's "
+        )
+        raise ValueError(
+            f"{caller}() works on one variable's bands, and a container has none of its "
+            f"own — its variables do. Call it on one of them: `{example}{caller}(...)`."
+        )
 
 
 def _spatial_dimension_names(nc: NetCDF) -> set[str]:

@@ -711,6 +711,66 @@ class TestWritingAReorderedAxisBack:
         assert list(back._band_dim_values_map[dim]) == [0.0, 6.0]
 
 
+class TestAContainerIsRefusedByName:
+    """A container has no bands of its own, and the nine say so rather than failing inside.
+
+    `squeeze()` and `expand_dims()` died with `IndexError: list index out of range` from
+    the band reader, and the windows answered a message about band dimensions that named
+    no container. The wording matches the cell-wise members' refusal.
+    """
+
+    @pytest.mark.parametrize(
+        ("member", "arguments"),
+        [
+            ("head", ({"time": 2},)),
+            ("tail", ({"time": 2},)),
+            ("thin", ({"time": 2},)),
+            ("drop_isel", ()),
+            ("drop_sel", ()),
+            ("sortby", ("time",)),
+            ("drop_duplicates", ("time",)),
+            ("squeeze", ()),
+            ("expand_dims", ("member",)),
+        ],
+    )
+    def test_the_refusal_names_the_member(self, member: str, arguments: tuple):
+        """Each member names itself and points at `get_variable`.
+
+        Args:
+            member: The member under test.
+            arguments: What to call it with.
+        """
+        container = NetCDF.read_file(str(CF_STORE))
+        with pytest.raises(ValueError, match="container") as info:
+            getattr(container, member)(*arguments)
+        assert f"{member}()" in str(info.value), (
+            f"the refusal should name {member}: {info.value}"
+        )
+        assert "get_variable" in str(info.value), (
+            f"the refusal should point at get_variable: {info.value}"
+        )
+
+    @pytest.mark.parametrize(
+        ("member", "arguments"),
+        [
+            ("head", ({"time": 2},)),
+            ("squeeze", ()),
+            ("expand_dims", ("member",)),
+        ],
+    )
+    def test_a_variable_of_that_container_still_works(
+        self, member: str, arguments: tuple
+    ):
+        """The refusal is about the receiver, not the store.
+
+        Args:
+            member: The member under test.
+            arguments: What to call it with.
+        """
+        variable = NetCDF.read_file(str(CF_STORE))["temperature"]
+        assert getattr(variable, member)(*arguments) is not None
+
+
 class TestTheFacadesAgreeWithTheEngine:
     """A facade that spells its own default can disagree with the member it forwards to.
 
@@ -840,10 +900,17 @@ class TestNoArguments:
             flat.head()
 
     def test_a_container_is_refused_by_name(self):
-        """`tail()` on a container refuses instead of silently answering the container."""
+        """`tail()` on a container refuses instead of silently answering the container.
+
+        Test scenario:
+            A bare `tail()` used to hand back the engine's `weakref.proxy` to the
+            container, so `.variable_names` on the result raised `ReferenceError`. The
+            container guard answers first now, and names `get_variable`.
+        """
         container = NetCDF.read_file(str(CF_STORE))
-        with pytest.raises(ValueError, match=r"tail\(\) needs a band dimension"):
+        with pytest.raises(ValueError, match="container") as info:
             container.tail()
+        assert "tail()" in str(info.value), info.value
 
     def test_thin_with_nothing_is_refused(self):
         """`thin()` has no default step, unlike `head()` and `tail()`.
