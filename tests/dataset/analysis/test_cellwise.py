@@ -29,6 +29,15 @@ GEO = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
 NDV = -9999.0
 CELLS = np.array([[1.0, 2.0, 3.0, NDV], [5.0, 6.0, 7.0, 8.0]])
 STORE = Path(__file__).parents[2] / "data" / "netcdf" / "cf__5v__1d4-4d1__y-asc.nc"
+GAPPY_STORE = (
+    Path(__file__).parents[2] / "data" / "netcdf" / "cf__4v__1d3-3d1__proj__y-desc.nc"
+)
+PACKED_STORE = (
+    Path(__file__).parents[2]
+    / "data"
+    / "netcdf"
+    / "coards__4v__1d2-2d2__scaleoffset__y-asc.nc"
+)
 
 
 def _raster(cells: np.ndarray = CELLS, no_data_value: float | None = NDV) -> Dataset:
@@ -150,11 +159,24 @@ class TestClip:
             raster.clip(6.0, 2.0)
 
     def test_on_a_store_variable(self):
-        """The same member on a variable read from a file answers, and keeps its gaps."""
+        """A bound that actually moves cells, on a variable read from a file.
+
+        Test scenario:
+            The fixture holds 0..3245, so `clip(min=0)` changed nothing and the test
+            passed for an implementation that returned its input. The bound here is inside
+            the range, so every cell below it must come back at it.
+        """
         variable = _store_variable()
-        before = np.asarray(variable.isnull().read_array()).sum()
-        clipped = variable.clip(min=0.0)
-        assert np.asarray(clipped.isnull().read_array()).sum() == before
+        before = np.asarray(variable.read_array(), dtype="float64")
+        clipped = np.asarray(variable.clip(100.0, 1000.0).read_array(), dtype="float64")
+        assert (before < 100.0).any(), "the fixture must hold cells below the bound"
+        assert clipped.min() == 100.0, (
+            f"cells below 100 were not raised: {clipped.min()}"
+        )
+        assert clipped.max() == 1000.0, (
+            f"cells above 1000 were not lowered: {clipped.max()}"
+        )
+        assert np.array_equal(clipped, np.clip(before, 100.0, 1000.0))
 
 
 class TestRound:
@@ -196,10 +218,18 @@ class TestRound:
             raster.round(1.5)
 
     def test_on_a_store_variable(self):
-        """A variable read from a file rounds, and keeps its band dimensions."""
+        """Rounding that actually moves cells, on a variable read from a file.
+
+        Test scenario:
+            Every value in the fixture is already whole, so `round()` changed nothing.
+            `round(-2)` rounds to hundreds, which moves almost all of them.
+        """
         variable = _store_variable()
-        rounded = variable.round()
-        assert rounded._band_dim_names == variable._band_dim_names
+        before = np.asarray(variable.read_array(), dtype="float64")
+        rounded = np.asarray(variable.round(-2).read_array(), dtype="float64")
+        assert not np.array_equal(before, rounded), "round(-2) changed nothing"
+        assert np.array_equal(rounded, np.round(before, -2))
+        assert variable.round(-2)._band_dim_names == variable._band_dim_names
 
 
 class TestAstype:
@@ -297,10 +327,13 @@ class TestAstype:
             raster.astype("bool")
 
     def test_on_a_store_variable(self):
-        """A variable read from a file casts, and keeps its band dimensions."""
+        """A variable read from a file casts its values, and keeps its band dimensions."""
         variable = _store_variable()
-        cast = variable.astype("float32")
-        assert np.asarray(cast.read_array()).dtype == np.float32
+        before = np.asarray(variable.read_array(), dtype="float64")
+        cast = variable.astype("int32")
+        values = np.asarray(cast.read_array())
+        assert values.dtype == np.int32
+        assert np.array_equal(values, before.astype("int32"))
         assert cast._band_dim_names == variable._band_dim_names
 
     def test_a_nan_gap_without_a_declared_sentinel_stays_nan(self):
@@ -442,10 +475,125 @@ class TestIsin:
         assert flags.ravel().tolist() == [0, 0, 0, 0, 0, 1, 0, 0]
 
     def test_on_a_store_variable(self):
-        """A variable read from a file flags, and keeps its band dimensions."""
+        """The flags match the cells, on a variable read from a file.
+
+        Test scenario:
+            Asserting only the band dimensions passed for an implementation that flagged
+            nothing; the fixture holds exactly one `0.0`.
+        """
         variable = _store_variable()
-        flags = variable.isin([0.0])
+        before = np.asarray(variable.read_array(), dtype="float64")
+        wanted = [float(before.max()), 0.0]
+        flags = variable.isin(wanted)
+        assert np.array_equal(
+            np.asarray(flags.read_array()).astype(bool), np.isin(before, wanted)
+        )
+        assert np.asarray(flags.read_array()).sum() >= 2, (
+            "the fixture holds both values"
+        )
         assert flags._band_dim_names == variable._band_dim_names
+
+
+class TestAStoreVariableWithGaps:
+    """The store path the module docstring calls essential, on a variable that has gaps.
+
+    `cf__5v__1d4-4d1__y-asc.nc` declares no sentinel and holds no gap, so "a gap stays a
+    gap" was never exercised on a variable read from a file. This one declares
+    `-3.4028e+38` and holds 279 of them.
+    """
+
+    @staticmethod
+    def _variable() -> NetCDF:
+        """The gap-holding store variable.
+
+        Returns:
+            NetCDF: The variable.
+        """
+        store = NetCDF.read_file(str(GAPPY_STORE))
+        return store.get_variable("values")
+
+    def test_the_fixture_has_gaps(self):
+        """The precondition the three assertions below depend on."""
+        variable = self._variable()
+        assert np.asarray(variable.isnull().read_array()).sum() == 279
+        assert variable.no_data_value[0] is not None
+
+    @pytest.mark.parametrize(
+        ("member", "call"),
+        [
+            ("clip", lambda v: v.clip(min=0.0)),
+            ("round", lambda v: v.round(-1)),
+            ("astype", lambda v: v.astype("float32")),
+        ],
+    )
+    def test_the_gaps_survive(self, member: str, call):
+        """The same cells read as missing afterwards, and no others.
+
+        Args:
+            member: The member under test.
+            call: How to call it.
+        """
+        variable = self._variable()
+        before = np.asarray(variable.isnull().read_array())
+        after = np.asarray(call(variable).isnull().read_array())
+        assert np.array_equal(before, after), (
+            f"{member} changed which cells read as gaps: "
+            f"{int(before.sum())} -> {int(after.sum())}"
+        )
+
+    def test_a_gap_is_in_no_set(self):
+        """`isin` flags a gap `0` even when asked for the sentinel itself."""
+        variable = self._variable()
+        sentinel = float(variable.no_data_value[0])
+        flags = np.asarray(variable.isin([sentinel]).read_array())
+        assert flags.sum() == 0, f"{int(flags.sum())} gap cells were flagged as data"
+
+    def test_clip_does_not_raise_a_gap_to_the_bound(self):
+        """The sentinel is below any bound, and must not be lifted onto it."""
+        variable = self._variable()
+        clipped = variable.clip(min=0.0)
+        gaps = np.asarray(variable.isnull().read_array()).astype(bool)
+        values = np.asarray(clipped.read_array(), dtype="float64")
+        assert (values[gaps] != 0.0).all(), "a gap was clipped to the lower bound"
+
+
+class TestAPackedStoreVariable:
+    """A CF-packed variable reads physical values, and the members answer in those.
+
+    `z` is stored `float32` with `scale=0.01`, `offset=1.5`, so the cells the member sees
+    are the decoded ones. The result carries the decoded values, not the packed ones —
+    which is what xarray's decoded arrays hold too.
+    """
+
+    @staticmethod
+    def _variable() -> NetCDF:
+        """The packed store variable.
+
+        Returns:
+            NetCDF: The variable.
+        """
+        store = NetCDF.read_file(str(PACKED_STORE))
+        return store.get_variable("z")
+
+    def test_the_fixture_is_packed(self):
+        """The precondition: the variable declares CF packing."""
+        variable = self._variable()
+        assert (variable._scale, variable._offset) == (0.01, 1.5)
+
+    def test_round_answers_in_physical_values(self):
+        """`round(1)` rounds what the caller reads, not the stored integers."""
+        variable = self._variable()
+        physical = np.asarray(variable.read_array(), dtype="float64")
+        rounded = np.asarray(variable.round(1).read_array(), dtype="float64")
+        assert np.allclose(rounded, np.round(physical, 1))
+
+    def test_clip_answers_in_physical_values(self):
+        """A bound is read in the physical units the caller sees."""
+        variable = self._variable()
+        physical = np.asarray(variable.read_array(), dtype="float64")
+        bound = float(np.median(physical))
+        clipped = np.asarray(variable.clip(min=bound).read_array(), dtype="float64")
+        assert np.allclose(clipped, np.clip(physical, bound, None))
 
 
 class TestAContainerIsRefusedByName:
