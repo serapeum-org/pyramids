@@ -117,6 +117,7 @@ nav:
     - Core concepts: concepts.md
     - Troubleshooting: troubleshooting.md
     - Getting help: getting-help.md
+    - Comparison with other libraries: comparison.md
   - Examples:
       - "How do I…?": examples/index.md
       - Gallery: examples/gallery.md
