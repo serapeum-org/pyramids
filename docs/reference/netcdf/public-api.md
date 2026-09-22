@@ -1,15 +1,16 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 96 in all: 62 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 106 in all: 72 methods, 27 properties,
 6 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). `concat` and `merge` are counted among the methods: each is callable on the class
 (`NetCDF.concat([a, b], dim)`) and on a cube (`a.concat([b], dim)`, which joins the
 receiver first). For the full signatures, arguments and examples, see the rendered
 [NetCDF Class](index.md) reference; this page is the index you scan to find the member you want.
 
-`NetCDF` extends `Dataset`, so it also inherits a further 137 public members it does not redefine — band
+`NetCDF` extends `Dataset`, so it also inherits a further 141 public members it does not redefine — band
 handling, the COG surface, the missing-data members (`where`, `fillna`, `isnull`, `notnull`, `equals`,
-`identical`) and the rest of the raster API. 124 of those are declared in `Dataset`'s own body and the
+`identical`), the cell-wise members (`clip`, `round`, `astype`, `isin`) and the rest of the raster API.
+128 of those are declared in `Dataset`'s own body and the
 remaining 13 come from `RasterBase` above it. They live in the
 [Dataset reference](../dataset/index.md), the six named above on its
 [Analysis page](../dataset/analysis.md#missing-data-and-comparison).
@@ -103,12 +104,22 @@ A variable with no raster plane is the exception — see each member's docstring
 | `subset()`         | Reads a windowed `(variable, time, bbox)` slice without materialising the cube.      |
 | `sel()`            | Selects bands by coordinate value, date label, or `method="nearest"`.                |
 | `isel()`           | Selects bands by position along one or more band dims; works without coordinates.    |
+| `drop_sel()`       | Drops bands by coordinate value — the complement of `sel`; `errors`.                 |
+| `drop_isel()`      | Drops bands by position — the complement of `isel`.                                  |
+| `head()`           | Keeps the first `n` steps along a band dim; five along every one by default.         |
+| `tail()`           | Keeps the last `n` steps along a band dim; five along every one by default.          |
+| `thin()`           | Keeps every `n`-th step along a band dim, from the first.                            |
+| `sortby()`         | Reorders a band dim by its own coordinates, each plane with its stamp — `ascending`. |
+| `drop_duplicates()`| Drops the steps whose stamp repeats — what `concat` can leave — `keep`.              |
+| `squeeze()`        | Drops the band dims of length one; never a spatial axis.                             |
+| `expand_dims()`    | Adds a length-one band dim, outermost — lifts a raster into a cube before `concat`.  |
 | `open_mfdataset()` | Stacks one variable across many files into a single lazy dask array.                 |
 | `reduce()`         | Reduces a container or a variable along `dim` — `how`, `q`, `groupby`, `skipna`.     |
 | `coarsen()`        | Reduces fixed-size windows along `dim` — `window`, `boundary`, `how`.                |
 | `rolling()`        | Reduces a moving window along `dim`, keeping its length — `center`, `min_periods`.   |
 | `diff()`           | Differences neighbouring steps along `dim` — `n`, `label`.                           |
 | `cumsum()`         | Totals the values along `dim`, step by step — `skipna`.                              |
+| `cumprod()`        | Multiplies the values along `dim`, step by step — `skipna`.                          |
 | `shift()`          | Moves the values along `dim`, filling the vacated steps — `periods`, `fill_value`.   |
 | `ffill()`          | Carries the last valid value along `dim` into the gaps after it — `limit`.           |
 | `bfill()`          | Carries the next valid value along `dim` back into the gaps before it — `limit`.     |

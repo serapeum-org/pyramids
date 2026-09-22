@@ -2825,9 +2825,10 @@ class Analysis(_Engine["Dataset"]):
         """Change the band type; a gap stays a gap, re-marked for the new type.
 
         The cells that hold data are cast as numpy casts them: a float truncates towards
-        zero into an integer type, and a value outside the target's range **wraps** —
-        `300.0` into `uint8` is `44`. :meth:`clip` first when that matters. The gaps are
-        not cast at all: they are re-marked with the target's sentinel, so a missing cell
+        zero into an integer type, and a value outside the target's range is **not**
+        refused — numpy leaves an out-of-range float cast undefined (on x86 `300.0` into
+        `uint8` comes out `44`). :meth:`clip` first when that matters. The gaps are not
+        cast at all: they are re-marked with the target's sentinel, so a missing cell
         stays missing.
 
         Args:
