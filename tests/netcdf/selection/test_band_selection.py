@@ -23,6 +23,7 @@ pytestmark = pytest.mark.core
 GEO = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
 NDV = -9999.0
 TIMES = [0.0, 6.0, 12.0, 18.0]
+CF_STORE = Path(__file__).parents[2] / "data" / "netcdf" / "cf__5v__1d4-4d1__y-asc.nc"
 
 
 def _variable(times: list[float] = TIMES, cells: np.ndarray | None = None) -> NetCDF:
@@ -202,6 +203,25 @@ class TestDropSel:
         variable = _variable()
         with pytest.raises(ValueError, match="no bands"):
             variable.drop_sel(time=TIMES)
+
+    def test_a_cf_date_string_drops_what_sel_selects(self):
+        """A CF time string is resolved the way `sel` resolves it.
+
+        Test scenario:
+            The CF store's `time` axis is `hours since 2024-01-01` at `[0, 6, 12, 18]`.
+            `sel(time="2024-01-01T06:00")` keeps the step stamped `6.0`, so
+            `drop_sel` with the same string must drop exactly that step and keep the rest.
+        """
+        cube = NetCDF.read_file(str(CF_STORE))["temperature"]
+        label = "2024-01-01T06:00"
+        dropped = cube.drop_sel(time=label)
+        selected = cube.sel(time=label)
+        assert _stamps(dropped) == [0.0, 12.0, 18.0], (
+            f"drop_sel({label!r}) kept {_stamps(dropped)}"
+        )
+        assert sorted(_stamps(dropped) + _stamps(selected)) == _stamps(cube), (
+            "drop_sel and sel of one label should split the axis between them"
+        )
 
 
 class TestSortby:
@@ -460,7 +480,7 @@ class TestADimensionWithoutCoordinates:
 
 
 class TestNoArguments:
-    """The label and position droppers need to be told what to drop."""
+    """The droppers need to be told what to drop, and `thin` how far to step."""
 
     def test_drop_isel_with_nothing_is_refused(self):
         """`drop_isel()` names what it expects rather than returning the input."""
@@ -473,3 +493,18 @@ class TestNoArguments:
         variable = _variable()
         with pytest.raises(ValueError, match="at least one keyword"):
             variable.drop_sel()
+
+    def test_thin_with_nothing_is_refused(self):
+        """`thin()` has no default step, unlike `head()` and `tail()`.
+
+        Test scenario:
+            xarray 2026.7.0 answers `da.thin()` with `TypeError: indexers must be either
+            dict-like or a single integer` — it gives `thin` no default, where `head()` and
+            `tail()` default to five. Taking five here would invent a step xarray never
+            takes, so the call is refused the way `drop_isel()` refuses one.
+        """
+        variable = _variable(times=[float(i) for i in range(8)])
+        with pytest.raises(
+            ValueError, match="thin\\(\\) requires at least one keyword"
+        ):
+            variable.thin()

@@ -2751,6 +2751,40 @@ class Analysis(_Engine["Dataset"]):
               [[2.0, -9999.0, 5.0, 6.0]]
 
               ```
+            - One bound is enough:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[1.0, 5.0, 9.0]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> raster.clip(max=6.0).read_array().tolist()
+              [[1.0, 5.0, 6.0]]
+
+              ```
+            - Crossed bounds are refused, where numpy would set every cell to `max`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[1.0, 5.0]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> raster.clip(6.0, 2.0)
+              Traceback (most recent call last):
+                  ...
+              ValueError: clip() needs min at or below max, got min=6.0 above max=2.0.
+
+              ```
+
+        See Also:
+            Dataset.astype: Clip first, to keep the values inside the target type's range.
+            Dataset.where: Mask the out-of-range cells instead of bounding them.
         """
         self._refuse_a_container("clip")
         lower, upper = min, max
@@ -2808,6 +2842,37 @@ class Analysis(_Engine["Dataset"]):
               [[0.3, 1.7]]
 
               ```
+            - Halves round to even, as numpy's do:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[0.5, 1.5, 2.5]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> raster.round().read_array().tolist()
+              [[0.0, 2.0, 2.0]]
+
+              ```
+            - A negative count rounds to tens:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[14.0, 26.0]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> raster.round(-1).read_array().tolist()
+              [[10.0, 30.0]]
+
+              ```
+
+        See Also:
+            Dataset.astype: Change the band type once the values are whole.
         """
         self._refuse_a_container("round")
         if isinstance(decimals, bool) or not isinstance(decimals, (int, np.integer)):
@@ -2863,6 +2928,25 @@ class Analysis(_Engine["Dataset"]):
               ([[1, -9999]], ['int32'])
 
               ```
+            - A sentinel the new type cannot hold is refused, unless a new one is named:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[1.0, -9999.0]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> cast = raster.astype("uint8", no_data_value=255)
+              >>> cast.read_array().tolist(), float(cast.no_data_value[0])
+              ([[1, 255]], 255.0)
+
+              ```
+
+        See Also:
+            Dataset.clip: Bound the values first, so none falls outside the new type.
+            Dataset.round: Round first where the cast would otherwise truncate.
         """
         self._refuse_a_container("astype")
         target = np.dtype(dtype)
@@ -2915,6 +2999,24 @@ class Analysis(_Engine["Dataset"]):
               [[0, 1, 1, 0]]
 
               ```
+            - The flags read as a condition for `where`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[1.0, 2.0, 5.0]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> raster.where(raster.isin([2.0, 5.0])).read_array().tolist()
+              [[-9999.0, 2.0, 5.0]]
+
+              ```
+
+        See Also:
+            Dataset.where: Keep the cells the flags select.
+            Dataset.isnull: The same `uint8` flags, for the gaps.
         """
         self._refuse_a_container("isin")
         values, _, domain = self._operand_arrays(self._ds, None)
