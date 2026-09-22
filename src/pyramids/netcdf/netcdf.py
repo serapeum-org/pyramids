@@ -2649,8 +2649,48 @@ class NetCDF(Dataset):
         coordinates.
 
         Returns:
-            np.ndarray or None: Flattened coordinate array, or None if none of the three
-            spellings exists in the dataset.
+            np.ndarray: The stored coordinates, flattened. When the store spells the axis
+            none of those three ways it is not an error and not `None`: the axis derived
+            from the geotransform is returned instead, exactly as
+            :attr:`pyramids.dataset.Dataset.lon` builds it.
+
+        Examples:
+            - A store that names its column axis `longitude` reports its own coordinates,
+              which is what `spatial_names` puts there:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import GeoReference, NetCDF
+                >>> named = NetCDF.from_array(
+                ...     np.zeros((2, 2)),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+                ...     variable_name="t",
+                ...     spatial_names=("latitude", "longitude"),
+                ... )
+                >>> sorted(named.dimension_names)
+                ['latitude', 'longitude']
+                >>> named.lon.tolist()
+                [0.5, 1.5]
+
+                ```
+            - The default `y` / `x` naming reaches the same values through the third
+              spelling, so both stores answer alike:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import GeoReference, NetCDF
+                >>> plain = NetCDF.from_array(
+                ...     np.zeros((2, 2)),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+                ...     variable_name="t",
+                ... )
+                >>> sorted(plain.dimension_names)
+                ['x', 'y']
+                >>> plain.lon.tolist()
+                [0.5, 1.5]
+
+                ```
+
+        See Also:
+            - :attr:`lat`: The same three spellings on the row axis.
         """
         lon = None
         for name in _X_AXIS_VARIABLE_NAMES:
@@ -2673,8 +2713,42 @@ class NetCDF(Dataset):
         :attr:`lon` accepts, on the other axis.
 
         Returns:
-            np.ndarray or None: Flattened coordinate array, or None if none of the three
-            spellings exists in the dataset.
+            np.ndarray: The stored coordinates, flattened. When the store spells the axis
+            none of those three ways the geotransform-derived axis is returned instead,
+            never `None` — see :attr:`lon`.
+
+        Examples:
+            - A store that names its row axis `latitude` reports its own coordinates, and
+              a north-up grid's rows descend from north to south:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import GeoReference, NetCDF
+                >>> named = NetCDF.from_array(
+                ...     np.zeros((2, 2)),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+                ...     variable_name="t",
+                ...     spatial_names=("latitude", "longitude"),
+                ... )
+                >>> named.lat.tolist()
+                [1.5, 0.5]
+
+                ```
+            - The default `y` / `x` naming answers with the same values:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import GeoReference, NetCDF
+                >>> plain = NetCDF.from_array(
+                ...     np.zeros((2, 2)),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+                ...     variable_name="t",
+                ... )
+                >>> plain.lat.tolist()
+                [1.5, 0.5]
+
+                ```
+
+        See Also:
+            - :attr:`lon`: The same three spellings on the column axis.
         """
         lat = None
         for name in _Y_AXIS_VARIABLE_NAMES:
@@ -8222,11 +8296,18 @@ class NetCDF(Dataset):
             `rolling`, `cumsum`, `diff` — keeps the names with it:
 
             ```python
-            >>> source.dimension_names              # doctest: +SKIP
-            ['latitude', 'longitude', 'time']
-            >>> source.coarsen("time", 2).dimension_names   # doctest: +SKIP
-            ['latitude', 'longitude', 'time']
-            >>> source.to_crs(3857).dimension_names         # doctest: +SKIP
+            >>> import numpy as np
+            >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+            >>> cube = NetCDF.from_array(
+            ...     np.arange(8.0).reshape(2, 2, 2),
+            ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            ...     variable_name="t",
+            ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+            ...     spatial_names=("latitude", "longitude"),
+            ... )
+            >>> cube.get_variable("t").coarsen("time", 2).dimension_names
+            ['time', 'latitude', 'longitude']
+            >>> cube.to_crs(3857).dimension_names
             ['time', 'x', 'y']
 
             ```
@@ -8723,9 +8804,14 @@ class NetCDF(Dataset):
         Returns:
             NetCDF: Resampled container or variable subset.
 
+        Notes:
+            The cells change size, so the result sits on a **new grid** and its spatial
+            axes come back named `y` / `x` rather than the source's: a cube on
+            `latitude` / `longitude` reports `['time', 'x', 'y']` after a resample.
+
         See Also:
-            - :meth:`to_crs`: Why the result's spatial axes come back as `y` / `x` while
-              `coarsen` and `reduce` keep the source's names.
+            - :meth:`to_crs`: Why the rename happens, and which members keep the source's
+              names instead.
         """
         if self._is_root_container:
             result = self._apply_to_all_variables(
@@ -12351,13 +12437,16 @@ class NetCDF(Dataset):
             spatial_names: `(row, column)` names for the two spatial dimensions.
                 `None` (default) names them `y` / `x`; a rebuild passes the source
                 store's own so a result keeps `latitude` / `longitude` (#1180).
+                Two distinct non-empty strings, or a `ValueError`.
 
         Returns:
             Container: The newly created store.
 
         Raises:
             ValueError: `geo_ref` carries neither a ``geo`` nor a complete
-                ``top_left_corner`` + ``cell_size`` pair.
+                ``top_left_corner`` + ``cell_size`` pair; `spatial_names` is not
+                two distinct non-empty strings; or `dims.attrs` is keyed by a
+                dimension this array does not have.
             DriverNotExistError: `path` has no extension, or one the driver
                 catalog does not know.
             FileFormatNotSupportedError: `path`'s extension names a driver
@@ -12406,6 +12495,26 @@ class NetCDF(Dataset):
                 {'time': ('hours since 2000-01-01', 'standard')}
                 >>> cube.get_variable("t")._band_dim_values_map["time"]
                 [0.0, 6.0]
+
+                ```
+            - CF attributes addressed to an axis the array does not have are refused,
+              rather than quietly written nowhere:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+                >>> try:
+                ...     NetCDF.from_array(
+                ...         np.arange(8.0).reshape(2, 2, 2),
+                ...         geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+                ...         variable_name="t",
+                ...         dims=ExtraDimensions(
+                ...             name="time", values=[0.0, 6.0], attrs={"tim": {"units": "hours"}}
+                ...         ),
+                ...     )
+                ... except ValueError as error:
+                ...     print(error)
+                attrs names 'tim', which is not among the dimensions of this array (time).
 
                 ```
             - Wrap a 2-D array and read the variable back off the container:

@@ -44,10 +44,40 @@ class ExtraDimensions:
             name — `{"time": {"units": "hours since 1900-01-01", "calendar": "standard"}}`. A cube
             computed in memory carries its own `(units, calendar)`; passing them here is what puts
             them on the store, so the calendar survives `to_file` (#1179). `None` writes none.
+            Two things it will not do: a key naming a dimension the array does not have is
+            refused by `from_array` with a `ValueError` rather than silently ignored, and a
+            dimension left with `values=None` is dropped from `attrs`, because the integer
+            positions it is filled with are not measurements in those units.
         dims: Ordered list of `(dim_name, values)` pairs describing every non-spatial dimension of
             a 4-D+ array, in storage order. `len(dims)` must equal `arr.ndim - 2`. Each `values`
             is a list of length `arr.shape[i]` or `None`. Mutually exclusive with `name` /
             `values`.
+
+    Examples:
+        - Describe one labelled time axis and the CF units its stamps are in:
+            ```python
+            >>> from pyramids.netcdf import ExtraDimensions
+            >>> dims = ExtraDimensions(
+            ...     name="time",
+            ...     values=[0.0, 6.0],
+            ...     attrs={"time": {"units": "hours since 2000-01-01", "calendar": "standard"}},
+            ... )
+            >>> dims.name, dims.values
+            ('time', [0.0, 6.0])
+            >>> dims.attrs["time"]["calendar"]
+            'standard'
+
+            ```
+        - A 4-D+ array names every non-spatial axis in storage order instead:
+            ```python
+            >>> from pyramids.netcdf import ExtraDimensions
+            >>> dims = ExtraDimensions(dims=[("time", [0.0, 6.0]), ("level", [850.0])])
+            >>> [name for name, _ in dims.dims]
+            ['time', 'level']
+            >>> dims.attrs is None
+            True
+
+            ```
     """
 
     name: str = "time"

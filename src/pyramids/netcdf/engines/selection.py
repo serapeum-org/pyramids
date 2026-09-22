@@ -187,7 +187,8 @@ class Selection(_Engine["NetCDF"]):
 
         Note:
             The result sits on a **new grid**, so its spatial axes come back named
-            ``y`` / ``x`` rather than the source's — see
+            `y` / `x` rather than the source's: a cube on `latitude` / `longitude`
+            reports `['time', 'x', 'y']` after a crop. See
             :meth:`pyramids.netcdf.NetCDF.to_crs` for why, and for the members that keep
             the source's names.
 

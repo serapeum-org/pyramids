@@ -847,7 +847,9 @@ def from_array(
         spatial_names: `(row, column)` names for the two spatial dimensions. `None`
             (default) names them `y` / `x`. A rebuild passes the source store's own
             names, so a `reduce` / `coarsen` result keeps `latitude` / `longitude`
-            rather than renaming the grid (#1180).
+            rather than renaming the grid (#1180). Must be two distinct non-empty
+            strings; anything else is refused here rather than surfacing later as an
+            unpacking error or a GDAL duplicate-dimension message.
 
     Returns:
         Container: The newly created store. Always a `Container`, never a bare
@@ -859,7 +861,10 @@ def from_array(
         ValueError: `geo_ref` resolves to no geotransform — it carries neither
             a `geo` nor a complete `top_left_corner` + `cell_size` pair — or
             the requested extra dimensions do not match `arr`'s non-spatial
-            axes.
+            axes; `spatial_names` is not two distinct non-empty strings; or
+            `dims.attrs` is keyed by a dimension this array does not have (a
+            misspelled key wrote nothing at all before, which looked exactly like
+            the bug the parameter exists to fix).
         DriverNotExistError: `path` has no extension, or one the driver catalog
             does not know.
         FileFormatNotSupportedError: `path`'s extension names a driver other

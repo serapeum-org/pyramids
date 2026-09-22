@@ -46,7 +46,12 @@ def concat(objs: Any, dim: str) -> NetCDF:
     A dimension's CF `(units, calendar)` is carried only when every part declares the
     same pair for it; a part declaring nothing counts as a disagreement, and the joined
     axis is left undecodable rather than stamped with a calendar that is wrong for half
-    its steps.
+    its steps. What is carried reaches the rebuilt store as well as the Python object, so
+    a joined cube written with `to_file` decodes its own stamps.
+
+    The parts share a grid — a mismatch is refused, not resampled — so the first part's
+    spatial axis names describe the join and travel with it: joining cubes on
+    `latitude` / `longitude` does not rename the grid to `y` / `x` (#1180).
 
     Args:
         objs: The cubes, in the order they are joined. Containers or variables, at least
@@ -205,6 +210,17 @@ def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
     No dimension is joined here, so every one of them has to line up before the cells can:
     two copies of a variable stamped differently are refused rather than fused into one
     step carrying the first's stamp. `concat` is the member for putting them end to end.
+
+    A dimension's CF `(units, calendar)` is carried onto the result only when every variable
+    that has it declares the same pair; a dimension two variables describe differently is
+    left undecodable rather than stamped with whichever of them was built last. The
+    consensus is settled across all the variables *before* the first one is built, because
+    the store's dimensions are created with that first variable — one reached afterwards
+    would live on the Python object and never reach a written file.
+
+    The result also keeps the source's spatial axis names: merging cubes on
+    `latitude` / `longitude` hands back a `latitude` / `longitude` grid, not a renamed
+    `y` / `x` one (#1180).
 
     Args:
         objs: The cubes, containers or variables, at least one and all on the same grid.
