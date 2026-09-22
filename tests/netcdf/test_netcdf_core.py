@@ -638,8 +638,11 @@ class TestSetVariableEdgeCases:
         """Verify set_variable with explicit band_dim_name and values.
 
         Test scenario:
-            Providing band_dim_name="time" and band_dim_values=[0,1,2]
-            should create a time dimension with those values.
+            Providing band_dim_name="time" and band_dim_values=[100, 200, 300]
+            should create a time dimension carrying those values. The container's own
+            `time` already holds [0, 1, 2], and one netCDF dimension cannot hold two sets
+            of coordinates, so the values the caller asked for go on a `time_3` of their
+            own. Reusing `time` on the size alone silently gave the new variable [0, 1, 2].
         """
         nc = _make_3d_nc()
         arr = np.random.default_rng(0).random((3, 10, 12))
@@ -659,7 +662,20 @@ class TestSetVariableEdgeCases:
         assert md_arr is not None, "timed_var should exist"
         dims = md_arr.GetDimensions()
         dim_names = [d.GetName() for d in dims]
-        assert "time" in dim_names, f"Expected 'time' dimension, got {dim_names}"
+        assert any(name.startswith("time") for name in dim_names), (
+            f"Expected a time dimension, got {dim_names}"
+        )
+        written = nc.get_variable("timed_var")
+        band_dim = written._band_dim_names[0]
+        assert list(written._band_dim_values_map[band_dim]) == [100.0, 200.0, 300.0], (
+            f"the variable must carry the values asked for, got "
+            f"{written._band_dim_values_map[band_dim]}"
+        )
+        assert nc.get_variable("temperature")._band_dim_values_map["time"] == [
+            0,
+            1,
+            2,
+        ], "the container's own time dimension must be untouched"
 
 
 class TestReplaceRaster:

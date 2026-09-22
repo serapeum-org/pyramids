@@ -5975,9 +5975,10 @@ class NetCDF(Dataset):
         if self._rebuilt_in_memory:
             raise ValueError(
                 f"Lazy read reopens the variable from its store, and {var_name!r} was "
-                f"rebuilt in memory (by where(), fillna(), isnull() or notnull()), so "
-                f"the store no longer holds these cells. Read it eagerly with "
-                f"read_array()."
+                f"rebuilt in memory — by a cell-wise member such as where() or clip(), by "
+                f"a cut such as sel() or head(), or by a crop or reprojection — so the "
+                f"store no longer holds these cells in this shape and order. Read it "
+                f"eagerly with read_array()."
             )
         # Thread the eager-resolved raster plane (and its flips) into the lazy build so a variable
         # whose latitude/longitude is not the trailing pair -- selected via `x_dim`/`y_dim` or CF
@@ -6145,6 +6146,14 @@ class NetCDF(Dataset):
         wrapped._open_options = self._open_options
         wrapped._gdal_md_arr_ref = None
         wrapped._gdal_rg_ref = None
+        # Everything routed here holds cells this process assembled — a `sel`/`isel` cut and
+        # the Tier 2 band members through `_subset_along_dim`, `squeeze`/`expand_dims`
+        # through `_relabelled`, a crop, a reprojection, a resample. None of them still read
+        # as `parent_file::source_var_name`, which is all the lazy path knows how to reopen,
+        # so `read_array(chunks=)` answered the whole, unselected store variable: a `tail`
+        # of one step read back as four, and a `sortby` came back unsorted. The flag makes
+        # that path refuse in words, exactly as it already does for `where()`/`fillna()`.
+        wrapped._rebuilt_in_memory = True
         return wrapped
 
     def crop(self, *args, **kwargs) -> NetCDF:
@@ -7399,6 +7408,10 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.cumsum <pyramids.netcdf.engines.selection.Selection.cumsum>`."""
         return self.selection.cumsum(dim, skipna=skipna)
 
+    def cumprod(self, dim: str, *, skipna: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.cumprod <pyramids.netcdf.engines.selection.Selection.cumprod>`."""
+        return self.selection.cumprod(dim, skipna=skipna)
+
     def shift(self, dim: str, periods: int = 1, *, fill_value: Any = None) -> NetCDF:
         """Facade — :meth:`Selection.shift <pyramids.netcdf.engines.selection.Selection.shift>`."""
         return self.selection.shift(dim, periods, fill_value=fill_value)
@@ -8593,6 +8606,44 @@ class NetCDF(Dataset):
             NetCDF: The variable holding the selected bands.
         """
         return self.selection.sel(method=method, tolerance=tolerance, **kwargs)
+
+    def head(self, indexers: Any = None, **indexers_kwargs: int) -> NetCDF:
+        """Facade — :meth:`Selection.head <pyramids.netcdf.engines.selection.Selection.head>`."""
+        return self.selection.head(indexers, **indexers_kwargs)
+
+    def tail(self, indexers: Any = None, **indexers_kwargs: int) -> NetCDF:
+        """Facade — :meth:`Selection.tail <pyramids.netcdf.engines.selection.Selection.tail>`."""
+        return self.selection.tail(indexers, **indexers_kwargs)
+
+    def thin(self, indexers: Any = None, **indexers_kwargs: int) -> NetCDF:
+        """Facade — :meth:`Selection.thin <pyramids.netcdf.engines.selection.Selection.thin>`."""
+        return self.selection.thin(indexers, **indexers_kwargs)
+
+    def drop_isel(self, **indexers: Any) -> NetCDF:
+        """Facade — :meth:`Selection.drop_isel <pyramids.netcdf.engines.selection.Selection.drop_isel>`."""
+        return self.selection.drop_isel(**indexers)
+
+    def drop_sel(self, *, errors: str = "raise", **labels: Any) -> NetCDF:
+        """Facade — :meth:`Selection.drop_sel <pyramids.netcdf.engines.selection.Selection.drop_sel>`."""
+        return self.selection.drop_sel(errors=errors, **labels)
+
+    def sortby(self, dim: str, *, ascending: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.sortby <pyramids.netcdf.engines.selection.Selection.sortby>`."""
+        return self.selection.sortby(dim, ascending=ascending)
+
+    def drop_duplicates(self, dim: str, *, keep: Any = "first") -> NetCDF:
+        """Facade — :meth:`Selection.drop_duplicates
+        <pyramids.netcdf.engines.selection.Selection.drop_duplicates>`.
+        """
+        return self.selection.drop_duplicates(dim, keep=keep)
+
+    def squeeze(self, dim: str | None = None) -> NetCDF:
+        """Facade — :meth:`Selection.squeeze <pyramids.netcdf.engines.selection.Selection.squeeze>`."""
+        return self.selection.squeeze(dim)
+
+    def expand_dims(self, dim: str, value: Any = None) -> NetCDF:
+        """Facade — :meth:`Selection.expand_dims <pyramids.netcdf.engines.selection.Selection.expand_dims>`."""
+        return self.selection.expand_dims(dim, value)
 
     @classmethod
     def read_file(  # type: ignore[override]
@@ -12412,10 +12463,12 @@ class NetCDF(Dataset):
     ) -> gdal.Dimension:
         """Reuse an existing dimension or create a new one.
 
-        If a dimension with `dim_name` already exists in the root group
-        and has the same size as `values`, it is returned directly.
-        On size mismatch, a new dimension with a `_{size}` suffix is
-        created to avoid conflicts.
+        A dimension with `dim_name` is reused only when it holds **the same coordinate
+        values** in the same order, not merely the same number of them. Matching on the
+        size alone silently mislabelled every variable written back on a reordered axis:
+        `sortby("time", ascending=False)` followed by `set_variable` kept the store's own
+        `[0, 6, 12, 18]`, so each plane landed on the wrong stamp. On any mismatch — a
+        different length or different values — a suffixed dimension is created instead.
 
         Args:
             rg: The root group of the multidimensional dataset.
@@ -12428,15 +12481,109 @@ class NetCDF(Dataset):
         Returns:
             gdal.Dimension: The reused or newly created dimension.
         """
-        for existing_dim in rg.GetDimensions() or []:
-            if existing_dim.GetName() == dim_name:
-                if existing_dim.GetSize() == len(values):
-                    return existing_dim
-                # Size mismatch — need a new dimension with a unique name
-                dim_name = f"{dim_name}_{len(values)}"
-                break
+        existing = {
+            dimension.GetName(): dimension for dimension in rg.GetDimensions() or []
+        }
+        wanted = dim_name
+        reused = existing.get(dim_name)
+        if reused is not None and not NetCDF._dimension_holds(reused, values):
+            # A suffixed sibling may already hold exactly these coordinates: the same
+            # reordered axis written twice must land on one dimension, not on `time_4` and
+            # then `time_4_2`, which would leave a CF reader looking at two unrelated axes
+            # carrying the same stamps.
+            reused = next(
+                (
+                    sibling
+                    for name, sibling in existing.items()
+                    if name.startswith(f"{wanted}_")
+                    and NetCDF._dimension_holds(sibling, values)
+                ),
+                None,
+            )
+            if reused is None:
+                dim_name = NetCDF._unused_dimension_name(existing, wanted, len(values))
+            written = reused.GetName() if reused is not None else dim_name
+            warnings.warn(
+                f"the axis holds different coordinate values from the store's own "
+                f"{wanted!r}, which one netCDF dimension cannot carry at once, so it was "
+                f"written as {written!r}. Select on the result under that name.",
+                stacklevel=2,
+            )
+        return (
+            reused
+            if reused is not None
+            else NetCDF.create_main_dimension(rg, dim_name, dtype, values)
+        )
 
-        return NetCDF.create_main_dimension(rg, dim_name, dtype, values)
+    @staticmethod
+    def _dimension_holds(dimension: gdal.Dimension, values: np.ndarray) -> bool:
+        """Whether an existing dimension already carries exactly `values`, in order.
+
+        A dimension with no indexing variable carries no values to disagree with, so it
+        matches on size alone — that is the axis `isel` exists to serve, and a WRF
+        `bottom_top` is one.
+
+        Args:
+            dimension: The dimension found under the wanted name.
+            values: The coordinate values about to be written.
+
+        Returns:
+            bool: `True` when the dimension can be reused as it stands.
+        """
+        holds = bool(dimension.GetSize() == len(values))
+        if holds:
+            stored = NetCDF._read_band_dim_values(dimension)
+            if stored is not None:
+                wanted = list(np.asarray(values).ravel().tolist())
+                holds = len(stored) == len(wanted) and all(
+                    NetCDF._same_stamp(one, other) for one, other in zip(stored, wanted)
+                )
+        return holds
+
+    @staticmethod
+    def _same_stamp(one: Any, other: Any) -> bool:
+        """Whether two coordinate values stand for the same step.
+
+        A NaN stamp equals nothing, itself included, so the two are compared for
+        not-a-number rather than for equality when either is one: two axes that both carry
+        a NaN at the same position do agree about that position.
+
+        Args:
+            one: The stored stamp.
+            other: The stamp about to be written.
+
+        Returns:
+            bool: `True` when they are the same step.
+        """
+        same = bool(one == other)
+        if not same and isinstance(one, float) and isinstance(other, float):
+            same = math.isnan(one) and math.isnan(other)
+        return same
+
+    @staticmethod
+    def _unused_dimension_name(
+        existing: dict[str, Any], dim_name: str, size: int
+    ) -> str:
+        """A dimension name nothing in the group has taken yet.
+
+        `<name>_<size>` first, which is what a length mismatch has always produced, then
+        `<name>_<size>_2`, `_3` and so on — a reordered axis has the *same* length as the
+        one it clashes with, so the plain suffix can be taken as well.
+
+        Args:
+            existing: The group's dimensions, by name.
+            dim_name: The wanted name.
+            size: How many values the new dimension holds.
+
+        Returns:
+            str: A free name.
+        """
+        candidate = f"{dim_name}_{size}"
+        attempt = 2
+        while candidate in existing:
+            candidate = f"{dim_name}_{size}_{attempt}"
+            attempt += 1
+        return candidate
 
     @property
     def global_attributes(self) -> dict[str, Any]:

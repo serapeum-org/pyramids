@@ -390,14 +390,80 @@ class _CumSum(_AlongDim):
             fill = np.nan if ndv is None else ndv
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
-                total = np.nancumsum(data, axis=axis)
+                total = self._skipping(data, axis)
             seen = np.cumsum(~np.isnan(data), axis=axis) > 0
             values = np.where(seen, total, fill)
             result_ndv: Any = fill
         else:
-            values = np.cumsum(arr, axis=axis)
+            values = self._raw(arr, axis)
             result_ndv = None
         return _Applied(np.asarray(values), band_names, values_map, result_ndv)
+
+    @staticmethod
+    def _skipping(data: Any, axis: int) -> Any:
+        """The running total with gaps skipped: a NaN adds nothing.
+
+        Args:
+            data: The values, gaps as NaN.
+            axis: The axis to run along.
+
+        Returns:
+            The running total.
+        """
+        return np.nancumsum(data, axis=axis)
+
+    @staticmethod
+    def _raw(arr: Any, axis: int) -> Any:
+        """The running total over the stored values, sentinel and NaN included.
+
+        Args:
+            arr: The stored values.
+            axis: The axis to run along.
+
+        Returns:
+            The running total.
+        """
+        return np.cumsum(arr, axis=axis)
+
+
+@dataclass
+class _CumProd(_CumSum):
+    """`cumprod`: the running product along the dimension — `cumsum`'s multiplicative twin.
+
+    Everything but the two accumulators is `cumsum`'s: the length and stamps are kept, a gap
+    holds the product so far once a valid cell has been seen, and a step before the first
+    valid cell stays a gap where xarray answers `1.0`, a product of nothing this does not
+    invent.
+    """
+
+    caller: str = "cumprod"
+    verb: ClassVar[str] = "multiply along"
+
+    @staticmethod
+    def _skipping(data: Any, axis: int) -> Any:
+        """The running product with gaps skipped: a NaN multiplies by nothing.
+
+        Args:
+            data: The values, gaps as NaN.
+            axis: The axis to run along.
+
+        Returns:
+            The running product.
+        """
+        return np.nancumprod(data, axis=axis)
+
+    @staticmethod
+    def _raw(arr: Any, axis: int) -> Any:
+        """The running product over the stored values, sentinel and NaN included.
+
+        Args:
+            arr: The stored values.
+            axis: The axis to run along.
+
+        Returns:
+            The running product.
+        """
+        return np.cumprod(arr, axis=axis)
 
 
 @dataclass

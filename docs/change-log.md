@@ -5,10 +5,10 @@
 
 ### BREAKING CHANGE
 
-- an operator between two NetCDF variables on the same  
-  grid with the same band count, whose band dimension names or sizes  
-  differ, now raises ValueError instead of returning a result without  
-  band dimensions whose planes were paired by position.  
+- an operator between two NetCDF variables on the same
+  grid with the same band count, whose band dimension names or sizes
+  differ, now raises ValueError instead of returning a result without
+  band dimensions whose planes were paired by position.
 
 ### Feat
 
@@ -52,50 +52,50 @@ previous output.
 
 ### BREAKING CHANGE
 
-- get_variable and variables[name] return a  
-  LabeledArray instead of a gdal.MDArray for a variable with no raster  
-  plane. Replace ReadAsArray() with .values, GetDimensions() with  
-  .dims / .shape, GetUnit() with .unit, GetNoDataValueAsDouble() with  
-  .no_data_value and GetScale() / GetOffset() with .scale / .offset.  
-  crop_variable, reproject_variable, resample_variable,  
-  plot(variable=) and open_mfdataset(variable=) raise ValueError for  
-  such a variable instead of AttributeError. A compound variable with a  
-  string field raises ValueError, since GDAL's Python bindings cannot  
-  read it. The array behind variables[name] is read-only; take .copy()  
+- get_variable and variables[name] return a
+  LabeledArray instead of a gdal.MDArray for a variable with no raster
+  plane. Replace ReadAsArray() with .values, GetDimensions() with
+  .dims / .shape, GetUnit() with .unit, GetNoDataValueAsDouble() with
+  .no_data_value and GetScale() / GetOffset() with .scale / .offset.
+  crop_variable, reproject_variable, resample_variable,
+  plot(variable=) and open_mfdataset(variable=) raise ValueError for
+  such a variable instead of AttributeError. A compound variable with a
+  string field raises ValueError, since GDAL's Python bindings cannot
+  read it. The array behind variables[name] is read-only; take .copy()
   to modify it
 
 ### Fix
 
 - **dataset,netcdf**: unpack CF-packed data by default, on one keyword (#1130)
 - **netcdf**: materialise a non-raster variable instead of leaking a gdal.MDArray (#1131)
-- **netcdf**: materialise a non-raster variable instead of leaking a gdal.MDArray  
+- **netcdf**: materialise a non-raster variable instead of leaking a gdal.MDArray
 
-  get_variable returned the raw gdal.MDArray whenever GDAL could not  
-  expose a variable as a raster plane -- a 1-D array, or a string or  
-  compound one. That handle has none of pyramids' API, and its Read()  
-  returns an undecoded buffer for numeric data, so the only route to  
-  the values was ReadAsArray(): raw osgeo in a package meant to hide it.  
+  get_variable returned the raw gdal.MDArray whenever GDAL could not
+  expose a variable as a raster plane -- a 1-D array, or a string or
+  compound one. That handle has none of pyramids' API, and its Read()
+  returns an undecoded buffer for numeric data, so the only route to
+  the values was ReadAsArray(): raw osgeo in a package meant to hide it.
 
-  - return a LabeledArray, carrying the values with their dims, shape,  
-    name, unit, no_data_value, scale, offset and attributes  
-  - read each dtype class with the reader it needs: strings via Read()  
-    into object (a NULL entry stays None), numeric and compound via  
-    ReadAsArray(); build an empty array for a zero-length extent, and  
-    keep a 64-bit integer fill value exact  
-  - correct the return annotation to NetCDF | LabeledArray and route the  
-    raster-only callers through _require_raster_variable, which refuses  
-    a non-raster variable by name instead of raising AttributeError  
-  - decide raster-ness from the array's declaration, not by reading it,  
-    so a CRS lookup no longer materialises a large non-raster array  
-  - carry a string or compound array on (y, x) as an auxiliary rather  
-    than refusing the whole container crop, to_crs or reduce  
-  - drop an auxiliary the carry cannot write instead of failing the  
-    operation or leaving an empty array behind, and keep a string  
-    auxiliary's unit and spatial reference  
-  - reuse the resolved values in read_array, reading once rather than  
-    twice, and freeze the entry the variables cache shares  
-  - document the change in the migration guide, the concepts page and  
-    the NetCDF reference  
+  - return a LabeledArray, carrying the values with their dims, shape,
+    name, unit, no_data_value, scale, offset and attributes
+  - read each dtype class with the reader it needs: strings via Read()
+    into object (a NULL entry stays None), numeric and compound via
+    ReadAsArray(); build an empty array for a zero-length extent, and
+    keep a 64-bit integer fill value exact
+  - correct the return annotation to NetCDF | LabeledArray and route the
+    raster-only callers through _require_raster_variable, which refuses
+    a non-raster variable by name instead of raising AttributeError
+  - decide raster-ness from the array's declaration, not by reading it,
+    so a CRS lookup no longer materialises a large non-raster array
+  - carry a string or compound array on (y, x) as an auxiliary rather
+    than refusing the whole container crop, to_crs or reduce
+  - drop an auxiliary the carry cannot write instead of failing the
+    operation or leaving an empty array behind, and keep a string
+    auxiliary's unit and spatial reference
+  - reuse the resolved values in read_array, reading once rather than
+    twice, and freeze the entry the variables cache shares
+  - document the change in the migration guide, the concepts page and
+    the NetCDF reference
 
   Closes #1126
 
@@ -419,22 +419,22 @@ is needed.
 abs(n) timesteps for a positive n too (previously a positive n
 skipped the first n); the default tail(-n) is unchanged and
 tail(0) returns an empty array.
-- COG_READ_DEFAULTS no longer sets  
-  CPL_VSIL_CURL_ALLOWED_EXTENSIONS. The option made GDAL refuse any URL  
-  whose path does not end in .tif or .tiff, which excluded extensionless  
-  object keys, presigned S3 links carrying a query string, and most STAC  
-  asset hrefs.  
-  BREAKING CHANGE: slope, aspect and hillshade emit the band's sentinel  
-  at no-data cells and their immediate neighbours, outside the documented  
-  [0, 360) and [0, 255] ranges, because a centred difference straddling a  
-  void has no defined derivative. Mask on the no-data value before  
-  feeding the result to a colour ramp or a fixed-range cast.  
-  BREAKING CHANGE: focal_apply hands the caller's callable a NaN-blanked  
-  window, so a NaN-blind reducer now blanks every window touching a void.  
-  Use the np.nan* reducers.  
+- COG_READ_DEFAULTS no longer sets
+  CPL_VSIL_CURL_ALLOWED_EXTENSIONS. The option made GDAL refuse any URL
+  whose path does not end in .tif or .tiff, which excluded extensionless
+  object keys, presigned S3 links carrying a query string, and most STAC
+  asset hrefs.
+  BREAKING CHANGE: slope, aspect and hillshade emit the band's sentinel
+  at no-data cells and their immediate neighbours, outside the documented
+  [0, 360) and [0, 255] ranges, because a centred difference straddling a
+  void has no defined derivative. Mask on the no-data value before
+  feeding the result to a colour ramp or a fixed-range cast.
+  BREAKING CHANGE: focal_apply hands the caller's callable a NaN-blanked
+  window, so a NaN-blind reducer now blanks every window touching a void.
+  Use the np.nan* reducers.
 
-  Closes #841, #842, #843, #844, #845, #846, #847  
-  Closes #848, #849, #850, #851, #852, #853, #855  
+  Closes #841, #842, #843, #844, #845, #846, #847
+  Closes #848, #849, #850, #851, #852, #853, #855
   Closes #856, #857, #858, #859, #860, #861, #862
 
 ### Feat
@@ -551,45 +551,45 @@ tail(0) returns an empty array.
 - **netcdf**: stop curvilinear plots smearing across the antimeridian (#670)
 - **netcdf**: stop curvilinear plots smearing across the antimeridian
 
-  Curvilinear NetCDF grids whose longitude crosses the 0/360  
-  antimeridian rendered as a full-width smear, because pcolormesh  
-  read the 359->0 wrap as one giant cell. render_array now makes a  
-  wrapping degree-geographic longitude continuous before it reaches  
-  cleopatra, gated so projected, unknown-CRS, and non-wrapping grids  
-  are left untouched.  
+  Curvilinear NetCDF grids whose longitude crosses the 0/360
+  antimeridian rendered as a full-width smear, because pcolormesh
+  read the 359->0 wrap as one giant cell. render_array now makes a
+  wrapping degree-geographic longitude continuous before it reaches
+  cleopatra, gated so projected, unknown-CRS, and non-wrapping grids
+  are left untouched.
 
-  Plotting fix:  
-  - NaN-safe, degrees-only, dtype-preserving, single-return unwrap  
-  - unit tests for the unwrap and CRS gate, plus an end-to-end  
-    regression on a real wrapping curvilinear file  
-  - cover multi-wrap rows, single-column grids, and interior-NaN edges  
+  Plotting fix:
+  - NaN-safe, degrees-only, dtype-preserving, single-return unwrap
+  - unit tests for the unwrap and CRS gate, plus an end-to-end
+    regression on a real wrapping curvilinear file
+  - cover multi-wrap rows, single-column grids, and interior-NaN edges
 
-  Documentation:  
-  - correct the basemap claims in the CF/COARDS explore notebooks:  
-    they plot in the data's own CRS with a Natural Earth coastline  
-    overlay, not a reprojected OpenStreetMap / Web Mercator basemap  
-  - drop the redundant crs= from add_features across the explore and  
-    anatomy notebooks; the returned glyph already carries the CRS  
-  - plot the anatomy examples via NetCDF.plot() instead of raw matplotlib  
-  - add a NetCDF class anatomy & reference notebook  
-  - add mermaid diagrams across the NetCDF reference: container/variable  
-    object model, engines, the metadata pipeline and dataclass  
-    aggregation, the plot pipeline, the CF capability map, and the  
-    ugrid class model, conversion bridges, and submodule diagrams  
+  Documentation:
+  - correct the basemap claims in the CF/COARDS explore notebooks:
+    they plot in the data's own CRS with a Natural Earth coastline
+    overlay, not a reprojected OpenStreetMap / Web Mercator basemap
+  - drop the redundant crs= from add_features across the explore and
+    anatomy notebooks; the returned glyph already carries the CRS
+  - plot the anatomy examples via NetCDF.plot() instead of raw matplotlib
+  - add a NetCDF class anatomy & reference notebook
+  - add mermaid diagrams across the NetCDF reference: container/variable
+    object model, engines, the metadata pipeline and dataclass
+    aggregation, the plot pipeline, the CF capability map, and the
+    ugrid class model, conversion bridges, and submodule diagrams
 
-  Documentation accuracy & hygiene:  
-  - fix the UgridMetadata data_variables edge (it is a dict[str,str]  
-    name->location map, not MeshVariable records)  
-  - clarify the metadata serializers are module-level functions, not  
-    methods on NetCDFMetadata  
-  - list representative CF classification roles instead of a partial set  
-  - remove the object-model flowchart's subgraph self-loop  
-  - scrub committed notebook output: drop an INFO log line and sanitize  
-    an ipykernel temp path that leaked a local username  
+  Documentation accuracy & hygiene:
+  - fix the UgridMetadata data_variables edge (it is a dict[str,str]
+    name->location map, not MeshVariable records)
+  - clarify the metadata serializers are module-level functions, not
+    methods on NetCDFMetadata
+  - list representative CF classification roles instead of a partial set
+  - remove the object-model flowchart's subgraph self-loop
+  - scrub committed notebook output: drop an INFO log line and sanitize
+    an ipykernel temp path that leaked a local username
 
-  Test quality:  
-  - assert unwrapped values with np.isclose instead of float ==  
-  - pass an unresolvable EPSG code, not a str, to the CRS-gate test  
+  Test quality:
+  - assert unwrapped values with np.isclose instead of float ==
+  - pass an unresolvable EPSG code, not a str, to the CRS-gate test
 
   Closes #669
 
@@ -619,28 +619,28 @@ an isinstance-compatible base for one major version.
 - **wcs**: add Dataset.from_wcs OGC Web Coverage Service reader (#632)
 - **wcs**: add Dataset.from_wcs OGC Web Coverage Service reader
 
-  Add a version-normalising OGC WCS reader exposed as the  
-  Dataset.from_wcs classmethod (implementation in dataset/_wcs.py),  
-  backed by GDAL's native WCS driver so the 1.0.0 vs 2.0.x GetCoverage  
-  dialect fork is handled inside GDAL rather than hand-written.  
+  Add a version-normalising OGC WCS reader exposed as the
+  Dataset.from_wcs classmethod (implementation in dataset/_wcs.py),
+  backed by GDAL's native WCS driver so the 1.0.0 vs 2.0.x GetCoverage
+  dialect fork is handled inside GDAL rather than hand-written.
 
-  - Caller supplies one lon/lat bbox plus optional resolution and  
-    output_crs; the reader issues the version-correct GetCoverage.  
-  - CRS shim: attach a caller-supplied coverage_crs when the server's  
-    advertised CRS is absent from PROJ (e.g. SoilGrids EPSG:152160).  
-  - Client-side bbox reprojection into the coverage's native CRS via  
-    pyproj, densified with transform_bounds so distorted or large  
-    windows stay covered.  
-  - GetCapabilities fetched once per endpoint (LRU-cached); an unknown  
-    coverage raises ValueError, server errors raise the new WCSError.  
-  - The windowed read goes through an in-memory dataset, so a  
-    non-raster ExceptionReport body can never be written to a .tif.  
-  - No new dependencies: GDAL handles transport and decode, pyproj  
-    (core) the CRS transform, and Dataset the warp/IO.  
-  - Tests: pure helpers, the CRS shim, the capabilities cache, and a  
-    protocol-faithful mock server that drives GDAL end-to-end for both  
-    WCS dialects (asserting each call shape), plus gated live SoilGrids  
-    tests; 100% line and branch coverage on the new module.  
+  - Caller supplies one lon/lat bbox plus optional resolution and
+    output_crs; the reader issues the version-correct GetCoverage.
+  - CRS shim: attach a caller-supplied coverage_crs when the server's
+    advertised CRS is absent from PROJ (e.g. SoilGrids EPSG:152160).
+  - Client-side bbox reprojection into the coverage's native CRS via
+    pyproj, densified with transform_bounds so distorted or large
+    windows stay covered.
+  - GetCapabilities fetched once per endpoint (LRU-cached); an unknown
+    coverage raises ValueError, server errors raise the new WCSError.
+  - The windowed read goes through an in-memory dataset, so a
+    non-raster ExceptionReport body can never be written to a .tif.
+  - No new dependencies: GDAL handles transport and decode, pyproj
+    (core) the CRS transform, and Dataset the warp/IO.
+  - Tests: pure helpers, the CRS shim, the capabilities cache, and a
+    protocol-faithful mock server that drives GDAL end-to-end for both
+    WCS dialects (asserting each call shape), plus gated live SoilGrids
+    tests; 100% line and branch coverage on the new module.
 
   Closes #626
 - **netcdf**: split NetCDF into Container + Variable types (API-1) (#625)

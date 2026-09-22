@@ -8,6 +8,7 @@ Owns the Analysis family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import logging
+import math
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -146,6 +147,215 @@ def _point_sample_fill(gdal_band: gdal.Band) -> tuple[Any, np.dtype]:
         )
         return np.nan, out_dtype
     return no_data_value, band_dtype
+
+
+_KEEP_NO_DATA = object()
+"""`astype`'s default for `no_data_value`: keep the raster's own sentinel."""
+
+
+def _regapped(values: np.ndarray, domain: np.ndarray, sentinel: Any) -> np.ndarray:
+    """`values` with every cell outside `domain` set back to its band's sentinel.
+
+    The members that transform cell values leave the gaps out and put them back here, so a
+    gap is never clipped, rounded or cast into a measurement. Writing in place, rather than
+    through `np.where`, keeps the band's type: a `numpy.float64` sentinel would otherwise
+    promote a `float32` band.
+
+    Args:
+        values: The transformed cells, 2-D for one band or `(bands, rows, cols)`.
+        domain: True where a cell holds data, shaped like `values`.
+        sentinel: The value that marks a gap — one for every band, or a list holding each
+            band's own, which is what a multi-sensor stack carries. `None`, or a list entry
+            of `None`, leaves that band's gaps as the operation left them.
+
+    Returns:
+        np.ndarray: The cells, gaps re-marked.
+    """
+    marks = list(sentinel) if isinstance(sentinel, (list, tuple)) else [sentinel]
+    out = values
+    if not domain.all() and any(one is not None for one in marks):
+        out = np.array(values, copy=True)
+        planes = (
+            [(out, domain, marks[0])]
+            if out.ndim == 2
+            else [
+                (out[index], domain[index], _mark_for(marks, index))
+                for index in range(out.shape[0])
+            ]
+        )
+        for plane, kept, mark in planes:
+            if mark is not None:
+                plane[~kept] = mark
+    return out
+
+
+def _mark_for(marks: list, index: int) -> Any:
+    """The sentinel for one band of a stack.
+
+    Args:
+        marks: The sentinels, one per band — or fewer, when the caller passed one for a
+            stack, which every band then shares.
+        index: The band's index.
+
+    Returns:
+        Any: That band's sentinel, or the first when the list is shorter than the stack.
+    """
+    return marks[index] if index < len(marks) else marks[0]
+
+
+def _same_gap(one: Any, other: Any) -> bool:
+    """Whether two bands declare the same gap marker.
+
+    Compared by value, not by `repr`: GDAL hands a sentinel back as `numpy.float64` while a
+    caller passes a Python `float`, and `-9999.0` is the same declaration either way. Two
+    NaN markers agree as well, though NaN equals nothing.
+
+    Args:
+        one: One band's sentinel, or `None`.
+        other: Another band's sentinel, or `None`.
+
+    Returns:
+        bool: `True` when they declare the same thing.
+    """
+    if one is None or other is None:
+        same = one is None and other is None
+    else:
+        left, right = float(one), float(other)
+        same = left == right or (math.isnan(left) and math.isnan(right))
+    return same
+
+
+def _declared_gaps(sentinels: Sequence[Any]) -> Any:
+    """What a result should declare as its gaps, given each band's own sentinel.
+
+    One value when every band declares the same thing — the ordinary single-band and
+    uniform-stack cases, where a scalar keeps the metadata simplest — and the per-band list
+    otherwise. Collapsing a mixed stack onto the first band's sentinel rewrote the others'
+    declarations, and a band holding another band's sentinel as a real value then read as
+    missing.
+
+    Args:
+        sentinels: One sentinel per band, `None` where a band declares none.
+
+    Returns:
+        Any: The scalar the bands agree on, or the list of per-band sentinels.
+    """
+    marks = list(sentinels)
+    agreed = all(_same_gap(one, marks[0]) for one in marks)
+    return marks[0] if agreed and marks else marks
+
+
+def _gap_marker(
+    mark: Any, target: np.dtype, domain: np.ndarray, band: int, bands: int
+) -> Any:
+    """What to write into one band's gap cells before the cast fills the rest.
+
+    Args:
+        mark: The band's declared sentinel, or `None`.
+        target: The type being cast to.
+        domain: True where a cell holds data.
+        band: The band's index.
+        bands: How many bands there are.
+
+    Returns:
+        Any: The value to fill that band's plane with.
+
+    Raises:
+        ValueError: The band has gaps, declares no sentinel, and `target` is an integer
+            type, which has no NaN to leave them as.
+    """
+    marker = mark
+    if marker is None:
+        plane = domain if bands == 1 or domain.ndim == 2 else domain[band]
+        if not plane.all():
+            if target.kind != "f":
+                raise ValueError(
+                    f"astype({target.name!r}) would leave {int((~plane).sum())} gap cells "
+                    f"of band {band + 1} unmarked: it declares no no-data value and "
+                    f"{target.name} has no NaN, so every gap would read as an ordinary "
+                    f"number. Pass no_data_value= with one {target.name} holds, or fill "
+                    f"the gaps first."
+                )
+            marker = np.nan
+        else:
+            marker = 0
+    return marker
+
+
+def _refuse_a_sentinel_the_data_holds(
+    cast: np.ndarray,
+    domain: np.ndarray,
+    marks: Sequence[Any],
+    target: np.dtype,
+    bands: int,
+) -> None:
+    """Refuse a cast in which a cell holding data lands on its band's sentinel.
+
+    The mirror of "a gap stays a gap": data has to stay data. A sentinel a real cell
+    already holds — `255` after `clip(0, 255)`, or `-9999` after truncating `-9999.4` —
+    would read as missing from then on.
+
+    Args:
+        cast: The cast cells.
+        domain: True where a cell holds data.
+        marks: Each band's sentinel, `None` where a band declares none.
+        target: The type cast to.
+        bands: How many bands there are.
+
+    Raises:
+        ValueError: A band's data holds its own sentinel.
+    """
+    for band in range(bands):
+        mark = marks[band]
+        if mark is None or not np.isfinite(float(mark)):
+            continue
+        plane = cast if cast.ndim == 2 else cast[band]
+        kept = domain if domain.ndim == 2 else domain[band]
+        collisions = int(np.count_nonzero(plane[kept] == target.type(mark)))
+        if collisions:
+            raise ValueError(
+                f"astype({target.name!r}) would mark {collisions} cell(s) of band "
+                f"{band + 1} that hold data as missing: they already hold {float(mark)} "
+                f"once cast, and that is the value the result declares as its gap. Bound "
+                f"or shift them first (clip), or pass no_data_value= with one the data "
+                f"never takes."
+            )
+
+
+def _holds(target: np.dtype, value: Any) -> bool:
+    """Whether `target` can carry `value` as a sentinel at all.
+
+    A float target takes any value inside its range: the sentinel is **snapped** to the
+    type on the way in (`-9999.9` into `float32` is declared and written as
+    `-9999.900390625`), and `is_stored_no_data` recognises a gap with the slack a sentinel
+    picks up passing through storage, so a value that merely loses precision marks exactly
+    the cells it should. What must not happen is a snapped sentinel landing on a cell that
+    holds data — `1e-50` into `float32` snaps to `0.0` — and that is
+    :func:`_refuse_a_sentinel_the_data_holds`'s question, asked of the cast cells rather
+    than guessed from the type.
+
+    An integer target is stricter, because no snapping keeps a gap a gap there: a fraction
+    or an out-of-range value wraps into an ordinary number.
+
+    Args:
+        target: The band type.
+        value: The candidate sentinel.
+
+    Returns:
+        bool: `True` for a float type and any value inside its range, NaN and the
+        infinities included; for an integer type, only a whole number inside its range.
+    """
+    number = float(value)
+    if np.issubdtype(target, np.floating):
+        fits = not np.isfinite(number) or abs(number) <= float(np.finfo(target).max)
+    else:
+        limits = np.iinfo(target)
+        fits = (
+            bool(np.isfinite(number))
+            and number.is_integer()
+            and limits.min <= number <= limits.max
+        )
+    return fits
 
 
 def _mask_dtype(band: np.dtype, fill: Any) -> np.dtype:
@@ -2663,6 +2873,378 @@ class Analysis(_Engine["Dataset"]):
         # hook that way answers this raster's own layout, where passing `None` through
         # would leave `NetCDF._label_combined` unpacking it.
         return self._ds._combine_layout_source(None, None)
+
+    def clip(self, min: Any = None, max: Any = None) -> Dataset:
+        """Bound the values to `[min, max]`; a gap stays a gap.
+
+        The gaps are left out of the clipping and re-marked afterwards. Clipping the stored
+        array instead would lift a `-9999.0` gap to the lower bound and turn a missing cell
+        into a measurement.
+
+        Args:
+            min: The lower bound, or `None` for none. Named as xarray names it.
+            max: The upper bound, or `None` for none.
+
+        Returns:
+            Dataset: A raster on this one's grid, carrying its band names and metadata. The
+            band keeps its type when both bounds fit it, and widens when one does not — the
+            same judgement :meth:`where` and :meth:`fillna` make. A CF-packed band is the
+            exception: the bounds apply to the physical values, so the result holds those
+            (`float64`) with the packing dropped.
+
+        Raises:
+            ValueError: Neither bound is given, `min` is above `max` — numpy would quietly
+                set every cell to `max` there, which is never what was meant — or a bound
+                is NaN, which numpy compares false against everything, leaving every cell
+                NaN and unflagged.
+            TypeError: A bound is not a real number.
+
+        Examples:
+            - Clamp to `[2, 6]`, the gap untouched:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[1.0, -9999.0, 5.0, 9.0]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> raster.clip(2.0, 6.0).read_array().tolist()
+              [[2.0, -9999.0, 5.0, 6.0]]
+
+              ```
+            - One bound is enough:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[1.0, 5.0, 9.0]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> raster.clip(max=6.0).read_array().tolist()
+              [[1.0, 5.0, 6.0]]
+
+              ```
+            - Crossed bounds are refused, where numpy would set every cell to `max`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[1.0, 5.0]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> raster.clip(6.0, 2.0)
+              Traceback (most recent call last):
+                  ...
+              ValueError: clip() needs min at or below max, got min=6.0 above max=2.0.
+
+              ```
+
+        See Also:
+            Dataset.astype: Clip first, to keep the values inside the target type's range.
+            Dataset.where: Mask the out-of-range cells instead of bounding them.
+        """
+        self._refuse_a_container("clip")
+        lower, upper = min, max
+        if lower is None and upper is None:
+            raise ValueError("clip() needs at least one of min and max.")
+        for bound in (lower, upper):
+            if bound is not None and (
+                not isinstance(bound, Real) or isinstance(bound, (bool, np.bool_))
+            ):
+                raise TypeError(f"clip() needs a number for a bound; got {bound!r}.")
+            if bound is not None and np.isnan(float(bound)):
+                raise ValueError(
+                    "clip() cannot bound anything with NaN: every cell would come back "
+                    "NaN, and a raster that declares another sentinel does not read those "
+                    "as missing. Drop the bound, or use where() to mask."
+                )
+        if lower is not None and upper is not None and lower > upper:
+            raise ValueError(
+                f"clip() needs min at or below max, got min={lower!r} above max={upper!r}."
+            )
+        values, sentinels, domain = self._operand_arrays(self._ds, None)
+        declared = _declared_gaps(sentinels)
+        dtype = values.dtype
+        for bound in (lower, upper):
+            if bound is not None:
+                dtype = np.promote_types(dtype, _mask_dtype(values.dtype, bound))
+        # Cast back after clipping, not only before it: a bound that arrives as a numpy
+        # scalar — every percentile, mean or quantile does — promotes the result under NEP
+        # 50, so a float32 band came back float64 and a uint8 band int64. `where` casts its
+        # own output for the same reason.
+        clipped = np.clip(values.astype(dtype, copy=False), lower, upper).astype(
+            dtype, copy=False
+        )
+        return self._identified(
+            self._rebuilt(_regapped(clipped, domain, declared), declared)
+        )
+
+    def round(self, decimals: int = 0) -> Dataset:
+        """Round the values to `decimals` places; a gap stays a gap.
+
+        The gaps are left out and re-marked afterwards: a sentinel with a fraction, such as
+        `-9999.5`, rounds to `-10000.0`, which no longer matches what was declared.
+
+        Args:
+            decimals: How many decimal places to keep. `0` (default) rounds to whole
+                numbers; a negative count rounds to tens, hundreds and so on, as numpy
+                does. Halves round to even, also as numpy does. Rounding an **integer**
+                band to tens can leave its range — numpy wraps `uint8` 255 to 4 — so the
+                result widens instead, and only when it must.
+
+        Returns:
+            Dataset: A raster on this one's grid, in the band's own type — except for a
+            CF-packed band, whose physical values are what is rounded, so the result holds
+            those (`float64`) with the packing dropped, as an xarray decoded array does.
+
+        Raises:
+            TypeError: `decimals` is not an integer.
+
+        Examples:
+            - Round to one decimal place:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[0.333, 1.667]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> raster.round(1).read_array().tolist()
+              [[0.3, 1.7]]
+
+              ```
+            - Halves round to even, as numpy's do:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[0.5, 1.5, 2.5]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> raster.round().read_array().tolist()
+              [[0.0, 2.0, 2.0]]
+
+              ```
+            - A negative count rounds to tens:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[14.0, 26.0]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> raster.round(-1).read_array().tolist()
+              [[10.0, 30.0]]
+
+              ```
+
+        See Also:
+            Dataset.astype: Change the band type once the values are whole.
+        """
+        self._refuse_a_container("round")
+        if isinstance(decimals, bool) or not isinstance(decimals, (int, np.integer)):
+            raise TypeError(
+                f"round() needs an integer number of decimals, got {decimals!r}."
+            )
+        values, sentinels, domain = self._operand_arrays(self._ds, None)
+        declared = _declared_gaps(sentinels)
+        rounded = np.round(values, int(decimals))
+        if values.dtype.kind in "iu" and int(decimals) < 0:
+            # Rounding an integer band to tens can leave its own type: numpy wraps there,
+            # so `uint8` 255 rounds to 4 and `int8` 127 to -126 — silent corruption of the
+            # kind `clip` widens to avoid. The result widens the same way, and only when
+            # it must.
+            wide = np.round(values.astype("float64"), int(decimals))
+            limits = np.iinfo(values.dtype)
+            inside = wide[domain] if domain.any() else wide
+            fits = bool(((inside >= limits.min) & (inside <= limits.max)).all())
+            rounded = wide.astype(values.dtype, copy=False) if fits else wide
+        return self._identified(
+            self._rebuilt(_regapped(rounded, domain, declared), declared)
+        )
+
+    def astype(self, dtype: Any, *, no_data_value: Any = _KEEP_NO_DATA) -> Dataset:
+        """Change the band type; a gap stays a gap, re-marked for the new type.
+
+        The cells that hold data are cast as numpy casts them: a float truncates towards
+        zero into an integer type, and a value outside the target's range is **not**
+        refused — numpy leaves an out-of-range float cast undefined (on x86 `300.0` into
+        `uint8` comes out `44`). :meth:`clip` first when that matters. The gaps are not
+        cast at all: they are re-marked with the target's sentinel, so a missing cell
+        stays missing. A raster that declares no sentinel but holds NaN is gap-holding
+        too — those cells are written back as NaN, which only a float target has, so an
+        integer cast that would leave them unmarked is refused.
+
+        Args:
+            dtype: The target type — anything `numpy.dtype` accepts that GDAL can store as a
+                real number: signed or unsigned integers, or floats.
+            no_data_value: The sentinel the result declares. Left out, it is the raster's
+                own, snapped to the new type — `-9999.9` into `float32` is declared as
+                `-9999.900390625`, the value its gap cells then hold. Pass one when the new
+                type cannot carry the raster's own at all, or `None` for a result that
+                declares none — which a gap-holding raster allows only into a float type.
+
+        Returns:
+            Dataset: A raster on this one's grid, in `dtype`.
+
+        Raises:
+            TypeError: `dtype` is not a real numeric type — a boolean, a complex number or a
+                string has no GDAL band type here.
+            ValueError: The sentinel is outside `dtype`'s range, or is a fraction where
+                `dtype` is an integer type — `-9999` into `uint8` would wrap to `241`, a
+                real value, and the gaps would become data; NaN has no integer at all. Or a
+                cell holding data lands on the sentinel once cast. Or the raster holds gaps,
+                the result would declare no sentinel, and `dtype` is an integer type, which
+                has no NaN to leave them as.
+
+        Examples:
+            - Floats cast to `int32`, the gap still a gap:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[1.7, -9999.0]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> cast = raster.astype("int32")
+              >>> cast.read_array().tolist(), cast.dtype
+              ([[1, -9999]], ['int32'])
+
+              ```
+            - A sentinel the new type cannot hold is refused, unless a new one is named:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[1.0, -9999.0]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> cast = raster.astype("uint8", no_data_value=255)
+              >>> cast.read_array().tolist(), float(cast.no_data_value[0])
+              ([[1, 255]], 255.0)
+
+              ```
+
+        See Also:
+            Dataset.clip: Bound the values first, so none falls outside the new type.
+            Dataset.round: Round first where the cast would otherwise truncate.
+        """
+        self._refuse_a_container("astype")
+        target = np.dtype(dtype)
+        if target.kind not in "iuf":
+            raise TypeError(
+                f"astype() needs a real numeric type GDAL can store — a signed or unsigned "
+                f"integer, or a float — and {target.name} is not one."
+            )
+        values, sentinels, domain = self._operand_arrays(self._ds, None)
+        bands = 1 if values.ndim == 2 else values.shape[0]
+        if no_data_value is _KEEP_NO_DATA:
+            marks = [sentinels[i] if i < len(sentinels) else None for i in range(bands)]
+        else:
+            marks = [no_data_value] * bands
+        for mark in marks:
+            if mark is not None and not _holds(target, mark):
+                raise ValueError(
+                    f"astype({target.name!r}) cannot mark a gap with {float(mark)}, which "
+                    f"{target.name} does not hold — cast, it would become an ordinary value "
+                    f"and every gap would read as data. Pass no_data_value= with one it "
+                    f"does hold."
+                )
+        # Snapped to the target before anything is written or declared, so the value the
+        # result declares is exactly the value its gap cells hold. A float sentinel loses
+        # precision here (`-9999.9` into float32 becomes `-9999.900390625`); what it must
+        # not do is land on a cell holding data, which is checked after the cast.
+        marks = [None if mark is None else float(target.type(mark)) for mark in marks]
+        markers = [
+            _gap_marker(mark, target, domain, band, bands)
+            for band, mark in enumerate(marks)
+        ]
+        # Filled, never `np.empty`: the cells outside the domain are not cast, so an
+        # uninitialised buffer would ship whatever the allocator held as data.
+        cast = np.empty(values.shape, dtype=target)
+        for band in range(bands):
+            plane = cast if values.ndim == 2 else cast[band]
+            plane[...] = markers[band]
+        cast[domain] = values[domain].astype(target)
+        _refuse_a_sentinel_the_data_holds(cast, domain, marks, target, bands)
+        return self._identified(self._rebuilt(cast, _declared_gaps(marks)))
+
+    def isin(self, test_elements: Any) -> Dataset:
+        """Flag the cells whose value is one of `test_elements`: `1` if so, `0` if not.
+
+        The flags come back as `uint8`, like :meth:`isnull`'s — GDAL has no boolean band —
+        and read as a condition for :meth:`where`. A gap is in no set, not even when the set
+        holds the gap's own sentinel: it is missing, not that value, as xarray flags a NaN
+        `False` whatever it is asked for.
+
+        Args:
+            test_elements: One value, or a sequence of them — a list, tuple, set or array.
+
+        Returns:
+            Dataset: A `uint8` raster on this one's grid, declaring no no-data value.
+
+        Examples:
+            - Flag the cells holding 2 or 5:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[1.0, 2.0, 5.0, -9999.0]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> raster.isin([2.0, 5.0]).read_array().tolist()
+              [[0, 1, 1, 0]]
+
+              ```
+            - The flags read as a condition for `where`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.base.georeference import GeoReference
+              >>> from pyramids.dataset import Dataset
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
+              >>> raster = Dataset.from_array(
+              ...     np.array([[1.0, 2.0, 5.0]]), geo_ref=geo_ref, no_data_value=-9999.0
+              ... )
+              >>> raster.where(raster.isin([2.0, 5.0])).read_array().tolist()
+              [[-9999.0, 2.0, 5.0]]
+
+              ```
+
+        See Also:
+            Dataset.where: Keep the cells the flags select.
+            Dataset.isnull: The same `uint8` flags, for the gaps.
+        """
+        self._refuse_a_container("isin")
+        values, _, domain = self._operand_arrays(self._ds, None)
+        # A `set` survives `np.asarray` as a 0-d object array holding the set itself, so
+        # every comparison is False and the flags come back all zero — which reads as a
+        # `where` condition that blanks the raster. Spelled as a list, it compares.
+        wanted = (
+            list(test_elements)
+            if isinstance(test_elements, (set, frozenset))
+            else test_elements
+        )
+        flags = np.isin(values, np.asarray(wanted)) & domain
+        return self._identified(self._rebuilt(flags.astype("uint8"), None))
 
     def _refuse_a_container(self, caller: str) -> None:
         """Refuse a `NetCDF` container by name, since it has no raster of its own.
