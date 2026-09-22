@@ -104,6 +104,33 @@ class TestClip:
         raster = _raster(CELLS.astype("float32"))
         assert np.asarray(raster.clip(2.0, 6.0).read_array()).dtype == np.float32
 
+    def test_numpy_scalar_bounds_keep_the_band_type(self):
+        """Percentiles and statistics arrive as numpy scalars, and must not widen the band.
+
+        Test scenario:
+            `np.clip` promotes under NEP 50 when a bound is a `numpy.float64`, so a
+            `float32` band came back `float64` and a `uint8` band `int64` — a GDAL Int64
+            band written from a byte raster. `where` casts its result back for exactly
+            this reason; `clip` computed the same type and then dropped it.
+        """
+        floats = Dataset.from_array(
+            np.array([[1.0, 5.0, 9.0]], dtype="float32"), geo_ref=GEO, no_data_value=NDV
+        )
+        bytes_ = Dataset.from_array(
+            np.array([[1, 5, 9]], dtype="uint8"), geo_ref=GEO, no_data_value=None
+        )
+        assert floats.clip(np.float64(2.0), np.float64(6.0)).dtype == ["float32"]
+        assert bytes_.clip(np.int64(2), np.int64(6)).dtype == ["uint8"]
+
+    def test_a_bound_the_band_cannot_hold_still_widens_it(self):
+        """The widening judgement itself is unchanged: a `uint8` band bounded at 300."""
+        bytes_ = Dataset.from_array(
+            np.array([[1, 5, 9]], dtype="uint8"), geo_ref=GEO, no_data_value=None
+        )
+        widened = bytes_.clip(min=300.0)
+        assert widened.dtype != ["uint8"], f"300 does not fit uint8, got {widened.dtype}"
+        assert np.asarray(widened.read_array()).ravel().tolist() == [300.0, 300.0, 300.0]
+
     def test_no_bound_is_refused(self):
         """Clipping to nothing is a caller's mistake."""
         raster = _raster()

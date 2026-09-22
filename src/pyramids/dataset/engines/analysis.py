@@ -2805,7 +2805,13 @@ class Analysis(_Engine["Dataset"]):
         for bound in (lower, upper):
             if bound is not None:
                 dtype = np.promote_types(dtype, _mask_dtype(values.dtype, bound))
-        clipped = np.clip(values.astype(dtype, copy=False), lower, upper)
+        # Cast back after clipping, not only before it: a bound that arrives as a numpy
+        # scalar — every percentile, mean or quantile does — promotes the result under NEP
+        # 50, so a float32 band came back float64 and a uint8 band int64. `where` casts its
+        # own output for the same reason.
+        clipped = np.clip(values.astype(dtype, copy=False), lower, upper).astype(
+            dtype, copy=False
+        )
         return self._identified(
             self._rebuilt(_regapped(clipped, domain, declared), declared)
         )
