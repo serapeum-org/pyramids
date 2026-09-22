@@ -83,6 +83,7 @@ def concat(objs: Any, dim: str) -> NetCDF:
         values, sentinel = _joined_values(cubes, parts, axis)
         values_map = dict(parts[0]._band_dim_values_map)
         values_map[dim] = _joined_coordinates(parts, dim)
+        carried = _carried_time_attrs(parts, band_names)
         result = first._stack_reduced_variable(
             result,
             name,
@@ -93,13 +94,13 @@ def concat(objs: Any, dim: str) -> NetCDF:
             band_names,
             values_map,
             # The parts share a grid — `_check_other_dimensions` refuses them otherwise —
-            # so the first one's axis names describe the join. Its CF units do not: parts
-            # that disagree about the calendar leave the axis bare rather than adopt one
-            # part's, which is what the carry below decides.
+            # so the first one's axis names describe the join. Its CF units do not: a
+            # dimension the parts disagree about is left out of `carried`, so the store
+            # records what they agree on and nothing more.
             source=parts[0],
-            carry_time_attrs=False,
+            time_attrs=carried,
         )
-        time_attrs.update(_carried_time_attrs(parts, band_names))
+        time_attrs.update(carried)
     cast("NetCDF", result)._band_dim_time_attrs = time_attrs
     return cast("NetCDF", result)
 
@@ -238,10 +239,14 @@ def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
                 copies[name] = []
                 order.append(name)
             copies[name].append((cube, _variable_of(cube, name)))
+    # Settled before the first variable is built, not accumulated as they are: the store's
+    # dimensions are created with that first variable, so a consensus reached afterwards
+    # would never reach the file.
+    time_attrs = _agreed_time_attrs(copies, order)
     result = None
-    time_attrs: dict = {}
     for name in order:
         part = copies[name][0][1]
+        band_names = list(part._band_dim_names)
         result = cubes[0]._stack_reduced_variable(
             result,
             name,
@@ -249,20 +254,39 @@ def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
             part.geotransform,
             crs_spec(part.epsg, part.crs),
             _read_no_data(part),
-            list(part._band_dim_names),
+            band_names,
             dict(part._band_dim_values_map),
             source=part,
-            carry_time_attrs=False,
+            time_attrs={
+                dim: attrs for dim, attrs in time_attrs.items() if dim in band_names
+            },
         )
-        carried = _carried_time_attrs([part], list(part._band_dim_names))
-        for dim, attrs in carried.items():
-            # Two variables sharing a dimension and declaring it differently leave it
-            # undecodable rather than stamped with whichever was processed last.
-            time_attrs[dim] = attrs if time_attrs.get(dim, attrs) == attrs else None
-    cast("NetCDF", result)._band_dim_time_attrs = {
-        dim: attrs for dim, attrs in time_attrs.items() if attrs is not None
-    }
+    cast("NetCDF", result)._band_dim_time_attrs = time_attrs
     return cast("NetCDF", result)
+
+
+def _agreed_time_attrs(
+    copies: dict[str, list[tuple[NetCDF, NetCDF]]], order: list[str]
+) -> dict:
+    """The CF `(units, calendar)` every variable of a merge declares the same way.
+
+    Args:
+        copies: The `(cube, variable)` pairs per variable name.
+        order: The variable names, in the order `merge` builds them.
+
+    Returns:
+        dict: The units per dimension, less any dimension two variables describe
+        differently — that one is left undecodable rather than stamped with whichever
+        variable happened to be processed last.
+    """
+    agreed: dict = {}
+    for name in order:
+        part = copies[name][0][1]
+        for dim, attrs in _carried_time_attrs(
+            [part], list(part._band_dim_names)
+        ).items():
+            agreed[dim] = attrs if agreed.get(dim, attrs) == attrs else None
+    return {dim: attrs for dim, attrs in agreed.items() if attrs is not None}
 
 
 def _checked(objs: Any, caller: str) -> list[NetCDF]:

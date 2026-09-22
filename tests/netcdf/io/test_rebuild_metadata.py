@@ -25,7 +25,7 @@ from osgeo import gdal
 
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import ExtraDimensions, NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -603,3 +603,166 @@ class TestResolvingASpatialDimension:
         wanted = container.get_dimension_values("longitude")
         resolved = self._resolve(container, "y", wanted, gdal.DIM_TYPE_HORIZONTAL_Y)
         assert resolved.GetName() != "longitude", "the X axis was borrowed for Y"
+
+
+class TestAJoinKeepsTheAgreedCalendar:
+    """`concat` and `merge` write the units their parts agree on, and only those."""
+
+    @staticmethod
+    def _cube(values: list[float], stamps: list[float], units, name: str = "t") -> NetCDF:
+        """A one-cell cube whose `time` declares `units`, or nothing.
+
+        Args:
+            values: One cell value per step.
+            stamps: The `time` coordinates.
+            units: The `(units, calendar)` pair to declare, or `None` for none.
+            name: The variable's name.
+
+        Returns:
+            NetCDF: The cube.
+        """
+        cube = NetCDF.from_array(
+            np.array(values).reshape(len(values), 1, 1),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name=name,
+            dims=ExtraDimensions(name="time", values=stamps),
+        )
+        if units is not None:
+            cube.get_variable(name)._band_dim_time_attrs = {"time": units}
+            cube._band_dim_time_attrs = {"time": units}
+        return cube
+
+    def test_concat_writes_the_shared_units(self, tmp_path):
+        """A join of two parts declaring the same calendar keeps it through `to_file`.
+
+        Test scenario:
+            Both halves declare `hours since 2020-01-01`, so the joined axis is in those
+            units; before the fix the store was written bare and the calendar died at the
+            write, exactly the way #1179 describes for a `coarsen`.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        units = ("hours since 2020-01-01", CALENDAR)
+        joined = NetCDF.concat(
+            [
+                self._cube([1.0, 2.0], [0.0, 6.0], units),
+                self._cube([3.0, 4.0], [12.0, 18.0], units),
+            ],
+            "time",
+        )
+        out = tmp_path / "concat.nc"
+        joined.to_file(str(out))
+        assert _time_attrs(NetCDF.read_file(str(out))) == units
+
+    def test_concat_writes_nothing_when_the_parts_disagree(self, tmp_path):
+        """Parts declaring different calendars leave the written axis bare.
+
+        Test scenario:
+            One part counts hours since 2020, the other days since 1990. Stamping either
+            calendar on the join would misread the other's values, so the store says
+            nothing — the same policy `_label_combined` applies in memory.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        joined = NetCDF.concat(
+            [
+                self._cube([1.0, 2.0], [0.0, 6.0], ("hours since 2020-01-01", CALENDAR)),
+                self._cube([3.0, 4.0], [12.0, 18.0], ("days since 1990-01-01", CALENDAR)),
+            ],
+            "time",
+        )
+        out = tmp_path / "concat.nc"
+        joined.to_file(str(out))
+        assert _time_attrs(NetCDF.read_file(str(out))) == ()
+
+    def test_merge_writes_the_shared_units(self, tmp_path):
+        """Two variables agreeing about `time` put those units on the merged store.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        units = ("hours since 2020-01-01", CALENDAR)
+        merged = NetCDF.merge(
+            [
+                self._cube([1.0, 2.0], [0.0, 6.0], units, name="a"),
+                self._cube([3.0, 4.0], [0.0, 6.0], units, name="b"),
+            ]
+        )
+        out = tmp_path / "merge.nc"
+        merged.to_file(str(out))
+        assert _time_attrs(NetCDF.read_file(str(out))) == units
+
+    def test_merge_writes_nothing_when_two_variables_disagree(self, tmp_path):
+        """A dimension two variables describe differently is written bare.
+
+        Test scenario:
+            The consensus is reached before the first variable is built, so a
+            disagreement declared by the *second* variable still keeps the units off the
+            store — the dimensions are created once, with the first.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        merged = NetCDF.merge(
+            [
+                self._cube(
+                    [1.0, 2.0], [0.0, 6.0], ("hours since 2020-01-01", CALENDAR), name="a"
+                ),
+                self._cube(
+                    [3.0, 4.0], [0.0, 6.0], ("days since 1990-01-01", CALENDAR), name="b"
+                ),
+            ]
+        )
+        out = tmp_path / "merge.nc"
+        merged.to_file(str(out))
+        assert _time_attrs(NetCDF.read_file(str(out))) == ()
+
+
+class TestAnUnlabelledAxisIsNotStamped:
+    """CF units belong to coordinates the caller gave, never to fabricated positions."""
+
+    @staticmethod
+    def _written(values, tmp_path) -> NetCDF:
+        """A store built with `values` for `time` and CF units asked for regardless.
+
+        Args:
+            values: The `time` coordinates, or `None` to leave them unlabelled.
+            tmp_path: pytest's temporary directory.
+
+        Returns:
+            NetCDF: The store, read back from disk.
+        """
+        built = NetCDF.from_array(
+            np.arange(24.0).reshape(3, 2, 4),
+            geo_ref=GeoReference(geo=(10.0, 2.0, 0.0, 50.0, 0.0, -2.0), epsg=4326),
+            variable_name="t",
+            dims=ExtraDimensions(
+                dims=[("time", values)],
+                attrs={"time": {"units": UNITS, "calendar": CALENDAR}},
+            ),
+        )
+        out = tmp_path / f"{'labelled' if values else 'bare'}.nc"
+        built.to_file(str(out))
+        return NetCDF.read_file(str(out))
+
+    def test_supplied_coordinates_are_stamped(self, tmp_path):
+        """The units describe the values, so they are written.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        assert _time_attrs(self._written([0.0, 6.0, 12.0], tmp_path)) == (UNITS, CALENDAR)
+
+    def test_fabricated_positions_are_not(self, tmp_path):
+        """`None` values become `[0, 1, 2]`, which are positions, not hours since 1900.
+
+        Test scenario:
+            Stamping them would make step 0 decode as 1900-01-01 on every later read —
+            inventing a calendar for an axis that has none.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        assert _time_attrs(self._written(None, tmp_path)) == ()

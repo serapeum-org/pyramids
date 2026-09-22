@@ -8054,9 +8054,26 @@ class NetCDF(Dataset):
             names = _interop._public_spatial_names(source)
         except (AttributeError, IndexError, TypeError):
             names = None
+        return names, NetCDF._cf_axis_attributes(
+            source._resolved_band_dim_time_attrs()
+        )
+
+    @staticmethod
+    def _cf_axis_attributes(time_attrs: dict | None) -> dict | None:
+        """The `(units, calendar)` pairs as the attributes `from_array` writes.
+
+        Args:
+            time_attrs: `(units, calendar)` per dimension, as
+                `_resolved_band_dim_time_attrs` reports them. Either half may be
+                empty, and a dimension declaring neither is left out.
+
+        Returns:
+            dict | None: `{dim: {"units": …, "calendar": …}}`, or `None` when no
+            dimension declares anything — which is what `ExtraDimensions.attrs`
+            takes to mean "write no CF attributes".
+        """
         carried = {}
-        for dim, pair in (source._resolved_band_dim_time_attrs() or {}).items():
-            units, calendar = pair
+        for dim, (units, calendar) in (time_attrs or {}).items():
             written = {}
             if units:
                 written["units"] = units
@@ -8064,7 +8081,7 @@ class NetCDF(Dataset):
                 written["calendar"] = calendar
             if written:
                 carried[dim] = written
-        return names, (carried or None)
+        return carried or None
 
     def _stack_reduced_variable(
         self,
@@ -8077,7 +8094,7 @@ class NetCDF(Dataset):
         band_names,
         values_map,
         source=None,
-        carry_time_attrs=True,
+        time_attrs=None,
     ):
         """Add a reduced variable into the result container, building it lazily.
 
@@ -8093,11 +8110,12 @@ class NetCDF(Dataset):
             source: The variable this one is derived from, whose axis names and CF time
                 attributes the rebuilt store should carry (#1179, #1180). `None` keeps the
                 `y` / `x` naming and writes no CF attributes.
-            carry_time_attrs: Whether the source's `(units, calendar)` describe the result.
-                `concat` and `merge` pass `False`: a join whose parts disagree about the
-                calendar must leave the axis bare rather than adopt one part's, which is
-                the policy `_label_combined` follows and
-                `test_disagreeing_units_are_dropped_rather_than_guessed` pins.
+            time_attrs: The `(units, calendar)` per dimension to write, overriding the
+                source's. `None` (default) writes the source's. `concat` and `merge` pass
+                the consensus they computed across every part, which is empty for a
+                dimension the parts disagree about — adopting one part's calendar for all
+                of them is the misreading `_label_combined`'s policy and
+                `test_disagreeing_units_are_dropped_rather_than_guessed` forbid.
 
         Returns:
             NetCDF: The container, built on the first call and added to afterwards.
@@ -8115,8 +8133,8 @@ class NetCDF(Dataset):
         # (tests/netcdf/selection/test_weighted_edges.py).
         if spatial_names is not None and not NetCDF._same_grid(source, arr, geo):
             spatial_names = None
-        if not carry_time_attrs:
-            dim_attrs = None
+        if time_attrs is not None:
+            dim_attrs = NetCDF._cf_axis_attributes(time_attrs)
         if result is None:
             result = NetCDF.from_array(
                 arr,

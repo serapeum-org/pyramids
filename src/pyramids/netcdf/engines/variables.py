@@ -935,10 +935,39 @@ def from_array(
         compression_level=encoding.compression_level,
         cf_attrs=cf_attrs,
         spatial_names=spatial_names,
-        dim_attrs=dims.attrs,
+        dim_attrs=_coordinate_attrs(dims),
     )
     result = Container(dst_ds)
 
+    return result
+
+
+def _coordinate_attrs(dims: ExtraDimensions) -> dict[str, dict[str, str]] | None:
+    """The CF attributes of `dims`, less any axis that was given no coordinate values.
+
+    An axis handed in as `None` is filled with `[0, 1, ..., size - 1]`, which are
+    positions, not measurements. Writing `units = "hours since 1900-01-01"` over them
+    does not describe the axis — it invents timestamps for it, and every later read
+    decodes step 0 as 1900-01-01 rather than as the unlabelled position it is. Only an
+    axis whose values the caller supplied can be said to be in those units.
+
+    Args:
+        dims: The dimensions as the caller described them, before `_resolve_extra_dims`
+            fills the missing coordinates in.
+
+    Returns:
+        dict | None: The attributes to write, or `None` when none survive.
+    """
+    if not dims.attrs:
+        result = None
+    else:
+        if dims.dims is not None:
+            labelled = {name for name, values in dims.dims if values is not None}
+        else:
+            labelled = {dims.name} if dims.values is not None else set()
+        result = {
+            name: attrs for name, attrs in dims.attrs.items() if name in labelled
+        } or None
     return result
 
 
