@@ -160,7 +160,7 @@ Amazon Linux 2023 with a ~30 MB wheel (vs ~47 MB under conda-extract).
 | Gap                               | Issue | Status                 | Notes                                                           |
 |-----------------------------------|-------|------------------------|-----------------------------------------------------------------|
 | Lower glibc floor (< 2.39)        | #332  | **shipped**            | from-source `manylinux_2_28` wheels (this pipeline)             |
-| musllinux (Alpine)                | #333  | **built, unpublished** | self-contained (vendors vector stack); held on the PyPI-storage decision |
+| musllinux (Alpine)                | #333  | **built, unpublished** | self-contained (vendors stack); storage hold |
 | Windows ARM64                     | #334  | **shipped**            | vcpkg build; vector stack vendored |
 | Python 3.15+                      | #335  | pending upstream       | ships when CPython 3.15 + ecosystem land; one-line `build` bump |
 | Free-threaded (`cp313t`/`cp314t`) | #683  | pending upstream       | GDAL SWIG bindings + numpy first; revisit at 3.15               |
