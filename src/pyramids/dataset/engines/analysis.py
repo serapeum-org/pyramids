@@ -285,17 +285,23 @@ def _refuse_a_sentinel_the_data_holds(
 def _holds(target: np.dtype, value: Any) -> bool:
     """Whether `target` holds `value` exactly, so it can mark a gap.
 
+    Exactly, not approximately: a gap is recognised by comparing a cell against the
+    declared sentinel, so a value the type rounds to something else marks the cells that
+    hold *that* value instead. `1e-50` is inside `float32`'s range and stores as `0.0`,
+    which is ordinary data; `-9999.0` is inside `float16`'s range and stores as
+    `-10000.0`.
+
     Args:
         target: The band type.
         value: The candidate sentinel.
 
     Returns:
-        bool: `True` for a float type and any value within its range, NaN and the
+        bool: `True` for a float type and any value it represents exactly, NaN and the
         infinities included; for an integer type, only a whole number inside its range.
     """
     number = float(value)
     if np.issubdtype(target, np.floating):
-        fits = not np.isfinite(number) or abs(number) <= float(np.finfo(target).max)
+        fits = not np.isfinite(number) or float(target.type(number)) == number
     else:
         limits = np.iinfo(target)
         fits = (

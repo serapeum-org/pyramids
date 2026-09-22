@@ -641,6 +641,38 @@ class TestClipRefusesANonNumberBound:
         )
 
 
+class TestASentinelAFloatCannotRepresentExactly:
+    """A gap is marked by an exact value, so a sentinel that drifts marks the wrong cells.
+
+    `_holds` asked only whether a value was inside the type's range, so a sentinel the type
+    rounds to something else was accepted and quietly changed — and the value it landed on
+    then read as missing.
+    """
+
+    def test_a_sentinel_that_rounds_to_another_value_is_refused(self):
+        """`1e-50` is inside float32's range but rounds to `0.0`, which is real data here."""
+        raster = _raster(np.array([[0.0, 1e-50, 2.0]]), no_data_value=1e-50)
+        with pytest.raises(ValueError, match="no_data_value"):
+            raster.astype("float32")
+
+    def test_float16_refuses_the_default_sentinel(self):
+        """`-9999` is inside float16's range but stores as `-10000.0`.
+
+        Test scenario:
+            The cast used to declare `-10000.0` as the gap marker, so a real `-10000.0`
+            read as missing while the cells marked `-9999` no longer did.
+        """
+        raster = _raster()
+        with pytest.raises(ValueError, match="no_data_value"):
+            raster.astype("float16")
+
+    def test_an_exactly_representable_sentinel_still_passes(self):
+        """`-9999` is exact in float32, and that cast is unaffected."""
+        cast = _raster().astype("float32")
+        assert float(cast.no_data_value[0]) == NDV
+        assert np.asarray(cast.isnull().read_array()).sum() == 1
+
+
 class TestAstypeIntoAFloat:
     """A float target holds any finite sentinel in its range, NaN included."""
 
@@ -683,6 +715,11 @@ class TestHolds:
             ("float32", np.inf, True),
             ("float16", -99999.0, False),
             ("float16", 65504.0, True),
+            ("float16", -9999.0, False),
+            ("float32", 1e-50, False),
+            ("float32", 0.1, False),
+            ("float64", 0.1, True),
+            ("float32", -np.inf, True),
             ("uint8", 255, True),
             ("uint8", 256, False),
             ("uint8", -1, False),
@@ -693,8 +730,8 @@ class TestHolds:
         ],
     )
     def test_the_rule(self, dtype: str, value, expected: bool):
-        """A float holds anything in range and every non-finite value; an integer only a
-        whole number inside its range.
+        """A float holds a value it can represent **exactly** and every non-finite one; an
+        integer only a whole number inside its range.
 
         Args:
             dtype: The target type.
