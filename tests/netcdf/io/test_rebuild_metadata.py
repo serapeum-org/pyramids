@@ -766,3 +766,49 @@ class TestAnUnlabelledAxisIsNotStamped:
             tmp_path: pytest's temporary directory.
         """
         assert _time_attrs(self._written(None, tmp_path)) == ()
+
+
+class TestTheGridComparisonToleratesRecomputation:
+    """`_same_grid` decides whether the source's axis names still describe the result."""
+
+    @staticmethod
+    def _source():
+        """The fixture's first variable, and a zero array of its shape.
+
+        Returns:
+            tuple: The variable and the array.
+        """
+        store = _store()
+        var = store.get_variable(store.variable_names[0])
+        return var, np.zeros((var.rows, var.columns))
+
+    def test_the_source_transform_carries(self):
+        """The ordinary case: the very transform the source reports."""
+        var, arr = self._source()
+        assert NetCDF._same_grid(var, arr, tuple(var.geotransform))
+
+    def test_a_transform_a_float_ulp_away_still_carries(self):
+        """A grid re-derived rather than passed through must not lose its names.
+
+        Test scenario:
+            Every caller today hands back the memoised tuple, so exact equality holds by
+            accident. One that recomputes the same grid — from the coordinate values, say
+            — lands an ulp away, and rejecting that is #1180 all over again.
+        """
+        var, arr = self._source()
+        geo = tuple(float(one) for one in var.geotransform)
+        nudged = tuple(float(np.nextafter(one, one + 1.0)) for one in geo)
+        assert nudged != geo, "the perturbation did not change the transform"
+        assert NetCDF._same_grid(var, arr, nudged)
+
+    def test_a_grid_one_cell_over_does_not(self):
+        """A real shift is a different grid, however small the tolerance."""
+        var, arr = self._source()
+        geo = tuple(float(one) for one in var.geotransform)
+        assert not NetCDF._same_grid(var, arr, (geo[0] + abs(geo[1]), *geo[1:]))
+
+    def test_a_different_shape_does_not(self):
+        """Half the rows is a different grid whatever the transform says."""
+        var, _ = self._source()
+        arr = np.zeros((var.rows // 2, var.columns))
+        assert not NetCDF._same_grid(var, arr, tuple(var.geotransform))

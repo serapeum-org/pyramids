@@ -12703,11 +12703,26 @@ class NetCDF(Dataset):
         Returns:
             bool: `True` when the shape and the transform are the source's, so the
             source's axis names describe the result as well.
+
+        Notes:
+            The transforms are compared at a tolerance scaled to the cell, not for
+            equality. Every caller today hands back the same memoised tuple it is
+            compared against, but one that re-derives an identical grid — from the
+            coordinate values, say — lands a float ulp away, and dropping the names over
+            that is #1180 again.
         """
         shaped = np.shape(arr)
-        if len(shaped) < 2 or (shaped[-2], shaped[-1]) != (source.rows, source.columns):
-            return False
-        return tuple(geo or ()) == tuple(source.geotransform or ())
+        mine = tuple(float(one) for one in geo or ())
+        theirs = tuple(float(one) for one in source.geotransform or ())
+        same = (
+            len(shaped) >= 2
+            and (shaped[-2], shaped[-1]) == (source.rows, source.columns)
+            and len(mine) == len(theirs)
+        )
+        if same and mine:
+            cell = max(abs(theirs[1]), abs(theirs[5]))
+            same = bool(np.allclose(mine, theirs, rtol=0.0, atol=cell * 1e-6))
+        return same
 
     @staticmethod
     def _spatial_dimension(
