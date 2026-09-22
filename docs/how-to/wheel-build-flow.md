@@ -30,11 +30,18 @@ release, plus 8 unpublished musl canary wheels:
 | (any)    | sdist                               | —                      | 1      |
 
 **Total published: 23 wheels + 1 sdist.** One **CI canary** family builds and
-verifies on every run but is deliberately **not published** because pip could
-not resolve pyramids-gis on those platforms yet:
+fully verifies on every run but is deliberately **not published** yet:
 
-- `build-musl-wheels`: `musllinux_1_2` x86_64 + aarch64 (cp311–cp314) — blocked
-  on upstream pyogrio musllinux wheels (#333; geopandas hard-requires pyogrio).
+- `build-musl-wheels`: `musllinux_1_2` x86_64 + aarch64 (cp311–cp314). pyogrio
+  ships no musllinux wheels (and geopandas hard-requires it), so — like the
+  win_arm64 wheel — each musl wheel **vendors the vector stack** (shapely +
+  pyogrio + geopandas) into `pyramids/_vendor/`, plus **`cftime`** (which ships
+  no musllinux-**aarch64** wheel), and drops those deps from the built wheel's
+  metadata (`ci/strip-vendored-deps-from-wheel.py`, since no PEP 508 marker
+  distinguishes musl from glibc). So `pip install pyramids-gis` resolves on
+  Alpine with **no external pyogrio/cftime** — `verify-alpine` proves it on both
+  arches. It stays a canary pending the publish decision (#333): ~8 more fat
+  wheels per release pushes the project toward PyPI's 10 GB storage cap.
 
 The `win_arm64` wheels (`build-winarm64-wheels`, cp312–cp314; numpy/scipy ship
 no cp311 arm64 wheels) are built from source via vcpkg. GDAL comes from the
@@ -125,7 +132,7 @@ the **conda-forge install path**:
 | OS / arch | Why no wheel | Recommended install path | Tracking |
 |---|---|---|---|
 | Linux glibc < 2.28 (RHEL 7, Ubuntu 18.04, …) | below the manylinux_2_28 image floor | conda-forge | intentional |
-| Alpine / musl Linux | built + verified in CI, unpublished (pyogrio has no musl wheels) | conda-forge | #333 |
+| Alpine / musl Linux | self-contained wheel built + verified in CI, unpublished (PyPI storage) | conda-forge | #333 |
 | Free-threaded CPython (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | use a GIL build | #683 |
 | Python 3.10 or earlier | excluded by `requires-python = ">= 3.11"` | upgrade Python, or pin `< 0.20` | intentional |
 | Python 3.15+ (future) | not yet released by CPython | conda-forge until wheels ship | #335 |
@@ -153,7 +160,7 @@ Amazon Linux 2023 with a ~30 MB wheel (vs ~47 MB under conda-extract).
 | Gap                               | Issue | Status                 | Notes                                                           |
 |-----------------------------------|-------|------------------------|-----------------------------------------------------------------|
 | Lower glibc floor (< 2.39)        | #332  | **shipped**            | from-source `manylinux_2_28` wheels (this pipeline)             |
-| musllinux (Alpine)                | #333  | **built, unpublished** | canaries green in CI; blocked on pyogrio musl wheels            |
+| musllinux (Alpine)                | #333  | **built, unpublished** | self-contained (vendors vector stack); held on the PyPI-storage decision |
 | Windows ARM64                     | #334  | **shipped**            | vcpkg build; vector stack vendored |
 | Python 3.15+                      | #335  | pending upstream       | ships when CPython 3.15 + ecosystem land; one-line `build` bump |
 | Free-threaded (`cp313t`/`cp314t`) | #683  | pending upstream       | GDAL SWIG bindings + numpy first; revisit at 3.15               |
@@ -224,9 +231,14 @@ Python C API ABI.
 │
 ├── build-musl-wheels (2 canary jobs: x86_64 + aarch64, musllinux_1_2 image)
 │   └── same before-all/config.sh flow with musl deltas (apk prereqs,
-│       no HAVE_PREAD64 for sqlite); repair --plat musllinux_1_2_<arch>;
-│       artifacts named canary-musl-<arch> so the release job can NEVER
-│       pick them up (see Publishing).
+│       no HAVE_PREAD64 for sqlite); before-build ALSO vendors the vector
+│       stack (shapely + pyogrio + geopandas) + cftime into _vendor/ like
+│       win_arm64 (cftime has no musllinux-aarch64 wheel); repair --plat
+│       musllinux_1_2_<arch>; then ci/strip-vendored-deps-from-wheel.py drops
+│       geopandas/Shapely/cftime from the wheel metadata (no PEP 508 marker
+│       distinguishes musl from glibc), so the wheel is self-contained;
+│       artifacts named canary-musl-<arch> so the release job can NEVER pick
+│       them up (see Publishing).
 │
 ├── build-macos-wheels (2 jobs in matrix: arm64 + x86_64, both on macos-14)
 │   ├── CIBW_BEFORE_ALL: ci/setup-gdal-from-pixi.sh (conda-extract)
@@ -277,7 +289,8 @@ Python C API ABI.
 │       ├── For each Python: same vendor + build steps, PLUS
 │       │   install-and-vendor-osgeo.py vendors the vector stack
 │       │   (shapely + geopandas + pyogrio, hash-pinned, built from
-│       │   sdist) into src/pyramids/_vendor/ — win_arm64 only
+│       │   sdist) into src/pyramids/_vendor/ — win_arm64 and the musl
+│       │   canary (the two platforms with no upstream vector wheels)
 │       └── CIBW_REPAIR_WHEEL_COMMAND: one delvewheel repair
 │           --analyze-existing pass owns ALL DLLs, including the
 │           vendored .pyds' GEOS/GDAL imports (one shared copy)
@@ -285,10 +298,13 @@ Python C API ABI.
 │
 ├── verify-debian12 / verify-rocky9 (full hermetic suite on glibc 2.36 / 2.34
 │   containers — distros the old 2_39 wheel could never install on) and
-│   verify-alpine (full core suite for the musl canary — vector I/O via a
-│   canary-built pyogrio musl wheel, since PyPI has none). All three
-│   run with --security-opt seccomp=unconfined (the netCDF driver needs
-│   userfaultfd for /vsizip reads — see docs/troubleshooting.md).
+│   verify-alpine (2 cells: x86_64 + aarch64, native — checkout on the glibc
+│   host, then install + verify inside python:3.12-alpine via `docker run`,
+│   since JS actions can't run in an arm64 musl container). Installs ONLY the
+│   self-contained wheel (--only-binary=:all:, no external pyogrio) and runs
+│   the full core suite. All run with --security-opt seccomp=unconfined (the
+│   netCDF driver needs userfaultfd for /vsizip reads — see
+│   docs/troubleshooting.md).
 │
 ├── verify-winarm64 (3 cells: 3.12/3.13/3.14 on windows-11-arm) —
 │   plain `pip install <wheel>` (markers resolving, the real user
