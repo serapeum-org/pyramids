@@ -552,6 +552,36 @@ class TestSqueeze:
         """Only length-one dimensions are dropped."""
         assert _variable().squeeze()._band_dim_names == ("time",)
 
+    def test_a_no_op_squeeze_keeps_the_lazy_read(self):
+        """Dropping nothing must not cost a copy of the cube, nor its lazy read.
+
+        Test scenario:
+            `squeeze()` with no length-one dimension read and rebuilt every band, and the
+            rebuild marked the result as in-memory, so `read_array(chunks=)` then refused
+            a variable nothing had changed. xarray's squeeze is a free view here.
+        """
+        cube = NetCDF.read_file(str(CF_STORE))["temperature"]
+        squeezed = cube.squeeze()
+        assert squeezed._band_dim_names == cube._band_dim_names
+        assert squeezed._band_dim_sizes == cube._band_dim_sizes
+        assert np.asarray(squeezed.read_array(chunks="auto")).shape == (4, 3, 5, 6)
+        assert np.array_equal(
+            np.asarray(squeezed.read_array()), np.asarray(cube.read_array())
+        )
+
+    def test_a_no_op_squeeze_is_not_the_receiver(self):
+        """It is a fresh wrapper, not the engine's proxy to the dataset."""
+        cube = NetCDF.read_file(str(CF_STORE))["temperature"]
+        assert cube.squeeze() is not cube
+
+    def test_a_squeeze_that_drops_something_still_rebuilds(self):
+        """The cheap path is only for the no-op; a real squeeze changes the layout."""
+        cube = NetCDF.read_file(str(CF_STORE))["temperature"]
+        squeezed = cube.isel(time=[0]).squeeze()
+        assert squeezed._band_dim_names == ("pressure_level",)
+        with pytest.raises(ValueError, match="rebuilt in memory"):
+            squeezed.read_array(chunks="auto")
+
     def test_naming_a_longer_dimension_is_refused(self):
         """xarray refuses to squeeze a dimension longer than one, and so does this."""
         variable = _variable()

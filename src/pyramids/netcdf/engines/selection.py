@@ -1828,6 +1828,11 @@ class Selection(_Engine["NetCDF"]):
             gone = {dim}
         else:
             gone = {name for name, size in zip(names, sizes) if size == 1}
+        if not gone:
+            # Nothing to drop: reading and rebuilding every band would copy the whole cube
+            # for a call that changes nothing, and would mark the result as rebuilt in
+            # memory, forfeiting its lazy read. xarray's squeeze is a free view here.
+            return _rewrapped(nc)
         values_map = {
             name: stamps
             for name, stamps in nc._band_dim_values_map.items()
@@ -5236,6 +5241,31 @@ def _coordinates_of(nc: NetCDF, dim_name: str, caller: str) -> list:
             f"{caller}() reads {dim_name!r}'s coordinate values, and it has none."
         )
     return list(coords)
+
+
+def _rewrapped(nc: NetCDF) -> NetCDF:
+    """`nc` under its own layout again, without reading a single band.
+
+    The answer to a squeeze that drops nothing. It is not `nc` itself — inside an engine
+    that is a `weakref.proxy` to the dataset, which dies with the object it proxies — but a
+    fresh wrapper over the **same** raster, so no cells are copied and the result still
+    reads as whatever `nc` reads as: a store variable keeps its lazy read, and a variable
+    already rebuilt in memory stays rebuilt.
+
+    Args:
+        nc: The variable.
+
+    Returns:
+        NetCDF: A wrapper carrying `nc`'s layout and metadata.
+    """
+    # Local import breaks the netcdf.py <-> engines.selection cycle, as `subset` does.
+    from pyramids.netcdf.netcdf import Variable
+
+    shared = Variable(nc._raster, access=nc._access, open_as_multi_dimensional=False)
+    result = nc._preserve_netcdf_metadata(shared)
+    result._rebuilt_in_memory = nc._rebuilt_in_memory
+    result._store_raster = getattr(nc, "_store_raster", None)
+    return result
 
 
 def _relabelled(nc: NetCDF, names: tuple, sizes: tuple, values_map: dict) -> NetCDF:
