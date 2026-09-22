@@ -7183,6 +7183,13 @@ class NetCDF(Dataset):
                 # First variable: build the container. `ExtraDimensions(dims=None)` falls back to
                 # the default single "time" axis, so both the band-dim and no-band-dim cases share
                 # this one call.
+                # Deliberately not carrying the source's spatial names or its CF axis
+                # attributes here: this arm reprojects, crops and resamples, so the
+                # result's grid is not the source's. A carried `lat` / `lon` pair is read
+                # by `_compute_geotransform` in preference to the stored transform, which
+                # made a reprojected result report the source grid — and the streamed arm
+                # cannot carry them at all, so the two arms agree by carrying neither
+                # (tests/netcdf/structure/test_fan_out_arms_agree.py).
                 result = NetCDF.from_array(
                     var_arr,
                     geo_ref=GeoReference(
@@ -7998,22 +8005,90 @@ class NetCDF(Dataset):
                 result = test(arr != 0, axis=axis).astype(np.uint8)
         return result
 
+    @staticmethod
+    def _carried_axis_metadata(source: NetCDF | None) -> tuple:
+        """What a rebuilt store should say about its axes, taken from the source.
+
+        Two things a rebuild used to invent rather than carry:
+
+        - the **spatial names**. `from_array` names its grid `y` / `x`, so a source on
+          `latitude` / `longitude` came back renamed, in memory and on the written file
+          (#1180). `interop._public_spatial_names` recovers the store's own names
+          positionally, and falls back to `y` / `x` for a variable with no parent — so an
+          in-memory build is unchanged.
+        - the **CF time attributes**. The result carries `(units, calendar)` on the Python
+          object, and the store it is written into never had them, so `to_file` had
+          nothing to copy and the calendar died at the write (#1179).
+
+        Args:
+            source: The variable the result is derived from, or `None` when there is none.
+
+        Returns:
+            tuple: `(spatial_names, dim_attrs)`, either of which is `None` when the source
+            says nothing about it.
+        """
+        if source is None:
+            return None, None
+        try:
+            names = _interop._public_spatial_names(source)
+        except (AttributeError, IndexError, TypeError):
+            names = None
+        carried = {}
+        for dim, pair in (source._resolved_band_dim_time_attrs() or {}).items():
+            units, calendar = pair
+            written = {}
+            if units:
+                written["units"] = units
+            if calendar:
+                written["calendar"] = calendar
+            if written:
+                carried[dim] = written
+        return names, (carried or None)
+
     def _stack_reduced_variable(
-        self, result, var_name, arr, geo, epsg, ndv, band_names, values_map
+        self,
+        result,
+        var_name,
+        arr,
+        geo,
+        epsg,
+        ndv,
+        band_names,
+        values_map,
+        source=None,
     ):
-        """Add a reduced variable into the result container, building it lazily."""
+        """Add a reduced variable into the result container, building it lazily.
+
+        Args:
+            result: The container being built, or `None` for the first variable.
+            var_name: The variable's name.
+            arr: Its cells.
+            geo: The geotransform.
+            epsg: The CRS.
+            ndv: The no-data value.
+            band_names: The band dimension names.
+            values_map: Their coordinate values.
+            source: The variable this one is derived from, whose axis names and CF time
+                attributes the rebuilt store should carry (#1179, #1180). `None` keeps the
+                `y` / `x` naming and writes no CF attributes.
+
+        Returns:
+            NetCDF: The container, built on the first call and added to afterwards.
+        """
         extra = (
             [(name, values_map.get(name)) for name in band_names]
             if band_names
             else None
         )
+        spatial_names, dim_attrs = NetCDF._carried_axis_metadata(source)
         if result is None:
             result = NetCDF.from_array(
                 arr,
                 geo_ref=GeoReference(geo=geo, epsg=epsg),
                 no_data_value=ndv,
                 variable_name=var_name,
-                dims=ExtraDimensions(dims=extra),
+                dims=ExtraDimensions(dims=extra, attrs=dim_attrs),
+                spatial_names=spatial_names,
             )
         else:
             # A Dataset stores at most one (flattened) band axis, so collapse the
@@ -12143,6 +12218,7 @@ class NetCDF(Dataset):
         dims: ExtraDimensions | None = None,
         encoding: Encoding | None = None,
         attrs: CFAttributes | None = None,
+        spatial_names: tuple[str, str] | None = None,
     ) -> Container:
         """Build a :class:`Container` from a NumPy array.
 
@@ -12181,6 +12257,9 @@ class NetCDF(Dataset):
             encoding: On-disk write options (chunking, compression); effective
                 only with a `path`.
             attrs: CF global attributes.
+            spatial_names: `(row, column)` names for the two spatial dimensions.
+                `None` (default) names them `y` / `x`; a rebuild passes the source
+                store's own so a result keeps `latitude` / `longitude` (#1180).
 
         Returns:
             Container: The newly created store.
@@ -12254,6 +12333,7 @@ class NetCDF(Dataset):
             dims=dims,
             encoding=encoding,
             attrs=attrs,
+            spatial_names=spatial_names,
         )
 
     @staticmethod
@@ -12514,6 +12594,40 @@ class NetCDF(Dataset):
             if reused is not None
             else NetCDF.create_main_dimension(rg, dim_name, dtype, values)
         )
+
+    @staticmethod
+    def _spatial_dimension(
+        rg: gdal.Group,
+        preferred: str,
+        values: np.ndarray,
+        dtype,
+        dim_type,
+    ) -> gdal.Dimension:
+        """The store's own axis for these coordinates, or a new one named `preferred`.
+
+        A spatial dimension was resolved by **name**, always `"x"` or `"y"`, so writing a
+        variable into a store whose axes are `longitude` / `latitude` left it with two
+        pairs describing one grid and declared the new variable against the pair the store
+        did not have (#1194). An axis is identified here by what it holds — the same
+        coordinate values, in the same order — and by being the horizontal axis asked for,
+        so a grid that genuinely differs still gets its own.
+
+        Args:
+            rg: The root group.
+            preferred: The name to create under when the store has no such axis.
+            values: The coordinate values the caller is about to write.
+            dtype: The coordinate array's type.
+            dim_type: `gdal.DIM_TYPE_HORIZONTAL_X` or `..._Y`.
+
+        Returns:
+            gdal.Dimension: The reused or newly created dimension.
+        """
+        for existing in rg.GetDimensions() or []:
+            if existing.GetType() != dim_type:
+                continue
+            if NetCDF._dimension_holds(existing, values):
+                return existing
+        return NetCDF._get_or_create_dimension(rg, preferred, values, dtype, dim_type)
 
     @staticmethod
     def _dimension_holds(dimension: gdal.Dimension, values: np.ndarray) -> bool:

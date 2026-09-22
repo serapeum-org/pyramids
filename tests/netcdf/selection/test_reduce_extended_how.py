@@ -1663,13 +1663,20 @@ class TestGroupStamps:
         assert stamps == _era5_stamps([1, 2, 3], [0, 6, 12, 18]), stamps
 
     def test_a_rebuilt_container_decodes_its_stored_axis_with_the_carried_units(self):
-        """The ERA5 container coarsened by 2 decodes its window-mean stamps with the units it carries."""
+        """The ERA5 container coarsened by 2 decodes its window-mean stamps with its units.
+
+        Test scenario:
+            The rebuilt store used to declare no units of its own — decoding worked only
+            because the units were carried on the Python object, and they died at
+            `to_file` (#1179). The rebuild writes them onto the axis now, so the store
+            declares them and the stamps decode the same way either side of a write.
+        """
         container = NetCDF.read_file(str(ERA5_T2M))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             coarsened = container.coarsen("valid_time", 2)
-        assert coarsened.get_time_variable("valid_time") is None, (
-            "the rebuilt store should declare no units of its own"
+        assert coarsened.get_time_variable("valid_time") is not None, (
+            "the rebuilt store should declare the units it carries"
         )
         stamps = coarsened._group_stamps("valid_time")
         assert stamps == _era5_stamps([1, 2, 3], [3, 15]), stamps

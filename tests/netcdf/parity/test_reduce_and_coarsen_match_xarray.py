@@ -36,6 +36,7 @@ import numpy as np
 import pytest
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+from pyramids.netcdf.engines.interop import _public_spatial_names
 from tests.netcdf.parity._catalogue import open_fixture
 from tests.netcdf.parity._harness import ParityView, assert_parity, from_pyramids
 
@@ -58,23 +59,29 @@ def exported(container):
 
 
 def _pyramids_side(result) -> ParityView:
-    """The pyramids side of a reduced container, with its spatial axes named as the source's.
+    """The pyramids side of a reduced container, read under the axis names it carries.
+
+    The relabelling this used to do — `y` / `x` renamed to `lat` / `lon` — was covering for
+    #1180: a rebuild named its grid `y` / `x` whatever the source called it. The result now
+    carries the source's own names, so the axes are read under them.
 
     Args:
         result: The container `reduce` or `coarsen` returned.
 
     Returns:
-        ParityView: The pyramids side, its `y` / `x` axes relabelled `lat` / `lon` and
-        carrying the result's own coordinate values under those names.
+        ParityView: The pyramids side, carrying the result's coordinate values under the
+        result's own axis names.
     """
-    band_dims = tuple(result.get_variable(VARIABLE)._band_dim_names)
+    variable = result.get_variable(VARIABLE)
+    band_dims = tuple(variable._band_dim_names)
+    row, column = _public_spatial_names(variable)
     return from_pyramids(
         result,
         VARIABLE,
-        dims_override=(*band_dims, "lat", "lon"),
+        dims_override=(*band_dims, row, column),
         coords_override={
-            "lat": result.get_dimension_values("y"),
-            "lon": result.get_dimension_values("x"),
+            row: result.get_dimension_values(row),
+            column: result.get_dimension_values(column),
         },
     )
 

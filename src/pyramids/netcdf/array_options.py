@@ -40,6 +40,14 @@ class ExtraDimensions:
             `"depth"`). Ignored for 2-D arrays. Defaults to `"time"`.
         values: Coordinate values for that dimension; length must equal `arr.shape[0]`. `None`
             uses integer indices `[0, 1, ..., size - 1]`. Mutually exclusive with `dims`.
+        attrs: CF attributes to write onto a dimension's coordinate variable, keyed by dimension
+            name — `{"time": {"units": "hours since 1900-01-01", "calendar": "standard"}}`. A cube
+            computed in memory carries its own `(units, calendar)`; passing them here is what puts
+            them on the store, so the calendar survives `to_file` (#1179). `None` writes none.
+        attrs: CF attributes to write onto a dimension's coordinate variable, keyed by dimension
+            name — `{"time": {"units": "hours since 1900-01-01", "calendar": "standard"}}`. A cube
+            computed in memory carries its own `(units, calendar)`; passing them here is what puts
+            them on the store, so the calendar survives `to_file` (#1179). `None` writes none.
         dims: Ordered list of `(dim_name, values)` pairs describing every non-spatial dimension of
             a 4-D+ array, in storage order. `len(dims)` must equal `arr.ndim - 2`. Each `values`
             is a list of length `arr.shape[i]` or `None`. Mutually exclusive with `name` /
@@ -49,6 +57,7 @@ class ExtraDimensions:
     name: str = "time"
     values: list | None = None
     dims: list[tuple[str, list | None]] | None = None
+    attrs: dict[str, dict[str, str]] | None = None
 
 
 @dataclass(frozen=True)

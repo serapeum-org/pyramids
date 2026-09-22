@@ -203,11 +203,15 @@ class Variables(_Engine["NetCDF"]):
         # (abs(gt[5]) would write a descending axis below the extent).
         x_values = GeoTransform(*gt).x_axis(dataset.columns)
         y_values = GeoTransform(*gt).y_axis(dataset.rows)
-        dim_x = nc._get_or_create_dimension(
-            rg, "x", x_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_X
+        # By what the axis holds, not by what it is called: a store on `longitude` /
+        # `latitude` used to gain an `x` / `y` pair beside its own, describing the same
+        # grid, with the new variable declared against the pair the store never had
+        # (#1194).
+        dim_x = nc._spatial_dimension(
+            rg, _COLUMN_AXIS, x_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_X
         )
-        dim_y = nc._get_or_create_dimension(
-            rg, "y", y_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_Y
+        dim_y = nc._spatial_dimension(
+            rg, _ROW_AXIS, y_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_Y
         )
 
         md_arr = _build_variable_mdarray(
@@ -761,6 +765,13 @@ def _build_variable_mdarray(
     return md_arr
 
 
+_ROW_AXIS = "y"
+"""The row dimension's name when the caller names none — what an in-memory build gets."""
+
+_COLUMN_AXIS = "x"
+"""The column dimension's name when the caller names none."""
+
+
 def from_array(
     arr: np.ndarray,
     *,
@@ -771,6 +782,7 @@ def from_array(
     dims: ExtraDimensions | None = None,
     encoding: Encoding | None = None,
     attrs: CFAttributes | None = None,
+    spatial_names: tuple[str, str] | None = None,
 ) -> Container:
     """Create a NetCDF dataset from a NumPy array and geotransform.
 
@@ -842,6 +854,10 @@ def from_array(
             `history`) as a
             :class:`~pyramids.netcdf.array_options.CFAttributes`. Defaults to
             an empty `CFAttributes()`.
+        spatial_names: `(row, column)` names for the two spatial dimensions. `None`
+            (default) names them `y` / `x`. A rebuild passes the source store's own
+            names, so a `reduce` / `coarsen` result keeps `latitude` / `longitude`
+            rather than renaming the grid (#1180).
 
     Returns:
         Container: The newly created store. Always a `Container`, never a bare
@@ -921,6 +937,8 @@ def from_array(
         compression=encoding.compression,
         compression_level=encoding.compression_level,
         cf_attrs=cf_attrs,
+        spatial_names=spatial_names,
+        dim_attrs=dims.attrs,
     )
     result = Container(dst_ds)
 
@@ -1038,6 +1056,7 @@ def _create_extra_dimensions(
     extra_dims: list[tuple[str, list]],
     dtype: Any,
     use_set_indexing: bool,
+    dim_attrs: dict[str, dict[str, str]] | None = None,
 ) -> list:
     """Create one GDAL dimension per non-spatial axis, in storage order.
 
@@ -1063,6 +1082,11 @@ def _create_extra_dimensions(
     Args:
         rg: The group to create the dimensions in.
         extra_dims: ``(name, values)`` per non-spatial axis, in storage order.
+        dim_attrs: CF attributes to write onto an axis' coordinate array, keyed by
+            dimension name — `{"time": {"units": …, "calendar": …}}`. A computed result
+            carries its `(units, calendar)` on the Python object; without writing them
+            here the store never had them, so `to_file` had nothing to copy and the
+            calendar died at the write (#1179).
         dtype: The coordinate :class:`osgeo.gdal.ExtendedDataType` to use for
             any axis that is not integer-valued.
         use_set_indexing: Whether ``SetIndexingVariable`` is supported by the
@@ -1083,11 +1107,15 @@ def _create_extra_dimensions(
             if np.issubdtype(values.dtype, np.integer)
             else dtype
         )
-        gdal_extra_dims.append(
-            NetCDF._create_dimension(
-                rg, dim_name, dim_dtype, values, dim_type, use_set_indexing
-            )
+        created = NetCDF._create_dimension(
+            rg, dim_name, dim_dtype, values, dim_type, use_set_indexing
         )
+        carried = (dim_attrs or {}).get(dim_name)
+        if carried:
+            indexing = created.GetIndexingVariable() or rg.OpenMDArray(dim_name)
+            if indexing is not None:
+                write_attributes_to_md_array(indexing, carried)
+        gdal_extra_dims.append(created)
     return gdal_extra_dims
 
 
@@ -1273,6 +1301,8 @@ def _create_netcdf_from_array(
     compression: str | None = None,
     compression_level: int | None = None,
     cf_attrs: dict[str, str] | None = None,
+    spatial_names: tuple[str, str] | None = None,
+    dim_attrs: dict[str, dict[str, str]] | None = None,
 ) -> gdal.Dataset:
     """Build a multidimensional GDAL dataset from an array.
 
@@ -1372,9 +1402,15 @@ def _create_netcdf_from_array(
     # instead of crashing on a None EPSG code (#706).
     srse, is_geographic = _resolve_write_crs(epsg)
 
+    # A rebuilt result names its grid after the store it came from — `longitude` /
+    # `latitude` stay themselves rather than becoming `x` / `y`, which made every
+    # `reduce`, `coarsen`, `rolling`, `cumsum` and `diff` hand back axes the source
+    # never had, on the object and on the written file (#1180). A caller who names
+    # none, and every in-memory build, keeps `y` / `x`.
+    row_name, column_name = spatial_names or (_ROW_AXIS, _COLUMN_AXIS)
     dim_x = NetCDF._create_dimension(
         rg,
-        "x",
+        column_name,
         coord_dtype,
         x_dim_values,
         gdal.DIM_TYPE_HORIZONTAL_X,
@@ -1383,7 +1419,7 @@ def _create_netcdf_from_array(
     )
     dim_y = NetCDF._create_dimension(
         rg,
-        "y",
+        row_name,
         coord_dtype,
         y_dim_values,
         gdal.DIM_TYPE_HORIZONTAL_Y,
@@ -1392,7 +1428,7 @@ def _create_netcdf_from_array(
     )
 
     gdal_extra_dims = _create_extra_dimensions(
-        rg, extra_dims, coord_dtype, use_set_indexing
+        rg, extra_dims, coord_dtype, use_set_indexing, dim_attrs
     )
     # For a dask input with no explicit on-disk chunking, align the netCDF storage
     # BLOCKSIZE with the dask block shape so the streamed windows map onto whole

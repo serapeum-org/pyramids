@@ -92,6 +92,9 @@ def concat(objs: Any, dim: str) -> NetCDF:
             sentinel,
             band_names,
             values_map,
+            # The parts share a grid — `_check_other_dimensions` refuses them otherwise —
+            # so the first one's axis names and CF attributes describe the join too.
+            source=parts[0],
         )
         time_attrs.update(_carried_time_attrs(parts, band_names))
     cast("NetCDF", result)._band_dim_time_attrs = time_attrs
@@ -245,6 +248,7 @@ def merge(objs: Any, *, compat: str = "no_conflicts") -> NetCDF:
             _read_no_data(part),
             list(part._band_dim_names),
             dict(part._band_dim_values_map),
+            source=part,
         )
         carried = _carried_time_attrs([part], list(part._band_dim_names))
         for dim, attrs in carried.items():

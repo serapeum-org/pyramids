@@ -26,6 +26,7 @@ import numpy as np
 import pytest
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+from pyramids.netcdf.engines.interop import _public_spatial_names
 from tests.netcdf.parity._catalogue import open_fixture
 from tests.netcdf.parity._harness import ParityView, assert_parity, from_pyramids
 
@@ -55,16 +56,20 @@ def _pyramids_side(result, variable: str = VARIABLE) -> ParityView:
         variable: The variable to compare.
 
     Returns:
-        ParityView: The pyramids side, its `y` / `x` axes relabelled `lat` / `lon`.
+        ParityView: The pyramids side, read under the axis names the result carries.
     """
-    band_dims = tuple(result.get_variable(variable)._band_dim_names)
+    cube = result.get_variable(variable)
+    band_dims = tuple(cube._band_dim_names)
+    # The result carries the source's own spatial names since #1180; relabelling `y` / `x`
+    # here was covering for the rebuild renaming them.
+    row, column = _public_spatial_names(cube)
     return from_pyramids(
         result,
         variable,
-        dims_override=(*band_dims, "lat", "lon"),
+        dims_override=(*band_dims, row, column),
         coords_override={
-            "lat": result.get_dimension_values("y"),
-            "lon": result.get_dimension_values("x"),
+            row: result.get_dimension_values(row),
+            column: result.get_dimension_values(column),
         },
     )
 

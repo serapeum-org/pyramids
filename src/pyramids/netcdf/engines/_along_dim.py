@@ -1230,6 +1230,7 @@ def _variable_from_applied(
         ndv,
         band_names,
         values_map,
+        source=nc,
     )
     grid = nc.geotransform if geotransform is None else geotransform
     _stamped(container, grid)
@@ -1328,6 +1329,7 @@ def _apply_to_container(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
             ndv,
             band_names,
             values_map,
+            source=var,
         )
         # The rebuilt container has no store to read time units from; carry the source
         # variables' so a variable taken from it still decodes its stamps.

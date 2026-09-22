@@ -183,6 +183,7 @@ def _weighted_container(
             ndv,
             band_names,
             values_map,
+            source=var,
         )
         time_attrs.update(
             {
