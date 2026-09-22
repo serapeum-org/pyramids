@@ -6798,9 +6798,9 @@ conda and has no manylinux tag to match.</p>
 </tr>
 <tr>
 <td>Alpine (musl)</td>
-<td>x86_64, aarch64</td>
-<td><code>musllinux_1_2_*</code></td>
-<td>⏸ Self-contained; built + verified in CI, unpublished (#333)</td>
+<td>any</td>
+<td>—</td>
+<td>⏸ Built in CI, unpublished — blocked on upstream <code>pyogrio</code> musl wheels</td>
 </tr>
 </tbody>
 </table>
@@ -6815,11 +6815,8 @@ conda and has no manylinux tag to match.</p>
 </ul>
 <p>If your distro has <strong>glibc &lt; 2.28</strong>, use the conda-forge path instead.</p>
 <h3 id="coverage-gaps-what-has-no-wheel-yet-and-why"><a class="toclink" href="#coverage-gaps-what-has-no-wheel-yet-and-why">Coverage gaps — what has no wheel yet, and why</a><a class="headerlink" href="#coverage-gaps-what-has-no-wheel-yet-and-why" title="Permanent link">#</a></h3>
-<p>Most remaining gaps wait on something upstream of pyramids. The Alpine /
-musl wheel is the exception: it is now built and verified from this repo
-as a <strong>self-contained</strong> wheel (it vendors the vector stack rather than
-waiting on upstream musl wheels), so only its <strong>publication</strong> is pending —
-a maintainer decision on PyPI storage. Progress is tracked in
+<p>Every remaining gap waits on something upstream of pyramids; none of
+them can be closed from this repo alone. Progress is tracked in
 <a href="https://github.com/serapeum-org/pyramids/issues/333">#333</a> (Alpine) and
 <a href="https://github.com/serapeum-org/pyramids/issues/335">#335</a> (Python 3.15).
 Until a row clears, the workaround column applies.</p>
@@ -6835,8 +6832,8 @@ Until a row clears, the workaround column applies.</p>
 <tbody>
 <tr>
 <td>Alpine / musl Linux</td>
-<td>self-contained; built + verified; unpublished</td>
-<td>PyPI-storage decision (#333)</td>
+<td>built + verified in CI; <code>pyogrio</code> has no musl wheels</td>
+<td>pyogrio ships them (#333)</td>
 <td>conda-forge</td>
 </tr>
 <tr>
@@ -6887,14 +6884,6 @@ forced install (<code>--no-deps</code>) provides neither GDAL nor the vector
 stack, because the dependency markers skip shapely/geopandas on
 Windows ARM64. Use Python 3.12+ or conda-forge instead. The same
 caveat applies to any deliberate sdist install on Windows ARM64.</p>
-<p><strong>Alpine / musl note</strong>: the musllinux wheel uses the same self-bundling
-as win_arm64 — it vendors shapely, geopandas, and pyogrio (and
-additionally <strong>cftime</strong>, which has no <code>musllinux_*_aarch64</code> wheel
-upstream) under <code>pyramids/_vendor/</code>, and strips them from the wheel
-metadata so a plain <code>pip install pyramids-gis</code> on Alpine resolves and
-imports with no external build and no GDAL system install. It is built
-and verified on x86_64 and aarch64 Alpine in CI, but is a canary — not
-yet published (#333). Until it is, use conda-forge on Alpine.</p>
 </blockquote>
 <h2 id="system-dependencies"><a class="toclink" href="#system-dependencies">System dependencies</a><a class="headerlink" href="#system-dependencies" title="Permanent link">#</a></h2>
 <p>The wheel bundles nearly everything (expat is linked statically into the
