@@ -1182,6 +1182,432 @@ class Selection(_Engine["NetCDF"]):
             result = _subset_along_dim(result, dim_name, dim_indices)
         return result
 
+    def head(self, **indexers: int) -> NetCDF:
+        """Keep the first `n` steps along one or more band dimensions.
+
+        Args:
+            **indexers: `dimension=n` pairs, `n` a whole number of at least 1. With none,
+                the first five steps along **every** band dimension, which is xarray's
+                default. Asking for more than a dimension holds keeps it whole.
+
+        Returns:
+            NetCDF: A variable holding the kept steps, its coordinates cut to match.
+
+        Raises:
+            ValueError: A dimension is not a band dimension, or `n` is below 1 — GDAL has no
+                raster of no bands, where xarray answers an empty axis.
+            TypeError: `n` is not an integer.
+
+        Examples:
+            - The first two steps of a four-step cube:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.head(time=2)._band_dim_values_map["time"]
+              [0.0, 6.0]
+
+              ```
+        """
+        return _windowed(self._ds, indexers, "head", _head_positions)
+
+    def tail(self, **indexers: int) -> NetCDF:
+        """Keep the last `n` steps along one or more band dimensions.
+
+        :meth:`head` from the other end, with the same arguments and refusals.
+
+        Args:
+            **indexers: `dimension=n` pairs, `n` a whole number of at least 1. With none,
+                the last five steps along every band dimension.
+
+        Returns:
+            NetCDF: A variable holding the kept steps, its coordinates cut to match.
+
+        Raises:
+            ValueError: A dimension is not a band dimension, or `n` is below 1.
+            TypeError: `n` is not an integer.
+
+        Examples:
+            - The last two steps of a four-step cube:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.tail(time=2)._band_dim_values_map["time"]
+              [12.0, 18.0]
+
+              ```
+        """
+        return _windowed(self._ds, indexers, "tail", _tail_positions)
+
+    def thin(self, **indexers: int) -> NetCDF:
+        """Keep every `n`-th step along one or more band dimensions, starting at the first.
+
+        Args:
+            **indexers: `dimension=n` pairs, `n` a whole number of at least 1. With none,
+                every fifth step along every band dimension.
+
+        Returns:
+            NetCDF: A variable holding the kept steps, its coordinates cut to match.
+
+        Raises:
+            ValueError: A dimension is not a band dimension, or `n` is below 1 — xarray
+                refuses a zero step the same way.
+            TypeError: `n` is not an integer.
+
+        Examples:
+            - Every second step:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.thin(time=2)._band_dim_values_map["time"]
+              [0.0, 12.0]
+
+              ```
+        """
+        return _windowed(self._ds, indexers, "thin", _thin_positions)
+
+    def drop_isel(self, **indexers: Any) -> NetCDF:
+        """Drop steps by **position** along one or more band dimensions.
+
+        The complement of :meth:`isel`: each selector is read exactly as `isel` reads it,
+        and the positions it names are the ones removed.
+
+        Args:
+            **indexers: `dimension=selector` pairs — an index, a `list` or `tuple` of them,
+                or a `slice`.
+
+        Returns:
+            NetCDF: A variable without the dropped steps, its coordinates cut to match.
+
+        Raises:
+            ValueError: No indexers were given, a dimension is not a band dimension, or
+                every step would be dropped — a variable with no bands cannot be built.
+            IndexError: A position is outside the dimension.
+            TypeError: A selector is not one `isel` accepts.
+
+        Examples:
+            - Drop the second step:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.drop_isel(time=1)._band_dim_values_map["time"]
+              [0.0, 12.0, 18.0]
+
+              ```
+        """
+        nc = self._ds
+        if not indexers:
+            raise ValueError(
+                "drop_isel() requires at least one keyword argument, e.g. drop_isel(time=0)."
+            )
+        keep: dict[str, list[int]] = {}
+        for dim_name, selector in indexers.items():
+            _assert_band_dimension(nc, dim_name, caller="drop_isel")
+            size = nc._band_dim_sizes[nc._band_dim_names.index(dim_name)]
+            dropped = set(_resolve_positional_indices(selector, size, dim_name))
+            keep[dim_name] = [i for i in range(size) if i not in dropped]
+        return _kept(nc, keep, "drop_isel")
+
+    def drop_sel(self, *, errors: str = "raise", **labels: Any) -> NetCDF:
+        """Drop steps by **coordinate value** along one or more band dimensions.
+
+        The complement of :meth:`sel`. Each label is matched exactly, the way `sel`
+        matches one without `method=`, so a CF time string resolves here as it does there.
+
+        Args:
+            errors: `"raise"` (default) refuses a label the dimension does not hold, as
+                xarray does with `KeyError`; `"ignore"` skips it and drops the rest.
+            **labels: `dimension=label` pairs — a coordinate value or a list of them.
+
+        Returns:
+            NetCDF: A variable without the dropped steps, its coordinates cut to match.
+
+        Raises:
+            ValueError: No labels were given, `errors` is unknown, a dimension is not a band
+                dimension or has no coordinates, or every step would be dropped.
+            KeyError: A label is not on the dimension and `errors="raise"`.
+
+        Examples:
+            - Drop one step by its stamp:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.drop_sel(time=6.0)._band_dim_values_map["time"]
+              [0.0, 12.0, 18.0]
+
+              ```
+        """
+        nc = self._ds
+        if errors not in ("raise", "ignore"):
+            raise ValueError(
+                f"drop_sel() takes errors='raise' or 'ignore', got {errors!r}."
+            )
+        if not labels:
+            raise ValueError(
+                "drop_sel() requires at least one keyword argument, e.g. drop_sel(time=6)."
+            )
+        keep: dict[str, list[int]] = {}
+        for dim_name, selector in labels.items():
+            _assert_band_dimension(nc, dim_name, caller="drop_sel")
+            if nc._band_dim_values_map.get(dim_name) is None:
+                raise ValueError(
+                    f"drop_sel() drops by coordinate value, and {dim_name!r} has no "
+                    f"coordinates. Use drop_isel() to drop by position."
+                )
+            wanted = selector if isinstance(selector, (list, tuple)) else [selector]
+            dropped: set[int] = set()
+            missing = []
+            for label in wanted:
+                try:
+                    dropped.update(_resolve_one_dim(nc, dim_name, label, None, None))
+                except (ValueError, KeyError):
+                    missing.append(label)
+            if missing and errors == "raise":
+                raise KeyError(
+                    f"drop_sel() found {missing!r} nowhere on {dim_name!r}. Pass "
+                    f"errors='ignore' to drop the labels that are there and skip the rest."
+                )
+            size = nc._band_dim_sizes[nc._band_dim_names.index(dim_name)]
+            keep[dim_name] = [i for i in range(size) if i not in dropped]
+        return _kept(nc, keep, "drop_sel")
+
+    def sortby(self, dim: str, *, ascending: bool = True) -> NetCDF:
+        """Reorder a band dimension by its own coordinate values.
+
+        Each plane travels with its stamp, so the cells and the coordinates are reordered
+        together. A stable sort keeps equal stamps in the order they were written.
+
+        Args:
+            dim: The band dimension to sort.
+            ascending: `True` (default) for smallest first.
+
+        Returns:
+            NetCDF: A variable with `dim` in sorted order.
+
+        Raises:
+            ValueError: `dim` is not a band dimension, or has no coordinates to sort by.
+
+        Examples:
+            - Put an out-of-order axis back in order:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(3.0).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[12.0, 0.0, 6.0]),
+              ... ).get_variable("t")
+              >>> var.sortby("time")._band_dim_values_map["time"]
+              [0.0, 6.0, 12.0]
+
+              ```
+        """
+        nc = self._ds
+        coords = _coordinates_of(nc, dim, "sortby")
+        order = [int(i) for i in np.argsort(np.asarray(coords), kind="stable")]
+        if not ascending:
+            order = order[::-1]
+        return _kept(nc, {dim: order}, "sortby")
+
+    def drop_duplicates(self, dim: str, *, keep: Any = "first") -> NetCDF:
+        """Drop the steps whose stamp repeats one already on the dimension.
+
+        What `concat` of overlapping parts leaves behind — the same stamp twice — and the
+        caller's way to undo it. The surviving steps stay in the order they were written.
+
+        Args:
+            dim: The band dimension to de-duplicate.
+            keep: `"first"` (default) keeps the first plane written for a repeated stamp,
+                `"last"` the last one, and `False` drops every stamp that repeats, as
+                pandas' `drop_duplicates` does.
+
+        Returns:
+            NetCDF: A variable with each stamp at most once.
+
+        Raises:
+            ValueError: `dim` is not a band dimension or has no coordinates, `keep` is not
+                one of the three, or `keep=False` would drop every step.
+
+        Examples:
+            - The stamp `6.0` twice, the first plane kept:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> var.drop_duplicates("time")._band_dim_values_map["time"]
+              [0.0, 6.0, 12.0]
+
+              ```
+        """
+        if keep not in ("first", "last") and keep is not False:
+            raise ValueError(
+                f"drop_duplicates() takes keep='first', 'last' or False, got {keep!r}."
+            )
+        nc = self._ds
+        coords = list(_coordinates_of(nc, dim, "drop_duplicates"))
+        counts: dict[Any, int] = {}
+        for stamp in coords:
+            counts[stamp] = counts.get(stamp, 0) + 1
+        if keep is False:
+            positions = [i for i, stamp in enumerate(coords) if counts[stamp] == 1]
+        else:
+            chosen: dict[Any, int] = {}
+            for i, stamp in enumerate(coords):
+                if keep == "last" or stamp not in chosen:
+                    chosen[stamp] = i
+            positions = sorted(chosen.values())
+        return _kept(nc, {dim: positions}, "drop_duplicates")
+
+    def squeeze(self, dim: str | None = None) -> NetCDF:
+        """Drop the band dimensions of length one.
+
+        The data does not move — a length-one axis contributes nothing to the band count —
+        so only the layout changes. **Band dimensions only:** xarray's `squeeze` drops a
+        length-one *spatial* axis too, and a raster cannot lose one; a one-row raster keeps
+        its row.
+
+        Args:
+            dim: The one dimension to drop, which must be length one. `None` (default) drops
+                every length-one band dimension.
+
+        Returns:
+            NetCDF: A variable without those dimensions.
+
+        Raises:
+            ValueError: `dim` is not a band dimension, or is longer than one.
+
+        Examples:
+            - A single step left by `isel`, dropped:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.isel(time=[1]).squeeze()._band_dim_names
+              ()
+
+              ```
+        """
+        nc = self._ds
+        names = list(nc._band_dim_names)
+        sizes = list(nc._band_dim_sizes)
+        if dim is not None:
+            _assert_band_dimension(nc, dim, caller="squeeze")
+            length = sizes[names.index(dim)]
+            if length != 1:
+                raise ValueError(
+                    f"squeeze() drops a dimension of length one, and {dim!r} has "
+                    f"length {length}. Select one step first with isel({dim}=[0])."
+                )
+            gone = {dim}
+        else:
+            gone = {name for name, size in zip(names, sizes) if size == 1}
+        values_map = {
+            name: stamps
+            for name, stamps in nc._band_dim_values_map.items()
+            if name not in gone
+        }
+        return _relabelled(
+            nc,
+            tuple(name for name in names if name not in gone),
+            tuple(size for name, size in zip(names, sizes) if name not in gone),
+            values_map,
+        )
+
+    def expand_dims(self, dim: str, value: Any = 0) -> NetCDF:
+        """Add a band dimension of length one, outermost.
+
+        The step that lifts a raster into a cube before :meth:`NetCDF.concat` joins it to
+        others along the new dimension. The data does not move.
+
+        Args:
+            dim: The new dimension's name.
+            value: Its single coordinate value. `0` by default.
+
+        Returns:
+            NetCDF: A variable with `dim` first, length one.
+
+        Raises:
+            ValueError: `dim` is already a band dimension, or names a spatial axis.
+
+        Examples:
+            - A flat raster lifted onto a `time` axis:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> flat = NetCDF.from_array(
+              ...     np.ones((1, 1)),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ... ).get_variable("t")
+              >>> lifted = flat.expand_dims("time", 6.0)
+              >>> lifted._band_dim_names, lifted._band_dim_values_map["time"]
+              (('time',), [6.0])
+
+              ```
+        """
+        nc = self._ds
+        if dim in nc._band_dim_names:
+            raise ValueError(
+                f"expand_dims() adds a new dimension, and {dim!r} is already one of "
+                f"{tuple(nc._band_dim_names)}."
+            )
+        values_map = {dim: [value], **nc._band_dim_values_map}
+        return _relabelled(
+            nc,
+            (dim, *nc._band_dim_names),
+            (1, *nc._band_dim_sizes),
+            values_map,
+        )
+
     def subset(
         self,
         variable: str,
@@ -4019,6 +4445,189 @@ def _refuse_empty_selection(selector: Any, dim_name: str, size: int) -> NoReturn
         f"isel({dim_name}={selector!r}) selects no index of an axis of length {size}. "
         f"A variable with no bands cannot be built."
     )
+
+
+_DEFAULT_WINDOW = 5
+"""How many steps `head`, `tail` and `thin` take when called with no arguments — xarray's."""
+
+
+def _window_size(n: Any, dim_name: str, caller: str) -> int:
+    """A window's step count, or the refusal saying why it is not one.
+
+    Args:
+        n: The count the caller passed.
+        dim_name: The dimension, for the message.
+        caller: The member, for the message.
+
+    Returns:
+        int: The count.
+
+    Raises:
+        TypeError: `n` is not an integer, or is a boolean.
+        ValueError: `n` is below 1.
+    """
+    if isinstance(n, bool) or not isinstance(n, (int, np.integer)):
+        raise TypeError(f"{caller}() needs an integer for {dim_name!r}, got {n!r}.")
+    if n < 1:
+        raise ValueError(
+            f"{caller}() needs a count of at least 1 for {dim_name!r}, got {n}: a raster "
+            f"of no bands cannot be built."
+        )
+    return int(n)
+
+
+def _head_positions(size: int, n: int) -> list[int]:
+    """The first `n` positions of an axis of `size`.
+
+    Args:
+        size: The axis length.
+        n: The count.
+
+    Returns:
+        list[int]: The positions.
+    """
+    return list(range(min(n, size)))
+
+
+def _tail_positions(size: int, n: int) -> list[int]:
+    """The last `n` positions of an axis of `size`.
+
+    Args:
+        size: The axis length.
+        n: The count.
+
+    Returns:
+        list[int]: The positions.
+    """
+    return list(range(max(size - n, 0), size))
+
+
+def _thin_positions(size: int, n: int) -> list[int]:
+    """Every `n`-th position of an axis of `size`, from the first.
+
+    Args:
+        size: The axis length.
+        n: The step.
+
+    Returns:
+        list[int]: The positions.
+    """
+    return list(range(0, size, n))
+
+
+def _windowed(nc: NetCDF, indexers: dict, caller: str, positions: Any) -> NetCDF:
+    """Cut `nc` to a positional window along each named band dimension.
+
+    Args:
+        nc: The variable.
+        indexers: `dimension=n` pairs; empty means every band dimension at the default.
+        caller: The member, for the refusals.
+        positions: `(size, n) -> list[int]`, which positions the window keeps.
+
+    Returns:
+        NetCDF: The cut variable.
+    """
+    if not indexers:
+        indexers = {name: _DEFAULT_WINDOW for name in nc._band_dim_names}
+    keep: dict[str, list[int]] = {}
+    for dim_name, n in indexers.items():
+        _assert_band_dimension(nc, dim_name, caller=caller)
+        size = nc._band_dim_sizes[nc._band_dim_names.index(dim_name)]
+        keep[dim_name] = positions(size, _window_size(n, dim_name, caller))
+    return _kept(nc, keep, caller)
+
+
+def _kept(nc: NetCDF, keep: dict[str, list[int]], caller: str) -> NetCDF:
+    """Cut `nc` to the given positions along each dimension, refusing an empty result.
+
+    Every Tier 2 positional member ends here, so the one band-cutting primitive `sel` and
+    `isel` already share does the reading.
+
+    Args:
+        nc: The variable.
+        keep: The positions to keep along each dimension, in the order to keep them.
+        caller: The member, for the refusal.
+
+    Returns:
+        NetCDF: The cut variable.
+
+    Raises:
+        ValueError: A dimension would keep no positions.
+    """
+    for dim_name, positions in keep.items():
+        if not positions:
+            raise ValueError(
+                f"{caller}() would leave {dim_name!r} with no steps, and a variable with "
+                f"no bands cannot be built."
+            )
+    result = nc
+    for dim_name, positions in keep.items():
+        result = _subset_along_dim(result, dim_name, positions)
+    return result
+
+
+def _coordinates_of(nc: NetCDF, dim_name: str, caller: str) -> list:
+    """A band dimension's coordinates, refusing a dimension that has none.
+
+    Args:
+        nc: The variable.
+        dim_name: The dimension.
+        caller: The member, for the refusals.
+
+    Returns:
+        list: The coordinate values.
+
+    Raises:
+        ValueError: The dimension is not a band dimension, or has no coordinates.
+    """
+    _assert_band_dimension(nc, dim_name, caller=caller)
+    coords = nc._band_dim_values_map.get(dim_name)
+    if coords is None:
+        raise ValueError(
+            f"{caller}() reads {dim_name!r}'s coordinate values, and it has none."
+        )
+    return list(coords)
+
+
+def _relabelled(nc: NetCDF, names: tuple, sizes: tuple, values_map: dict) -> NetCDF:
+    """Every band of `nc`, rebuilt under a new band-dimension layout.
+
+    `squeeze` and `expand_dims` change the layout without moving any data, and neither can
+    go through the cut primitive — a flat raster has no band dimension to cut along — so
+    this reads every band once and rebuilds the way that primitive does, then states the
+    new layout.
+
+    Args:
+        nc: The variable.
+        names: The new band dimension names.
+        sizes: Their lengths, which must multiply to the band count.
+        values_map: Their coordinates.
+
+    Returns:
+        NetCDF: The relabelled variable.
+    """
+    selected = _read_selected_bands(nc, list(range(nc.band_count)))
+    rebuilt = Dataset.from_array(
+        selected,
+        no_data_value=scalar_no_data(nc.no_data_value),
+        geo_ref=GeoReference(geo=nc.geotransform, epsg=crs_spec(nc.epsg, nc.crs)),
+    )
+    result = nc._preserve_netcdf_metadata(rebuilt)
+    result._band_dim_names = tuple(names)
+    result._band_dim_sizes = tuple(sizes)
+    result._band_dim_values_map = dict(values_map)
+    result._band_dim_time_attrs = {
+        name: attrs
+        for name, attrs in result._resolved_band_dim_time_attrs().items()
+        if name in names
+    }
+    result._band_dim_name, result._band_dim_values = nc._derive_primary_band_view(
+        result._band_dim_names,
+        result._band_dim_values_map,
+        result._band_dim_sizes,
+        result._band_count,
+    )
+    return result
 
 
 def _subset_along_dim(nc: NetCDF, dim_name: str, dim_indices: list[int]) -> NetCDF:

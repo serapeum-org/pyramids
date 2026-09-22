@@ -8598,6 +8598,42 @@ class NetCDF(Dataset):
         """
         return self.selection.sel(method=method, tolerance=tolerance, **kwargs)
 
+    def head(self, **indexers: int) -> NetCDF:
+        """Facade — :meth:`Selection.head <pyramids.netcdf.engines.selection.Selection.head>`."""
+        return self.selection.head(**indexers)
+
+    def tail(self, **indexers: int) -> NetCDF:
+        """Facade — :meth:`Selection.tail <pyramids.netcdf.engines.selection.Selection.tail>`."""
+        return self.selection.tail(**indexers)
+
+    def thin(self, **indexers: int) -> NetCDF:
+        """Facade — :meth:`Selection.thin <pyramids.netcdf.engines.selection.Selection.thin>`."""
+        return self.selection.thin(**indexers)
+
+    def drop_isel(self, **indexers: Any) -> NetCDF:
+        """Facade — :meth:`Selection.drop_isel <pyramids.netcdf.engines.selection.Selection.drop_isel>`."""
+        return self.selection.drop_isel(**indexers)
+
+    def drop_sel(self, *, errors: str = "raise", **labels: Any) -> NetCDF:
+        """Facade — :meth:`Selection.drop_sel <pyramids.netcdf.engines.selection.Selection.drop_sel>`."""
+        return self.selection.drop_sel(errors=errors, **labels)
+
+    def sortby(self, dim: str, *, ascending: bool = True) -> NetCDF:
+        """Facade — :meth:`Selection.sortby <pyramids.netcdf.engines.selection.Selection.sortby>`."""
+        return self.selection.sortby(dim, ascending=ascending)
+
+    def drop_duplicates(self, dim: str, *, keep: Any = "first") -> NetCDF:
+        """Facade — :meth:`Selection.drop_duplicates <pyramids.netcdf.engines.selection.Selection.drop_duplicates>`."""
+        return self.selection.drop_duplicates(dim, keep=keep)
+
+    def squeeze(self, dim: str | None = None) -> NetCDF:
+        """Facade — :meth:`Selection.squeeze <pyramids.netcdf.engines.selection.Selection.squeeze>`."""
+        return self.selection.squeeze(dim)
+
+    def expand_dims(self, dim: str, value: Any = 0) -> NetCDF:
+        """Facade — :meth:`Selection.expand_dims <pyramids.netcdf.engines.selection.Selection.expand_dims>`."""
+        return self.selection.expand_dims(dim, value)
+
     @classmethod
     def read_file(  # type: ignore[override]
         cls,
