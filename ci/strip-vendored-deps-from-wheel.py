@@ -37,6 +37,25 @@ def _normalize(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def _declared_drop_names(metadata: str) -> set[str]:
+    """Return the normalized `_DROP` names declared as `Requires-Dist` in `metadata`.
+
+    Independent of `_NAME_RE` (the removal matcher) on purpose: it audits the
+    strip's result so an incomplete strip is caught even if the removal regex or
+    `_DROP` ever drifts and leaves a vendored dep behind.
+    """
+    found = set()
+    for line in metadata.split("\n"):
+        if not line.strip().lower().startswith("requires-dist:"):
+            continue
+        rest = line.split(":", 1)[1].strip()
+        name = re.split(r"[\s;(<>=!~\[]", rest, maxsplit=1)[0]
+        norm = _normalize(name)
+        if norm in _DROP:
+            found.add(norm)
+    return found
+
+
 def _record_row(path: str, data: bytes) -> list[str]:
     """Return the RECORD row (path, sha256=<b64>, size) for `data`."""
     digest = (
@@ -69,10 +88,17 @@ def strip_wheel(wheel: Path) -> int:
         kept.append(line)
     if removed == 0:
         raise SystemExit(
-            f"{wheel.name}: found no geopandas/Shapely Requires-Dist to strip — "
+            f"{wheel.name}: found no geopandas/Shapely/cftime Requires-Dist to strip — "
             "the metadata is not what this step expects (marker or deps changed?)"
         )
     new_meta = "\n".join(kept).encode("utf-8")
+    survivors = _declared_drop_names(new_meta.decode("utf-8"))
+    if survivors:
+        raise SystemExit(
+            f"{wheel.name}: vendored dep(s) {sorted(survivors)} still declared after "
+            "the strip — the wheel would try to install a nonexistent musl wheel; the "
+            "strip is incomplete (removal matcher or _DROP drifted?)"
+        )
     data[meta_name] = new_meta
 
     # Refresh the METADATA row in RECORD (its hash + size changed); every other

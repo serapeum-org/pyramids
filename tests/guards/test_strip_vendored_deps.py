@@ -15,6 +15,7 @@ import csv
 import hashlib
 import importlib.util
 import io
+import re
 import zipfile
 from pathlib import Path
 
@@ -122,4 +123,24 @@ def test_strip_fails_when_nothing_to_remove(tmp_path):
         b"Metadata-Version: 2.1\nName: pyramids-gis\nRequires-Dist: numpy>=2.0.0\n",
     )
     with pytest.raises(SystemExit):
+        module.strip_wheel(wheel)
+
+
+def test_strip_rejects_a_surviving_vendored_dep(tmp_path, monkeypatch):
+    """An incomplete strip that leaves a vendored dep declared is a hard failure.
+
+    The post-strip audit is independent of the removal regex, so even if the
+    line matcher drifts and misses `cftime`, the surviving `Requires-Dist:
+    cftime` is caught and the step fails loudly rather than shipping a wheel pip
+    would try to satisfy from a nonexistent aarch64-musl cftime wheel.
+    """
+    module = _load_strip_module()
+    # Narrow the removal regex so it matches geopandas/Shapely but never cftime,
+    # simulating drift that leaves one vendored dep behind after removal.
+    monkeypatch.setattr(
+        module, "_NAME_RE", re.compile(r"^Requires-Dist:\s*([gGsS][A-Za-z0-9._-]*)")
+    )
+    wheel = tmp_path / "pyramids_gis-0.0.0-cp312-cp312-musllinux_1_2_x86_64.whl"
+    _write_wheel(wheel, _METADATA)
+    with pytest.raises(SystemExit, match="cftime"):
         module.strip_wheel(wheel)
