@@ -20,6 +20,7 @@ from numpy.testing import assert_allclose
 
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
+from pyramids.dataset.engines.analysis import _holds
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -291,3 +292,94 @@ class TestAContainerIsRefusedByName:
         call = getattr(container, member)
         with pytest.raises(ValueError, match=rf"^{member}\(\) works on a raster"):
             call(*arguments)
+
+
+class TestClipRefusesANonNumberBound:
+    """A bound is a real number; anything else is refused in words."""
+
+    @pytest.mark.parametrize("bound", ["3", True, complex(1, 2)])
+    def test_a_non_number_bound(self, bound):
+        """A string, a boolean or a complex number cannot bound a raster.
+
+        Args:
+            bound: The bad bound.
+        """
+        raster = _raster()
+        with pytest.raises(TypeError, match="needs a number") as info:
+            raster.clip(bound, 6.0)
+        assert repr(bound) in str(info.value), (
+            f"the refusal should name {bound!r}: {info.value}"
+        )
+
+    def test_a_none_lower_bound_is_simply_absent(self):
+        """`None` means no bound on that side, not a bad one."""
+        clipped = _raster().clip(None, 6.0)
+        assert _read(clipped)[-1] == 6.0, (
+            f"expected the upper bound only, got {_read(clipped)}"
+        )
+
+
+class TestAstypeIntoAFloat:
+    """A float target holds any finite sentinel in its range, NaN included."""
+
+    def test_float32_keeps_a_numeric_sentinel(self):
+        """`-9999.0` fits `float32`, so it carries over and the gap stays a gap."""
+        cast = _raster().astype("float32")
+        assert np.asarray(cast.read_array()).dtype == np.float32, (
+            "the band type did not change"
+        )
+        assert cast.no_data_value[0] == NDV, (
+            f"the sentinel changed: {cast.no_data_value}"
+        )
+        assert np.asarray(cast.isnull().read_array()).sum() == 1, "the gap was lost"
+
+    def test_float16_refuses_a_sentinel_past_its_range(self):
+        """`float16` tops out at 65504, so `-99999` cannot mark its gaps."""
+        raster = _raster(
+            np.where(CELLS == NDV, -99999.0, CELLS), no_data_value=-99999.0
+        )
+        with pytest.raises(ValueError, match="no_data_value"):
+            raster.astype("float16")
+
+    def test_a_nan_sentinel_fits_any_float(self):
+        """Every float width has NaN, so it is never a reason to refuse."""
+        raster = _raster(np.where(CELLS == NDV, np.nan, CELLS), no_data_value=np.nan)
+        cast = raster.astype("float32")
+        assert np.isnan(cast.no_data_value[0]), (
+            f"expected NaN, got {cast.no_data_value}"
+        )
+
+
+class TestHolds:
+    """`_holds` decides whether a type can mark a gap with a value."""
+
+    @pytest.mark.parametrize(
+        ("dtype", "value", "expected"),
+        [
+            ("float32", -9999.0, True),
+            ("float32", np.nan, True),
+            ("float32", np.inf, True),
+            ("float16", -99999.0, False),
+            ("float16", 65504.0, True),
+            ("uint8", 255, True),
+            ("uint8", 256, False),
+            ("uint8", -1, False),
+            ("int16", -9999, True),
+            ("int16", -9999.5, False),
+            ("int16", np.nan, False),
+            ("int32", np.inf, False),
+        ],
+    )
+    def test_the_rule(self, dtype: str, value, expected: bool):
+        """A float holds anything in range and every non-finite value; an integer only a
+        whole number inside its range.
+
+        Args:
+            dtype: The target type.
+            value: The candidate sentinel.
+            expected: Whether it fits.
+        """
+        result = _holds(np.dtype(dtype), value)
+        assert result is expected, (
+            f"_holds({dtype}, {value!r}) gave {result}, expected {expected}"
+        )

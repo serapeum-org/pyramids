@@ -10,6 +10,8 @@ an empty array.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -386,3 +388,88 @@ class TestExpandDims:
         back = variable.expand_dims("member", 0.0).squeeze("member")
         assert back._band_dim_names == variable._band_dim_names
         assert _stamps(back) == TIMES
+
+
+WRF = (
+    Path(__file__).parents[2]
+    / "data"
+    / "netcdf"
+    / "none__17v__1d1-2d5-3d6-4d5__stag-str.nc"
+)
+
+
+class TestADimensionWithoutCoordinates:
+    """The members that read coordinate values refuse a dimension that has none.
+
+    WRF's `bottom_top` is 27 model levels with no coordinate variable — the case `isel`
+    exists to serve. The positional members work on it; the label members cannot.
+    """
+
+    @staticmethod
+    def _levels() -> NetCDF:
+        """WRF `T`, whose `bottom_top` carries no coordinates.
+
+        Returns:
+            NetCDF: The variable.
+        """
+        return NetCDF.read_file(str(WRF)).get_variable("T")
+
+    def test_the_fixture_has_no_coordinates_there(self):
+        """The precondition every refusal below depends on."""
+        variable = self._levels()
+        assert variable._band_dim_values_map["bottom_top"] is None, (
+            "bottom_top was expected to carry no coordinates"
+        )
+
+    @pytest.mark.parametrize(
+        ("member", "call"),
+        [
+            ("sortby", lambda v: v.sortby("bottom_top")),
+            ("drop_duplicates", lambda v: v.drop_duplicates("bottom_top")),
+        ],
+    )
+    def test_a_member_that_reads_coordinates_is_refused(self, member: str, call):
+        """Sorting or de-duplicating by coordinates needs some.
+
+        Args:
+            member: The member under test.
+            call: How to call it.
+        """
+        variable = self._levels()
+        with pytest.raises(ValueError, match="has none") as info:
+            call(variable)
+        assert member in str(info.value), (
+            f"the refusal should name {member}: {info.value}"
+        )
+
+    def test_drop_sel_points_at_drop_isel(self):
+        """`drop_sel` refuses and names the positional member that does work."""
+        variable = self._levels()
+        with pytest.raises(ValueError, match="drop_isel"):
+            variable.drop_sel(bottom_top=0.0)
+
+    def test_the_positional_members_still_work(self):
+        """`head` and `drop_isel` need positions only, which every dimension has."""
+        variable = self._levels()
+        assert variable.head(bottom_top=3)._band_dim_sizes[1] == 3, (
+            "head kept the wrong count"
+        )
+        assert variable.drop_isel(bottom_top=0)._band_dim_sizes[1] == 26, (
+            "drop_isel dropped the wrong count"
+        )
+
+
+class TestNoArguments:
+    """The label and position droppers need to be told what to drop."""
+
+    def test_drop_isel_with_nothing_is_refused(self):
+        """`drop_isel()` names what it expects rather than returning the input."""
+        variable = _variable()
+        with pytest.raises(ValueError, match="at least one keyword"):
+            variable.drop_isel()
+
+    def test_drop_sel_with_nothing_is_refused(self):
+        """`drop_sel()` names what it expects rather than returning the input."""
+        variable = _variable()
+        with pytest.raises(ValueError, match="at least one keyword"):
+            variable.drop_sel()
