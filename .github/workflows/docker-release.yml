@@ -23,7 +23,13 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_branch || github.ref }}
+          # head_branch (not head_sha): github-release pushes the version bump +
+          # changelog commits AFTER the workflow_run head_sha is captured, so the
+          # branch tip is what carries them. The workflow_dispatch fallback is
+          # github.sha (the immutable triggering commit), NOT github.ref — a
+          # branch ref re-resolves per job and can drift if a commit lands
+          # mid-run. Same rule as bundle-pypi-wheels.yml.
+          ref: ${{ github.event.workflow_run.head_branch || github.sha }}
           fetch-depth: 0   # need tags for `git describe` below
 
       - name: Get release tag
