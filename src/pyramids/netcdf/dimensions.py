@@ -8,6 +8,20 @@ from typing import Any
 
 Number = int | float
 
+ROW_AXIS = "y"
+"""The row dimension's name when nothing else names it — what an in-memory build gets.
+
+`NetCDF.from_array` creates the axis with this name unless the caller passes
+`spatial_names`, and `_spatial_names` / `_public_spatial_names` fall back to it for a
+variable whose store declares no dimensions of its own. `weighted` also accepts it *beside*
+the store's own name, so `dims="y"` reaches the grid of a `latitude` / `longitude` store
+just as `dims="latitude"` does. Those sit on opposite sides of one round trip, so they read
+this one definition rather than each keeping a private copy of `"y"`.
+"""
+
+COLUMN_AXIS = "x"
+"""The column dimension's name when nothing else names it. See `ROW_AXIS`."""
+
 
 def _strip_braces(value: str) -> str:
     """Extract the inner content of a braced string.
