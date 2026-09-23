@@ -12369,18 +12369,55 @@ class NetCDF(Dataset):
         `x`/`lon`/`longitude` -> horizontal X,
         `bands`/`time` -> temporal.
 
-        The dimension is registered in the group together with a
-        matching MDArray that stores the coordinate values.
+        The dimension is registered in the group together with a matching MDArray that
+        stores the coordinate values. When `dtype` is a string `ExtendedDataType`
+        (`gdal.ExtendedDataType.CreateString()`) a text coordinate axis — WRF's `Time` of
+        `'2000-01-24_12:00:00'` stamps, a scenario name — is written through the GDAL string
+        channel (a Python list of `str`); a NumPy string array sent straight to `Write` is
+        force-cast to float64 by the SWIG binding and would raise (#1181).
 
         Args:
-            group: Root group (or sub-group) of the multidimensional
-                dataset.
+            group: Root group (or sub-group) of the multidimensional dataset.
             dim_name: Name of the dimension to create.
-            dtype: GDAL `ExtendedDataType` for the indexing variable.
-            values: Coordinate values for the dimension.
+            dtype: GDAL `ExtendedDataType` for the indexing variable — a numeric type for a
+                numeric axis, or `gdal.ExtendedDataType.CreateString()` for a text axis.
+            values: Coordinate values for the dimension; numeric or text to match `dtype`.
 
         Returns:
             gdal.Dimension: The newly created dimension.
+
+        Examples:
+            - Create a numeric coordinate axis and read the stored values back:
+                ```python
+                >>> import numpy as np
+                >>> from osgeo import gdal
+                >>> from pyramids.netcdf import NetCDF
+                >>> ds = gdal.GetDriverByName("MEM").CreateMultiDimensional("mem")
+                >>> group = ds.GetRootGroup()
+                >>> f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+                >>> dim = NetCDF.create_main_dimension(group, "time", f64, np.array([0.0, 1.0, 2.0]))
+                >>> dim.GetSize()
+                3
+                >>> group.OpenMDArray("time").ReadAsArray().tolist()
+                [0.0, 1.0, 2.0]
+
+                ```
+            - Create a text coordinate axis (e.g. WRF `Time` stamps) via the string channel:
+                ```python
+                >>> import numpy as np
+                >>> from osgeo import gdal
+                >>> from pyramids.netcdf import NetCDF
+                >>> ds = gdal.GetDriverByName("MEM").CreateMultiDimensional("mem")
+                >>> group = ds.GetRootGroup()
+                >>> sdt = gdal.ExtendedDataType.CreateString()
+                >>> stamps = np.array(["2000-01-24_12:00:00", "2000-01-24_18:00:00"])
+                >>> dim = NetCDF.create_main_dimension(group, "Time", sdt, stamps)
+                >>> dim.GetSize()
+                2
+                >>> group.OpenMDArray("Time").Read()
+                ['2000-01-24_12:00:00', '2000-01-24_18:00:00']
+
+                ```
         """
         if dim_name in ["y", "lat", "latitude"]:
             dim_type = gdal.DIM_TYPE_HORIZONTAL_Y
