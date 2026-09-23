@@ -300,11 +300,12 @@ class TestConcatComparesTheTextOtherDimension:
             The comparison ran through `float(one)` before and raised on the text; it now
             compares the strings and refuses a genuine mismatch with a readable message.
         """
+        base = _smois()
         other = _smois()
         other._band_dim_values_map = dict(other._band_dim_values_map)
         other._band_dim_values_map["Time"] = ["1999-01-01_00:00:00"] * 3
         with pytest.raises(ValueError, match="agree on every dimension"):
-            _check_other_dimensions([_smois(), other], "soil_layers_stag", "SMOIS")
+            _check_other_dimensions([base, other], "soil_layers_stag", "SMOIS")
 
 
 class TestClassifyingACoordinateAxis:
