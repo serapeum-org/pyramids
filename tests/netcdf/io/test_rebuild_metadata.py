@@ -26,6 +26,9 @@ from osgeo import gdal
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.netcdf import ExtraDimensions, NetCDF
+from pyramids.netcdf.dimensions import COLUMN_AXIS, ROW_AXIS
+from pyramids.netcdf.engines.combine import _agreed_time_attrs
+from pyramids.netcdf.netcdf import _X_AXIS_VARIABLE_NAMES, _Y_AXIS_VARIABLE_NAMES
 
 pytestmark = pytest.mark.core
 
@@ -175,6 +178,106 @@ class TestARebuildKeepsTheSpatialAxisNames:
             variable_name="t",
         )
         assert sorted(built.dimension_names) == ["x", "y"]
+
+
+class TestTheAxisLookupAcceptsEverySpelling:
+    """`NetCDF.lon` / `NetCDF.lat` walk three spellings each, and must find all of them.
+
+    This is the half of #1180 that a name assertion cannot see. Keeping the source's
+    `latitude` / `longitude` is only an improvement while the coordinate lookup still
+    recognises them: knowing `lon` / `x` alone meant a renamed store found no coordinate
+    array, `_compute_geotransform` fell back to GDAL's index-space placeholder, and the
+    container reported pixel indices as world coordinates.
+    """
+
+    GEO = (10.0, 2.0, 0.0, 50.0, 0.0, -2.0)
+
+    @classmethod
+    def _named(cls, names: tuple[str, str]) -> NetCDF:
+        """A 3x4 container whose spatial axes carry `names`.
+
+        Args:
+            names: The `(row, column)` names to build under.
+
+        Returns:
+            NetCDF: The container.
+        """
+        return NetCDF.from_array(
+            np.arange(12.0).reshape(3, 4),
+            geo_ref=GeoReference(geo=cls.GEO, epsg=4326),
+            variable_name="t",
+            spatial_names=names,
+        )
+
+    @pytest.mark.parametrize(
+        "names",
+        [("lat", "lon"), ("latitude", "longitude"), ("y", "x")],
+        ids=["cf-short", "cf-long", "default-pair"],
+    )
+    def test_the_stores_own_coordinates_answer_the_lookup(self, names: tuple[str, str]):
+        """Each spelling reports the coordinates the store holds, not a placeholder.
+
+        Test scenario:
+            A 3x4 grid has four column centres and three row centres. A lookup that misses
+            the axis falls through to the index-space placeholder, which is 512 long — so
+            the length alone separates a hit from the #1180 symptom.
+
+        Args:
+            names: The `(row, column)` spelling under test.
+        """
+        container = self._named(names)
+        assert container.lon.tolist() == [11.0, 13.0, 15.0, 17.0], (
+            container.lon.tolist()
+        )
+        assert container.lat.tolist() == [49.0, 47.0, 45.0], container.lat.tolist()
+
+    @pytest.mark.parametrize(
+        "names",
+        [("lat", "lon"), ("latitude", "longitude"), ("y", "x")],
+        ids=["cf-short", "cf-long", "default-pair"],
+    )
+    def test_the_container_still_reports_its_own_grid(self, names: tuple[str, str]):
+        """The geotransform survives the naming, which is what the lookup is for.
+
+        Args:
+            names: The `(row, column)` spelling under test.
+        """
+        assert tuple(self._named(names).geotransform) == self.GEO
+
+    @pytest.mark.parametrize(
+        ("spelling", "accepted"),
+        [
+            ("lon", _X_AXIS_VARIABLE_NAMES),
+            ("longitude", _X_AXIS_VARIABLE_NAMES),
+            ("x", _X_AXIS_VARIABLE_NAMES),
+            ("lat", _Y_AXIS_VARIABLE_NAMES),
+            ("latitude", _Y_AXIS_VARIABLE_NAMES),
+            ("y", _Y_AXIS_VARIABLE_NAMES),
+        ],
+    )
+    def test_every_spelling_a_rebuild_can_carry_is_listed(self, spelling, accepted):
+        """The lookup's vocabulary is the one `_public_spatial_names` hands back.
+
+        Args:
+            spelling: A name a CF store may give a spatial axis.
+            accepted: The tuple the matching property walks.
+        """
+        assert spelling in accepted, f"{spelling!r} is not among {accepted}"
+
+    def test_the_default_naming_is_the_shared_constants(self):
+        """`from_array` names an unnamed grid after `ROW_AXIS` / `COLUMN_AXIS`.
+
+        Test scenario:
+            `dimensions.ROW_AXIS` exists so `from_array`, `_spatial_names` and
+            `_public_spatial_names` stop keeping private copies of `"y"`. That is only
+            true while the build really uses them, which nothing else asserts.
+        """
+        built = NetCDF.from_array(
+            np.arange(12.0).reshape(3, 4),
+            geo_ref=GeoReference(geo=self.GEO, epsg=4326),
+            variable_name="t",
+        )
+        assert sorted(built.dimension_names) == sorted((ROW_AXIS, COLUMN_AXIS))
 
 
 class TestARebuildKeepsTheCfTimeUnits:
@@ -607,6 +710,43 @@ class TestResolvingASpatialDimension:
         resolved = self._resolve(container, "y", wanted, gdal.DIM_TYPE_HORIZONTAL_Y)
         assert resolved.GetName() != "longitude", "the X axis was borrowed for Y"
 
+    def test_a_store_with_no_dimensions_creates_the_axis(self):
+        """Nothing to reuse means the preferred name is taken, not an error.
+
+        Test scenario:
+            The comparison scales its tolerance to the axis' own step, which a store with
+            no axes at all never supplies — the search has to come back empty instead.
+        """
+        memory = gdal.GetDriverByName("MEM").CreateMultiDimensional("m")
+        resolved = NetCDF._spatial_dimension(
+            memory.GetRootGroup(),
+            "x",
+            np.array([1.0, 2.0, 3.0]),
+            gdal.ExtendedDataType.Create(gdal.GDT_Float64),
+            gdal.DIM_TYPE_HORIZONTAL_X,
+        )
+        assert resolved.GetName() == "x", resolved.GetName()
+        assert resolved.GetSize() == 3, resolved.GetSize()
+
+    def test_a_single_cell_axis_is_matched_on_its_one_value(self):
+        """One coordinate has no spacing to scale the tolerance by, and still matches.
+
+        Test scenario:
+            The step is taken from `diff`, which is empty on a one-long axis. Without the
+            fallback the comparison would divide its slack by nothing and a single-row
+            store — a zonal strip, a point extraction — would gain a second axis.
+        """
+        container = NetCDF.from_array(
+            np.arange(4.0).reshape(1, 4),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+            spatial_names=("latitude", "longitude"),
+        )
+        wanted = container.get_dimension_values("latitude")
+        assert len(wanted) == 1, f"precondition: a one-row grid, got {wanted}"
+        resolved = self._resolve(container, "y", wanted, gdal.DIM_TYPE_HORIZONTAL_Y)
+        assert resolved.GetName() == "latitude", resolved.GetName()
+
 
 class TestAJoinKeepsTheAgreedCalendar:
     """`concat` and `merge` write the units their parts agree on, and only those."""
@@ -785,6 +925,54 @@ class TestAnUnlabelledAxisIsNotStamped:
         """
         assert _time_attrs(self._written(None, tmp_path)) == ()
 
+    @staticmethod
+    def _single_dim(values, tmp_path) -> NetCDF:
+        """The same, through the single-dimension `name` / `values` form of the API.
+
+        `_coordinate_attrs` has a second branch for the 3-D `ExtraDimensions(name=...,
+        values=...)` shape, distinct from the 4-D `dims=[...]` list — the rule must hold
+        on both.
+
+        Args:
+            values: The `time` coordinates, or `None` to leave them unlabelled.
+            tmp_path: pytest's temporary directory.
+
+        Returns:
+            NetCDF: The store, read back from disk.
+        """
+        built = NetCDF.from_array(
+            np.arange(24.0).reshape(3, 2, 4),
+            geo_ref=GeoReference(geo=(10.0, 2.0, 0.0, 50.0, 0.0, -2.0), epsg=4326),
+            variable_name="t",
+            dims=ExtraDimensions(
+                name="time",
+                values=values,
+                attrs={"time": {"units": UNITS, "calendar": CALENDAR}},
+            ),
+        )
+        out = tmp_path / f"{'named' if values else 'bare'}-single.nc"
+        built.to_file(str(out))
+        return NetCDF.read_file(str(out))
+
+    def test_the_single_dimension_form_stamps_supplied_values(self, tmp_path):
+        """`name` / `values` carries the units the same way `dims=[...]` does.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        assert _time_attrs(self._single_dim([0.0, 6.0, 12.0], tmp_path)) == (
+            UNITS,
+            CALENDAR,
+        )
+
+    def test_the_single_dimension_form_drops_fabricated_positions(self, tmp_path):
+        """A `values=None` single dimension is `[0, 1, 2]`, so it is not stamped either.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        assert _time_attrs(self._single_dim(None, tmp_path)) == ()
+
 
 class TestTheGridComparisonToleratesRecomputation:
     """`_same_grid` decides whether the source's axis names still describe the result."""
@@ -830,6 +1018,44 @@ class TestTheGridComparisonToleratesRecomputation:
         var, _ = self._source()
         arr = np.zeros((var.rows // 2, var.columns))
         assert not NetCDF._same_grid(var, arr, tuple(var.geotransform))
+
+    def test_a_result_with_no_transform_does_not(self):
+        """A rebuild that reports no grid cannot be said to be on the source's.
+
+        Test scenario:
+            `geo=None` reads as the empty transform, which is a different length from the
+            source's six, so the names are dropped rather than carried on nothing.
+        """
+        var, arr = self._source()
+        assert not NetCDF._same_grid(var, arr, None)
+
+    def test_a_one_dimensional_result_does_not(self):
+        """A result with fewer than two axes has no rows and columns to compare."""
+        var, _ = self._source()
+        assert not NetCDF._same_grid(var, np.zeros(var.columns), var.geotransform)
+
+    def test_a_transform_of_another_length_does_not(self):
+        """A truncated transform is rejected before the tolerance is ever applied."""
+        var, arr = self._source()
+        assert not NetCDF._same_grid(var, arr, (10.0, 2.0))
+
+    def test_two_transformless_grids_of_one_shape_do(self):
+        """With no transform on either side the shape is all there is to agree on.
+
+        Test scenario:
+            The tolerance is scaled to the cell size, which an empty transform does not
+            have. The comparison has to skip it rather than index into nothing, and a
+            source and result that agree about their shape still carry the names.
+        """
+
+        class _Transformless:
+            """A source reporting a shape but no geotransform."""
+
+            geotransform = None
+            rows = 3
+            columns = 4
+
+        assert NetCDF._same_grid(_Transformless(), np.zeros((3, 4)), None)
 
 
 class TestTheNewInputsAreChecked:
