@@ -229,6 +229,53 @@ class TestSetVariableCreatesATextBandDimension:
         assert carried == [1, 2, 3]
         assert all(isinstance(one, (int, np.integer)) for one in carried), carried
 
+    def test_an_unlabelled_default_band_axis_is_stored_as_integers(self):
+        """A `band_dim_values=None` axis defaults to integer `[0, 1, 2]`, not float (L2).
+
+        Test scenario:
+            The fabricated `list(range(size))` default now goes through
+            `_coordinate_dtype` like every other axis, so it is stored as integer;
+            `origin/main` wrote `[0.0, 1.0, 2.0]` on this path.
+        """
+        geo = GeoReference(geo=GEO)
+        base = NetCDF.from_array(
+            arr=np.zeros((3, 4), dtype="float32"),
+            geo_ref=geo,
+            variable_name="base",
+            path=None,
+        )
+        raster = Dataset.from_array(
+            np.arange(3 * 3 * 4, dtype="float32").reshape(3, 3, 4), geo_ref=geo
+        )
+        base.set_variable("SM", raster, band_dim_name="level", band_dim_values=None)
+        carried = list(base.get_variable("SM")._band_dim_values_map["level"])
+        assert carried == [0, 1, 2]
+        assert all(isinstance(one, (int, np.integer)) for one in carried), carried
+
+    def test_a_mixed_text_and_missing_axis_is_refused_clearly(self):
+        """A gappy text axis raises a message naming the real problem, not a float error.
+
+        Test scenario:
+            A text axis with a `None` gap (a string `pandas.Index` with a missing entry)
+            was classified non-text and fell through to float64, raising the misleading
+            `could not convert string to float` (#1181's own error). It now refuses with
+            a message about the mixed axis, and never with the float-conversion text.
+        """
+        geo = GeoReference(geo=GEO)
+        base = NetCDF.from_array(
+            arr=np.zeros((3, 4), dtype="float32"),
+            geo_ref=geo,
+            variable_name="base",
+            path=None,
+        )
+        raster = Dataset.from_array(
+            np.arange(3 * 3 * 4, dtype="float32").reshape(3, 3, 4), geo_ref=geo
+        )
+        gappy = np.array([TIME_STAMPS[0], None, TIME_STAMPS[2]], dtype=object)
+        with pytest.raises(ValueError, match="mixes text with non-text") as caught:
+            base.set_variable("SM", raster, band_dim_name="Time", band_dim_values=gappy)
+        assert "could not convert string to float" not in str(caught.value)
+
 
 class TestConcatComparesTheTextOtherDimension:
     """concat's `_check_other_dimensions` compares a text 'other' axis via `_comparable`."""
