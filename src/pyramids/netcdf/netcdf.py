@@ -8259,8 +8259,11 @@ class NetCDF(Dataset):
             )
             # `result` is a private container this reduction builds up; nothing else
             # references its raster yet, so mutate in place (copy=False) to avoid an
-            # O(n^2) per-variable MEM copy on wide cubes (#143).
-            result.set_variable(var_name, ds, copy=False)
+            # O(n^2) per-variable MEM copy on wide cubes (#143). `dim_attrs` reaches the
+            # band dimensions this variable owns and the first did not — a `merge` of a
+            # time cube with a level cube creates `level` here, and without this its CF
+            # units would live only in memory and die at `to_file` (#1179).
+            result.set_variable(var_name, ds, copy=False, dim_attrs=dim_attrs)
         return result
 
     def to_crs(

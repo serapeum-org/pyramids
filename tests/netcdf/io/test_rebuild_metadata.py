@@ -963,6 +963,64 @@ class TestAJoinKeepsTheAgreedCalendar:
         merged.to_file(str(out))
         assert _time_attrs(NetCDF.read_file(str(out))) == ()
 
+    @staticmethod
+    def _dim_cube(name: str, dim: str, stamps: list[float], units: tuple) -> NetCDF:
+        """A one-cell cube whose band dimension is `dim`, declaring `units`.
+
+        Args:
+            name: The variable's name.
+            dim: The band dimension's name.
+            stamps: The band coordinates.
+            units: The `(units, calendar)` pair to declare on `dim`.
+
+        Returns:
+            NetCDF: The cube.
+        """
+        cube = NetCDF.from_array(
+            np.arange(len(stamps), dtype=float).reshape(len(stamps), 1, 1),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name=name,
+            dims=ExtraDimensions(name=dim, values=stamps),
+        )
+        cube.get_variable(name)._band_dim_time_attrs = {dim: units}
+        cube._band_dim_time_attrs = {dim: units}
+        return cube
+
+    def test_merge_writes_units_for_a_band_dim_only_a_later_variable_has(
+        self, tmp_path
+    ):
+        """A dimension the first-built variable does not own still reaches the store.
+
+        Test scenario:
+            `merge` builds the first variable through `from_array` and every later one
+            through `set_variable`. When a later variable owns a band dimension the first
+            did not — a time cube merged with a level cube — that dimension is created by
+            `set_variable`, whose path wrote no CF attributes: `level`'s units lived in
+            memory and died at `to_file`, the #1179 symptom for the second variable.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        merged = NetCDF.merge(
+            [
+                self._dim_cube(
+                    "a", "time", [0.0, 6.0], ("hours since 2020-01-01", CALENDAR)
+                ),
+                self._dim_cube(
+                    "b", "level", [850.0, 500.0], ("days since 1990-01-01", CALENDAR)
+                ),
+            ]
+        )
+        out = tmp_path / "disjoint.nc"
+        merged.to_file(str(out))
+        back = NetCDF.read_file(str(out))
+        assert back.get_variable("a")._resolved_band_dim_time_attrs() == {
+            "time": ("hours since 2020-01-01", CALENDAR)
+        }
+        assert back.get_variable("b")._resolved_band_dim_time_attrs() == {
+            "level": ("days since 1990-01-01", CALENDAR)
+        }
+
 
 class TestAnUnlabelledAxisIsNotStamped:
     """CF units belong to coordinates the caller gave, never to fabricated positions."""

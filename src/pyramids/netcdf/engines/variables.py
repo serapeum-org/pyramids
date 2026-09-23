@@ -87,6 +87,7 @@ class Variables(_Engine["NetCDF"]):
         attrs: dict | None = None,
         *,
         copy: bool = True,
+        dim_attrs: dict[str, dict[str, str]] | None = None,
     ):
         """Write a classic Dataset back as an MDArray variable in this container.
 
@@ -121,6 +122,12 @@ class Variables(_Engine["NetCDF"]):
             attrs: Variable attributes to set (e.g. `{"units": "K"}`).
                 Auto-detected from `_variable_attrs` when available.
                 Defaults to None.
+            dim_attrs: CF `(units, calendar)` to write onto a band dimension this call
+                creates, keyed by dimension name — `{"level": {"units": "hPa"}}`. Only a
+                newly created, labelled dimension is stamped; a dimension already in the
+                store keeps what it was created with. A join uses this so a variable it
+                adds after the first keeps its band axis' calendar through `to_file`
+                (#1179). Defaults to None.
             copy: When True (the default) an in-memory container is copied
                 before mutation so that any handle sharing the same backing
                 `gdal.Dataset` (a `get_group()` view, or a caller holding
@@ -223,6 +230,7 @@ class Variables(_Engine["NetCDF"]):
             band_dim_name,
             band_dim_values,
             band,
+            dim_attrs,
         )
 
         # Set spatial reference (RT-7: attribute copying). Carry a no-EPSG CRS
@@ -686,6 +694,40 @@ def _resolve_band_metadata(
     return band_dim_name, band_dim_values, attrs, band
 
 
+def _carry_band_dim_attrs(
+    rg: Any,
+    dim_name: str,
+    created: Any,
+    labelled: bool,
+    preexisting: bool,
+    dim_attrs: dict[str, dict[str, str]] | None,
+) -> None:
+    """Write a band dimension's carried CF attributes onto its coordinate array.
+
+    This is the `set_variable` counterpart of `_create_extra_dimensions`' carry, for the
+    variables a rebuild adds after the first (#1179). It writes only for an axis that is
+    both **newly created** — a dimension the first variable already made carries the
+    attributes it was created with, and re-writing would duplicate them — and **labelled**,
+    since the fabricated `0..n-1` of an unlabelled axis are positions, not measurements
+    (the rule `_coordinate_attrs` enforces on the first-variable path).
+
+    Args:
+        rg: The root group.
+        dim_name: The dimension's name.
+        created: The dimension just returned by `_get_or_create_dimension`.
+        labelled: Whether the caller supplied this axis' coordinate values.
+        preexisting: Whether a dimension of this name was already in the store.
+        dim_attrs: CF attributes keyed by dimension name, or `None`.
+    """
+    if preexisting or not labelled:
+        return
+    carried = (dim_attrs or {}).get(dim_name)
+    if carried:
+        indexing = created.GetIndexingVariable() or rg.OpenMDArray(dim_name)
+        if indexing is not None:
+            write_attributes_to_md_array(indexing, carried)
+
+
 def _create_multi_band_dims(
     nc: NetCDF,
     rg: Any,
@@ -693,26 +735,34 @@ def _create_multi_band_dims(
     sizes: tuple[int, ...],
     values_map: dict,
     coord_dtype: Any,
+    dim_attrs: dict[str, dict[str, str]] | None = None,
 ) -> list:
     """Create one GDAL dimension per tracked non-spatial axis (the 4-D+ rebuild path).
 
     Each axis takes its coordinate values from ``values_map`` (filling integer
-    indices when absent); the first axis is tagged ``DIM_TYPE_TEMPORAL``.
+    indices when absent); the first axis is tagged ``DIM_TYPE_TEMPORAL``. A newly
+    created, labelled axis also carries its CF ``(units, calendar)`` from ``dim_attrs``
+    onto its coordinate array, so a variable a join adds after the first keeps them
+    through ``to_file`` (#1179).
     """
     band_dims = []
+    known = {dimension.GetName() for dimension in rg.GetDimensions() or []}
     for i, dim_name in enumerate(names):
         values = values_map.get(dim_name)
+        labelled = values is not None
         if values is None:
             values = list(range(int(sizes[i])))
-        band_dims.append(
-            nc._get_or_create_dimension(
-                rg,
-                dim_name,
-                np.array(values, dtype=np.float64),
-                coord_dtype,
-                gdal.DIM_TYPE_TEMPORAL if i == 0 else None,
-            )
+        created = nc._get_or_create_dimension(
+            rg,
+            dim_name,
+            np.array(values, dtype=np.float64),
+            coord_dtype,
+            gdal.DIM_TYPE_TEMPORAL if i == 0 else None,
         )
+        _carry_band_dim_attrs(
+            rg, dim_name, created, labelled, dim_name in known, dim_attrs
+        )
+        band_dims.append(created)
     return band_dims
 
 
@@ -728,32 +778,42 @@ def _build_variable_mdarray(
     band_dim_name: str | None,
     band_dim_values: list | None,
     band: dict,
+    dim_attrs: dict[str, dict[str, str]] | None = None,
 ) -> Any:
     """Create the variable MDArray with the right band dimensions and write ``arr``.
 
     Three layouts: a multi-band-dim 4-D+ rebuild (reshape the flattened bands
     back into storage order, one GDAL dim per non-spatial axis via
     :func:`_create_multi_band_dims`); the legacy single-band-dim 3-D path; and a
-    plain 2-D ``(y, x)`` variable. Returns the written MDArray.
+    plain 2-D ``(y, x)`` variable. A newly created, labelled band axis carries its CF
+    ``(units, calendar)`` from ``dim_attrs`` onto its coordinate array so a join's
+    later variable keeps them through ``to_file`` (#1179). Returns the written MDArray.
     """
     names, sizes, values_map = band["names"], band["sizes"], band["values_map"]
     if len(names) > 1 and arr.ndim == 3 and sizes:
         arr = unflatten_band_axes(arr, names, sizes)
         band_dims = _create_multi_band_dims(
-            nc, rg, names, sizes, values_map, coord_dtype
+            nc, rg, names, sizes, values_map, coord_dtype, dim_attrs
         )
         md_arr = rg.CreateMDArray(variable_name, [*band_dims, dim_y, dim_x], data_dtype)
     elif arr.ndim == 3:
         if band_dim_name is None:
             band_dim_name = "bands"
+        labelled = band_dim_values is not None
         if band_dim_values is None:
             band_dim_values = list(range(arr.shape[0]))
+        preexisting = band_dim_name in {
+            dimension.GetName() for dimension in rg.GetDimensions() or []
+        }
         dim_band = nc._get_or_create_dimension(
             rg,
             band_dim_name,
             np.array(band_dim_values, dtype=np.float64),
             coord_dtype,
             gdal.DIM_TYPE_TEMPORAL,
+        )
+        _carry_band_dim_attrs(
+            rg, band_dim_name, dim_band, labelled, preexisting, dim_attrs
         )
         md_arr = rg.CreateMDArray(variable_name, [dim_band, dim_y, dim_x], data_dtype)
     else:
