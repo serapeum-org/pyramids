@@ -994,9 +994,7 @@ def from_array(
         geo_ref.epsg,
         no_data_value,
         path=path,
-        chunk_sizes=encoding.chunk_sizes,
-        compression=encoding.compression,
-        compression_level=encoding.compression_level,
+        encoding=encoding,
         cf_attrs=cf_attrs,
         spatial_names=spatial_names,
         dim_attrs=_coordinate_attrs(dims),
@@ -1443,9 +1441,7 @@ def _create_netcdf_from_array(
     epsg: str | int | None = None,
     no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
     path: str | Path | None = None,
-    chunk_sizes: tuple | list | None = None,
-    compression: str | None = None,
-    compression_level: int | None = None,
+    encoding: Encoding | None = None,
     cf_attrs: dict[str, str] | None = None,
     spatial_names: tuple[str, str] | None = None,
     dim_attrs: dict[str, dict[str, str]] | None = None,
@@ -1475,10 +1471,9 @@ def _create_netcdf_from_array(
             DEFAULT_NO_DATA_VALUE.
         path: Output file path. If None, created in memory.
             Defaults to None.
-        chunk_sizes: Chunk sizes for the variable. Defaults to
-            None.
-        compression: Compression algorithm. Defaults to None.
-        compression_level: Compression level. Defaults to None.
+        encoding: On-disk write options — chunk sizes, compression and its level —
+            as an :class:`~pyramids.netcdf.array_options.Encoding`. `None` uses the
+            GDAL defaults. Defaults to None.
         cf_attrs: Optional CF global attributes (e.g. ``title`` /
             ``institution`` / ``source`` / ``history``) to merge onto the
             root group, alongside the always-written ``Conventions``.
@@ -1492,6 +1487,7 @@ def _create_netcdf_from_array(
     # set_variable and other call sites) and are reached through the class.
     from pyramids.netcdf.netcdf import NetCDF
 
+    encoding = encoding or Encoding()
     _require_create_inputs(variable_name, geo)
     # `_require_create_inputs` raises `ValueError` on a None `geo`; restate that
     # invariant so the geotransform indexing below is guarded. `epsg` is NOT
@@ -1579,6 +1575,7 @@ def _create_netcdf_from_array(
     # For a dask input with no explicit on-disk chunking, align the netCDF storage
     # BLOCKSIZE with the dask block shape so the streamed windows map onto whole
     # storage chunks. An explicit `chunk_sizes` always wins.
+    chunk_sizes = encoding.chunk_sizes
     if chunk_sizes is None and _is_dask_array(arr):
         chunk_sizes = tuple(
             int(axis_chunks[0]) for axis_chunks in cast("Any", arr).chunks
@@ -1587,7 +1584,9 @@ def _create_netcdf_from_array(
         variable_name,
         [*gdal_extra_dims, dim_y, dim_x],
         dtype,
-        _build_create_options(chunk_sizes, compression, compression_level),
+        _build_create_options(
+            chunk_sizes, encoding.compression, encoding.compression_level
+        ),
     )
 
     # Set metadata BEFORE writing data — netCDF driver requires

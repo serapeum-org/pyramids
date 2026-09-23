@@ -127,12 +127,10 @@ class TestARebuildKeepsTheSpatialAxisNames:
             call: How to call it.
         """
         names = list(call(_store()).dimension_names)
-        assert "latitude" in names and "longitude" in names, (
-            f"{member} renamed the grid: {names}"
-        )
-        assert "x" not in names and "y" not in names, (
-            f"{member} left x / y behind: {names}"
-        )
+        assert "latitude" in names, f"{member} dropped latitude: {names}"
+        assert "longitude" in names, f"{member} dropped longitude: {names}"
+        assert "x" not in names, f"{member} left x behind: {names}"
+        assert "y" not in names, f"{member} left y behind: {names}"
 
     def test_the_written_file_keeps_them_too(self, tmp_path):
         """The rename reached `to_file`, so the file declared axes the source never had.
@@ -390,7 +388,8 @@ class TestSetVariableReusesTheStoresAxes:
             ),
         )
         names = list(store.get_variable("added").dimension_names or [])
-        assert "latitude" in names and "longitude" in names, names
+        assert "latitude" in names, names
+        assert "longitude" in names, names
 
     def test_a_different_grid_still_gets_its_own_axes(self):
         """Reuse is by what the axis holds, so a different grid must not borrow one."""
@@ -1272,12 +1271,11 @@ class TestTheNewInputsAreChecked:
 
     def test_attrs_for_a_dimension_that_is_not_there_are_refused(self):
         """A typo used to write nothing and leave the axis bare — #1179's symptom."""
+        dims = ExtraDimensions(
+            dims=[("time", [0.0, 6.0, 12.0])], attrs={"tmie": {"units": UNITS}}
+        )
         with pytest.raises(ValueError, match="'tmie'"):
-            self._build(
-                dims=ExtraDimensions(
-                    dims=[("time", [0.0, 6.0, 12.0])], attrs={"tmie": {"units": UNITS}}
-                )
-            )
+            self._build(dims=dims)
 
     def test_attrs_for_a_dimension_that_is_there_are_accepted(self):
         """The spelling that does name an axis still writes."""
