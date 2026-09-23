@@ -694,6 +694,92 @@ def _resolve_band_metadata(
     return band_dim_name, band_dim_values, attrs, band
 
 
+def _is_text_axis(values: np.ndarray) -> bool:
+    """Whether a coordinate axis holds text rather than numbers.
+
+    A NumPy string array (`kind` `U`/`S`) is text outright. An **object** array
+    (`kind` `O`) is text only when every element is a `str` or `bytes`: that is how a
+    `pandas.Index` of strings, an xarray string coordinate's `.values`, and an explicit
+    `np.array([...], dtype=object)` all present, none of which a `kind` check alone
+    catches, yet each is a realistic caller of `set_variable` / `from_array` (#1181).
+
+    Args:
+        values: The coordinate values.
+
+    Returns:
+        bool: `True` when the axis is text.
+    """
+    if values.dtype.kind in ("U", "S"):
+        text = True
+    elif values.dtype.kind == "O":
+        text = values.size > 0 and all(
+            isinstance(one, (str, bytes)) for one in values.ravel()
+        )
+    else:
+        text = False
+    return text
+
+
+def _coordinate_dtype(values: np.ndarray, default: Any) -> Any:
+    """The GDAL type for a band-coordinate axis, chosen from what it holds.
+
+    An integer axis keeps its own integer type; a **text** axis — WRF's `Time` of
+    `'2000-01-24_12:00:00'` stamps, a scenario name, a station id, whether NumPy string
+    or object-of-strings (see `_is_text_axis`) — is stored as GDAL strings; everything
+    else is `default` (the float64 coordinate type). Reducing over a variable's *other*
+    dimension has to carry this one through the rebuild, and coercing a text axis to
+    float64 turned every stamp into `could not convert string to float` (#1181).
+
+    Args:
+        values: The coordinate values.
+        default: The type for a non-integer, non-text axis (float64).
+
+    Returns:
+        The GDAL :class:`osgeo.gdal.ExtendedDataType` to create the axis with.
+
+    Raises:
+        ValueError: The axis mixes text with non-text values (e.g. a string
+            `pandas.Index` carrying a `None`/`NaN` gap). Such an axis has no single
+            storage type; without this it fell through to float64 and raised the
+            misleading `could not convert string to float` (#1181).
+    """
+    if np.issubdtype(values.dtype, np.integer):
+        dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values.dtype))
+    elif _is_text_axis(values):
+        dtype = gdal.ExtendedDataType.CreateString()
+    else:
+        _reject_partial_text_axis(values)
+        dtype = default
+    return dtype
+
+
+def _reject_partial_text_axis(values: np.ndarray) -> None:
+    """Refuse an object axis that carries text alongside non-text values.
+
+    `_is_text_axis` is all-or-nothing, so a text axis with a gap — a string
+    `pandas.Index` with a `None` or a float `nan` — reaches the float64 default and
+    raised `could not convert string to float`, the exact #1181 error, from deep in the
+    GDAL write. Storing the gap would mean inventing a value for it (an empty string, a
+    sentinel), which is the caller's decision, so this refuses with a message that names
+    the real problem instead.
+
+    Args:
+        values: The coordinate values, already known not to be integer or all-text.
+
+    Raises:
+        ValueError: An object array holds at least one `str`/`bytes` element but is not
+            all text.
+    """
+    if values.dtype.kind == "O" and any(
+        isinstance(one, (str, bytes)) for one in values.ravel()
+    ):
+        raise ValueError(
+            "a coordinate axis that mixes text with non-text values (a gap, a number) "
+            f"has no single storage type: {list(values)!r}. Give every coordinate a "
+            "value of one kind."
+        )
+
+
 def _carry_band_dim_attrs(
     rg: Any,
     dim_name: str,
@@ -756,11 +842,14 @@ def _create_multi_band_dims(
         labelled = values is not None
         if values is None:
             values = list(range(int(sizes[i])))
+        # `np.asarray`, not `dtype=np.float64`: a text axis stays text so it can be stored
+        # as strings, where the float cast raised on WRF's `Time` stamps (#1181).
+        values = np.asarray(values)
         created = nc._get_or_create_dimension(
             rg,
             dim_name,
-            np.array(values, dtype=np.float64),
-            coord_dtype,
+            values,
+            _coordinate_dtype(values, coord_dtype),
             gdal.DIM_TYPE_TEMPORAL if i == 0 else None,
         )
         _carry_band_dim_attrs(
@@ -809,11 +898,13 @@ def _build_variable_mdarray(
         preexisting = band_dim_name in {
             dimension.GetName() for dimension in rg.GetDimensions() or []
         }
+        # `np.asarray`, not `dtype=np.float64`: a text axis stays text (#1181).
+        band_values = np.asarray(band_dim_values)
         dim_band = nc._get_or_create_dimension(
             rg,
             band_dim_name,
-            np.array(band_dim_values, dtype=np.float64),
-            coord_dtype,
+            band_values,
+            _coordinate_dtype(band_values, coord_dtype),
             gdal.DIM_TYPE_TEMPORAL,
         )
         _carry_band_dim_attrs(
@@ -1204,15 +1295,17 @@ def _create_extra_dimensions(
     legacy 3-D path); the rest are left untagged so the netCDF driver does not
     second-guess their semantics.
 
-    An **integer** axis keeps its own integer dtype; everything else is written
-    in ``dtype`` (float64). The float64 rule was written for the *spatial*
-    axes, where sharing the data array's integer type truncated a 2.5-degree
-    grid to whole degrees -- a real defect it fixes. Applied to a non-spatial
-    axis it costs the opposite: an `int64` nanosecond-epoch `time` handed in as
-    `1700000000123456789` came back `1700000000123456768`, because float64
-    carries 53 bits of mantissa. Nothing is lost by keeping the integer type,
-    and the streamed arm (`_add_aux_var_spec`) already copies the source dtype,
-    so the two arms of a fan-out now agree about `time` as well.
+    The coordinate type is chosen by ``_coordinate_dtype``: an **integer** axis
+    keeps its own integer dtype, a **text** axis (``_is_text_axis`` — WRF's
+    ``Time`` stamps, a scenario name) is stored as GDAL strings, and everything
+    else is written in ``dtype`` (float64). The float64 rule was written for the
+    *spatial* axes, where sharing the data array's integer type truncated a
+    2.5-degree grid to whole degrees -- a real defect it fixes. Applied to a
+    non-spatial axis it costs the opposite: an `int64` nanosecond-epoch `time`
+    handed in as `1700000000123456789` came back `1700000000123456768`, because
+    float64 carries 53 bits of mantissa. Nothing is lost by keeping the integer
+    type, and the streamed arm (`_add_aux_var_spec`) already copies the source
+    dtype, so the two arms of a fan-out now agree about `time` as well.
 
     Visible consequence relative to `origin/main`: a band dim left to default is
     `list(range(size))`, so it is integer too, and anything reading those values
@@ -1242,11 +1335,7 @@ def _create_extra_dimensions(
     for i, (dim_name, dim_values) in enumerate(extra_dims):
         dim_type = gdal.DIM_TYPE_TEMPORAL if i == 0 else None
         values = np.asarray(dim_values)
-        dim_dtype = (
-            gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values.dtype))
-            if np.issubdtype(values.dtype, np.integer)
-            else dtype
-        )
+        dim_dtype = _coordinate_dtype(values, dtype)
         created = NetCDF._create_dimension(
             rg, dim_name, dim_dtype, values, dim_type, use_set_indexing
         )
