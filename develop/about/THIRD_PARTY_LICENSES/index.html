@@ -5775,17 +5775,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vendored-python-packages-win_arm64-and-musl-wheels" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Vendored Python packages (win_arm64 and musl wheels)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#how-license-texts-are-gathered" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6193,17 +6182,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#vendored-python-packages-win_arm64-and-musl-wheels" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Vendored Python packages (win_arm64 and musl wheels)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#how-license-texts-are-gathered" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6555,52 +6533,6 @@ from-source stack is leaner; Windows ships extra DLLs from the conda-forge
 <code>Library/bin/</code> layout; macOS ships <code>.dylib</code> equivalents). The single source of
 truth for what shipped in any specific wheel is the <code>pyramids/_licenses/</code>
 directory inside that wheel.</p>
-<h2 id="vendored-python-packages-win_arm64-and-musl-wheels"><a class="toclink" href="#vendored-python-packages-win_arm64-and-musl-wheels">Vendored Python packages (win_arm64 and musl wheels)</a><a class="headerlink" href="#vendored-python-packages-win_arm64-and-musl-wheels" title="Permanent link">#</a></h2>
-<p>On platforms where upstream publishes no binary wheels for the vector stack, the
-wheel <strong>vendors</strong> those Python packages under <code>pyramids/_vendor/</code> (with their
-license texts under <code>pyramids/_licenses/&lt;package&gt;/</code>) instead of declaring them as
-PyPI dependencies. This applies to the <strong>win_arm64</strong> wheel and the <strong>musllinux</strong>
-wheel; every other wheel installs these from PyPI and vendors none of them.</p>
-<table>
-<thead>
-<tr>
-<th>Package</th>
-<th>Role</th>
-<th>License (SPDX)</th>
-<th>Wheels</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>shapely</strong></td>
-<td>geometry engine (GEOS bindings)</td>
-<td>BSD-3-Clause</td>
-<td>win_arm64 + musl</td>
-</tr>
-<tr>
-<td><strong>geopandas</strong></td>
-<td>GeoDataFrame / vector I/O layer</td>
-<td>BSD-3-Clause</td>
-<td>win_arm64 + musl</td>
-</tr>
-<tr>
-<td><strong>pyogrio</strong></td>
-<td>fast OGR vector read/write for geopandas</td>
-<td>MIT</td>
-<td>win_arm64 + musl</td>
-</tr>
-<tr>
-<td><strong>cftime</strong></td>
-<td>CF calendar decoding for NetCDF</td>
-<td>MIT</td>
-<td>musl only</td>
-</tr>
-</tbody>
-</table>
-<p><code>cftime</code> is vendored on musl only — it is the one member of this set with no
-<code>musllinux_*_aarch64</code> wheel upstream; win_arm64 installs it from PyPI. All four
-licenses (BSD-3-Clause, MIT) are permissive and GPLv3-compatible, like the native
-stack above.</p>
 <h2 id="how-license-texts-are-gathered"><a class="toclink" href="#how-license-texts-are-gathered">How license texts are gathered</a><a class="headerlink" href="#how-license-texts-are-gathered" title="Permanent link">#</a></h2>
 <p><code>ci/install-and-vendor-osgeo.py</code> runs in cibuildwheel's <code>CIBW_BEFORE_BUILD</code>
 hook and fills <code>src/pyramids/_licenses/</code> from whichever license source the
