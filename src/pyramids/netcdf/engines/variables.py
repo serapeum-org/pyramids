@@ -723,6 +723,10 @@ def _carry_band_dim_attrs(
         return
     carried = (dim_attrs or {}).get(dim_name)
     if carried:
+        # `SetIndexingVariable` is skipped on the netCDF driver, so the coordinate array is
+        # reached by name there. A dimension just created on this MEM group always has one,
+        # so the `is not None` guard covers a driver that refuses rather than any supported
+        # path — it is not covered, and cannot be (as in `_create_extra_dimensions`).
         indexing = created.GetIndexingVariable() or rg.OpenMDArray(dim_name)
         if indexing is not None:
             write_attributes_to_md_array(indexing, carried)
