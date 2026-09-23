@@ -451,10 +451,10 @@ def _check_other_dimensions(parts: list[NetCDF], dim: str, name: str) -> None:
             name: The dimension's name.
 
         Returns:
-            tuple: The stamps as floats, or `()`.
+            tuple: The stamps as their own values, or `()`.
         """
         stamps = part._band_dim_values_map.get(name)
-        return () if stamps is None else tuple(float(one) for one in stamps)
+        return () if stamps is None else _comparable(stamps)
 
     def layout(part: NetCDF) -> list[tuple[str, int, tuple]]:
         """The variable's dimensions other than `dim`, as comparable `(name, size, stamps)`.
@@ -604,6 +604,24 @@ def _filled_from(
     return np.asarray(filled)
 
 
+def _comparable(values: Any) -> tuple:
+    """Coordinate values as a tuple of plain Python scalars, for equality comparison.
+
+    Carried as they are, not coerced to float: a text axis — WRF's `Time` of
+    `'2000-01-24_12:00:00'` stamps, a scenario name — is compared as strings, where
+    `float(one)` raised `could not convert string to float` (#1181). NumPy scalars are
+    unwrapped with `.item()` so a `str`/`int`/`float` compares and prints cleanly, and a
+    numeric axis still matches regardless of its width.
+
+    Args:
+        values: The coordinate values.
+
+    Returns:
+        tuple: The values as Python scalars.
+    """
+    return tuple(one.item() if hasattr(one, "item") else one for one in values)
+
+
 def _stamps(part: NetCDF, dim: str) -> tuple:
     """A dimension's coordinates as a comparable tuple, empty when it carries none.
 
@@ -612,10 +630,10 @@ def _stamps(part: NetCDF, dim: str) -> tuple:
         dim: The dimension's name.
 
     Returns:
-        tuple: The stamps as floats, or `()`.
+        tuple: The stamps as their own values, or `()`.
     """
     values = part._band_dim_values_map.get(dim)
-    return () if values is None else tuple(float(one) for one in values)
+    return () if values is None else _comparable(values)
 
 
 def _narrowed(filled: np.typing.NDArray, dtype: np.dtype) -> np.typing.NDArray:

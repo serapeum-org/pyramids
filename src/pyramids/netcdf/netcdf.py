@@ -12344,7 +12344,13 @@ class NetCDF(Dataset):
         """
         dim = group.CreateDimension(dim_name, dim_type, None, values.shape[0])
         coord_arr = group.CreateMDArray(dim_name, [dim], dtype)
-        coord_arr.Write(values)
+        if dtype.GetClass() == gdal.GEDTC_STRING:
+            # A string MDArray takes a Python list of `str`; a NumPy string array sent
+            # through `Write` is force-cast to float64 by the SWIG binding and raises. This
+            # is the channel `interop` uses for a text coordinate (#565, #1181).
+            coord_arr.Write(np.asarray(values).astype(str).tolist())
+        else:
+            coord_arr.Write(values)
         if set_indexing:
             dim.SetIndexingVariable(coord_arr)
         cf_attrs = build_coordinate_attrs(dim_name, is_geographic)
@@ -12354,7 +12360,7 @@ class NetCDF(Dataset):
 
     @staticmethod
     def create_main_dimension(
-        group: gdal.Group, dim_name: str, dtype: int, values: np.ndarray
+        group: gdal.Group, dim_name: str, dtype: Any, values: np.ndarray
     ) -> gdal.Dimension:
         """Create a NetCDF dimension with an indexing variable.
 
@@ -12386,7 +12392,12 @@ class NetCDF(Dataset):
             dim_type = None
         dim = group.CreateDimension(dim_name, dim_type, None, values.shape[0])
         x_values = group.CreateMDArray(dim_name, [dim], dtype)
-        x_values.Write(values)
+        if dtype.GetClass() == gdal.GEDTC_STRING:
+            # A string MDArray takes a Python list of `str`; a NumPy string array through
+            # `Write` is force-cast to float64 by the SWIG binding and raises (#1181).
+            x_values.Write(np.asarray(values).astype(str).tolist())
+        else:
+            x_values.Write(values)
         dim.SetIndexingVariable(x_values)
         return dim
 

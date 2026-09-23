@@ -694,6 +694,30 @@ def _resolve_band_metadata(
     return band_dim_name, band_dim_values, attrs, band
 
 
+def _coordinate_dtype(values: np.ndarray, default: Any) -> Any:
+    """The GDAL type for a band-coordinate axis, chosen from what it holds.
+
+    An integer axis keeps its own integer type; a **text** axis — WRF's `Time` of
+    `'2000-01-24_12:00:00'` stamps, a scenario name, a station id — is stored as GDAL
+    strings; everything else is `default` (the float64 coordinate type). Reducing over a
+    variable's *other* dimension has to carry this one through the rebuild, and coercing a
+    text axis to float64 turned every stamp into `could not convert string to float`
+    (#1181).
+
+    Args:
+        values: The coordinate values.
+        default: The type for a non-integer, non-text axis (float64).
+
+    Returns:
+        The GDAL :class:`osgeo.gdal.ExtendedDataType` to create the axis with.
+    """
+    if np.issubdtype(values.dtype, np.integer):
+        return gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values.dtype))
+    if values.dtype.kind in ("U", "S"):
+        return gdal.ExtendedDataType.CreateString()
+    return default
+
+
 def _carry_band_dim_attrs(
     rg: Any,
     dim_name: str,
@@ -756,11 +780,14 @@ def _create_multi_band_dims(
         labelled = values is not None
         if values is None:
             values = list(range(int(sizes[i])))
+        # `np.asarray`, not `dtype=np.float64`: a text axis stays text so it can be stored
+        # as strings, where the float cast raised on WRF's `Time` stamps (#1181).
+        values = np.asarray(values)
         created = nc._get_or_create_dimension(
             rg,
             dim_name,
-            np.array(values, dtype=np.float64),
-            coord_dtype,
+            values,
+            _coordinate_dtype(values, coord_dtype),
             gdal.DIM_TYPE_TEMPORAL if i == 0 else None,
         )
         _carry_band_dim_attrs(
@@ -809,11 +836,13 @@ def _build_variable_mdarray(
         preexisting = band_dim_name in {
             dimension.GetName() for dimension in rg.GetDimensions() or []
         }
+        # `np.asarray`, not `dtype=np.float64`: a text axis stays text (#1181).
+        band_values = np.asarray(band_dim_values)
         dim_band = nc._get_or_create_dimension(
             rg,
             band_dim_name,
-            np.array(band_dim_values, dtype=np.float64),
-            coord_dtype,
+            band_values,
+            _coordinate_dtype(band_values, coord_dtype),
             gdal.DIM_TYPE_TEMPORAL,
         )
         _carry_band_dim_attrs(
@@ -1242,11 +1271,7 @@ def _create_extra_dimensions(
     for i, (dim_name, dim_values) in enumerate(extra_dims):
         dim_type = gdal.DIM_TYPE_TEMPORAL if i == 0 else None
         values = np.asarray(dim_values)
-        dim_dtype = (
-            gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values.dtype))
-            if np.issubdtype(values.dtype, np.integer)
-            else dtype
-        )
+        dim_dtype = _coordinate_dtype(values, dtype)
         created = NetCDF._create_dimension(
             rg, dim_name, dim_dtype, values, dim_type, use_set_indexing
         )
