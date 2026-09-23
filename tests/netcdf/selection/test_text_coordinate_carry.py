@@ -15,7 +15,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pyramids.netcdf import NetCDF
+from pyramids.dataset import Dataset
+from pyramids.netcdf import GeoReference, NetCDF
 from pyramids.netcdf.engines.combine import _comparable, _stamps
 
 pytestmark = pytest.mark.core
@@ -26,6 +27,7 @@ STORE = (
     / "netcdf"
     / "none__17v__1d1-2d5-3d6-4d5__stag-str.nc"
 )
+GEO = (30.0, 0.5, 0, 35.0, 0, -0.5)
 TIME_STAMPS = [
     "2000-01-24_12:00:00",
     "2000-01-24_13:00:00",
@@ -122,6 +124,59 @@ class TestMergeComparesTextCoordinatesWithoutCoercion:
         assert _carried_time(merged.get_variable("SMOIS")) == TIME_STAMPS
 
 
+class TestSetVariableCreatesATextBandDimension:
+    """`set_variable` writes a text band axis via `create_main_dimension` (#1181)."""
+
+    def test_a_text_band_axis_is_stored_as_strings(self):
+        """Storing a raster on a text `Time` axis carries the stamps, not floats.
+
+        Test scenario:
+            An in-memory container gains a three-band variable whose band dimension is
+            WRF's text `Time`; `create_main_dimension` used to cast the stamps to float64
+            and raise `could not convert string to float`, so the write now goes through
+            the string channel instead.
+        """
+        geo = GeoReference(geo=GEO)
+        base = NetCDF.from_array(
+            arr=np.zeros((3, 4), dtype="float32"),
+            geo_ref=geo,
+            variable_name="base",
+            path=None,
+        )
+        raster = Dataset.from_array(
+            np.arange(3 * 3 * 4, dtype="float32").reshape(3, 3, 4), geo_ref=geo
+        )
+        base.set_variable(
+            "SM", raster, band_dim_name="Time", band_dim_values=TIME_STAMPS
+        )
+        assert _carried_time(base.get_variable("SM")) == TIME_STAMPS
+
+    def test_a_numeric_band_axis_still_writes_through_the_float_channel(self):
+        """A numeric band axis keeps the non-string write path, unchanged by the fix.
+
+        Test scenario:
+            The same `set_variable` call with numeric band coordinates stores them as
+            floats, confirming the string branch is taken only for a text axis.
+        """
+        geo = GeoReference(geo=GEO)
+        base = NetCDF.from_array(
+            arr=np.zeros((3, 4), dtype="float32"),
+            geo_ref=geo,
+            variable_name="base",
+            path=None,
+        )
+        raster = Dataset.from_array(
+            np.arange(3 * 3 * 4, dtype="float32").reshape(3, 3, 4), geo_ref=geo
+        )
+        base.set_variable(
+            "SM", raster, band_dim_name="level", band_dim_values=[1.0, 2.0, 3.0]
+        )
+        carried = [
+            float(one) for one in base.get_variable("SM")._band_dim_values_map["level"]
+        ]
+        assert carried == [1.0, 2.0, 3.0]
+
+
 class TestTheComparableHelper:
     """`_comparable` carries values as they are, unwrapping NumPy scalars."""
 
@@ -133,3 +188,7 @@ class TestTheComparableHelper:
         """A numeric axis unwraps to Python `float` / `int`, so equality is clean."""
         assert _comparable(np.array([1.0, 2.0])) == (1.0, 2.0)
         assert _comparable(np.array([1, 2])) == (1, 2)
+
+    def test_plain_python_values_pass_through_without_item(self):
+        """A plain list has no `.item()`, so its scalars are carried as they are."""
+        assert _comparable(["a", 2, 3.5]) == ("a", 2, 3.5)
