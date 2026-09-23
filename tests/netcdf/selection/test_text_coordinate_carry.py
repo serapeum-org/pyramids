@@ -17,7 +17,12 @@ import pytest
 
 from pyramids.dataset import Dataset
 from pyramids.netcdf import GeoReference, NetCDF
-from pyramids.netcdf.engines.combine import _comparable, _stamps
+from pyramids.netcdf.engines.combine import (
+    _check_other_dimensions,
+    _comparable,
+    _stamps,
+)
+from pyramids.netcdf.engines.variables import _is_text_axis
 
 pytestmark = pytest.mark.core
 
@@ -175,6 +180,118 @@ class TestSetVariableCreatesATextBandDimension:
             float(one) for one in base.get_variable("SM")._band_dim_values_map["level"]
         ]
         assert carried == [1.0, 2.0, 3.0]
+
+    def test_an_object_dtype_text_axis_is_stored_as_strings(self):
+        """A `pandas.Index` / xarray / `dtype=object` text axis is text, not float.
+
+        Test scenario:
+            The stamps arrive as an object array (`kind == 'O'`), the shape a
+            `pandas.Index` of strings and an xarray string coordinate's `.values` take.
+            Classifying only `U` / `S` left this falling through to float64, reproducing
+            `could not convert string to float` — the exact defect #1181 fixes.
+        """
+        geo = GeoReference(geo=GEO)
+        base = NetCDF.from_array(
+            arr=np.zeros((3, 4), dtype="float32"),
+            geo_ref=geo,
+            variable_name="base",
+            path=None,
+        )
+        raster = Dataset.from_array(
+            np.arange(3 * 3 * 4, dtype="float32").reshape(3, 3, 4), geo_ref=geo
+        )
+        stamps = np.array(TIME_STAMPS, dtype=object)
+        base.set_variable("SM", raster, band_dim_name="Time", band_dim_values=stamps)
+        assert _carried_time(base.get_variable("SM")) == TIME_STAMPS
+
+    def test_an_integer_band_axis_keeps_its_integer_type(self):
+        """An integer band axis is stored as native `int`, not widened to float (#1181 L1).
+
+        Test scenario:
+            Routing these paths through `_coordinate_dtype` preserves an integer axis'
+            own type, matching `_create_extra_dimensions` — an int64 epoch stamp loses
+            precision as float64. `origin/main` stored `[1.0, 2.0, 3.0]` here.
+        """
+        geo = GeoReference(geo=GEO)
+        base = NetCDF.from_array(
+            arr=np.zeros((3, 4), dtype="float32"),
+            geo_ref=geo,
+            variable_name="base",
+            path=None,
+        )
+        raster = Dataset.from_array(
+            np.arange(3 * 3 * 4, dtype="float32").reshape(3, 3, 4), geo_ref=geo
+        )
+        base.set_variable(
+            "SM", raster, band_dim_name="level", band_dim_values=[1, 2, 3]
+        )
+        carried = list(base.get_variable("SM")._band_dim_values_map["level"])
+        assert carried == [1, 2, 3]
+        assert all(isinstance(one, (int, np.integer)) for one in carried), carried
+
+
+class TestConcatComparesTheTextOtherDimension:
+    """concat's `_check_other_dimensions` compares a text 'other' axis via `_comparable`."""
+
+    def test_an_agreeing_text_other_dimension_passes(self):
+        """Two cubes joined along the numeric axis agree on the text `Time`, so it lines up.
+
+        Test scenario:
+            Joining along `soil_layers_stag`, `Time` (text) is the *other* dimension, and
+            `_check_other_dimensions` compares it through `_comparable`; identical stamps
+            must not raise.
+        """
+        assert (
+            _check_other_dimensions([_smois(), _smois()], "soil_layers_stag", "SMOIS")
+            is None
+        )
+
+    def test_a_mismatched_text_other_dimension_is_refused(self):
+        """Different text stamps on the other axis are refused, not silently joined.
+
+        Test scenario:
+            The comparison ran through `float(one)` before and raised on the text; it now
+            compares the strings and refuses a genuine mismatch with a readable message.
+        """
+        other = _smois()
+        other._band_dim_values_map = dict(other._band_dim_values_map)
+        other._band_dim_values_map["Time"] = ["1999-01-01_00:00:00"] * 3
+        with pytest.raises(ValueError, match="agree on every dimension"):
+            _check_other_dimensions([_smois(), other], "soil_layers_stag", "SMOIS")
+
+
+class TestClassifyingACoordinateAxis:
+    """`_is_text_axis` decides which axes are stored as strings (#1181)."""
+
+    @pytest.mark.parametrize(
+        ("values", "text"),
+        [
+            (np.array(["a", "b"]), True),
+            (np.array(["a", "b"], dtype=object), True),
+            (np.array([b"a", b"b"]), True),
+            (np.array([1, 2.0], dtype=object), False),
+            (np.array([1.0, 2.0]), False),
+            (np.array([1, 2]), False),
+            (np.array([], dtype=object), False),
+        ],
+        ids=[
+            "unicode",
+            "object-str",
+            "bytes",
+            "object-num",
+            "float",
+            "int",
+            "empty-obj",
+        ],
+    )
+    def test_only_text_axes_are_classified_as_text(self, values, text):
+        """A numeric or empty axis is never treated as text.
+
+        Args:
+            values: The coordinate array under test.
+            text: Whether it should be classified as text.
+        """
+        assert _is_text_axis(values) is text
 
 
 class TestTheComparableHelper:
