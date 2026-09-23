@@ -583,6 +583,15 @@ jobs:
   # bare-wheel env.
   test-wheels-musl:
     needs: build-musl-wheels
+    # Explicit fork guard. The sibling test/verify jobs inherit one transitively
+    # (each needs a guarded build job, so a fork's workflow_run skips them), but
+    # state it here too: this job checks out `head_branch` and executes whatever
+    # tests it finds there, so its fork safety should be self-evident rather than
+    # inferred from the job graph.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
     permissions:
       contents: read
     timeout-minutes: 30
