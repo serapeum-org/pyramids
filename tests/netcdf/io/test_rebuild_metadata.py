@@ -419,15 +419,18 @@ class TestReuseOnRealisticGrids:
     @pytest.mark.parametrize(
         ("step", "dtype"),
         [(0.1, "float32"), (0.1, "float64"), (2.5, "float64")],
-        ids=["0.1deg-float32", "0.1deg-float64", "2.5deg-dyadic"],
+        ids=["0.1deg-float32-data", "0.1deg-float64", "2.5deg-dyadic"],
     )
     def test_a_realistic_grid_is_reused(self, step: float, dtype: str):
-        """No second pair, whatever the spacing and whatever the dtype.
+        """No second pair, whatever the spacing and whatever the data dtype.
 
         Test scenario:
             Only the dyadic 2.5-degree case passed before: the 0.1-degree grids differ in
             the last ulps after the geotransform round trip, so the store gained `x` / `y`
             beside its own `lat` / `lon` — #1194's symptom, unfixed on the common case.
+            `dtype` here is the *cells'* dtype; `from_array` writes the coordinate axes as
+            float64 regardless, so a float32 *coordinate* axis is covered separately by
+            `TestReuseOnAFloat32CoordinateGrid`.
 
         Args:
             step: The cell size under test.
@@ -486,6 +489,92 @@ class TestReuseOnRealisticGrids:
         )
         assert resolved.GetName() == "x", (
             f"a coordinate-less axis was borrowed: {resolved.GetName()}"
+        )
+
+
+class TestReuseOnAFloat32CoordinateGrid:
+    """A store whose coordinate axes are float32 — ERA5 and most climate data.
+
+    `from_array` writes coordinates as float64, so the `TestReuseOnRealisticGrids` cases
+    never exercise a float32 *coordinate* axis. This builds one through GDAL directly, with
+    the CF attributes (`units`, `standard_name`, `axis`) a real file carries so the driver
+    classifies the axes as horizontal on read-back. The reuse check recomputes cell centres
+    in float64 from the derived geotransform; against float32 stored values those differ by
+    the coordinate's magnitude times the float32 epsilon — a latitude near 50 by ~8e-6 —
+    which a step-scaled `atol` alone rejected, so `set_variable` gained a second `x` / `y`
+    pair beside the store's own `lat` / `lon` (#1194, on the common dtype).
+    """
+
+    @staticmethod
+    def _write(path: str) -> None:
+        """Write a 4x5 float32-coordinate CF store to `path`.
+
+        Args:
+            path: The `.nc` path to create.
+        """
+        lat = np.array([49.95, 49.85, 49.75, 49.65], dtype="f4")
+        lon = np.array([3.05, 3.15, 3.25, 3.35, 3.45], dtype="f4")
+        ds = gdal.GetDriverByName("netCDF").CreateMultiDimensional(path)
+        rg = ds.GetRootGroup()
+        f32 = gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+        string = gdal.ExtendedDataType.CreateString()
+        dlat = rg.CreateDimension("lat", "HORIZONTAL_Y", "", len(lat))
+        dlon = rg.CreateDimension("lon", "HORIZONTAL_X", "", len(lon))
+        alat = rg.CreateMDArray("lat", [dlat], f32)
+        alat.Write(lat)
+        for key, value in (("units", "degrees_north"), ("standard_name", "latitude")):
+            alat.CreateAttribute(key, [], string).Write(value)
+        alon = rg.CreateMDArray("lon", [dlon], f32)
+        alon.Write(lon)
+        for key, value in (("units", "degrees_east"), ("standard_name", "longitude")):
+            alon.CreateAttribute(key, [], string).Write(value)
+        rg.CreateMDArray("t", [dlat, dlon], f32).Write(
+            np.arange(20, dtype="f4").reshape(4, 5)
+        )
+
+    def _store(self, tmp_path) -> NetCDF:
+        """The float32-coordinate store, freshly written and reopened.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+
+        Returns:
+            NetCDF: The container.
+        """
+        path = tmp_path / "float32-coords.nc"
+        self._write(str(path))
+        return NetCDF.read_file(str(path))
+
+    def test_the_axes_are_classified_as_horizontal(self, tmp_path):
+        """The precondition: the reuse rule only sees axes GDAL calls horizontal.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        rg = self._store(tmp_path)._working_group()
+        types = {d.GetName(): d.GetType() for d in rg.GetDimensions()}
+        assert types["lat"] == gdal.DIM_TYPE_HORIZONTAL_Y, types
+        assert types["lon"] == gdal.DIM_TYPE_HORIZONTAL_X, types
+
+    def test_no_second_pair_is_created(self, tmp_path):
+        """`set_variable` reuses the store's own float32 axes rather than adding `x` / `y`.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        store = self._store(tmp_path)
+        var = store.get_variable("t")
+        store.set_variable(
+            "added",
+            Dataset.from_array(
+                np.asarray(var.read_array()),
+                geo_ref=GeoReference(geo=var.geotransform, epsg=var.epsg),
+                no_data_value=var.no_data_value[0] if var.no_data_value else None,
+            ),
+        )
+        assert sorted(store.dimension_names) == ["lat", "lon"], (
+            f"a second pair was created on a float32-coordinate store: "
+            f"{store.dimension_names}"
         )
 
 

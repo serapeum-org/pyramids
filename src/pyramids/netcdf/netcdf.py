@@ -12851,11 +12851,14 @@ class NetCDF(Dataset):
             source's axis names describe the result as well.
 
         Notes:
-            The transforms are compared at a tolerance scaled to the cell, not for
-            equality. Every caller today hands back the same memoised tuple it is
-            compared against, but one that re-derives an identical grid — from the
-            coordinate values, say — lands a float ulp away, and dropping the names over
-            that is #1180 again.
+            The transforms are compared at a tolerance, not for equality. Every caller
+            today hands back the same memoised tuple it is compared against, but one that
+            re-derives an identical grid — from the coordinate values, say — lands a float
+            ulp away, and dropping the names over that is #1180 again. The slack has both
+            a relative and an absolute part, as `_holds_the_same_grid_axis` does: a
+            transform re-derived from float32 coordinates lands off by the coordinate's
+            magnitude times the float32 epsilon (an origin near 90 by ~9e-6), which a
+            cell-scaled `atol` alone would reject.
         """
         shaped = np.shape(arr)
         mine = tuple(float(one) for one in geo or ())
@@ -12867,7 +12870,7 @@ class NetCDF(Dataset):
         )
         if same and mine:
             cell = max(abs(theirs[1]), abs(theirs[5]))
-            same = bool(np.allclose(mine, theirs, rtol=0.0, atol=cell * 1e-6))
+            same = bool(np.allclose(mine, theirs, rtol=1e-6, atol=cell * 1e-6))
         return same
 
     @staticmethod
@@ -12983,7 +12986,11 @@ class NetCDF(Dataset):
           round trip — stored values to `(origin, step)` and back — is bit-exact only on
           dyadic spacings. On an ordinary 0.1 degree grid, and on any float32 axis, the
           recomputed centres differ in the last few ulps, and matching on `==` meant the
-          store silently gained a second pair of axes on almost every real file.
+          store silently gained a second pair of axes on almost every real file. The slack
+          has **both** a relative and an absolute part: float32 quantization error grows
+          with the coordinate's magnitude — a latitude near 50 is off by ~5e-6, far more
+          than a step-scaled `atol` alone allows — so the relative `rtol` tracks the
+          value while the `atol` floor covers an axis whose coordinates sit near zero.
         - **Coordinates are required.** `_dimension_holds` falls back to the size when a
           dimension has no indexing variable, which is right for a band axis that never had
           coordinates. Here it would let any coordinate-less horizontal axis of the same
@@ -13012,7 +13019,7 @@ class NetCDF(Dataset):
             step = float(np.abs(np.diff(held)).max()) if len(held) > 1 else 1.0
             same = bool(
                 np.allclose(
-                    held, wanted, rtol=0.0, atol=abs(step) * 1e-6, equal_nan=True
+                    held, wanted, rtol=1e-6, atol=abs(step) * 1e-6, equal_nan=True
                 )
             )
         return same
