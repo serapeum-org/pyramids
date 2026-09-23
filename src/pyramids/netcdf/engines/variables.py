@@ -694,15 +694,41 @@ def _resolve_band_metadata(
     return band_dim_name, band_dim_values, attrs, band
 
 
+def _is_text_axis(values: np.ndarray) -> bool:
+    """Whether a coordinate axis holds text rather than numbers.
+
+    A NumPy string array (`kind` `U`/`S`) is text outright. An **object** array
+    (`kind` `O`) is text only when every element is a `str` or `bytes`: that is how a
+    `pandas.Index` of strings, an xarray string coordinate's `.values`, and an explicit
+    `np.array([...], dtype=object)` all present, none of which a `kind` check alone
+    catches, yet each is a realistic caller of `set_variable` / `from_array` (#1181).
+
+    Args:
+        values: The coordinate values.
+
+    Returns:
+        bool: `True` when the axis is text.
+    """
+    if values.dtype.kind in ("U", "S"):
+        text = True
+    elif values.dtype.kind == "O":
+        text = values.size > 0 and all(
+            isinstance(one, (str, bytes)) for one in values.ravel()
+        )
+    else:
+        text = False
+    return text
+
+
 def _coordinate_dtype(values: np.ndarray, default: Any) -> Any:
     """The GDAL type for a band-coordinate axis, chosen from what it holds.
 
     An integer axis keeps its own integer type; a **text** axis — WRF's `Time` of
-    `'2000-01-24_12:00:00'` stamps, a scenario name, a station id — is stored as GDAL
-    strings; everything else is `default` (the float64 coordinate type). Reducing over a
-    variable's *other* dimension has to carry this one through the rebuild, and coercing a
-    text axis to float64 turned every stamp into `could not convert string to float`
-    (#1181).
+    `'2000-01-24_12:00:00'` stamps, a scenario name, a station id, whether NumPy string
+    or object-of-strings (see `_is_text_axis`) — is stored as GDAL strings; everything
+    else is `default` (the float64 coordinate type). Reducing over a variable's *other*
+    dimension has to carry this one through the rebuild, and coercing a text axis to
+    float64 turned every stamp into `could not convert string to float` (#1181).
 
     Args:
         values: The coordinate values.
@@ -712,10 +738,12 @@ def _coordinate_dtype(values: np.ndarray, default: Any) -> Any:
         The GDAL :class:`osgeo.gdal.ExtendedDataType` to create the axis with.
     """
     if np.issubdtype(values.dtype, np.integer):
-        return gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values.dtype))
-    if values.dtype.kind in ("U", "S"):
-        return gdal.ExtendedDataType.CreateString()
-    return default
+        dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values.dtype))
+    elif _is_text_axis(values):
+        dtype = gdal.ExtendedDataType.CreateString()
+    else:
+        dtype = default
+    return dtype
 
 
 def _carry_band_dim_attrs(
