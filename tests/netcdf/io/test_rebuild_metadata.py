@@ -46,6 +46,29 @@ def _store() -> NetCDF:
     return NetCDF.read_file(str(STORE))
 
 
+def _resolve_spatial(rg, preferred: str, values, dim_type):
+    """The store's own horizontal axis for `values`, or a new one named `preferred`.
+
+    Composes the two production building blocks `set_variable` uses through
+    `_spatial_axes` — find the axis that holds these coordinates in this role, else create
+    one — so these tests exercise the shipping helpers rather than a wrapper of them.
+
+    Args:
+        rg: The root group to resolve in.
+        preferred: The name to create under when the store has no such axis.
+        values: The coordinate values wanted.
+        dim_type: `gdal.DIM_TYPE_HORIZONTAL_X` or `..._Y`.
+
+    Returns:
+        The reused or newly created dimension.
+    """
+    wanted = np.asarray(values, dtype="float64")
+    found = NetCDF._matching_spatial_dimension(rg, wanted, dim_type)
+    return found or NetCDF._get_or_create_dimension(
+        rg, preferred, wanted, gdal.ExtendedDataType.Create(gdal.GDT_Float64), dim_type
+    )
+
+
 def _time_attrs(container: NetCDF) -> tuple:
     """The `(units, calendar)` a container's first variable reports for `time`.
 
@@ -480,11 +503,10 @@ class TestReuseOnRealisticGrids:
         memory = gdal.GetDriverByName("MEM").CreateMultiDimensional("m")
         rg = memory.GetRootGroup()
         rg.CreateDimension("mystery_x", gdal.DIM_TYPE_HORIZONTAL_X, None, 4)
-        resolved = NetCDF._spatial_dimension(
+        resolved = _resolve_spatial(
             rg,
             "x",
             np.array([100.0, 200.0, 300.0, 400.0]),
-            gdal.ExtendedDataType.Create(gdal.GDT_Float64),
             gdal.DIM_TYPE_HORIZONTAL_X,
         )
         assert resolved.GetName() == "x", (
@@ -725,11 +747,12 @@ class TestWhatTheRebuildCarries:
 
 
 class TestResolvingASpatialDimension:
-    """`_spatial_dimension` finds the store's own axis, or creates one.
+    """`_matching_spatial_dimension` finds the store's own axis; else one is created.
 
-    The container is built in memory and writable — the fixture on disk is read-only, so
-    the "create one" branch cannot run against it. Building it with `spatial_names` also
-    exercises the new parameter on the public `from_array`.
+    These are the two building blocks `_spatial_axes` composes for the shipping
+    `set_variable`. The container is built in memory and writable — the fixture on disk is
+    read-only, so the "create one" branch cannot run against it. Building it with
+    `spatial_names` also exercises the new parameter on the public `from_array`.
     """
 
     @staticmethod
@@ -748,7 +771,7 @@ class TestResolvingASpatialDimension:
 
     @staticmethod
     def _resolve(container: NetCDF, preferred: str, values, dim_type):
-        """Ask the resolver for an axis.
+        """Resolve an axis in the container's root group.
 
         Args:
             container: The container to resolve in.
@@ -759,12 +782,8 @@ class TestResolvingASpatialDimension:
         Returns:
             The resolved dimension.
         """
-        return NetCDF._spatial_dimension(
-            container._raster.GetRootGroup(),
-            preferred,
-            np.asarray(values, dtype="float64"),
-            gdal.ExtendedDataType.Create(gdal.GDT_Float64),
-            dim_type,
+        return _resolve_spatial(
+            container._raster.GetRootGroup(), preferred, values, dim_type
         )
 
     def test_the_parameter_names_the_axes(self):
@@ -807,11 +826,10 @@ class TestResolvingASpatialDimension:
             no axes at all never supplies — the search has to come back empty instead.
         """
         memory = gdal.GetDriverByName("MEM").CreateMultiDimensional("m")
-        resolved = NetCDF._spatial_dimension(
+        resolved = _resolve_spatial(
             memory.GetRootGroup(),
             "x",
             np.array([1.0, 2.0, 3.0]),
-            gdal.ExtendedDataType.Create(gdal.GDT_Float64),
             gdal.DIM_TYPE_HORIZONTAL_X,
         )
         assert resolved.GetName() == "x", resolved.GetName()

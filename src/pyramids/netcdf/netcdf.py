@@ -8295,8 +8295,12 @@ class NetCDF(Dataset):
 
         Notes:
             The result sits on a **new grid**, so its spatial axes are named `y` / `x`
-            rather than the source's. A member that keeps the grid — `coarsen`, `reduce`,
-            `rolling`, `cumsum`, `diff` — keeps the names with it:
+            rather than the source's. A member that leaves the horizontal grid unchanged —
+            `coarsen`, `reduce`, `rolling`, `cumsum`, `diff` over a *band* dimension —
+            keeps the names with it; a *spatial* `coarsen` / `reduce` does change the grid
+            and (correctly) drops them, the same as here. Compared by membership below
+            because `dimension_names` lists the store's dimensions in its own order, not a
+            promised `(row, column)` one:
 
             ```python
             >>> import numpy as np
@@ -8308,9 +8312,9 @@ class NetCDF(Dataset):
             ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
             ...     spatial_names=("latitude", "longitude"),
             ... )
-            >>> cube.get_variable("t").coarsen("time", 2).dimension_names
-            ['time', 'latitude', 'longitude']
-            >>> cube.to_crs(3857).dimension_names
+            >>> sorted(cube.get_variable("t").coarsen("time", 2).dimension_names)
+            ['latitude', 'longitude', 'time']
+            >>> sorted(cube.to_crs(3857).dimension_names)
             ['time', 'x', 'y']
 
             ```
@@ -12877,42 +12881,18 @@ class NetCDF(Dataset):
         return same
 
     @staticmethod
-    def _spatial_dimension(
-        rg: gdal.Group,
-        preferred: str,
-        values: np.ndarray,
-        dtype,
-        dim_type,
-    ) -> gdal.Dimension:
-        """The store's own axis for these coordinates, or a new one named `preferred`.
-
-        A spatial dimension was resolved by **name**, always `"x"` or `"y"`, so writing a
-        variable into a store whose axes are `longitude` / `latitude` left it with two
-        pairs describing one grid and declared the new variable against the pair the store
-        did not have (#1194). An axis is identified here by what it holds — the same
-        coordinate values, in the same order — and by being the horizontal axis asked for,
-        so a grid that genuinely differs still gets its own.
-
-        Args:
-            rg: The root group.
-            preferred: The name to create under when the store has no such axis.
-            values: The coordinate values the caller is about to write.
-            dtype: The coordinate array's type.
-            dim_type: `gdal.DIM_TYPE_HORIZONTAL_X` or `..._Y`.
-
-        Returns:
-            gdal.Dimension: The reused or newly created dimension.
-        """
-        found = NetCDF._matching_spatial_dimension(rg, values, dim_type)
-        return found or NetCDF._get_or_create_dimension(
-            rg, preferred, values, dtype, dim_type
-        )
-
-    @staticmethod
     def _matching_spatial_dimension(
         rg: gdal.Group, values: np.ndarray, dim_type
     ) -> gdal.Dimension | None:
         """The store's own axis for these coordinates, or `None` when it has none.
+
+        A spatial dimension used to be resolved by **name**, always `"x"` or `"y"`, so
+        writing a variable into a store whose axes are `longitude` / `latitude` left it
+        with two pairs describing one grid and declared the new variable against the pair
+        the store did not have (#1194). An axis is identified here by what it holds — the
+        same coordinate values, in the same order — and by being the horizontal axis
+        asked for, so a grid that genuinely differs still gets its own. `_spatial_axes`
+        takes this decision for both axes together.
 
         Args:
             rg: The root group.
@@ -12965,15 +12945,17 @@ class NetCDF(Dataset):
             rg, y_values, gdal.DIM_TYPE_HORIZONTAL_Y
         )
         if matched_x is not None and matched_y is not None:
-            return matched_x, matched_y
-        return (
-            NetCDF._get_or_create_dimension(
-                rg, column_name, x_values, dtype, gdal.DIM_TYPE_HORIZONTAL_X
-            ),
-            NetCDF._get_or_create_dimension(
-                rg, row_name, y_values, dtype, gdal.DIM_TYPE_HORIZONTAL_Y
-            ),
-        )
+            axes = (matched_x, matched_y)
+        else:
+            axes = (
+                NetCDF._get_or_create_dimension(
+                    rg, column_name, x_values, dtype, gdal.DIM_TYPE_HORIZONTAL_X
+                ),
+                NetCDF._get_or_create_dimension(
+                    rg, row_name, y_values, dtype, gdal.DIM_TYPE_HORIZONTAL_Y
+                ),
+            )
+        return axes
 
     @staticmethod
     def _holds_the_same_grid_axis(
