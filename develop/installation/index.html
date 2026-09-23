@@ -6798,9 +6798,9 @@ conda and has no manylinux tag to match.</p>
 </tr>
 <tr>
 <td>Alpine (musl)</td>
-<td>any</td>
-<td>—</td>
-<td>⏸ Built in CI, unpublished — blocked on upstream <code>pyogrio</code> musl wheels</td>
+<td>x86_64, aarch64</td>
+<td><code>musllinux_1_2_*</code></td>
+<td>✅ Supported (self-contained; vendors the vector stack)</td>
 </tr>
 </tbody>
 </table>
@@ -6815,11 +6815,11 @@ conda and has no manylinux tag to match.</p>
 </ul>
 <p>If your distro has <strong>glibc &lt; 2.28</strong>, use the conda-forge path instead.</p>
 <h3 id="coverage-gaps-what-has-no-wheel-yet-and-why"><a class="toclink" href="#coverage-gaps-what-has-no-wheel-yet-and-why">Coverage gaps — what has no wheel yet, and why</a><a class="headerlink" href="#coverage-gaps-what-has-no-wheel-yet-and-why" title="Permanent link">#</a></h3>
-<p>Every remaining gap waits on something upstream of pyramids; none of
-them can be closed from this repo alone. Progress is tracked in
-<a href="https://github.com/serapeum-org/pyramids/issues/333">#333</a> (Alpine) and
+<p>Every remaining gap waits on something upstream of pyramids; none of them
+can be closed from this repo alone. Progress is tracked in
 <a href="https://github.com/serapeum-org/pyramids/issues/335">#335</a> (Python 3.15).
-Until a row clears, the workaround column applies.</p>
+Until a row clears, the workaround column applies. (Alpine / musl used to
+sit here; it now ships a self-contained wheel — see the note below.)</p>
 <table>
 <thead>
 <tr>
@@ -6830,12 +6830,6 @@ Until a row clears, the workaround column applies.</p>
 </tr>
 </thead>
 <tbody>
-<tr>
-<td>Alpine / musl Linux</td>
-<td>built + verified in CI; <code>pyogrio</code> has no musl wheels</td>
-<td>pyogrio ships them (#333)</td>
-<td>conda-forge</td>
-</tr>
 <tr>
 <td>Python 3.15</td>
 <td>CPython unreleased; ecosystem needs cp315 wheels</td>
@@ -6884,6 +6878,14 @@ forced install (<code>--no-deps</code>) provides neither GDAL nor the vector
 stack, because the dependency markers skip shapely/geopandas on
 Windows ARM64. Use Python 3.12+ or conda-forge instead. The same
 caveat applies to any deliberate sdist install on Windows ARM64.</p>
+<p><strong>Alpine / musl note</strong>: the musllinux wheel uses the same self-bundling
+as win_arm64 — it vendors shapely, geopandas, and pyogrio (and
+additionally <strong>cftime</strong>, which has no <code>musllinux_*_aarch64</code> wheel
+upstream) under <code>pyramids/_vendor/</code>, and strips them from the wheel
+metadata so a plain <code>pip install pyramids-gis</code> on Alpine resolves and
+imports with no external build and no GDAL system install. It is built
+and verified on real x86_64 and aarch64 Alpine in CI on every release,
+and it publishes to PyPI alongside the other platforms (#333).</p>
 </blockquote>
 <h2 id="system-dependencies"><a class="toclink" href="#system-dependencies">System dependencies</a><a class="headerlink" href="#system-dependencies" title="Permanent link">#</a></h2>
 <p>The wheel bundles nearly everything (expat is linked statically into the
@@ -6945,8 +6947,8 @@ does <strong>not</strong> include it — only the PyPI wheel does).</p>
 <a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="go">pip install .</span>
 </code></pre></div>
 <h2 id="platform-specific-no-wheel-available"><a class="toclink" href="#platform-specific-no-wheel-available">Platform-specific: no wheel available</a><a class="headerlink" href="#platform-specific-no-wheel-available" title="Permanent link">#</a></h2>
-<p>If you're on a platform we don't ship a wheel for (e.g., musllinux/Alpine,
-glibc &lt; 2.28), pip will try to build pyramids-gis
+<p>If you're on a platform we don't ship a wheel for (e.g., glibc &lt; 2.28,
+PyPy, Python ≤ 3.10), pip will try to build pyramids-gis
 from the sdist. That requires a pre-installed native GDAL:</p>
 <h3 id="linux-debianubuntu"><a class="toclink" href="#linux-debianubuntu">Linux (Debian/Ubuntu)</a><a class="headerlink" href="#linux-debianubuntu" title="Permanent link">#</a></h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="go">sudo apt update</span>
