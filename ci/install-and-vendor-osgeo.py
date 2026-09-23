@@ -19,6 +19,7 @@ during local editable installs.
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import platform
@@ -57,6 +58,19 @@ _VECTOR_STACK_PINS = {
     "geopandas": (
         "1.1.4",
         "1a0c459cbdb1537cd154dafe6174be20d1760844b7f1c967dc8520b180f2e773",
+    ),
+}
+
+# cftime ships no musllinux-aarch64 wheel (only x86_64), and it is an
+# unconditional runtime dep, so the aarch64 musl wheel must carry its own copy —
+# the same "no upstream wheel here" case as the vector stack, for one more
+# package. Vendored on ALL musl for a single code path (x86_64 has a wheel, but
+# vendoring both arches avoids an arch split); dropped from the wheel metadata by
+# ci/strip-vendored-deps-from-wheel.py. musl only — win_arm64 has a cftime wheel.
+_MUSL_EXTRA_PINS = {
+    "cftime": (
+        "1.6.5",
+        "8225fed6b9b43fb87683ebab52130450fc1730011150d3092096a90e54d1e81e",
     ),
 }
 
@@ -728,6 +742,23 @@ def _is_win_arm64() -> bool:
     return result
 
 
+def _is_musllinux() -> bool:
+    """Return True when this build TARGETS musl Linux (Alpine / musllinux).
+
+    pyogrio ships no musllinux wheels (and geopandas hard-requires it), so —
+    exactly as on win_arm64 — the wheel must carry its own shapely + pyogrio +
+    geopandas under `_vendor/`. Unlike win_arm64 there is no PEP 508 marker for
+    musl vs glibc (Alpine and Debian share `sys_platform`/`platform_machine`),
+    so the vendored deps are instead dropped from the built wheel's metadata by
+    ci/strip-vendored-deps-from-wheel.py. Detect musl by the loader the C
+    library installs: musllinux images ship `/lib/ld-musl-<arch>.so.1`; glibc
+    manylinux images do not.
+    """
+    if not sys.platform.startswith("linux"):
+        return False
+    return bool(glob.glob("/lib/ld-musl-*.so.1"))
+
+
 def _copy_dist_info_licenses(dist_info: Path, src_pyramids: Path) -> None:
     """Ship a vendored package's license texts under `_licenses/<pkg>/`.
 
@@ -761,8 +792,8 @@ def _copy_vector_stack_tree(target: Path, src_pyramids: Path, vendor_dir: Path) 
     return vendored
 
 
-def _assert_vector_stack_complete(vendored: list, src_pyramids: Path) -> None:
-    """Hard-fail unless every pinned package vendored with a license.
+def _assert_vector_stack_complete(vendored: list, required, src_pyramids: Path) -> None:
+    """Hard-fail unless every `required` package vendored with a license.
 
     The wheel redistributes these packages' binaries, so shipping their
     license texts is a hard requirement, not best-effort — and the
@@ -771,32 +802,34 @@ def _assert_vector_stack_complete(vendored: list, src_pyramids: Path) -> None:
     stopped matching the LICENSE* glob (e.g. a rename to COPYING or a
     new PEP 639 layout).
     """
-    for required in ("shapely", "pyogrio", "geopandas"):
-        if required not in vendored:
+    for name in required:
+        if name not in vendored:
             raise RuntimeError(
-                f"vector-stack vendoring did not produce _vendor/{required} "
-                f"(got: {vendored})"
+                f"vendoring did not produce _vendor/{name} (got: {vendored})"
             )
-        license_dir = src_pyramids / "_licenses" / required
+        license_dir = src_pyramids / "_licenses" / name
         if not license_dir.is_dir() or not any(license_dir.iterdir()):
             raise RuntimeError(
-                f"vector-stack vendoring shipped no license text for "
-                f"{required} under {license_dir}"
+                f"vendoring shipped no license text for {name} under {license_dir}"
             )
 
 
 def vendor_vector_stack_into_package() -> None:
-    """Vendor shapely + pyogrio + geopandas into the win_arm64 wheel.
+    """Vendor shapely + pyogrio + geopandas into the win_arm64 / musl wheel.
 
-    Neither shapely nor pyogrio publishes win_arm64 wheels, so the
-    platform markers in `[project.dependencies]` skip them (and
-    geopandas) there and this function supplies the wheel's own copies:
+    Neither shapely nor pyogrio publishes win_arm64 wheels, and pyogrio
+    publishes no musllinux wheels either (geopandas hard-requires it), so on
+    both platforms the wheel supplies its own copies. On win_arm64 the platform
+    markers in `[project.dependencies]` skip shapely/geopandas; on musl — where
+    no PEP 508 marker can express glibc-vs-musl — the same deps are dropped from
+    the built wheel's metadata by ci/strip-vendored-deps-from-wheel.py instead.
 
     1. fetch the hash-pinned artifacts (`--require-hashes`) and build
-       shapely + pyogrio from sdist for the CURRENT Python against the
-       vcpkg prefix (GEOS/GDAL headers + import libs staged by
-       ci/setup-gdal-from-vcpkg.ps1); the pure-Python geopandas wheel
-       arrives through the same verified `pip wheel` run,
+       shapely + pyogrio from sdist for the CURRENT Python against the build
+       prefix (GEOS/GDAL headers staged by ci/setup-gdal-from-vcpkg.ps1 on
+       Windows, or compiled into <prefix> by ci/source-build/build-gdal-stack.sh
+       on musl); the pure-Python geopandas wheel arrives through the same
+       verified `pip wheel` run,
     2. `pip install --target` the RAW wheels and copy the top-level
        entries into `src/pyramids/_vendor/`, where the runtime
        bootstrap already puts them on sys.path (the same mechanism as
@@ -814,32 +847,49 @@ def vendor_vector_stack_into_package() -> None:
     """
     prefix = _build_prefix()
     bin_dir, _, lib_dir = _data_layout_roots(prefix)
-    include_dir = prefix / "Library" / "include"
     src_pyramids = REPO_ROOT / "src" / "pyramids"
     vendor_dir = src_pyramids / "_vendor"
 
     env = os.environ.copy()
+    env["GDAL_VERSION"] = _gdal_version()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+    # shapely and pyogrio locate GEOS/GDAL from these header + lib path env vars
+    # — the way the win_arm64 build resolves them, where there is no *-config
+    # binary. On the from-source Unix prefix (musllinux, /usr/local) geos-config
+    # and gdal-config are also on PATH via the prepend above, but exporting the
+    # paths too keeps the build robust if geos-config was not installed. Windows
+    # nests the headers under Library/; the Unix prefix uses the standard
+    # include/.
+    on_windows = sys.platform == "win32" or os.name == "nt"
+    include_dir = prefix / "Library" / "include" if on_windows else prefix / "include"
     env["GEOS_INCLUDE_PATH"] = str(include_dir)
     env["GEOS_LIBRARY_PATH"] = str(lib_dir)
     env["GDAL_INCLUDE_PATH"] = str(include_dir)
     env["GDAL_LIBRARY_PATH"] = str(lib_dir)
-    env["GDAL_VERSION"] = _gdal_version()
-    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
 
-    with tempfile.TemporaryDirectory(prefix="vector-stack-") as tmp:
+    pins_map = dict(_VECTOR_STACK_PINS)
+    no_binary = ["shapely", "pyogrio"]
+    required = ["shapely", "pyogrio", "geopandas"]
+    if _is_musllinux():
+        # cftime has no musllinux-aarch64 wheel — vendor it too (_MUSL_EXTRA_PINS).
+        pins_map.update(_MUSL_EXTRA_PINS)
+        no_binary.append("cftime")
+        required.append("cftime")
+
+    with tempfile.TemporaryDirectory(prefix="vendor-wheels-") as tmp:
         raw = Path(tmp) / "raw"
         target = Path(tmp) / "target"
-        requirements = Path(tmp) / "vector-stack-requirements.txt"
+        requirements = Path(tmp) / "vendor-requirements.txt"
         requirements.write_text(
             "".join(
                 f"{pkg}=={version} --hash=sha256:{sha256}\n"
-                for pkg, (version, sha256) in _VECTOR_STACK_PINS.items()
+                for pkg, (version, sha256) in pins_map.items()
             ),
             encoding="utf-8",
         )
-        pins = ", ".join(f"{p}=={v}" for p, (v, _) in _VECTOR_STACK_PINS.items())
+        pins = ", ".join(f"{p}=={v}" for p, (v, _) in pins_map.items())
         print(
-            f"[install-and-vendor-osgeo] building the win_arm64 vector stack "
+            f"[install-and-vendor-osgeo] building the vendored wheels "
             f"({pins}) from hash-pinned PyPI artifacts",
             flush=True,
         )
@@ -854,7 +904,7 @@ def vendor_vector_stack_into_package() -> None:
                 "--require-hashes",
                 "--no-deps",
                 "--no-binary",
-                "shapely,pyogrio",
+                ",".join(no_binary),
                 "-w",
                 str(raw),
             ],
@@ -878,25 +928,27 @@ def vendor_vector_stack_into_package() -> None:
 
         vendored = _copy_vector_stack_tree(target, src_pyramids, vendor_dir)
 
-    _assert_vector_stack_complete(vendored, src_pyramids)
+    _assert_vector_stack_complete(vendored, required, src_pyramids)
     print(
-        f"[install-and-vendor-osgeo] vendored vector stack: {', '.join(vendored)}",
+        f"[install-and-vendor-osgeo] vendored: {', '.join(vendored)}",
         flush=True,
     )
 
 
 def remove_stale_vector_stack() -> None:
-    """Drop vector-stack leftovers when NOT building for win_arm64.
+    """Drop vector-stack leftovers when NOT building for win_arm64 or musl.
 
     vendor_vector_stack_into_package() writes into the source tree, and
-    the package-data globs shipping `_vendor/{shapely,geopandas,pyogrio}`
-    are unconditional — a leftover from an earlier win_arm64 build (e.g.
-    a local cibuildwheel experiment) would silently ride into every other
-    platform's wheel built from the same tree. Delete rather than trust;
-    ci/verify-wheel.py asserts the same absence on the consuming side.
+    the package-data globs shipping `_vendor/{shapely,geopandas,pyogrio,cftime}`
+    are unconditional — a leftover from an earlier win_arm64 or musl build
+    (e.g. a local cibuildwheel experiment) would silently ride into every
+    other platform's wheel built from the same tree. Delete rather than trust;
+    ci/verify-wheel.py asserts the same absence on the consuming side (the
+    vector stack via _assert_vector_stack_absent, cftime via
+    _assert_cftime_absent).
     """
     src_pyramids = REPO_ROOT / "src" / "pyramids"
-    for pkg in _VECTOR_STACK_PINS:
+    for pkg in (*_VECTOR_STACK_PINS, *_MUSL_EXTRA_PINS):
         for stale in (
             src_pyramids / "_vendor" / pkg,
             src_pyramids / "_licenses" / pkg,
@@ -915,7 +967,7 @@ def main() -> None:
         return
     install_gdal_python_bindings()
     vendor_osgeo_into_package()
-    if _is_win_arm64():
+    if _is_win_arm64() or _is_musllinux():
         vendor_vector_stack_into_package()
     else:
         remove_stale_vector_stack()

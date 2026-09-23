@@ -23,6 +23,7 @@ from pyramids.netcdf.engines.selection import (
     _kept,
     _spatial_dimension_names,
 )
+from tests._marks import requires_dask
 
 pytestmark = pytest.mark.core
 
@@ -568,6 +569,7 @@ class TestSqueeze:
         """Only length-one dimensions are dropped."""
         assert _variable().squeeze()._band_dim_names == ("time",)
 
+    @requires_dask
     def test_a_no_op_squeeze_keeps_the_lazy_read(self):
         """Dropping nothing must not cost a copy of the cube, nor its lazy read.
 
@@ -1127,6 +1129,7 @@ class TestALazyReadOfACutVariable:
         """
         return NetCDF.read_file(str(CF_STORE))["temperature"]
 
+    @requires_dask
     def test_the_store_variable_itself_still_reads_lazily(self):
         """The guard must not touch a variable that is still its store's."""
         lazy = np.asarray(self._cube().read_array(chunks="auto"))

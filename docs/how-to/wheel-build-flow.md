@@ -16,25 +16,34 @@ Two build models coexist in the pipeline:
 
 ## What gets built per release
 
-`bundle-pypi-wheels.yml` produces **23 published platform wheels + 1 sdist** per
-release, plus 8 unpublished musl canary wheels:
+`bundle-pypi-wheels.yml` produces **31 published platform wheels + 1 sdist** per
+release:
 
 | Platform | Architecture                        | Python versions        | Wheels |
 |----------|-------------------------------------|------------------------|--------|
 | Linux    | x86_64 (`manylinux_2_28`)           | 3.11, 3.12, 3.13, 3.14 | 4      |
 | Linux    | aarch64 (`manylinux_2_28`)          | 3.11, 3.12, 3.13, 3.14 | 4      |
+| Linux    | x86_64 (`musllinux_1_2`, Alpine)    | 3.11, 3.12, 3.13, 3.14 | 4      |
+| Linux    | aarch64 (`musllinux_1_2`, Alpine)   | 3.11, 3.12, 3.13, 3.14 | 4      |
 | macOS    | arm64 (Apple Silicon, `macosx_11_0`)| 3.11, 3.12, 3.13, 3.14 | 4      |
 | macOS    | x86_64 (Intel, cross-compiled)      | 3.11, 3.12, 3.13, 3.14 | 4      |
 | Windows  | AMD64 (x64)                         | 3.11, 3.12, 3.13, 3.14 | 4      |
 | Windows  | ARM64 (`win_arm64`, vcpkg build)    | 3.12, 3.13, 3.14       | 3      |
 | (any)    | sdist                               | —                      | 1      |
 
-**Total published: 23 wheels + 1 sdist.** One **CI canary** family builds and
-verifies on every run but is deliberately **not published** because pip could
-not resolve pyramids-gis on those platforms yet:
+**Total published: 31 wheels + 1 sdist.** Two families are **self-bundling** —
+they vendor dependencies that publish no wheel for their platform:
 
-- `build-musl-wheels`: `musllinux_1_2` x86_64 + aarch64 (cp311–cp314) — blocked
-  on upstream pyogrio musllinux wheels (#333; geopandas hard-requires pyogrio).
+- `build-musl-wheels`: `musllinux_1_2` x86_64 + aarch64 (cp311–cp314). pyogrio
+  ships no musllinux wheels (and geopandas hard-requires it), so — like the
+  win_arm64 wheel — each musl wheel **vendors the vector stack** (shapely +
+  pyogrio + geopandas) into `pyramids/_vendor/`, plus **`cftime`** (which ships
+  no musllinux-**aarch64** wheel), and drops those deps from the built wheel's
+  metadata (`ci/strip-vendored-deps-from-wheel.py`, since no PEP 508 marker
+  distinguishes musl from glibc). So `pip install pyramids-gis` resolves on
+  Alpine with **no external pyogrio/cftime** — `verify-alpine` proves it on both
+  arches before anything publishes (#333). Storage note: these 8 fat wheels per
+  release count against PyPI's 10 GB project cap.
 
 The `win_arm64` wheels (`build-winarm64-wheels`, cp312–cp314; numpy/scipy ship
 no cp311 arm64 wheels) are built from source via vcpkg. GDAL comes from the
@@ -84,7 +93,7 @@ for.
 ## Platform coverage status
 
 Last reviewed: 2026-07-04 (after the from-source Linux switch, #332, and the
-musl canaries, #333).
+musl wheels graduating to published, #333).
 
 ### What the wheels cover today
 
@@ -95,6 +104,8 @@ PyPI — no compiler, no system GDAL, no conda required:
 |---|---|---|
 | Linux x86_64, glibc ≥ 2.28 | `manylinux_2_28_x86_64` | Ubuntu 20.04+, Debian 11+, RHEL 8+, AL2023, Fedora 38+ |
 | Linux aarch64, glibc ≥ 2.28 | `manylinux_2_28_aarch64` | Graviton / Ampere / RPi 4+ on the same floors |
+| Linux x86_64, musl | `musllinux_1_2_x86_64` | Alpine 3.x and other musl distros (distroless-musl, Void-musl) |
+| Linux aarch64, musl | `musllinux_1_2_aarch64` | Alpine on ARM (Graviton, RPi, Apple-Silicon containers) |
 | macOS arm64, ≥ 11.0 | `macosx_11_0_arm64` | M1 / M2 / M3 / M4 Macs on macOS 11+ |
 | macOS x86_64, ≥ 11.0 | `macosx_11_0_x86_64` | Intel Macs on macOS 11+ (cross-compiled — see note) |
 | Windows AMD64 | `win_amd64` | Windows 10+ on x64 hardware |
@@ -125,7 +136,6 @@ the **conda-forge install path**:
 | OS / arch | Why no wheel | Recommended install path | Tracking |
 |---|---|---|---|
 | Linux glibc < 2.28 (RHEL 7, Ubuntu 18.04, …) | below the manylinux_2_28 image floor | conda-forge | intentional |
-| Alpine / musl Linux | built + verified in CI, unpublished (pyogrio has no musl wheels) | conda-forge | #333 |
 | Free-threaded CPython (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | use a GIL build | #683 |
 | Python 3.10 or earlier | excluded by `requires-python = ">= 3.11"` | upgrade Python, or pin `< 0.20` | intentional |
 | Python 3.15+ (future) | not yet released by CPython | conda-forge until wheels ship | #335 |
@@ -153,7 +163,7 @@ Amazon Linux 2023 with a ~30 MB wheel (vs ~47 MB under conda-extract).
 | Gap                               | Issue | Status                 | Notes                                                           |
 |-----------------------------------|-------|------------------------|-----------------------------------------------------------------|
 | Lower glibc floor (< 2.39)        | #332  | **shipped**            | from-source `manylinux_2_28` wheels (this pipeline)             |
-| musllinux (Alpine)                | #333  | **built, unpublished** | canaries green in CI; blocked on pyogrio musl wheels            |
+| musllinux (Alpine)                | #333  | **shipped**            | self-contained (vendors vector stack + cftime) |
 | Windows ARM64                     | #334  | **shipped**            | vcpkg build; vector stack vendored |
 | Python 3.15+                      | #335  | pending upstream       | ships when CPython 3.15 + ecosystem land; one-line `build` bump |
 | Free-threaded (`cp313t`/`cp314t`) | #683  | pending upstream       | GDAL SWIG bindings + numpy first; revisit at 3.15               |
@@ -222,11 +232,16 @@ Python C API ABI.
 │       │       (bundles libgdal.so + transitive deps, patches RPATH)
 │       └── upload-artifact: wheels-linux-<arch> (one artifact per arch)
 │
-├── build-musl-wheels (2 canary jobs: x86_64 + aarch64, musllinux_1_2 image)
+├── build-musl-wheels (2 jobs: x86_64 + aarch64, musllinux_1_2 image)
 │   └── same before-all/config.sh flow with musl deltas (apk prereqs,
-│       no HAVE_PREAD64 for sqlite); repair --plat musllinux_1_2_<arch>;
-│       artifacts named canary-musl-<arch> so the release job can NEVER
-│       pick them up (see Publishing).
+│       no HAVE_PREAD64 for sqlite); before-build ALSO vendors the vector
+│       stack (shapely + pyogrio + geopandas) + cftime into _vendor/ like
+│       win_arm64 (cftime has no musllinux-aarch64 wheel); repair --plat
+│       musllinux_1_2_<arch>; then ci/strip-vendored-deps-from-wheel.py drops
+│       geopandas/Shapely/cftime from the wheel metadata (no PEP 508 marker
+│       distinguishes musl from glibc), so the wheel is self-contained;
+│       artifacts named wheels-musl-<arch> so the release job gathers them
+│       (see Publishing).
 │
 ├── build-macos-wheels (2 jobs in matrix: arm64 + x86_64, both on macos-14)
 │   ├── CIBW_BEFORE_ALL: ci/setup-gdal-from-pixi.sh (conda-extract)
@@ -277,7 +292,8 @@ Python C API ABI.
 │       ├── For each Python: same vendor + build steps, PLUS
 │       │   install-and-vendor-osgeo.py vendors the vector stack
 │       │   (shapely + geopandas + pyogrio, hash-pinned, built from
-│       │   sdist) into src/pyramids/_vendor/ — win_arm64 only
+│       │   sdist) into src/pyramids/_vendor/ — win_arm64 and musl
+│       │   (the two platforms with no upstream vector wheels)
 │       └── CIBW_REPAIR_WHEEL_COMMAND: one delvewheel repair
 │           --analyze-existing pass owns ALL DLLs, including the
 │           vendored .pyds' GEOS/GDAL imports (one shared copy)
@@ -285,22 +301,25 @@ Python C API ABI.
 │
 ├── verify-debian12 / verify-rocky9 (full hermetic suite on glibc 2.36 / 2.34
 │   containers — distros the old 2_39 wheel could never install on) and
-│   verify-alpine (full core suite for the musl canary — vector I/O via a
-│   canary-built pyogrio musl wheel, since PyPI has none). All three
-│   run with --security-opt seccomp=unconfined (the netCDF driver needs
-│   userfaultfd for /vsizip reads — see docs/troubleshooting.md).
+│   verify-alpine (2 cells: x86_64 + aarch64, native — checkout on the glibc
+│   host, then install + verify inside python:3.12-alpine via `docker run`,
+│   since JS actions can't run in an arm64 musl container). Installs ONLY the
+│   self-contained wheel (--only-binary=:all:, no external pyogrio) and runs
+│   the full core suite. All run with --security-opt seccomp=unconfined (the
+│   netCDF driver needs userfaultfd for /vsizip reads — see
+│   docs/troubleshooting.md).
 │
 ├── verify-winarm64 (3 cells: 3.12/3.13/3.14 on windows-11-arm) —
 │   plain `pip install <wheel>` (markers resolving, the real user
 │   path), then ci/verify-wheel.py against the bare closure BEFORE
 │   test deps land; the 3.12 cell also runs the hermetic core suite.
 │
-└── release (workflow_run only; needs EVERY build + test + verify job,
-    canary verifies included — a red canary blocks the publish)
-    → gathers {sdist,wheels-*} artifacts (canary-* names can't match),
-      asserts the exact composition (1 sdist + 4 wheels x 5 platforms
-      + 3 win_arm64, zero musllinux), attaches everything to the
-      GitHub release, and publishes to PyPI.
+└── release (workflow_run only; needs EVERY build + test + verify job —
+    a red verify anywhere blocks the publish)
+    → gathers {sdist,wheels-*} artifacts, asserts the exact composition
+      (1 sdist + 4 wheels x 7 platforms + 3 win_arm64, musllinux
+      included), attaches everything to the GitHub release, and
+      publishes to PyPI.
 ```
 
 After all build jobs finish, `test-wheels` runs a 16-cell matrix
@@ -310,6 +329,13 @@ env and running `pytest -m core`. The 4 OSes are
 (arm64), and `windows-2022` (AMD64). macOS x86_64 testing is skipped —
 the wheel is cross-compiled on an arm64 host so we can't install it
 on the same runner, and GitHub's macos-13 queue is unusable.
+
+`test-wheels-musl` is the Alpine arm of the same idea: an 8-cell matrix
+(2 arches × 4 Python versions) that installs each shipped `musllinux_1_2`
+wheel inside a `python:<ver>-alpine` container and runs the same core
+suite. It is a separate job because `test-wheels` installs natively via
+`actions/setup-python`, which ships no musl build — a musl wheel can only
+be installed in an Alpine container. Both gate the release.
 
 The matrix uses `os` as a real axis (`os: [ubuntu-latest,
 ubuntu-24.04-arm, macos-14, windows-2022]`) and `include:` adds per-OS
@@ -369,15 +395,16 @@ On GitHub-hosted runners (jobs parallel where possible):
 | `build-sdist`                                          | ~2 min                          |
 | `build-linux-wheels` (cold: full stack compile)        | ~60 min (4 wheels)              |
 | `build-linux-wheels` (warm: stack restored from cache) | ~15 min (4 wheels)              |
-| `build-musl-wheels` (canaries, same cold/warm split)   | ~60 / ~15 min                   |
+| `build-musl-wheels` (same cold/warm split as glibc)    | ~60 / ~15 min                   |
 | `build-macos-wheels` (arm64, native)                   | ~6 min (4 wheels)               |
 | `build-macos-wheels` (x86_64, cross-compiled)          | ~7 min (4 wheels)               |
 | `build-windows-wheels`                                 | ~12 min (4 wheels)              |
 | `build-winarm64-wheels` (cold: full vcpkg compile)     | ~75 min (3 wheels)              |
 | `build-winarm64-wheels` (warm: vcpkg cache restored)   | ~9 min (3 wheels)               |
 | `test-wheels` matrix (16 jobs)                         | ~3 min (parallel, after builds) |
+| `test-wheels-musl` matrix (8 jobs, Alpine containers)  | ~5 min (parallel, after builds) |
 | `verify-debian12` / `verify-rocky9` (full suite)       | ~8 min each                     |
-| `verify-alpine` (full core suite, canary pyogrio)      | ~8 min                          |
+| `verify-alpine` (full core suite, both arches)         | ~8 min                          |
 | `verify-winarm64` (3 cells; full core suite on 3.12)   | ~1–6 min                        |
 
 Release builds are always cold on Linux and Windows ARM64 (both cache
@@ -393,8 +420,8 @@ runner that can least afford to babysit (Windows).
 
 Publishing lives in `bundle-pypi-wheels.yml`'s own `release` job: it fires on
 `workflow_run` after the `github-release` workflow (commitizen tag) completes,
-gathers the `{sdist,wheels-*}` artifacts (the `canary-musl-*` artifacts cannot
-match that pattern), asserts the exact release composition before uploading,
+gathers the `{sdist,wheels-*}` artifacts (musl included, as `wheels-musl-*`),
+asserts the exact release composition before uploading,
 attaches everything to the GitHub release, and publishes to PyPI. On `push` /
 `workflow_dispatch` runs the job is skipped — those runs only build + test.
 
@@ -414,7 +441,7 @@ Docker (for Linux) or the host OS (for macOS / Windows):
 pip install cibuildwheel
 cibuildwheel --only cp312-manylinux_x86_64
 
-# musl canary (same stack, Alpine image)
+# musl wheel (same stack, Alpine image)
 cibuildwheel --only cp312-musllinux_x86_64
 
 # Linux aarch64 — runs natively on an ARM host (e.g. an M-series Mac,

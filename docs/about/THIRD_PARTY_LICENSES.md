@@ -104,6 +104,26 @@ from-source stack is leaner; Windows ships extra DLLs from the conda-forge
 truth for what shipped in any specific wheel is the `pyramids/_licenses/`
 directory inside that wheel.
 
+## Vendored Python packages (win_arm64 and musl wheels)
+
+On platforms where upstream publishes no binary wheels for the vector stack, the
+wheel **vendors** those Python packages under `pyramids/_vendor/` (with their
+license texts under `pyramids/_licenses/<package>/`) instead of declaring them as
+PyPI dependencies. This applies to the **win_arm64** wheel and the **musllinux**
+wheel; every other wheel installs these from PyPI and vendors none of them.
+
+| Package | Role | License (SPDX) | Wheels |
+|---|---|---|---|
+| **shapely** | geometry engine (GEOS bindings) | BSD-3-Clause | win_arm64 + musl |
+| **geopandas** | GeoDataFrame / vector I/O layer | BSD-3-Clause | win_arm64 + musl |
+| **pyogrio** | fast OGR vector read/write for geopandas | MIT | win_arm64 + musl |
+| **cftime** | CF calendar decoding for NetCDF | MIT | musl only |
+
+`cftime` is vendored on musl only — it is the one member of this set with no
+`musllinux_*_aarch64` wheel upstream; win_arm64 installs it from PyPI. All four
+licenses (BSD-3-Clause, MIT) are permissive and GPLv3-compatible, like the native
+stack above.
+
 ## How license texts are gathered
 
 `ci/install-and-vendor-osgeo.py` runs in cibuildwheel's `CIBW_BEFORE_BUILD`

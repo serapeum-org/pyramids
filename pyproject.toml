@@ -30,14 +30,19 @@ requires-python = ">= 3.11, <4"
 # Listing pip's PyPI GDAL would force a from-source build on Windows
 # (no wheel exists) and break most end-user pip installs.
 dependencies = [
-    # Inverse of the win_arm64 vendoring markers below: the vendored
-    # geopandas/pyogrio still import `packaging` (both) and `certifi`
-    # (pyogrio) at runtime, and with the real distributions skipped
-    # nothing else in the closure is guaranteed to install them — pip
-    # was satisfied while `import geopandas` died on a clean install.
-    # Drop these two lines together with the markers.
-    "certifi ; sys_platform == 'win32' and platform_machine == 'ARM64'",
-    "packaging ; sys_platform == 'win32' and platform_machine == 'ARM64'",
+    # Both the win_arm64 AND the musllinux wheels vendor geopandas/pyogrio
+    # into pyramids/_vendor/ and then drop (win_arm64 marker) or strip (musl
+    # metadata edit) the real distributions — see ci/install-and-vendor-
+    # osgeo.py and ci/strip-vendored-deps-from-wheel.py. The vendored packages
+    # still import `packaging` (both) and `certifi` (pyogrio) at runtime, and
+    # with the real distributions gone nothing else in the closure is
+    # guaranteed to install them — pip stays satisfied while `import geopandas`
+    # dies on a clean install. No PEP 508 marker distinguishes musl from glibc,
+    # so declare both unconditionally: they are tiny pure-Python universal
+    # wheels, already in the glibc closure via geopandas, and harmless
+    # everywhere else.
+    "certifi",
+    "packaging",
     "cftime >=1.6.4",
     # win_arm64: shapely and pyogrio (geopandas' hard dep) ship no ARM64
     # wheels on PyPI, so requiring them would make the platform
@@ -182,6 +187,7 @@ pyramids = [
     "_vendor/shapely/**/*",
     "_vendor/geopandas/**/*",
     "_vendor/pyogrio/**/*",
+    "_vendor/cftime/**/*",
     "_data/gdal_data/*",
     "_data/proj_data/*",
     "_data/gdalplugins/*",

@@ -111,7 +111,13 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
-        ref: ${{ github.event.workflow_run.head_branch || github.ref }}
+        # head_branch (not head_sha): github-release pushes the version bump +
+        # changelog commits AFTER the workflow_run head_sha is captured, so the
+        # branch tip is what carries them (this job reads the version straight
+        # out of pyproject.toml). The `release` fallback is github.sha — the
+        # immutable commit the tag points at — NOT github.ref, which can
+        # re-resolve per job. Same rule as bundle-pypi-wheels.yml.
+        ref: ${{ github.event.workflow_run.head_branch || github.sha }}
 
     - name: Extract version from pyproject.toml
       id: version
