@@ -7834,13 +7834,13 @@ float(np.nanmin(result)), float(np.nanmax(result))</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>[                                        ] | 0% Completed | 167.45 us</pre>
+<pre>[                                        ] | 0% Completed | 144.25 us</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>[########################################] | 100% Completed | 101.48 ms</pre>
+<pre>[########################################] | 100% Completed | 101.41 ms</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7951,8 +7951,14 @@ print("On data this small, dask's overhead usually loses — that's expected.")<
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>eager (numpy) :    5.0 ms
-lazy  (dask)  :   19.7 ms
+<pre>eager (numpy) :    4.3 ms
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>lazy  (dask)  :   24.0 ms
 On data this small, dask's overhead usually loses — that's expected.
 </pre>
 </div>
