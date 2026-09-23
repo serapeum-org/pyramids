@@ -330,6 +330,13 @@ env and running `pytest -m core`. The 4 OSes are
 the wheel is cross-compiled on an arm64 host so we can't install it
 on the same runner, and GitHub's macos-13 queue is unusable.
 
+`test-wheels-musl` is the Alpine arm of the same idea: an 8-cell matrix
+(2 arches × 4 Python versions) that installs each shipped `musllinux_1_2`
+wheel inside a `python:<ver>-alpine` container and runs the same core
+suite. It is a separate job because `test-wheels` installs natively via
+`actions/setup-python`, which ships no musl build — a musl wheel can only
+be installed in an Alpine container. Both gate the release.
+
 The matrix uses `os` as a real axis (`os: [ubuntu-latest,
 ubuntu-24.04-arm, macos-14, windows-2022]`) and `include:` adds per-OS
 properties (`arch`, `artifact`, `wheel-tag`). An earlier
@@ -395,6 +402,7 @@ On GitHub-hosted runners (jobs parallel where possible):
 | `build-winarm64-wheels` (cold: full vcpkg compile)     | ~75 min (3 wheels)              |
 | `build-winarm64-wheels` (warm: vcpkg cache restored)   | ~9 min (3 wheels)               |
 | `test-wheels` matrix (16 jobs)                         | ~3 min (parallel, after builds) |
+| `test-wheels-musl` matrix (8 jobs, Alpine containers)  | ~5 min (parallel, after builds) |
 | `verify-debian12` / `verify-rocky9` (full suite)       | ~8 min each                     |
 | `verify-alpine` (full core suite, both arches)         | ~8 min                          |
 | `verify-winarm64` (3 cells; full core suite on 3.12)   | ~1–6 min                        |
