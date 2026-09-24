@@ -2794,9 +2794,12 @@ class Dataset(RasterBase):
         Routed through :meth:`_arithmetic` into :meth:`combine`, so it inherits the same
         operand rules, no-data domain, band-dimension labelling and dtype behaviour as
         `*` and `/`: `ds ** 2` on an `int16` band stays `int16`, and a scalar spans every
-        band. A negative or fractional power produces non-integer or non-finite values,
-        which numpy computes and this stores as-is (a `RuntimeWarning` reaches the caller
-        where numpy raises one).
+        band. A fractional power follows NumPy's own casting — `int16 ** 0.5` widens to
+        `float64` — and where NumPy yields a non-finite cell (a negative base raised to a
+        fractional power, or a zero raised to a negative power) that value is stored as-is
+        and NumPy's `RuntimeWarning` reaches the caller. The one power NumPy refuses
+        outright is a negative integer power of an integer band, which raises `ValueError`;
+        cast the band to a floating dtype first.
 
         Args:
             other: Another raster on this one's grid, or a real, non-boolean scalar.
@@ -2807,6 +2810,15 @@ class Dataset(RasterBase):
 
         Raises:
             AlignmentError: `other` is a raster on a different grid or CRS.
+            ValueError: numpy refuses a negative integer power of an integer band
+                (`Integers to negative integer powers are not allowed`); cast the band to a
+                floating dtype first.
+
+        Warns:
+            RuntimeWarning: numpy's own `invalid value` / `divide by zero` warning, raised
+                where a power yields a non-finite cell — a negative base to a fractional
+                power, or a zero to a negative power. The non-finite value is stored, not
+                masked.
 
         Examples:
             - Square a band, the common use — its dtype is kept:
@@ -2819,6 +2831,22 @@ class Dataset(RasterBase):
               >>> squared = ds ** 2
               >>> int(np.asarray(squared.read_array())[0, 0]), squared.dtype
               (9, ['int16'])
+
+              ```
+            - A negative integer power of an integer band is refused by numpy; give it a
+              floating band (or use a floating power) to get the reciprocal instead:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> Dataset.from_array(np.full((3, 3), 4, "int16"), geo_ref=geo_ref) ** -1
+              Traceback (most recent call last):
+                  ...
+              ValueError: Integers to negative integer powers are not allowed.
+              >>> recip = Dataset.from_array(np.full((3, 3), 4.0, "float32"), geo_ref=geo_ref) ** -1
+              >>> float(np.asarray(recip.read_array())[0, 0])
+              0.25
 
               ```
 
@@ -3033,7 +3061,7 @@ class Dataset(RasterBase):
 
         Exponentiation does not commute, so this cannot defer to :meth:`__pow__`; the
         operands keep the order the caller wrote them in, computed through
-        :meth:`Analysis._fold` (one read of this raster). `2 ** ds` widens to whatever
+        :meth:`Analysis._fold` (one read of this raster). `2 ** ds` takes whatever dtype
         NumPy makes of the base and the cells, exactly as `ds ** other` does.
 
         Args:
