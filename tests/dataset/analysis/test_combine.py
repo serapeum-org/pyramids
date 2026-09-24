@@ -1566,6 +1566,29 @@ class TestUnaryOperators:
         source = Dataset.from_array(array, geo_ref=GEO_REF, no_data_value=-9999.0)
         assert np.isnan(np.asarray(apply_op(source).read_array())[0, 0])
 
+    def test_negation_of_an_unsigned_band_wraps_like_the_reflected_subtraction(self):
+        """`-uint8` wraps modulo the range, matching `0 - ds` (its arithmetic equal).
+
+        Test scenario:
+            Both `-ds` and `0 - ds` fold through numpy, so an unsigned band wraps
+            (`3` -> `253`) rather than promoting; the documented caveat that this differs
+            from `ds * -1` (which raises) is pinned here.
+        """
+        source = _raster(np.full((2, 2), 3, "uint8"))
+        negated = np.asarray((-source).read_array())
+        assert negated[0, 0] == 253, negated[0, 0]
+        assert (negated == np.asarray((0 - source).read_array())).all()
+
+    def test_negation_of_an_unsigned_band_diverges_from_times_minus_one(self):
+        """`ds * -1` rejects `-1` for an unsigned band, unlike `-ds` which wraps."""
+        with pytest.raises(OverflowError):
+            _ = _raster(np.full((2, 2), 3, "uint8")) * -1
+
+    def test_abs_of_the_signed_minimum_overflows(self):
+        """`abs(int16 min)` overflows and stays negative, as numpy does (documented)."""
+        result = abs(_raster(np.full((2, 2), -32768, "int16")))
+        assert int(np.asarray(result.read_array())[0, 0]) == -32768
+
 
 class TestNonFiniteResults:
     """What a division by zero actually produces (H1)."""
