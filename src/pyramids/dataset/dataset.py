@@ -3079,6 +3079,16 @@ class Dataset(RasterBase):
             Dataset | NotImplemented: The computed raster, or `NotImplemented` when
             `other` is not a real, non-boolean scalar.
 
+        Raises:
+            ValueError: The base is an integer and this raster is an integer band
+                holding a negative cell — `2 ** int16(-3)` — which numpy forbids, as
+                `ds ** other` does.
+
+        Warns:
+            RuntimeWarning: numpy's own warning where the result is non-finite — a
+                negative base to a fractional cell gives `nan` (`(-2.0) ** ds`), stored
+                as-is, exactly as on `__pow__`.
+
         Examples:
             - Two raised to an exponent field:
 
@@ -3101,6 +3111,11 @@ class Dataset(RasterBase):
         same no-data domain, band-dimension labelling and dtype behaviour as the binary
         operators: a masked cell stays masked, every band is negated, and a signed band
         keeps its dtype.
+
+        On an **unsigned** band `-ds` wraps modulo the dtype range — `-uint8(3)` is
+        `253`, not `-3` — matching numpy and `0 - ds` (its arithmetic equal, folded the
+        same way), and unlike `ds * -1`, whose scalar path rejects `-1` as out of range
+        for the band. Negate a signed or float band if a true sign flip is wanted.
 
         Returns:
             Dataset: The negated raster, on this one's grid.
@@ -3130,6 +3145,11 @@ class Dataset(RasterBase):
         A one-operand transform run through :meth:`Analysis._fold`, so it inherits the
         same no-data domain, band-dimension labelling and dtype behaviour as the binary
         operators: a masked cell stays masked and every band is folded.
+
+        Two numpy-native edges to know: on an unsigned band `abs(ds)` is a no-op (every
+        value is already non-negative), and the magnitude of a signed dtype's minimum
+        overflows and stays negative — `abs(int16(-32768))` is `-32768`, since `32768`
+        does not fit `int16`. Cast to a wider or float band first if that matters.
 
         Returns:
             Dataset: The magnitude raster, on this one's grid.
