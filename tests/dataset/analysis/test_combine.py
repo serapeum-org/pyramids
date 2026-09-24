@@ -1480,6 +1480,19 @@ class TestPowerOperator:
         result = 1 ** _raster(np.full((2, 2), 3.0, "float32"))
         assert np.allclose(np.asarray(result.read_array()), 1.0)
 
+    def test_a_float_first_power_is_absorbed_and_keeps_the_integer_dtype(self):
+        """`ds ** 1.0` is the no-op exception to widening: it stays the band's dtype.
+
+        Test scenario:
+            `_is_identity` tests `scalar == 1`, so a float or numpy `1` also absorbs;
+            the copy keeps `int16` where `int16 ** 2.0` would widen to `float64`, matching
+            `int16 * 1.0`.
+        """
+        source = _raster(np.full((3, 3), 3, "int16"))
+        assert (source**1.0).dtype == ["int16"], (source**1.0).dtype
+        assert (source ** np.float64(1)).dtype == ["int16"]
+        assert (source**2.0).dtype == ["float64"], "a non-unit float power still widens"
+
     def test_the_zeroth_power_is_not_absorbed(self):
         """`ds ** 0` is one everywhere, so it computes rather than copying."""
         result = _raster(np.full((2, 2), 3.0, "float32")) ** 0
