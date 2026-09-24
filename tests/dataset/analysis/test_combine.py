@@ -1451,6 +1451,97 @@ class TestScalarOperands:
         assert np.allclose(np.asarray(sum([source, source]).read_array()), 10.0)
 
 
+class TestPowerOperator:
+    """`**` on either side, routed through the same substrate as `*` and `/` (#1182)."""
+
+    def test_squaring_a_band_keeps_its_integer_type(self):
+        """`ds ** 2` on an int16 band stays int16, like `ds * 2`."""
+        result = _raster(np.full((3, 3), 3, "int16")) ** 2
+        assert result.dtype == ["int16"], result.dtype
+        assert int(np.asarray(result.read_array())[0, 0]) == 9
+
+    def test_a_scalar_base_raises_each_cell(self):
+        """`2 ** ds` computes the reflected power cell by cell."""
+        result = 2 ** _raster(np.full((2, 2), 3.0, "float32"))
+        assert np.allclose(np.asarray(result.read_array()), 8.0)
+
+    def test_a_raster_exponent_is_applied_cell_by_cell(self):
+        """A raster on the right is a per-cell exponent, like any binary operand."""
+        base = _raster(np.full((2, 2), 2.0, "float32"))
+        exponent = _raster(np.full((2, 2), 3.0, "float32"))
+        assert np.allclose(np.asarray((base**exponent).read_array()), 8.0)
+
+    def test_a_gap_stays_a_gap(self):
+        """A masked cell is still masked after `** 2`, as for `*`."""
+        array = np.full((2, 2), 2.0, "float32")
+        array[0, 0] = -9999.0
+        source = Dataset.from_array(array, geo_ref=GEO_REF, no_data_value=-9999.0)
+        assert np.isnan(np.asarray((source**2).read_array())[0, 0])
+
+    def test_a_bool_exponent_is_declined(self):
+        """`ds ** True` is refused like every other bool operand."""
+        with pytest.raises(TypeError, match="unsupported operand type"):
+            _raster(np.full((2, 2), 2.0, "float32")) ** True
+
+    @pytest.mark.parametrize("other", [True, Decimal("1"), 0j, "2", None])
+    def test_the_reflected_power_hook_declines(self, other):
+        """`__rpow__` returns `NotImplemented` for a non-real-scalar left operand.
+
+        Args:
+            other: A left operand that is not a real, non-boolean scalar.
+        """
+        source = _raster(np.full((2, 2), 2.0, "float32"))
+        assert source.__rpow__(other) is NotImplemented, (
+            f"__rpow__({other!r}) should decline, got {source.__rpow__(other)}"
+        )
+
+
+class TestUnaryOperators:
+    """`-ds` and `abs(ds)`, single-operand folds through the operator substrate (#1182)."""
+
+    def test_negation_flips_the_sign(self):
+        """`-ds` negates every cell."""
+        result = -_raster(np.array([[2.0, -3.0]], "float32"))
+        assert np.asarray(result.read_array()).tolist() == [[-2.0, 3.0]]
+
+    def test_abs_takes_the_magnitude(self):
+        """`abs(ds)` takes the magnitude of every cell."""
+        result = abs(_raster(np.array([[-4.0, 5.0]], "float32")))
+        assert np.asarray(result.read_array()).tolist() == [[4.0, 5.0]]
+
+    def test_a_signed_integer_band_keeps_its_type_under_negation(self):
+        """Negation keeps a signed band's own dtype, like the scalar operators."""
+        result = -_raster(np.full((2, 2), 3, "int16"))
+        assert result.dtype == ["int16"], result.dtype
+        assert int(np.asarray(result.read_array())[0, 0]) == -3
+
+    @pytest.mark.parametrize("member", [operator.neg, operator.abs])
+    def test_every_band_is_folded(self, member):
+        """A unary operator spans all bands, like `combine` and unlike `apply`.
+
+        Args:
+            member: The unary operator under test.
+        """
+        source = _raster(
+            np.stack(
+                [np.full((2, 2), -1.0, "float32"), np.full((2, 2), -2.0, "float32")]
+            )
+        )
+        assert member(source).band_count == 2
+
+    @pytest.mark.parametrize("apply_op", [lambda d: -d, abs])
+    def test_a_gap_stays_a_gap(self, apply_op):
+        """A masked cell survives a unary fold as a gap.
+
+        Args:
+            apply_op: The unary expression under test.
+        """
+        array = np.full((2, 2), -3.0, "float32")
+        array[0, 0] = -9999.0
+        source = Dataset.from_array(array, geo_ref=GEO_REF, no_data_value=-9999.0)
+        assert np.isnan(np.asarray(apply_op(source).read_array())[0, 0])
+
+
 class TestNonFiniteResults:
     """What a division by zero actually produces (H1)."""
 

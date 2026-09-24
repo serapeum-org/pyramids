@@ -2788,6 +2788,46 @@ class Dataset(RasterBase):
         """
         return self._arithmetic(other, operator.truediv)
 
+    def __pow__(self, other: Any) -> Any:
+        """Raise each cell to a power — another raster's, or a real scalar's.
+
+        Routed through :meth:`_arithmetic` into :meth:`combine`, so it inherits the same
+        operand rules, no-data domain, band-dimension labelling and dtype behaviour as
+        `*` and `/`: `ds ** 2` on an `int16` band stays `int16`, and a scalar spans every
+        band. A negative or fractional power produces non-integer or non-finite values,
+        which numpy computes and this stores as-is (a `RuntimeWarning` reaches the caller
+        where numpy raises one).
+
+        Args:
+            other: Another raster on this one's grid, or a real, non-boolean scalar.
+
+        Returns:
+            Dataset | NotImplemented: The powered raster, or `NotImplemented` for any
+            other operand.
+
+        Raises:
+            AlignmentError: `other` is a raster on a different grid or CRS.
+
+        Examples:
+            - Square a band, the common use — its dtype is kept:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((3, 3), 3, "int16"), geo_ref=geo_ref)
+              >>> squared = ds ** 2
+              >>> int(np.asarray(squared.read_array())[0, 0]), squared.dtype
+              (9, ['int16'])
+
+              ```
+
+        See Also:
+            Dataset.__rpow__: The reflected form, `scalar ** ds`.
+            Dataset._arithmetic: The shared router, with the full operand rules.
+        """
+        return self._arithmetic(other, operator.pow)
+
     def __radd__(self, other: Any) -> Any:
         """Add from the right, so a list of rasters can be `sum()`-ed.
 
@@ -2987,6 +3027,96 @@ class Dataset(RasterBase):
               ```
         """
         return self._reflected_arithmetic(other, operator.truediv)
+
+    def __rpow__(self, other: Any) -> Any:
+        """Raise a scalar to this raster's cells — `2 ** ds`, not `ds ** 2`.
+
+        Exponentiation does not commute, so this cannot defer to :meth:`__pow__`; the
+        operands keep the order the caller wrote them in, computed through
+        :meth:`Analysis._fold` (one read of this raster). `2 ** ds` widens to whatever
+        NumPy makes of the base and the cells, exactly as `ds ** other` does.
+
+        Args:
+            other: The left-hand operand, which reached here because its own `__pow__`
+                declined this dataset.
+
+        Returns:
+            Dataset | NotImplemented: The computed raster, or `NotImplemented` when
+            `other` is not a real, non-boolean scalar.
+
+        Examples:
+            - Two raised to an exponent field:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((3, 3), 3.0, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray((2 ** ds).read_array())[0, 0])
+              8.0
+
+              ```
+        """
+        return self._reflected_arithmetic(other, operator.pow)
+
+    def __neg__(self) -> Any:
+        """Negate every cell, `-ds`, keeping gaps and band dimensions.
+
+        A one-operand transform run through :meth:`Analysis._fold`, so it inherits the
+        same no-data domain, band-dimension labelling and dtype behaviour as the binary
+        operators: a masked cell stays masked, every band is negated, and a signed band
+        keeps its dtype.
+
+        Returns:
+            Dataset: The negated raster, on this one's grid.
+
+        Examples:
+            - Flip the sign of a band:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((3, 3), 2.5, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray((-ds).read_array())[0, 0])
+              -2.5
+
+              ```
+
+        See Also:
+            Dataset.__abs__: The magnitude, the other unary transform.
+            Analysis._fold: The single-read path the result comes back through.
+        """
+        return self.analysis._fold(operator.neg)
+
+    def __abs__(self) -> Any:
+        """Take the magnitude of every cell, `abs(ds)`, keeping gaps and band dimensions.
+
+        A one-operand transform run through :meth:`Analysis._fold`, so it inherits the
+        same no-data domain, band-dimension labelling and dtype behaviour as the binary
+        operators: a masked cell stays masked and every band is folded.
+
+        Returns:
+            Dataset: The magnitude raster, on this one's grid.
+
+        Examples:
+            - The magnitude of a signed band:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((3, 3), -4.0, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray(abs(ds).read_array())[0, 0])
+              4.0
+
+              ```
+
+        See Also:
+            Dataset.__neg__: The sign flip, the other unary transform.
+            Analysis._fold: The single-read path the result comes back through.
+        """
+        return self.analysis._fold(operator.abs)
 
     def __lt__(self, other: Any) -> Any:
         """Cell-by-cell `<` against another raster or a real scalar — see :meth:`_arithmetic`."""
