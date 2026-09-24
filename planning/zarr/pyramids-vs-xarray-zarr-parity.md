@@ -710,6 +710,13 @@ with the netCDF backend; only the second block is zarr-specific.
 > `_geobox_zarr.py` @ 671 lines, `collection.py`, etc.) — **re-`grep` the anchor
 > strings** shown in each step before editing, because earlier tasks shift line
 > numbers. Anchors are quoted verbatim so they're greppable.
+>
+> **These specs were audited in a second pass** against the real pyramids checkout
+> and the xarray 2026.7.0 source — §10.12 records exactly what was verified, which
+> regression traps were found (notably the `Dataset.to_zarr` doctest for TASK-1), and
+> the short list of version-pinned facts to confirm with a throwaway script before
+> wiring each API. Corrections from that pass are called out inline with
+> **CORRECTION** / **Verified** callouts.
 
 ### 10.0 Conventions used in every task
 
@@ -775,10 +782,21 @@ the zarr array creation (`zarr_format`, `filters`, `serializer`,
 in `_zarr.py` that (a) opens/creates the group, (b) `group.create_array("data",
 shape=arr.shape, dtype=arr.dtype, chunks=<resolved>, dimension_names=("band","y","x"),
 overwrite=(mode=="w"), **codec_kwargs, **fill_kwargs)`, then (c) writes the dask
-array into it with `dask.array.store(arr, z, lock=…, compute=compute)`. Return the
-same `write_result` semantics (`None` for `compute=True`, a `Delayed`/stored value
-for `compute=False`) so the existing `_finalize_after_write` delayed path is
-unchanged.
+array into it by calling dask's own `arr.to_zarr(z, ...)` **with the pre-created
+`zarr.Array` as the target** — the exact pattern pyramids already uses for region
+writes (`collection.py:1734`, `data.to_zarr(existing, region=…, compute=…)`). When
+dask's `Array.to_zarr` is handed a `zarr.Array` it streams each block into it
+(via `da.store` internally) **without** re-creating it, so every kwarg above is the
+one pyramids set. Return the same `write_result` semantics (`None` for
+`compute=True`, a `Delayed` for `compute=False`) so the existing
+`_finalize_after_write` delayed path is unchanged.
+
+> **Verified (do not substitute `da.store`).** pyramids pins `zarr>=3` and already
+> depends on `da.Array.to_zarr(existing_zarr_array, region=…, compute=…)`
+> (`collection.py:409, 1734`). Reusing that call — rather than the raw
+> `dask.array.store` I first sketched — introduces **no new dask API** and keeps the
+> exact code path the cube writer is already tested against. `arr.to_zarr(z)` with no
+> `region` writes the whole array.
 
 ```python
 def _create_and_store_data(
@@ -791,32 +809,36 @@ def _create_and_store_data(
     codec_kwargs: dict[str, Any],
     fill_kwargs: dict[str, Any],
     compute: bool,
-    zarr_format: int | None = None,   # wired in TASK-3; ignored/None here
+    zarr_format: int | None = None,   # wired in TASK-3; None here
 ) -> Any:
     """Create the target array and stream `arr` into it, returning the store task.
 
-    Replaces the implicit array creation dask's `arr.to_zarr` did, so pyramids owns
-    every `create_array` kwarg (codecs, fill value, dimension names, and — from
-    TASK-3 on — `zarr_format`). Chunks come from the dask array's own block shape so
-    the on-disk chunking matches what the caller rechunked to in `_build_dask_array`.
+    Replaces the *implicit* array creation dask's `arr.to_zarr(store, component=…)`
+    did, so pyramids owns every `create_array` kwarg (codecs, fill value, dimension
+    names, and — from TASK-3 on — `zarr_format`). Chunks come from the dask array's
+    own first block per axis, exactly what dask's own `to_zarr` would have used, so
+    the on-disk chunking is byte-identical to the pre-refactor output.
     """
     zarr = _require_zarr()
-    import dask.array as da
 
     root = zarr.open_group(resolved_store, mode=("w" if mode == "w" else "a"))
     create_kwargs: dict[str, Any] = dict(
         shape=arr.shape,
         dtype=arr.dtype,
         chunks=tuple(c[0] for c in arr.chunks),  # first block per axis = uniform chunk
-        dimension_names=dimension_names,
         overwrite=(mode == "w"),
         **codec_kwargs,
         **fill_kwargs,
     )
+    # v2 has no native dimension_names metadata; passing it raises on a v2 store, so
+    # drop it there and rely on the `_ARRAY_DIMENSIONS` attr write_geobox already adds
+    # (TASK-3 owns the v2 branch; here zarr_format is None -> v3 default -> keep it).
+    if zarr_format != 2:
+        create_kwargs["dimension_names"] = dimension_names
     if zarr_format is not None:
         create_kwargs["zarr_format"] = zarr_format
     z = root.create_array(name, **create_kwargs)
-    return da.store(arr, z, lock=True, compute=compute, return_stored=False)
+    return arr.to_zarr(z, overwrite=False, compute=compute)
 ```
 
 Then in `write_dataset_to_zarr` replace the `arr.to_zarr(...)` block with:
@@ -833,12 +855,12 @@ Then in `write_dataset_to_zarr` replace the `arr.to_zarr(...)` block with:
 
 Do the **same** substitution in `DatasetCollection.to_zarr`
 (`collection.py`, anchor `write_result = data.to_zarr(`, ~line 1678) with
-`dimension_names=("time", "band", "y", "x")`, and in the region/append paths
+`dimension_names=("time", "band", "y", "x")`. The region/append paths
 (`data.to_zarr(existing, region=…)` at ~1671 and ~1734, and `_append_region`
-~409) — but those write into an **already-created** array, so they keep using
-`da.store(data, existing_array, regions=[slices], compute=…)` instead of
-`create_array`. (dask's `Array.to_zarr` into an existing `zarr.Array` is just
-`da.store`; switching keeps behaviour identical.)
+~409) **already** write into an existing `zarr.Array` via `data.to_zarr(existing,
+region=…)` and are **left exactly as-is** — they never created the array, so there
+is nothing to move. (This corrects the first draft, which wrongly suggested rewriting
+them to `da.store`.)
 
 **Gotcha — chunk uniformity.** `create_array(chunks=…)` needs one chunk tuple per
 axis; dask allows a ragged last block. Use `tuple(c[0] for c in arr.chunks)` (first
@@ -849,22 +871,42 @@ uniform interior chunks (it already rechunks to a single tuple when `chunks` is 
 
 **Gotcha — atomicity for `compute=False`.** The current code bundles the data
 write + metadata write into one `dask.delayed(_finalize_after_write)(write_result,
-…)`. Keep that: `da.store(..., compute=False)` returns a `Delayed`/list you pass as
-`write_result` to `_finalize_after_write` unchanged.
+…)`. Keep that unchanged: `arr.to_zarr(z, compute=False)` returns a `Delayed` you
+pass as `write_result` to `_finalize_after_write`, exactly as
+`arr.to_zarr(store, component="data", compute=False)` did today.
+
+**Gotcha — `mode="a"` on a single `Dataset`.** Today `overwrite=(mode=="w")` means
+a `Dataset.to_zarr(mode="a")` write does *not* delete an existing store. Preserve
+that: `_create_and_store_data` passes `overwrite=(mode=="w")` to `create_array`,
+and `arr.to_zarr(z, overwrite=False)`. Note that `create_array(overwrite=False)`
+raises if the `data` array already exists — which matches dask's existing behaviour
+for the same call, so it is not a new regression, but call it out in the PR.
+
+**Gotcha — group create vs finalize reopen.** `_create_and_store_data` opens the
+group `mode="w"` (fresh) or `"a"`, then `_finalize_metadata`/`finalize_zarr_metadata`
+reopens `mode="a"` to add the geobox and consolidate. That two-open sequence is what
+the code does today (dask creates the array, pyramids reopens to finalize), so no
+change in ordering or atomicity.
 
 **Scope (files):** `src/pyramids/dataset/ops/_zarr.py`
 (`write_dataset_to_zarr:501`, new `_create_and_store_data`),
-`src/pyramids/dataset/collection.py` (`to_zarr:1593`, `_append_to_zarr:1699`,
-`_append_region:365`, region branch ~1664).
+`src/pyramids/dataset/collection.py` (`to_zarr:1593` fresh-write branch only —
+region/append branches unchanged).
 
-**Dependencies:** none. **Enables:** TASK-1 (clean dtype control), TASK-3, TASK-4,
-TASK-5.
+**Dependencies:** none. **Enables:** TASK-3, TASK-4, TASK-5. (TASK-1 does **not**
+strictly need this — dask already infers the array dtype from the int16 counts and
+forwards `fill_value`/`compressors`; TASK-0 only becomes load-bearing for the extra
+create kwargs — `zarr_format`, `filters`, `serializer`, `write_empty_chunks` — that
+dask's `to_zarr(store, component=…)` does not reliably forward across dask/zarr
+versions.)
 
 **DoD:**
-- [ ] `grep -n "arr.to_zarr\|data.to_zarr" src/pyramids/dataset/ops/_zarr.py src/pyramids/dataset/collection.py` returns **no** create-time calls (region/append into an existing array may still use `da.store`).
-- [ ] `pixi run pytest tests/dataset/ops/test_zarr.py tests/dataset/collection/test_zarr.py tests/dataset/ops/test_zarr_affine_roundtrip.py tests/dataset/ops/test_zarr_fill_value.py -q` is green with **zero** changes to those test files (pure refactor; behaviour identical).
-- [ ] A written store still has `root["data"].chunks` equal to the pre-refactor chunking for the `small_dataset` fixture (add a temporary assert, then remove).
-- [ ] `compute=False` still returns a `Delayed` whose `.compute()` finalizes metadata after the data write (existing `TestDeferred`-style tests pass).
+- [ ] The fresh-write `data` array (Dataset + cube) is created by
+      `_create_and_store_data`; the region/append calls (`data.to_zarr(existing, …)`)
+      are byte-for-byte unchanged.
+- [ ] `pixi run pytest tests/dataset/ops/test_zarr.py tests/dataset/collection/test_zarr.py tests/dataset/ops/test_zarr_affine_roundtrip.py tests/dataset/ops/test_zarr_fill_value.py tests/dataset/ops/test_zarr_sentinel_agreement.py -q` is green with **zero** changes to those test files (pure refactor; behaviour identical).
+- [ ] A written store has `root["data"].chunks` equal to the pre-refactor chunking for the `small_dataset` fixture (temporary assert, then remove).
+- [ ] `compute=False` still returns a `Delayed` whose `.compute()` finalizes metadata after the data write (existing deferred tests pass).
 - [ ] No public API or docstring change.
 
 ---
@@ -1194,15 +1236,57 @@ Add a cube analogue in `tests/dataset/collection/test_zarr.py` once Step 7 lands
   packing is materialised to float64.
 - `_zarr.py` module docstring (lines 21-33) and `write_dataset_to_zarr` docstring
   (lines 521-527) — same correction.
+- **CRITICAL — the doctest in `Dataset.to_zarr` (`dataset.py:2212-2236`) asserts the
+  CURRENT float64 behaviour and WILL FAIL otherwise.** It writes a packed int16
+  raster (`scale=0.5`, `-9999` sentinel) and today asserts:
+  ```python
+  >>> store.read_array().tolist(), store.dtype, store.scale
+  ([[50.0, -4999.5], [150.0, 200.0]], ['float64'], [1.0])
+  >>> float(store.no_data_value[0])
+  -4999.5
+  ```
+  On the agreed-packing path this becomes a single-band packed store, so rewrite the
+  doctest to the new contract (values are **stored counts**, dtype stays `int16`,
+  scale round-trips, `read_array()` unpacks to physical, sentinel is the **stored**
+  `-9999`):
+  ```python
+  >>> store.dtype, store.scale
+  (['int16'], [0.5])
+  >>> store.read_array().tolist()          # read_array unpacks: counts * 0.5
+  [[50.0, -4999.5], [150.0, 200.0]]
+  >>> int(store.no_data_value[0])          # stored sentinel now
+  -9999
+  ```
+  (Confirm the exact float formatting with `pixi run pytest --doctest-modules
+  src/pyramids/dataset/dataset.py -q` and paste the real repr; do not hand-guess it.)
 - `docs/reference/zarr.md` — new "### CF packing (scale/offset)" subsection under
   "On-disk layout"; note the agree/disagree rule and the interop consequence.
 - `docs/change-log.md` — entry.
 
-**Dependencies:** TASK-0 recommended (clean dtype control), not strict.
+**Verified against the codebase (no regression to unpacked stores):**
+- `tests/dataset/ops/test_zarr_fill_value.py` and `test_zarr_sentinel_agreement.py`
+  use **unpacked** float32 rasters only (`no_data_value=` but never `.scale=`), so
+  `_agreed_packing` returns `None` for every one of them and they hit the unchanged
+  path — **do not** modify these files.
+- `read_array(*args, **kwargs)` (facade `dataset.py:1654`) forwards `unpack=` to the
+  engine (`engines/io.py:499`, `unpack: bool = True`), so Step 3's
+  `read_array(chunks=…, unpack=False)` is a real call.
+- `Dataset.scale`/`Dataset.offset` (`dataset.py:3853/3887`) → `Bands.scale/offset`
+  setters (`engines/bands.py:1028/1052`) call `self._ds._require_writable(...)`;
+  a `Dataset.from_array(...)` result is a writable MEM dataset, so Step 6's
+  `dataset.scale = […]` succeeds.
+
+**Perf note:** `_agreed_packing(ds)` is called twice (in `write_dataset_to_zarr` to
+pick `unpack`, and inside `_metadata_dict`). Compute it once in
+`write_dataset_to_zarr` and pass the result into `_metadata_dict` as an argument to
+avoid re-reading every band's GDAL scale/offset twice.
+
+**Dependencies:** TASK-0 recommended, **not strict** (dask infers the int16 dtype
+from the counts array and forwards `fill_value`).
 **Effort:** M. **Risk:** fill-value semantics flip (physical→stored) on the agreed
 path — covered by `test_packed_store_keeps_integer_dtype_and_cf_attrs` +
 `test_disagreeing_bands_fall_back_to_float64`; overviews must not double-unpack
-(Step 5).
+(Step 5); the `dataset.py` doctest must be rewritten (above).
 
 **DoD:**
 - [ ] `_agreed_packing` added beside `_agreed_sentinel`; unit-tested for
@@ -1217,6 +1301,8 @@ path — covered by `test_packed_store_keeps_integer_dtype_and_cf_attrs` +
 - [ ] `xr.open_zarr` returns unpacked values (`test_xarray_reads_physical_values`).
 - [ ] Cube packed round-trip works (Step 7) or is tracked as an explicit follow-up
       task with its own DoD.
+- [ ] **The `Dataset.to_zarr` doctest (`dataset.py:2212-2236`) is rewritten** and
+      `pixi run pytest --doctest-modules src/pyramids/dataset/dataset.py -q` passes.
 - [ ] All new tests + the full existing Zarr suite pass; docs + changelog updated.
 
 ---
@@ -1373,26 +1459,58 @@ def _finalize_after_write(data_result, resolved_store, meta, files, time_axis=No
     _finalize_collection_metadata(resolved_store, meta, files, time_axis)
 ```
 
-**Step 4 — extend the `time` array on append.** In `_append_to_zarr`
-(`collection.py:1699`) the resize/write of `data` is mirrored for `time`. After the
-`data` resize+write in the `compute=True` branch (anchor `existing.resize((new_total,`,
-~1732) and inside `_append_region` (`collection.py:365`), also resize+write the
-`time` sub-array. Concretely, resolve a `TimeAxis` for the appended cube in
-`to_zarr`'s append branch (it already has `time_coords` from Step 1) and pass its
-`.values` down; in the finalizer, extend `root["time"]`:
+> **Note — positional axis & v2.** For an *undated* cube, `time_axis.attrs` carries
+> `long_name="time index"` + `note=…` (no `units`/`calendar`); the
+> `t.attrs.update(build_coordinate_attrs("time"))` line still stamps `axis="T"` /
+> `standard_name="time"` on it. That exactly matches what `to_netcdf` writes for the
+> same undated cube (it calls `build_coordinate_attrs` unconditionally too), so the
+> two writers stay consistent — do not special-case it. For a **v2** store
+> (TASK-3), drop the `dimension_names=("time",)` kwarg from the `create_array` call
+> and rely on the `_ARRAY_DIMENSIONS` attr, same as the geobox coords.
 
-```python
-        time_arr = root["time"] if "time" in root else None
-        if time_arr is not None and appended_time_values is not None:
-            time_arr.resize((new_total,))
-            time_arr[old_t:new_total] = np.asarray(appended_time_values)
-```
+> **Note — region writes must NOT touch `time`.** `to_zarr(mode="a", region=…)`
+> overwrites a slice of `data` only and returns early **before** the finalizer
+> (`collection.py:1664` branch), so it never rewrites the `time` coordinate — which
+> is correct (a region write changes values, not the calendar). Only the fresh write
+> and the append (below) write/extend `time`.
 
-Wrap in the same rollback try/except that guards the `data` resize
-(`collection.py:1736-1738`) so a failed append rolls back both arrays. Thread
-`appended_time_values` through `_append_to_zarr`/`_append_region`/
-`_finalize_append_metadata` (add a param; keep the positional-index fallback when
-the appended cube has no dates).
+**Step 4 — extend the `time` array on append.** Thread the appended cube's own time
+values through the append chain and extend `root["time"]` in lockstep with `data`,
+under the **same rollback** that already guards the `data` resize.
+
+1. In `to_zarr`'s append branch (`collection.py:1662`), pass the resolved axis down:
+   change `return self._append_to_zarr(resolved_store, data, append_dim, compute)`
+   to `return self._append_to_zarr(resolved_store, data, append_dim, compute,
+   time_axis.values)` (where `time_axis` is the one resolved in Step 2).
+2. Change `_append_to_zarr(self, resolved_store, data, append_dim, compute)` →
+   `_append_to_zarr(self, resolved_store, data, append_dim, compute,
+   appended_time=None)`. In the `compute=True` branch, after the existing
+   `existing.resize(...)` + `data.to_zarr(existing, region=slices, ...)`
+   (`collection.py:1732-1734`) and **inside the same `try:`** (`:1733-1738`), before
+   `_finalize_append_metadata`:
+   ```python
+           if "time" in root and appended_time is not None:
+               time_arr = root["time"]
+               time_arr.resize((new_total,))
+               time_arr[old_t:new_total] = np.asarray(appended_time)
+   ```
+   The existing `except: existing.resize((old_t, ...)); raise` rolls back `data`; add
+   `time_arr.resize((old_t,))` to that `except` so a failed append rolls back **both**
+   arrays (guard with `if "time" in root`).
+3. For `compute=False`, extend `_append_region(data, resolved_store, old_t,
+   new_total, slices, added_files)` → add an `appended_time=None` param and apply the
+   same resize/write/rollback inside its `try:` (`collection.py:407-414`); pass
+   `appended_time` from the deferred `_deferred_append` closure
+   (`collection.py:1750-1752`).
+4. `_finalize_append_metadata` is unchanged (it only bumps `time_length` +
+   `pyramids_file_list`).
+
+Keep the positional-index fallback: when the appended cube has no dates,
+`time_axis.values` is the appended `arange`, but the store's `time` is
+epoch-int64 for a dated cube — **do not mix**. If the existing store's `time` has
+`units` (dated) but the appended cube is undated (or vice-versa), raise a clear
+`ValueError("cannot append an undated cube to a dated store")` rather than writing
+an inconsistent axis. Add that guard in `_append_to_zarr`.
 
 **Step 5 — read the `time` array back.** In `from_zarr` (`collection.py:2392`),
 after the `template.bands.apply_names(...)` line (anchor
@@ -1544,58 +1662,33 @@ to the v3 `dimension_names` kwarg (`_geobox_zarr.py:127-129`, `write_geobox`), s
 v2 store just needs the `dimension_names=` kwarg **dropped** — the dims are still
 recoverable from the attr.
 
-How xarray handles the split (reference, `xarray/backends/zarr.py`): `_zarr_v3()`
-(`:109`) detects the library major version; `_handle_zarr_version_or_format`
-(`:2005`) reconciles the args; v3 uses `dimension_names` + `compressors`/`filters`/
-`serializer`, v2 uses `_ARRAY_DIMENSIONS` attr + `compressor` (singular) +
-`filters`.
+> **CORRECTION — the codec kwarg does NOT change with the format.** The first draft
+> said v2 needs a singular `compressor=`. That is the **zarr-python 2 _library_** API.
+> pyramids pins **`zarr>=3`** (`pyproject.toml:73`), and zarr-python 3's
+> `create_array(...)` accepts the plural `compressors=` (and `filters=`) for **both**
+> `zarr_format=2` and `=3`, translating them for the target format. So
+> `normalize_compressors` is **left unchanged** — it keeps producing `compressors=`.
+> Writing a v2 store means exactly two things: **pass `zarr_format=2` to
+> `create_array`, and DROP the `dimension_names=` kwarg** (v2 has no
+> `dimension_names` metadata field and passing it raises — the dims survive in the
+> `_ARRAY_DIMENSIONS` attr pyramids already writes). `serializer=` is v3-only and is
+> handled in TASK-4.
 
-**Step 1 — version detection.** In `_zarr.py`, extend `_require_zarr` (`:77`) or add
-a helper:
+How xarray handles the split (reference only, it targets both zarr-python 2 and 3, so
+it also carries the singular `compressor` spelling pyramids does **not** need):
+`_zarr_v3()` (`xarray/backends/zarr.py:109`) detects the library major version;
+`_handle_zarr_version_or_format` (`:2005`) reconciles the args.
 
-```python
-def _zarr_major() -> int:
-    """Installed zarr-python major version (3 for zarr>=3)."""
-    zarr = _require_zarr()
-    return int(str(zarr.__version__).split(".", 1)[0])
-```
+**Step 1 — no separate version detection needed.** pyramids is zarr-python-3-only,
+so there is no v2-*library* branch to guard. If a `zarr.__version__` check is ever
+wanted, add a tiny helper in `_zarr.py`; it is **not** required for this task.
 
-**Step 2 — format-aware codec kwargs.** Change `normalize_compressors`
-(`_geobox_zarr.py:309`) to take the target format and emit the right kwarg name.
-Current:
+**Step 2 — leave `normalize_compressors` as-is.** Do **not** add a `zarr_format`
+branch to it (see the correction above). It already returns the correct
+`compressors=` kwarg for both formats under zarr-python 3.
 
-```python
-def normalize_compressors(compressor: Any) -> dict[str, Any]:
-    if compressor == "auto":
-        return {}
-    if compressor is None:
-        return {"compressors": None}
-    if isinstance(compressor, (list, tuple)):
-        return {"compressors": list(compressor)}
-    return {"compressors": [compressor]}
-```
-
-Replacement:
-
-```python
-def normalize_compressors(compressor: Any, *, zarr_format: int | None = None) -> dict[str, Any]:
-    """Map a user ``compressor=`` argument to zarr ``create_array`` kwargs.
-
-    v3 expects an iterable ``compressors=``; v2 expects a single ``compressor=``.
-    ``zarr_format=None`` keeps the v3 spelling (the default on zarr>=3).
-    """
-    key = "compressor" if zarr_format == 2 else "compressors"
-    if compressor == "auto":
-        return {}
-    if compressor is None:
-        return {key: None}
-    if isinstance(compressor, (list, tuple)):
-        codecs = list(compressor)
-        return {key: (codecs[0] if zarr_format == 2 else codecs)}
-    return {key: (compressor if zarr_format == 2 else [compressor])}
-```
-
-**Step 3 — drop `dimension_names=` on v2 in every create call.** There are two:
+**Step 3 — pass `zarr_format=` and drop `dimension_names=` on v2 in every create
+call.** There are two create sites for coords/levels:
 `write_geobox._put` (`_geobox_zarr.py:119`) and `_write_overview_levels`
 (`_zarr.py:691`). Both must become format-aware. Pass `zarr_format` down into
 `write_geobox` / `finalize_zarr_metadata` (add the param, default `None`) and guard:
@@ -1614,9 +1707,9 @@ The TASK-0 `_create_and_store_data` already threads `zarr_format` into its
 
 **Step 4 — thread `zarr_format` through the public API and finalizers.**
 - `Dataset.to_zarr` (`dataset.py:2147`) and `write_dataset_to_zarr` (`_zarr.py:501`)
-  gain `zarr_format: int | None = None`; pass to `_create_and_store_data`,
-  `normalize_compressors(compressor, zarr_format=zarr_format)`, and
+  gain `zarr_format: int | None = None`; pass it to `_create_and_store_data` and to
   `_finalize_metadata`/`finalize_zarr_metadata` (which pass it to `write_geobox`).
+  `normalize_compressors(compressor)` is called **unchanged** (no `zarr_format` arg).
 - `DatasetCollection.to_zarr` (`collection.py:1593`) + the module finalizers
   (`_finalize_collection_metadata`, `_finalize_after_write`) gain the same param.
 - `open_group(...)` calls (`_geobox_zarr.py:246`, `collection.py`) and
@@ -1633,9 +1726,11 @@ store via `fsspec.get_mapper(url, **storage_options)` instead. Document that v2
 cloud writes need the fsspec mapper path.
 
 **On-disk result:** `zarr_format=2` → `.zgroup`/`.zarray`/`.zattrs` files,
-`_ARRAY_DIMENSIONS` attr, single `compressor`. `zarr_format=3` → `zarr.json`,
-native `dimension_names`, `compressors` list. `from_zarr` reads both (it already
-reads `_ARRAY_DIMENSIONS` and auto-detects via `read_geobox`).
+`_ARRAY_DIMENSIONS` attr, no native `dimension_names`. `zarr_format=3` → `zarr.json`,
+native `dimension_names`. The codec metadata is written by zarr from the same
+`compressors=` kwarg in both cases (v2 records it as its `compressor`/`filters`
+`.zarray` fields, v3 as its codec pipeline). `from_zarr` reads both (it already reads
+`_ARRAY_DIMENSIONS` and auto-detects via `read_geobox`).
 
 **Tests — parametrize the core round-trips.** In `tests/dataset/ops/test_zarr.py`
 add:
@@ -1664,15 +1759,22 @@ Mirror one case in `tests/dataset/collection/test_zarr.py`.
 **Docs:** `docs/reference/zarr.md` "Codec / compression control" section documents
 `zarr_format`; note the v2 cloud caveat.
 
-**Dependencies:** TASK-0 (single create call site). **Effort:** M. **Risk:** the
-zarr-v2/v3 API differences in `open_group`/`consolidate_metadata`/`FsspecStore` —
-verify each against the pinned zarr; keep v3 the untouched default.
+**Dependencies:** TASK-0 (single create call site owns `zarr_format`). **Effort:** M.
+**Risk:** the remaining unknowns are all zarr-python-3-*internal* — whether
+`create_array(zarr_format=2, ...)`, `open_group(mode="a")` (reopen auto-detect), and
+`consolidate_metadata` behave on the **pinned** zarr for a v2 target. Verify each in a
+throwaway script before wiring the API; keep v3 the untouched default so a
+regression is impossible when `zarr_format is None`.
 
 **DoD:**
 - [ ] `zarr_format=2` yields a v2 store (`.zgroup` present), `zarr_format=3` a v3
-      store (`zarr.json` present), `None` unchanged from today.
+      store (`zarr.json` present), `None` unchanged from today (byte-identical).
 - [ ] Both formats round-trip through `from_zarr` and open in `xr.open_zarr`.
-- [ ] Codec kwarg is correct per format (v2 `compressor`, v3 `compressors`).
+- [ ] `normalize_compressors` is **unchanged** (no `zarr_format` branch); the codec
+      is written via `compressors=` for both formats.
+- [ ] `dimension_names=` is dropped for v2 at **every** create site
+      (`_create_and_store_data`, `write_geobox._put`, `_write_overview_levels`); the
+      `_ARRAY_DIMENSIONS` attr is still written; `from_zarr` recovers dims for both.
 - [ ] Parametrized `[2, 3]` tests added for Dataset and cube; existing tests green.
 - [ ] Docs + changelog updated.
 
@@ -1695,15 +1797,22 @@ chunk_key_encoding, fill_value}`.
 `Dataset.to_zarr` / `write_dataset_to_zarr` and `DatasetCollection.to_zarr`. Build a
 validated kwargs dict:
 
+Because pyramids is zarr-python-3-only, the **key names are the v3 spelling
+regardless of the target format** (`compressors=`, `filters=`; `serializer=` only
+for `zarr_format=3` since v2 has no serializer concept). `write_empty_chunks` is
+handled in TASK-5 (it goes into the v3 `config`), so keep it out of the plain create
+kwargs here.
+
 ```python
-_VALID_ENCODING_KEYS_V3 = {"chunks", "compressors", "filters", "serializer", "write_empty_chunks"}
-_VALID_ENCODING_KEYS_V2 = {"chunks", "compressor", "filters", "write_empty_chunks"}
+_VALID_ENCODING_KEYS_V3 = {"chunks", "compressors", "filters", "serializer"}
+_VALID_ENCODING_KEYS_V2 = {"chunks", "compressors", "filters"}  # v2: no serializer
 
 def _encoding_kwargs(encoding: dict | None, *, zarr_format: int | None) -> dict[str, Any]:
     """Validate a user `encoding` mapping and return zarr create kwargs.
 
     Raises ValueError on an unknown key (matching xarray, which refuses unknown
-    user-supplied encoding keys rather than silently dropping them).
+    user-supplied encoding keys rather than silently dropping them). Keys use the
+    zarr-python-3 spelling for both formats; `serializer` is rejected for v2.
     """
     if not encoding:
         return {}
@@ -1724,6 +1833,16 @@ wins on conflict; a `filters=` there rides alongside the `compressors=` from
 (TASK-0). Because TASK-0 owns the create call, `filters=`/`serializer=` reach
 `create_array` directly.
 
+> **Verified against xarray + zarr-python 3.** xarray's valid-key set
+> (`extract_zarr_variable_encoding`, `xarray/backends/zarr.py:496-508`) is
+> `{chunks, shards, compressor, compressors, filters, serializer, cache_metadata,
+> write_empty_chunks, chunk_key_encoding}` (+`fill_value` on v3). The subset above is
+> the part that makes sense for pyramids' single-array store; add `shards` /
+> `chunk_key_encoding` only if a user asks. **Filter type gotcha:** in zarr-python 3,
+> `filters=` wants `ArrayArrayCodec` instances, not raw `numcodecs` codecs — a
+> `numcodecs.Delta` must be wrapped as `numcodecs.zarr3.Delta`. Use that import in
+> the test below, and confirm it against the pinned zarr/numcodecs.
+
 **Step 3 — `dtype` override** belongs with TASK-1 (it changes the on-disk cast); if
 requested here, apply it as `arr = arr.astype(encoding["dtype"])` before the store
 and record it in `_metadata_dict`'s `dtype`. Keep out of scope unless needed.
@@ -1733,9 +1852,9 @@ and record it in `_metadata_dict`'s `dtype`. Keep out of scope unless needed.
 ```python
 @pytest.mark.lazy
 def test_encoding_filters_roundtrip(small_dataset, tmp_path):
-    from numcodecs import Delta                     # or the zarr-v3 codec equivalent
+    from numcodecs.zarr3 import Delta               # zarr-v3 ArrayArrayCodec wrapper
     store = str(tmp_path / "filters.zarr")
-    small_dataset.to_zarr(store, encoding={"filters": [Delta(dtype="f4")]})
+    small_dataset.to_zarr(store, encoding={"filters": [Delta(dtype="float32")]})
     root = zarr.open_group(store, mode="r")
     # filter chain recorded in array metadata
     assert root["data"].metadata is not None
@@ -2113,3 +2232,62 @@ TASK-5 → TASK-6, then reassess TASK-7/8/9 against real demand.
    as the task's docs section lists.
 8. Tick every DoD box; a task is not done until all are literally checkable.
 9. Open the PR; title `feat(zarr): <objective>`; body links this plan section.
+
+### 10.12 Verification audit (what was checked against real code)
+
+This section records the second-pass audit that hardened the specs above, so the
+implementing agent knows which facts are **verified** and which still need a
+version-pinned confirmation.
+
+**Verified against the pyramids checkout (safe to rely on):**
+- `zarr>=3` and `dask>=2024.1.0` are the pins (`pyproject.toml:71,73`); `xarray>=2023.1.0`
+  is a test/optional dep (`pyproject.toml:465`). ⇒ **pyramids is zarr-python-3-only**;
+  there is no zarr-python-2 *library* path to support. This is why TASK-3 keeps
+  `compressors=` for both formats and does **not** use the singular `compressor=`.
+- pyramids already writes into an **existing** `zarr.Array` via
+  `data.to_zarr(existing, region=…, compute=…)` (`collection.py:409, 1734`). ⇒ TASK-0
+  reuses that exact call instead of introducing `dask.array.store`.
+- `read_array(*args, **kwargs)` (facade `dataset.py:1654`) forwards to the engine
+  `read_array(..., unpack: bool = True, ...)` (`engines/io.py:499`). ⇒ TASK-1
+  `read_array(chunks=…, unpack=False)` is real.
+- `Dataset.scale`/`offset` (`dataset.py:3853/3887`) → `Bands.scale/offset` setters
+  (`engines/bands.py:1028/1052`) gate on `_require_writable`; `Dataset.from_array`
+  yields a writable MEM dataset. ⇒ TASK-1 read-side `dataset.scale = […]` works.
+- `apply_unpack` / `_is_identity_packing` bodies (`base/_utils.py:1817/1588`) match the
+  logic TASK-1's `_agreed_packing` mirrors.
+- `build_coordinate_attrs("time")` returns `{axis:"T", standard_name:"time",
+  long_name:"time"}` (`netcdf/cf.py:166-169`); `TimeAxis.resolve/_encode`
+  (`_cube_time.py:62/143`) and `decode_cf_time` (`netcdf/utils.py:1295`) exist with the
+  signatures TASK-2 uses.
+- **Regression traps found and pinned:** the `Dataset.to_zarr` **doctest**
+  (`dataset.py:2212-2236`) asserts the current float64-materialise behaviour and MUST
+  be rewritten by TASK-1 (exact new output supplied). `test_zarr_fill_value.py` and
+  `test_zarr_sentinel_agreement.py` use only **unpacked** rasters, so TASK-1 leaves
+  them untouched.
+
+**Verified against the xarray 2026.7.0 source (mechanism reference):**
+- `write_empty_chunks`/`order` go into a nested `config={}` for v3
+  (`backends/zarr.py:1191-1197`) ⇒ TASK-5 Step 1.
+- The valid encoding-key set (`backends/zarr.py:496-508`) ⇒ TASK-4 whitelist (pyramids
+  subset).
+- The scale/offset and time coders are format-agnostic CF coders
+  (`coding/variables.py:493`, `coding/times.py:1355`) ⇒ TASK-1/2 attribute names
+  (`scale_factor`/`add_offset`, `units`/`calendar`).
+
+**Still to confirm at the pinned versions before/while implementing (do a 10-line
+throwaway script, don't assume):**
+1. `arr.to_zarr(existing_zarr_v3_array, overwrite=False, compute=True/False)` writes
+   the whole array and, with `compute=False`, returns a single `Delayed` — on the
+   pinned dask. (TASK-0.)
+2. `group.create_array(..., zarr_format=2, compressors=[...])` produces a valid v2
+   store and **rejects** `dimension_names=` — on the pinned zarr. (TASK-3.)
+3. `group.create_array(..., config={"write_empty_chunks": ...})` is the accepted v3
+   spelling on the pinned zarr (xarray uses `.create(...)`; pyramids uses
+   `create_array(...)` — confirm both take `config=`). (TASK-5.)
+4. `numcodecs.zarr3.Delta` is the correct filter wrapper for `filters=` on the pinned
+   zarr/numcodecs. (TASK-4.)
+5. `zarr.open_group(store, mode="a")` on a reopen auto-detects an existing store's
+   format (so `zarr_format` is needed only at create). (TASK-3.)
+
+**If any item in that list comes back different from the spec, fix the spec and the
+code together — do not silently work around it.**
