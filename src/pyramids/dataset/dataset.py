@@ -476,7 +476,7 @@ def _is_identity(op: Callable, scalar: Any) -> bool:
         bool: `True` when the operation cannot change any cell.
 
     Examples:
-        - The three identities are recognised; any other operand computes:
+        - The four identities are recognised; any other operand computes:
 
           ```python
           >>> import operator
@@ -2806,7 +2806,10 @@ class Dataset(RasterBase):
         fractional power, or a zero raised to a negative power) that value is stored as-is
         and NumPy's `RuntimeWarning` reaches the caller. The one power NumPy refuses
         outright is a negative integer power of an integer band, which raises `ValueError`;
-        cast the band to a floating dtype first.
+        cast the band to a floating dtype first. `** 1` is the exception to the widening
+        rule: it is a no-op, absorbed to a `copy()` that keeps the source dtype and
+        sentinel (like `* 1`), so `int16 ** 1.0` stays `int16` where `int16 ** 2.0`
+        widens to `float64`.
 
         Args:
             other: Another raster on this one's grid, or a real, non-boolean scalar.
