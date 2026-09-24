@@ -451,14 +451,17 @@ def _crs_wkt_from_epsg(epsg: str | int | None) -> str:
 def _is_identity(op: Callable, scalar: Any) -> bool:
     """Whether applying `op` with `scalar` leaves every value unchanged.
 
-    Three spellings qualify: adding zero, multiplying by one, and subtracting zero.
-    The first two are the commutative identities `sum()` and `math.prod()` seed with,
-    absorbed from either side so the two spellings of one expression cannot disagree.
-    The third has no reflected twin — `0 - ds` negates — but it is a no-op just the
-    same, and the reason the others are short-circuited applies to it word for word:
-    routed through `combine` it would drop the band's declared sentinel, because an
-    integer result that masked nothing declares none, and a no-op must not strip the
-    no-data tag off a raster on its way to disk.
+    Four spellings qualify: adding zero, multiplying by one, subtracting zero, and
+    raising to the first power. The first two are the commutative identities `sum()`
+    and `math.prod()` seed with, absorbed from either side so the two spellings of one
+    expression cannot disagree. `- 0` and `** 1` have no reflected twin — `0 - ds`
+    negates and `1 ** ds` is all ones — but each is a no-op just the same, and the
+    reason the others are short-circuited applies to them word for word: routed through
+    `combine` it would drop the band's declared sentinel, because an integer result
+    that masked nothing declares none, and a no-op must not strip the no-data tag off a
+    raster on its way to disk. Only the *forward* `ds ** 1` reaches here; `1 ** ds`
+    goes through `_reflected_arithmetic`, which never short-circuits, so it is not
+    absorbed. `** 0` is *not* a no-op — it is one everywhere — so it is not here.
 
     **Division is deliberately not here.** `ds / 1` is not a no-op: true division
     widens an integer band to `float64`, as it does everywhere else in numpy, and a
@@ -480,10 +483,12 @@ def _is_identity(op: Callable, scalar: Any) -> bool:
           >>> from pyramids.dataset.dataset import _is_identity
           >>> _is_identity(operator.add, 0), _is_identity(operator.mul, 1)
           (True, True)
-          >>> _is_identity(operator.sub, 0)
-          True
+          >>> _is_identity(operator.sub, 0), _is_identity(operator.pow, 1)
+          (True, True)
           >>> _is_identity(operator.add, 1), _is_identity(operator.mul, 2)
           (False, False)
+          >>> _is_identity(operator.pow, 0)
+          False
 
           ```
         - Division keeps its widening, so its right identity is not absorbed:
@@ -504,6 +509,7 @@ def _is_identity(op: Callable, scalar: Any) -> bool:
         (op is operator.add and scalar == 0)
         or (op is operator.mul and scalar == 1)
         or (op is operator.sub and scalar == 0)
+        or (op is operator.pow and scalar == 1)
     )
 
 
@@ -2388,10 +2394,11 @@ class Dataset(RasterBase):
         The scalar's own type is kept where NumPy can hold it, so `ds * 2` on an
         `int16` band stays `int16` rather than widening to `float64`; only an
         exotic `numbers.Real` such as a `fractions.Fraction` is narrowed, to
-        `float` — see :func:`_numeric_scalar`. `ds + 0`, `ds * 1` and `ds - 0`
-        short-circuit to :meth:`copy`: the commutative two from either side of the
-        operator, `ds - 0` from the right only, since `0 - ds` negates. A no-op
-        therefore cannot widen the dtype or drop the band's declared sentinel.
+        `float` — see :func:`_numeric_scalar`. `ds + 0`, `ds * 1`, `ds - 0` and
+        `ds ** 1` short-circuit to :meth:`copy`: the commutative two from either side
+        of the operator, `ds - 0` and `ds ** 1` from the right only, since `0 - ds`
+        negates and `1 ** ds` is all ones. A no-op therefore cannot widen the dtype or
+        drop the band's declared sentinel.
         `ds / 1` is deliberately not one of them — true division widens an integer
         band to `float64` everywhere else, and absorbing it would make this the one
         division that does not. The short-circuit also runs before anything reads a

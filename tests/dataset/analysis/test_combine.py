@@ -1460,6 +1460,31 @@ class TestPowerOperator:
         assert result.dtype == ["int16"], result.dtype
         assert int(np.asarray(result.read_array())[0, 0]) == 9
 
+    def test_raising_to_the_first_power_preserves_the_sentinel(self):
+        """`ds ** 1` is a no-op, so it short-circuits to a copy and keeps the sentinel.
+
+        Test scenario:
+            An integer band that masks nothing declares no sentinel when it computes
+            through `combine`, so `ds ** 1` used to drop the declared `-9999` that
+            `ds * 1` keeps. `_is_identity` now recognises `** 1`, like `* 1` and `+ 0`.
+        """
+        source = _raster(np.full((3, 3), 3, "int16"))
+        assert source.no_data_value == (-9999.0,), source.no_data_value
+        result = source**1
+        assert result.no_data_value == (-9999.0,), result.no_data_value
+        assert result is not source, "a no-op returns a copy, not the source"
+        assert int(np.asarray(result.read_array())[0, 0]) == 3
+
+    def test_the_first_power_is_absorbed_only_from_the_right(self):
+        """`1 ** ds` is all ones, not a no-op, so it is not short-circuited."""
+        result = 1 ** _raster(np.full((2, 2), 3.0, "float32"))
+        assert np.allclose(np.asarray(result.read_array()), 1.0)
+
+    def test_the_zeroth_power_is_not_absorbed(self):
+        """`ds ** 0` is one everywhere, so it computes rather than copying."""
+        result = _raster(np.full((2, 2), 3.0, "float32")) ** 0
+        assert np.allclose(np.asarray(result.read_array()), 1.0)
+
     def test_a_scalar_base_raises_each_cell(self):
         """`2 ** ds` computes the reflected power cell by cell."""
         result = 2 ** _raster(np.full((2, 2), 3.0, "float32"))
