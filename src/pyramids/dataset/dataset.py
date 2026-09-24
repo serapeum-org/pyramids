@@ -451,14 +451,17 @@ def _crs_wkt_from_epsg(epsg: str | int | None) -> str:
 def _is_identity(op: Callable, scalar: Any) -> bool:
     """Whether applying `op` with `scalar` leaves every value unchanged.
 
-    Three spellings qualify: adding zero, multiplying by one, and subtracting zero.
-    The first two are the commutative identities `sum()` and `math.prod()` seed with,
-    absorbed from either side so the two spellings of one expression cannot disagree.
-    The third has no reflected twin — `0 - ds` negates — but it is a no-op just the
-    same, and the reason the others are short-circuited applies to it word for word:
-    routed through `combine` it would drop the band's declared sentinel, because an
-    integer result that masked nothing declares none, and a no-op must not strip the
-    no-data tag off a raster on its way to disk.
+    Four spellings qualify: adding zero, multiplying by one, subtracting zero, and
+    raising to the first power. The first two are the commutative identities `sum()`
+    and `math.prod()` seed with, absorbed from either side so the two spellings of one
+    expression cannot disagree. `- 0` and `** 1` have no reflected twin — `0 - ds`
+    negates and `1 ** ds` is all ones — but each is a no-op just the same, and the
+    reason the others are short-circuited applies to them word for word: routed through
+    `combine` it would drop the band's declared sentinel, because an integer result
+    that masked nothing declares none, and a no-op must not strip the no-data tag off a
+    raster on its way to disk. Only the *forward* `ds ** 1` reaches here; `1 ** ds`
+    goes through `_reflected_arithmetic`, which never short-circuits, so it is not
+    absorbed. `** 0` is *not* a no-op — it is one everywhere — so it is not here.
 
     **Division is deliberately not here.** `ds / 1` is not a no-op: true division
     widens an integer band to `float64`, as it does everywhere else in numpy, and a
@@ -473,17 +476,19 @@ def _is_identity(op: Callable, scalar: Any) -> bool:
         bool: `True` when the operation cannot change any cell.
 
     Examples:
-        - The three identities are recognised; any other operand computes:
+        - The four identities are recognised; any other operand computes:
 
           ```python
           >>> import operator
           >>> from pyramids.dataset.dataset import _is_identity
           >>> _is_identity(operator.add, 0), _is_identity(operator.mul, 1)
           (True, True)
-          >>> _is_identity(operator.sub, 0)
-          True
+          >>> _is_identity(operator.sub, 0), _is_identity(operator.pow, 1)
+          (True, True)
           >>> _is_identity(operator.add, 1), _is_identity(operator.mul, 2)
           (False, False)
+          >>> _is_identity(operator.pow, 0)
+          False
 
           ```
         - Division keeps its widening, so its right identity is not absorbed:
@@ -504,6 +509,7 @@ def _is_identity(op: Callable, scalar: Any) -> bool:
         (op is operator.add and scalar == 0)
         or (op is operator.mul and scalar == 1)
         or (op is operator.sub and scalar == 0)
+        or (op is operator.pow and scalar == 1)
     )
 
 
@@ -2388,10 +2394,11 @@ class Dataset(RasterBase):
         The scalar's own type is kept where NumPy can hold it, so `ds * 2` on an
         `int16` band stays `int16` rather than widening to `float64`; only an
         exotic `numbers.Real` such as a `fractions.Fraction` is narrowed, to
-        `float` — see :func:`_numeric_scalar`. `ds + 0`, `ds * 1` and `ds - 0`
-        short-circuit to :meth:`copy`: the commutative two from either side of the
-        operator, `ds - 0` from the right only, since `0 - ds` negates. A no-op
-        therefore cannot widen the dtype or drop the band's declared sentinel.
+        `float` — see :func:`_numeric_scalar`. `ds + 0`, `ds * 1`, `ds - 0` and
+        `ds ** 1` short-circuit to :meth:`copy`: the commutative two from either side
+        of the operator, `ds - 0` and `ds ** 1` from the right only, since `0 - ds`
+        negates and `1 ** ds` is all ones. A no-op therefore cannot widen the dtype or
+        drop the band's declared sentinel.
         `ds / 1` is deliberately not one of them — true division widens an integer
         band to `float64` everywhere else, and absorbing it would make this the one
         division that does not. The short-circuit also runs before anything reads a
@@ -2788,6 +2795,77 @@ class Dataset(RasterBase):
         """
         return self._arithmetic(other, operator.truediv)
 
+    def __pow__(self, other: Any) -> Any:
+        """Raise each cell to a power — another raster's, or a real scalar's.
+
+        Routed through :meth:`_arithmetic` into :meth:`combine`, so it inherits the same
+        operand rules, no-data domain, band-dimension labelling and dtype behaviour as
+        `*` and `/`: `ds ** 2` on an `int16` band stays `int16`, and a scalar spans every
+        band. A fractional power follows NumPy's own casting — `int16 ** 0.5` widens to
+        `float64` — and where NumPy yields a non-finite cell (a negative base raised to a
+        fractional power, or a zero raised to a negative power) that value is stored as-is
+        and NumPy's `RuntimeWarning` reaches the caller. The one power NumPy refuses
+        outright is a negative integer power of an integer band, which raises `ValueError`;
+        cast the band to a floating dtype first. `** 1` is the exception to the widening
+        rule: it is a no-op, absorbed to a `copy()` that keeps the source dtype and
+        sentinel (like `* 1`), so `int16 ** 1.0` stays `int16` where `int16 ** 2.0`
+        widens to `float64`.
+
+        Args:
+            other: Another raster on this one's grid, or a real, non-boolean scalar.
+
+        Returns:
+            Dataset | NotImplemented: The powered raster, or `NotImplemented` for any
+            other operand.
+
+        Raises:
+            AlignmentError: `other` is a raster on a different grid or CRS.
+            ValueError: numpy refuses a negative integer power of an integer band
+                (`Integers to negative integer powers are not allowed`); cast the band to a
+                floating dtype first.
+
+        Warns:
+            RuntimeWarning: numpy's own `invalid value` / `divide by zero` warning, raised
+                where a power yields a non-finite cell — a negative base to a fractional
+                power, or a zero to a negative power. The non-finite value is stored, not
+                masked.
+
+        Examples:
+            - Square a band, the common use — its dtype is kept:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((3, 3), 3, "int16"), geo_ref=geo_ref)
+              >>> squared = ds ** 2
+              >>> int(np.asarray(squared.read_array())[0, 0]), squared.dtype
+              (9, ['int16'])
+
+              ```
+            - A negative integer power of an integer band is refused by numpy; give it a
+              floating band (or use a floating power) to get the reciprocal instead:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> Dataset.from_array(np.full((3, 3), 4, "int16"), geo_ref=geo_ref) ** -1
+              Traceback (most recent call last):
+                  ...
+              ValueError: Integers to negative integer powers are not allowed.
+              >>> recip = Dataset.from_array(np.full((3, 3), 4.0, "float32"), geo_ref=geo_ref) ** -1
+              >>> float(np.asarray(recip.read_array())[0, 0])
+              0.25
+
+              ```
+
+        See Also:
+            Dataset.__rpow__: The reflected form, `scalar ** ds`.
+            Dataset._arithmetic: The shared router, with the full operand rules.
+        """
+        return self._arithmetic(other, operator.pow)
+
     def __radd__(self, other: Any) -> Any:
         """Add from the right, so a list of rasters can be `sum()`-ed.
 
@@ -2987,6 +3065,116 @@ class Dataset(RasterBase):
               ```
         """
         return self._reflected_arithmetic(other, operator.truediv)
+
+    def __rpow__(self, other: Any) -> Any:
+        """Raise a scalar to this raster's cells — `2 ** ds`, not `ds ** 2`.
+
+        Exponentiation does not commute, so this cannot defer to :meth:`__pow__`; the
+        operands keep the order the caller wrote them in, computed through
+        :meth:`Analysis._fold` (one read of this raster). `2 ** ds` takes whatever dtype
+        NumPy makes of the base and the cells, exactly as `ds ** other` does.
+
+        Args:
+            other: The left-hand operand, which reached here because its own `__pow__`
+                declined this dataset.
+
+        Returns:
+            Dataset | NotImplemented: The computed raster, or `NotImplemented` when
+            `other` is not a real, non-boolean scalar.
+
+        Raises:
+            ValueError: The base is an integer and this raster is an integer band
+                holding a negative cell — `2 ** int16(-3)` — which numpy forbids, as
+                `ds ** other` does.
+
+        Warns:
+            RuntimeWarning: numpy's own warning where the result is non-finite — a
+                negative base to a fractional cell gives `nan` (`(-2.0) ** ds`), stored
+                as-is, exactly as on `__pow__`.
+
+        Examples:
+            - Two raised to an exponent field:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((3, 3), 3.0, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray((2 ** ds).read_array())[0, 0])
+              8.0
+
+              ```
+        """
+        return self._reflected_arithmetic(other, operator.pow)
+
+    def __neg__(self) -> Any:
+        """Negate every cell, `-ds`, keeping gaps and band dimensions.
+
+        A one-operand transform run through :meth:`Analysis._fold`, so it inherits the
+        same no-data domain, band-dimension labelling and dtype behaviour as the binary
+        operators: a masked cell stays masked, every band is negated, and a signed band
+        keeps its dtype.
+
+        On an **unsigned** band `-ds` wraps modulo the dtype range — `-uint8(3)` is
+        `253`, not `-3` — matching numpy and `0 - ds` (its arithmetic equal, folded the
+        same way), and unlike `ds * -1`, whose scalar path rejects `-1` as out of range
+        for the band. Negate a signed or float band if a true sign flip is wanted.
+
+        Returns:
+            Dataset: The negated raster, on this one's grid.
+
+        Examples:
+            - Flip the sign of a band:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((3, 3), 2.5, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray((-ds).read_array())[0, 0])
+              -2.5
+
+              ```
+
+        See Also:
+            Dataset.__abs__: The magnitude, the other unary transform.
+            Analysis._fold: The single-read path the result comes back through.
+        """
+        return self.analysis._fold(operator.neg)
+
+    def __abs__(self) -> Any:
+        """Take the magnitude of every cell, `abs(ds)`, keeping gaps and band dimensions.
+
+        A one-operand transform run through :meth:`Analysis._fold`, so it inherits the
+        same no-data domain, band-dimension labelling and dtype behaviour as the binary
+        operators: a masked cell stays masked and every band is folded.
+
+        Two numpy-native edges to know: on an unsigned band `abs(ds)` is a no-op (every
+        value is already non-negative), and the magnitude of a signed dtype's minimum
+        overflows and stays negative — `abs(int16(-32768))` is `-32768`, since `32768`
+        does not fit `int16`. Cast to a wider or float band first if that matters.
+
+        Returns:
+            Dataset: The magnitude raster, on this one's grid.
+
+        Examples:
+            - The magnitude of a signed band:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> geo_ref = GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.25, epsg=4326)
+              >>> ds = Dataset.from_array(np.full((3, 3), -4.0, "float32"), geo_ref=geo_ref)
+              >>> float(np.asarray(abs(ds).read_array())[0, 0])
+              4.0
+
+              ```
+
+        See Also:
+            Dataset.__neg__: The sign flip, the other unary transform.
+            Analysis._fold: The single-read path the result comes back through.
+        """
+        return self.analysis._fold(operator.abs)
 
     def __lt__(self, other: Any) -> Any:
         """Cell-by-cell `<` against another raster or a real scalar — see :meth:`_arithmetic`."""

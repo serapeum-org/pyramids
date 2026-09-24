@@ -53,6 +53,10 @@ OPERATORS = [
     pytest.param(lambda v: 2 * v, id="rmul"),
     pytest.param(lambda v: v / 2, id="truediv"),
     pytest.param(lambda v: 2 / v, id="rtruediv"),
+    pytest.param(lambda v: v**2, id="pow"),
+    pytest.param(lambda v: 2**v, id="rpow"),
+    pytest.param(lambda v: -v, id="neg"),
+    pytest.param(lambda v: abs(v), id="abs"),
     pytest.param(lambda v: v < 1500, id="lt"),
     pytest.param(lambda v: v <= 1500, id="le"),
     pytest.param(lambda v: v > 1500, id="gt"),
@@ -414,8 +418,22 @@ class TestWhatMustNotChange:
         assert result.band_count == 1
         assert tuple(result._band_dim_names) == ()
 
-    def test_a_container_still_refuses(self):
-        """A root container has no single raster, with or without band dimensions."""
+    @pytest.mark.parametrize(
+        "apply",
+        [
+            pytest.param(lambda c: c + 2, id="add"),
+            pytest.param(lambda c: c**2, id="pow"),
+            pytest.param(lambda c: 2**c, id="rpow"),
+            pytest.param(lambda c: -c, id="neg"),
+            pytest.param(lambda c: abs(c), id="abs"),
+        ],
+    )
+    def test_a_container_still_refuses(self, apply):
+        """A root container has no single raster, so every operator hits its guard.
+
+        Args:
+            apply: The operator expression under test.
+        """
         container = NetCDF.from_array(
             np.ones((NT, NY, NX)),
             geo_ref=GeoReference(geo=GEO, epsg=4326),
@@ -423,7 +441,7 @@ class TestWhatMustNotChange:
             dims=ExtraDimensions(name="time", values=TIMES),
         )
         with pytest.raises(ValueError, match="get_variable"):
-            _ = container + 2
+            _ = apply(container)
 
     def test_a_plain_dataset_stays_a_plain_dataset(self):
         """An operator on a GeoTIFF-style `Dataset` returns a `Dataset`, values intact."""
