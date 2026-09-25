@@ -1230,9 +1230,12 @@ class FeatureCollection(GeoDataFrame):
         row. For header formats (GPKG, shapefile, FlatGeobuf) the count comes
         from the header; for headerless formats (GeoJSON, CSV) OGR still scans
         the file, but no geometry objects are created. The count is forced, so
-        it is always the real number and never OGR's cheap ``-1``. Routes
-        through :func:`pyramids._io._parse_path`, so the same cloud-URL /
-        archive rewriting that :meth:`read_file` uses applies here too.
+        it is always the real number and never OGR's cheap ``-1``. Cost note:
+        forcing means an ``O(features)`` pass for headerless drivers, and a
+        remote source (`/vsicurl/`, `s3://`, ...) is downloaded in full to be
+        counted. Routes through :func:`pyramids._io._parse_path`, so the same
+        cloud-URL / archive rewriting that :meth:`read_file` uses applies here
+        too.
 
         Args:
             path (str | Path):
@@ -1306,7 +1309,9 @@ class FeatureCollection(GeoDataFrame):
         :class:`~geopandas.GeoDataFrame` of geometries is built. The count
         and extent are forced, so both are complete even for drivers that
         cache neither (GeoJSON, CSV); for those OGR scans the file, but no
-        geometry objects are materialised. Routes through
+        geometry objects are materialised. Cost note: that scan is
+        ``O(features)`` for headerless drivers, and a remote source
+        (`/vsicurl/`, `s3://`, ...) is downloaded in full. Routes through
         :func:`pyramids._io._parse_path` for the same cloud-URL / archive
         rewriting as :meth:`read_file`.
 

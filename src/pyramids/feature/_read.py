@@ -94,9 +94,11 @@ def list_layers_cache_clear() -> None:
 class VectorInfo:
     """Metadata describing a vector file, read without loading its geometry.
 
-    The vector counterpart to :class:`pyramids.dataset.cog.inspect.COGInfo`: every field
-    comes from the driver's header via :func:`pyogrio.read_info`, so no feature rows are
-    materialised (see :meth:`FeatureCollection.feature_info`).
+    The vector counterpart to :class:`pyramids.dataset.cog.inspect.COGInfo`: every field is
+    read via :func:`pyogrio.read_info` without materialising feature rows. For header-backed
+    drivers (GPKG, shapefile, FlatGeobuf) this is a header read; for headerless drivers
+    (GeoJSON, CSV) OGR scans the file, but no geometry objects are built (see
+    :meth:`FeatureCollection.feature_info`).
 
     Attributes:
         feature_count: Number of features in the layer (OGR ``GetFeatureCount``).
