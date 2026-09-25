@@ -2071,3 +2071,21 @@ class TestCoordinatelessDimensionHelper:
                 rg, "time", 4, gdal.DIM_TYPE_TEMPORAL
             )
         assert first.GetName() == second.GetName() == "time"
+
+    def test_suffixes_when_the_name_is_a_coordinateless_dimension_of_another_size(self):
+        """A coordinate-less name of a different size cannot be shared either, so a sibling is made.
+
+        One netCDF dimension cannot hold two lengths, so a second coordinate-less axis of the
+        same name but a different size is written under a suffixed name and the rename is
+        announced. This exercises the size clause of the reuse test that the coordinated
+        collision never reaches: dropping `match.GetSize() == size` would leave it green.
+        """
+        rg = self._group()
+        NetCDF._coordinateless_dimension(rg, "bottom_top", 27, gdal.DIM_TYPE_TEMPORAL)
+        with pytest.warns(UserWarning, match="written as"):
+            dim = NetCDF._coordinateless_dimension(rg, "bottom_top", 12)
+        assert dim.GetName() != "bottom_top", dim.GetName()
+        assert dim.GetSize() == 12, dim.GetSize()
+        assert dim.GetIndexingVariable() is None, (
+            "the suffixed axis must stay coordinate-less"
+        )
