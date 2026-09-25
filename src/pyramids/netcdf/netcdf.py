@@ -8840,8 +8840,9 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.isel <pyramids.netcdf.engines.selection.Selection.isel>`.
 
         Args:
-            drop: When `True`, drop the length-one band dimensions the selection leaves
-                behind (via :meth:`squeeze`); see the engine method.
+            drop: When `True`, drop the axes a scalar (point) selector collapsed — a
+                length-one `list` or `slice`, and a pre-existing length-one dim, are kept,
+                as in xarray; see the engine method.
             **indexers: `dimension=selector` pairs; see the engine method.
 
         Returns:
