@@ -23,6 +23,7 @@ from pyramids.base._errors import AlignmentError
 from pyramids.dataset import Dataset
 from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf._mdim import copy_band_values_map
+from pyramids.netcdf.engines.variables import _create_multi_band_dims
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -2097,4 +2098,89 @@ class TestCoordinatelessDimensionHelper:
         assert dim.GetSize() == 12, dim.GetSize()
         assert dim.GetIndexingVariable() is None, (
             "the suffixed axis must stay coordinate-less"
+        )
+
+
+class TestCreateMultiBandDimsInvariantGuard:
+    """`_create_multi_band_dims` splits an *absent* axis from a *present-`None`* one (#1201 N3)."""
+
+    @staticmethod
+    def _group():
+        """A fresh in-memory root group.
+
+        Returns:
+            The MEM multidimensional root group.
+        """
+        return gdal.GetDriverByName("MEM").CreateMultiDimensional("m").GetRootGroup()
+
+    def test_an_absent_axis_defaults_to_range_while_a_present_none_axis_is_coordinateless(
+        self,
+    ):
+        """A name missing from `values_map` gets `range(size)`; a name mapped to `None` gets no coords.
+
+        Test scenario:
+            Every real variable keeps `set(names) == set(values_map)`, so the key-absent arm is
+            unreachable through the public API — it only guards a future invariant slip. Calling
+            the helper directly with `time` absent and `level` mapped to `None` is the only way to
+            reach both arms at once: `time` must fall through to the positional `range(size)`
+            default with a real indexing variable holding `[0, 1, 2]`, while `level` stays
+            coordinate-less (no indexing variable), so a present-`None` axis never fabricates
+            stamps the way an absent one legitimately does.
+        """
+        rg = self._group()
+        coord_dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+
+        band_dims = _create_multi_band_dims(
+            NetCDF, rg, ("time", "level"), (3, 2), {"level": None}, coord_dtype
+        )
+
+        by_name = {dim.GetName(): dim for dim in band_dims}
+        assert set(by_name) == {"time", "level"}, f"unexpected dims {list(by_name)}"
+        time_indexing = by_name["time"].GetIndexingVariable()
+        assert time_indexing is not None, (
+            "an axis absent from values_map must default to positional coordinates"
+        )
+        assert time_indexing.ReadAsArray().tolist() == [0, 1, 2], (
+            f"the absent axis must default to range(size), got "
+            f"{time_indexing.ReadAsArray().tolist()}"
+        )
+        assert by_name["time"].GetSize() == 3, by_name["time"].GetSize()
+        assert by_name["level"].GetIndexingVariable() is None, (
+            "an axis mapped to None must stay coordinate-less, not gain range(size)"
+        )
+        assert by_name["level"].GetSize() == 2, by_name["level"].GetSize()
+
+
+class TestABandAxisWithoutValuesGetsPositionalCoordinates:
+    """The single-band 3-D write path gives a plain raster's band axis `range(size)` (#1192, #1201)."""
+
+    def test_a_plain_multi_band_dataset_reads_back_with_positional_coordinates(self):
+        """`set_variable` of a coordinate-less classic raster labels its band axis `[0, 1, 2]`.
+
+        Test scenario:
+            A plain `Dataset` tracks no `_band_dim_values` and no coordinate map, so the axis is
+            *not* the T20 coordinate-less case (a key present and `None`); it is a caller who
+            simply omitted band values. That must take the documented positional `range(size)`
+            default, matching `from_array`, rather than being written with no indexing variable.
+            The result reads back three positional stamps under the default `bands` axis.
+        """
+        fresh = NetCDF.from_array(
+            np.zeros((1, NY, NX)),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="seed",
+            dims=ExtraDimensions(name="band", values=[0.0]),
+        )
+        plain = Dataset.from_array(
+            np.arange(3 * NY * NX, dtype=np.float64).reshape(3, NY, NX),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+        )
+
+        fresh.set_variable("plain", plain)
+        written = fresh.get_variable("plain")
+
+        assert written._band_dim_names == ("bands",), written._band_dim_names
+        assert written._band_dim_sizes == (3,), written._band_dim_sizes
+        assert written._band_dim_values_map == {"bands": [0, 1, 2]}, (
+            f"a value-less band axis must default to range(size), got "
+            f"{written._band_dim_values_map}"
         )
