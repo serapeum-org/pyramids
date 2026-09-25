@@ -829,11 +829,13 @@ def _create_multi_band_dims(
 ) -> list:
     """Create one GDAL dimension per tracked non-spatial axis (the 4-D+ rebuild path).
 
-    Each axis takes its coordinate values from ``values_map`` (filling integer
-    indices when absent); the first axis is tagged ``DIM_TYPE_TEMPORAL``. A newly
-    created, labelled axis also carries its CF ``(units, calendar)`` from ``dim_attrs``
-    onto its coordinate array, so a variable a join adds after the first keeps them
-    through ``to_file`` (#1179).
+    Each axis takes its coordinate values from `values_map`; the first axis is tagged
+    `DIM_TYPE_TEMPORAL`. An axis whose `values_map` entry is `None` has no coordinates
+    (e.g. a T20 operator disagreement, #1192): it is created with no indexing variable via
+    `NetCDF._coordinateless_dimension`, so it reads back as `None` rather than the
+    positional `range(size)` an earlier version fabricated. A newly created, labelled axis
+    also carries its CF `(units, calendar)` from `dim_attrs` onto its coordinate array, so
+    a variable a join adds after the first keeps them through `to_file` (#1179).
     """
     band_dims = []
     known = {dimension.GetName() for dimension in rg.GetDimensions() or []}
@@ -872,14 +874,17 @@ def _build_variable_mdarray(
     band: dict,
     dim_attrs: dict[str, dict[str, str]] | None = None,
 ) -> Any:
-    """Create the variable MDArray with the right band dimensions and write ``arr``.
+    """Create the variable MDArray with the right band dimensions and write `arr`.
 
-    Three layouts: a multi-band-dim 4-D+ rebuild (reshape the flattened bands
-    back into storage order, one GDAL dim per non-spatial axis via
-    :func:`_create_multi_band_dims`); the legacy single-band-dim 3-D path; and a
-    plain 2-D ``(y, x)`` variable. A newly created, labelled band axis carries its CF
-    ``(units, calendar)`` from ``dim_attrs`` onto its coordinate array so a join's
-    later variable keeps them through ``to_file`` (#1179). Returns the written MDArray.
+    Three layouts: a multi-band-dim 4-D+ rebuild (reshape the flattened bands back into
+    storage order, one GDAL dim per non-spatial axis via :func:`_create_multi_band_dims`);
+    the legacy single-band-dim 3-D path; and a plain 2-D `(y, x)` variable. On either band
+    path an axis with no coordinates (`band_dim_values`, or the `values_map` entry, is
+    `None` — e.g. a T20 operator disagreement) is created with no indexing variable via
+    `NetCDF._coordinateless_dimension`, so it reads back as `None` instead of a fabricated
+    `range(size)` (#1192). A newly created, labelled band axis carries its CF
+    `(units, calendar)` from `dim_attrs` onto its coordinate array so a join's later
+    variable keeps them through `to_file` (#1179). Returns the written MDArray.
     """
     names, sizes, values_map = band["names"], band["sizes"], band["values_map"]
     if len(names) > 1 and arr.ndim == 3 and sizes:

@@ -1956,6 +1956,62 @@ class TestACoordinatelessDimensionIsWrittenWithoutStamps:
         container.set_variable("normal", _variable([("time", TIMES)]))
         assert container.get_variable("normal")._band_dim_values_map == {"time": TIMES}
 
+    @staticmethod
+    def _multi_band_dim_result() -> NetCDF:
+        """A two-band-dim variable whose `time` disagrees but `pressure_level` agrees.
+
+        Returns:
+            NetCDF: `left + right` over `(time, pressure_level)`, where T20 drops `time`'s
+            coordinates and keeps `pressure_level`'s, so writing it drives the 4-D+ rebuild
+            through both arms of `_create_multi_band_dims` at once.
+        """
+        result = _variable([("time", TIMES), ("pressure_level", LEVELS)]) + _variable(
+            [("time", [1.0, 7.0, 13.0, 19.0]), ("pressure_level", LEVELS)]
+        )
+        assert result._band_dim_values_map == {
+            "time": None,
+            "pressure_level": LEVELS,
+        }, f"precondition: T20 must drop only time, got {result._band_dim_values_map}"
+        return result
+
+    def test_a_multi_band_dim_write_keeps_only_the_coordinate_less_axis_none(self):
+        """The 4-D+ path writes `time` without stamps and `pressure_level` with its own.
+
+        Test scenario:
+            `_create_multi_band_dims` handles a variable with several band dimensions in one
+            call, unlike the single-band path the other tests here take, so it is the only way
+            to reach both of its arms — a coordinate-less axis and a coordinated one — at once.
+            The fresh store's `band` axis leaves `time` nothing coordinated to collide with, so
+            it keeps its name and reads back None while `pressure_level` keeps its stamps.
+        """
+        fresh = NetCDF.from_array(
+            np.zeros((1, NY, NX)),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="seed",
+            dims=ExtraDimensions(name="band", values=[0.0]),
+        )
+        fresh.set_variable("summed", self._multi_band_dim_result())
+        values = fresh.get_variable("summed")._band_dim_values_map
+        assert values == {"time": None, "pressure_level": LEVELS}, values
+
+    def test_the_multi_band_dim_result_round_trips_through_to_file(self, tmp_path):
+        """After a `to_file` round trip the two-band result still holds `time` as None.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        fresh = NetCDF.from_array(
+            np.zeros((1, NY, NX)),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="seed",
+            dims=ExtraDimensions(name="band", values=[0.0]),
+        )
+        fresh.set_variable("summed", self._multi_band_dim_result())
+        out = tmp_path / "coordless_2d.nc"
+        fresh.to_file(str(out))
+        back = NetCDF.read_file(str(out)).get_variable("summed")._band_dim_values_map
+        assert back == {"time": None, "pressure_level": LEVELS}, back
+
 
 class TestCoordinatelessDimensionHelper:
     """`NetCDF._coordinateless_dimension` creates/reuses a dimension with no coordinates."""
