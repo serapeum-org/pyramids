@@ -11,6 +11,7 @@ that must come out exactly as before.
 from __future__ import annotations
 
 import operator
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -2042,10 +2043,31 @@ class TestCoordinatelessDimensionHelper:
         assert len(rg.GetDimensions()) == 1
 
     def test_suffixes_when_the_name_is_a_coordinated_dimension(self):
-        """A name owned by a coordinated dimension cannot be reused, so a sibling is made."""
+        """A name owned by a coordinated dimension cannot be reused, so a sibling is made.
+
+        The rename is announced with a warning, as `_get_or_create_dimension` announces the
+        analogous coordinated collision, so a later selection under the original name is not a
+        silent surprise (#1201 M2).
+        """
         rg = self._group()
         f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
         NetCDF.create_main_dimension(rg, "time", f64, np.array([0.0, 6.0, 12.0, 18.0]))
-        dim = NetCDF._coordinateless_dimension(rg, "time", 4, gdal.DIM_TYPE_TEMPORAL)
+        with pytest.warns(UserWarning, match="written as"):
+            dim = NetCDF._coordinateless_dimension(
+                rg, "time", 4, gdal.DIM_TYPE_TEMPORAL
+            )
         assert dim.GetName() != "time", dim.GetName()
         assert dim.GetIndexingVariable() is None
+
+    def test_a_plain_create_or_reuse_does_not_warn(self):
+        """Creating a fresh axis, or reusing an identical one, is silent — only a rename warns."""
+        rg = self._group()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            first = NetCDF._coordinateless_dimension(
+                rg, "time", 4, gdal.DIM_TYPE_TEMPORAL
+            )
+            second = NetCDF._coordinateless_dimension(
+                rg, "time", 4, gdal.DIM_TYPE_TEMPORAL
+            )
+        assert first.GetName() == second.GetName() == "time"

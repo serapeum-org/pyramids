@@ -12910,8 +12910,9 @@ class NetCDF(Dataset):
 
         An existing coordinate-less dimension of the same name and size is reused, so
         rewriting the same variable does not accumulate siblings. A name already taken by a
-        *coordinated* dimension cannot be reused — one netCDF dimension cannot be both — so a
-        suffixed name is created instead.
+        *coordinated* dimension (or a coordinate-less one of another size) cannot be reused —
+        one netCDF dimension cannot be both — so a suffixed name is created instead, and a
+        warning names it so a later selection is not a silent surprise.
 
         Args:
             rg: The root group.
@@ -12921,6 +12922,10 @@ class NetCDF(Dataset):
 
         Returns:
             gdal.Dimension: The reused or newly created coordinate-less dimension.
+
+        Warns:
+            UserWarning: The name is already held by a dimension this axis cannot share, so
+                the axis was written under a suffixed name to select on instead.
         """
         existing = {
             dimension.GetName(): dimension for dimension in rg.GetDimensions() or []
@@ -12937,6 +12942,18 @@ class NetCDF(Dataset):
             if match is None
             else NetCDF._unused_dimension_name(existing, dim_name, size)
         )
+        if match is not None:
+            # The store already holds a dimension of this name that a coordinate-less axis
+            # cannot share — a coordinated one, or a coordinate-less one of another size —
+            # so it is written under a suffixed name. Announce it, as
+            # `_get_or_create_dimension` announces the analogous coordinated collision;
+            # otherwise a later `isel(<name>=...)` fails with no hint the axis was renamed.
+            warnings.warn(
+                f"the store already holds a dimension named {dim_name!r} that this "
+                f"coordinate-less axis cannot share, so it was written as {target!r}. "
+                "Select on the result under that name.",
+                stacklevel=2,
+            )
         return rg.CreateDimension(target, dim_type or "", None, size)
 
     @staticmethod
