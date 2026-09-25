@@ -1266,6 +1266,24 @@ class FeatureCollection(GeoDataFrame):
                 3
 
                 ```
+            - Count a single layer of a multi-layer GeoPackage:
+                ```python
+                >>> import tempfile
+                >>> from pathlib import Path
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> d = Path(tempfile.mkdtemp())
+                >>> path = d / "multi.gpkg"
+                >>> gpd.GeoDataFrame(
+                ...     {"id": [1, 2]},
+                ...     geometry=[Point(0, 0), Point(1, 1)],
+                ...     crs="EPSG:4326",
+                ... ).to_file(path, driver="GPKG", layer="wells")
+                >>> FeatureCollection.feature_count(path, layer="wells")
+                2
+
+                ```
         """
         return _read.feature_count(path, layer=layer)
 
@@ -1324,6 +1342,27 @@ class FeatureCollection(GeoDataFrame):
                 4326
                 >>> info.fields
                 ['id']
+
+                ```
+            - Inspect the extent and driver without loading the rows:
+                ```python
+                >>> import tempfile
+                >>> from pathlib import Path
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> d = Path(tempfile.mkdtemp())
+                >>> path = d / "sites.geojson"
+                >>> gpd.GeoDataFrame(
+                ...     {"id": [1, 2]},
+                ...     geometry=[Point(0, 0), Point(3, 4)],
+                ...     crs="EPSG:4326",
+                ... ).to_file(path, driver="GeoJSON")
+                >>> info = FeatureCollection.feature_info(path)
+                >>> info.bounds
+                (0.0, 0.0, 3.0, 4.0)
+                >>> info.driver
+                'GeoJSON'
 
                 ```
         """

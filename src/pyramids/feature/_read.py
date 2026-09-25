@@ -108,6 +108,46 @@ class VectorInfo:
         fields: Attribute field names, geometry column excluded.
         layer: Name of the layer described.
         driver: OGR driver short name (e.g. ``"GeoJSON"``), or ``None``.
+
+    Examples:
+        - Read the fields of a report returned by ``feature_info``:
+            ```python
+            >>> from pyramids.feature import VectorInfo
+            >>> info = VectorInfo(
+            ...     feature_count=42,
+            ...     geometry_type="Polygon",
+            ...     crs_epsg=4326,
+            ...     bounds=(0.0, 0.0, 10.0, 10.0),
+            ...     fields=["id", "name"],
+            ...     layer="regions",
+            ...     driver="GPKG",
+            ... )
+            >>> info.feature_count
+            42
+            >>> info.crs_epsg
+            4326
+            >>> info.fields
+            ['id', 'name']
+
+            ```
+        - The report is immutable, so it is safe to cache and pass around:
+            ```python
+            >>> from pyramids.feature import VectorInfo
+            >>> info = VectorInfo(
+            ...     feature_count=3,
+            ...     geometry_type="Point",
+            ...     crs_epsg=None,
+            ...     bounds=None,
+            ...     fields=[],
+            ...     layer="pts",
+            ...     driver="GeoJSON",
+            ... )
+            >>> info.crs_epsg is None
+            True
+            >>> info.bounds is None
+            True
+
+            ```
     """
 
     feature_count: int
