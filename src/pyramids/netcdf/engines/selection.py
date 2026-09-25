@@ -758,7 +758,7 @@ class Selection(_Engine["NetCDF"]):
         Returns:
             NetCDF: A variable holding the selected bands, with `_band_dim_sizes` and the
             coordinate map narrowed to match. A dimension with no coordinates keeps none.
-            With `drop=True`, the length-one band dimensions are removed.
+            With `drop=True`, the just-indexed length-one band dimensions are removed.
 
         Raises:
             ValueError: No indexers were given, the variable tracks no band dimensions, a
