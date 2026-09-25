@@ -15,9 +15,11 @@ from pathlib import Path
 import geopandas as gpd
 import pyogrio
 import pytest
+from pyogrio.errors import DataLayerError
 from pyproj.exceptions import CRSError
 from shapely.geometry import Point, box
 
+from pyramids import feature
 from pyramids.feature import FeatureCollection, VectorInfo, _read
 
 pytestmark = pytest.mark.core
@@ -98,6 +100,15 @@ class TestFeatureCount:
         assert FeatureCollection.feature_count(two_layer_gpkg, layer="rivers") == 2
         assert FeatureCollection.feature_count(two_layer_gpkg, layer="lakes") == 3
 
+    def test_layer_by_int_index(self, two_layer_gpkg: Path):
+        """An integer ``layer=`` selects a layer by position."""
+        assert FeatureCollection.feature_count(two_layer_gpkg, layer=0) == 2
+
+    def test_bad_layer_raises_data_layer_error(self, two_layer_gpkg: Path):
+        """A layer the file does not contain raises ``DataLayerError``."""
+        with pytest.raises(DataLayerError):
+            FeatureCollection.feature_count(two_layer_gpkg, layer="nope")
+
     def test_missing_path_raises_file_not_found(self, tmp_path: Path):
         missing = tmp_path / "nope.geojson"
         with pytest.raises(FileNotFoundError, match=str(missing.name)):
@@ -167,6 +178,27 @@ class TestFeatureInfo:
         assert rivers.layer == "rivers"
         assert lakes.feature_count == 3
         assert lakes.layer == "lakes"
+
+    def test_layer_by_int_index(self, two_layer_gpkg: Path):
+        """An integer ``layer=`` selects a layer by position."""
+        info = FeatureCollection.feature_info(two_layer_gpkg, layer=0)
+        assert info.layer == "rivers"
+        assert info.feature_count == 2
+
+    def test_bad_layer_raises_data_layer_error(self, two_layer_gpkg: Path):
+        """A layer the file does not contain raises ``DataLayerError``."""
+        with pytest.raises(DataLayerError):
+            FeatureCollection.feature_info(two_layer_gpkg, layer="nope")
+
+    def test_empty_layer_has_no_bounds(self, tmp_path: Path):
+        """A real empty layer yields ``bounds=None`` and a zero count."""
+        p = tmp_path / "empty.geojson"
+        gpd.GeoDataFrame({"id": []}, geometry=[], crs="EPSG:4326").to_file(
+            p, driver="GeoJSON"
+        )
+        info = FeatureCollection.feature_info(p)
+        assert info.feature_count == 0
+        assert info.bounds is None
 
     def test_crs_epsg_none_when_undefined(self, tmp_path: Path):
         """A CRS-less file yields ``crs_epsg=None`` rather than raising.
@@ -248,6 +280,4 @@ class TestVectorInfo:
         assert {info, info} == {info}
 
     def test_exported_from_feature_package(self):
-        from pyramids import feature
-
         assert feature.VectorInfo is VectorInfo
