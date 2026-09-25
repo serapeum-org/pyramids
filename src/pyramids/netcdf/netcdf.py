@@ -12896,7 +12896,7 @@ class NetCDF(Dataset):
 
     @staticmethod
     def _coordinateless_dimension(
-        rg: gdal.Group, dim_name: str, size: int, dim_type=None
+        rg: gdal.Group, dim_name: str, size: int, dim_type: str | None = None
     ) -> gdal.Dimension:
         """A band dimension with **no** indexing variable, for a coordinate-less axis.
 
@@ -12931,30 +12931,33 @@ class NetCDF(Dataset):
             dimension.GetName(): dimension for dimension in rg.GetDimensions() or []
         }
         match = existing.get(dim_name)
-        if (
+        reusable = (
             match is not None
             and match.GetSize() == size
             and match.GetIndexingVariable() is None
-        ):
-            return match
-        target = (
-            dim_name
-            if match is None
-            else NetCDF._unused_dimension_name(existing, dim_name, size)
         )
-        if match is not None:
-            # The store already holds a dimension of this name that a coordinate-less axis
-            # cannot share — a coordinated one, or a coordinate-less one of another size —
-            # so it is written under a suffixed name. Announce it, as
-            # `_get_or_create_dimension` announces the analogous coordinated collision;
-            # otherwise a later `isel(<name>=...)` fails with no hint the axis was renamed.
-            warnings.warn(
-                f"the store already holds a dimension named {dim_name!r} that this "
-                f"coordinate-less axis cannot share, so it was written as {target!r}. "
-                "Select on the result under that name.",
-                stacklevel=2,
+        if reusable:
+            result = match
+        else:
+            target = (
+                dim_name
+                if match is None
+                else NetCDF._unused_dimension_name(existing, dim_name, size)
             )
-        return rg.CreateDimension(target, dim_type or "", None, size)
+            if match is not None:
+                # The store already holds a dimension of this name that a coordinate-less
+                # axis cannot share — a coordinated one, or a coordinate-less one of another
+                # size — so it is written under a suffixed name. Announce it, as
+                # `_get_or_create_dimension` announces the analogous coordinated collision;
+                # otherwise a later `isel(<name>=...)` fails with no hint the axis was renamed.
+                warnings.warn(
+                    f"the store already holds a dimension named {dim_name!r} that this "
+                    f"coordinate-less axis cannot share, so it was written as {target!r}. "
+                    "Select on the result under that name.",
+                    stacklevel=2,
+                )
+            result = rg.CreateDimension(target, dim_type or "", None, size)
+        return result
 
     @staticmethod
     def _same_grid(source: NetCDF, arr: np.ndarray, geo: tuple) -> bool:
