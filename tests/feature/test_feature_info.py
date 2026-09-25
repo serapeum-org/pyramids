@@ -10,6 +10,7 @@ feature rows are materialised.
 from __future__ import annotations
 
 import dataclasses
+import zipfile
 from pathlib import Path
 
 import geopandas as gpd
@@ -131,7 +132,7 @@ class TestFeatureCount:
         monkeypatch.setattr(_read.pyogrio, "read_info", _fake_read_info)
         count = FeatureCollection.feature_count("s3://bucket/missing.geojson")
         assert count == 7
-        assert "resolved" in captured, "read_info was never reached"
+        assert captured["resolved"] == "/vsis3/bucket/missing.geojson"
 
 
 class TestFeatureInfo:
@@ -276,8 +277,37 @@ class TestVectorInfo:
         info = FeatureCollection.feature_info(points_geojson)
         assert info.fields == ("id",)
         assert isinstance(info.fields, tuple)
-        assert hash(info) == hash(info)
-        assert {info, info} == {info}
+        twin = FeatureCollection.feature_info(points_geojson)
+        assert hash(info) == hash(twin)
+        cache = {info: "meta"}
+        assert cache[twin] == "meta"
 
     def test_exported_from_feature_package(self):
         assert feature.VectorInfo is VectorInfo
+
+
+class TestArchivePaths:
+    """A ``.zip`` path is rewritten to ``/vsizip/`` via ``_io._parse_path``."""
+
+    @pytest.fixture
+    def zipped_geojson(self, tmp_path: Path) -> Path:
+        gj = tmp_path / "pts.geojson"
+        gpd.GeoDataFrame(
+            {"id": [1, 2]},
+            geometry=[Point(0, 0), Point(1, 1)],
+            crs="EPSG:4326",
+        ).to_file(gj, driver="GeoJSON")
+        zp = tmp_path / "pts.zip"
+        with zipfile.ZipFile(zp, "w") as z:
+            z.write(gj, arcname="pts.geojson")
+        return zp
+
+    def test_feature_count_reads_zip_member(self, zipped_geojson: Path):
+        """``feature_count`` counts the vector inside a bare ``.zip``."""
+        assert FeatureCollection.feature_count(zipped_geojson) == 2
+
+    def test_feature_info_reads_zip_member(self, zipped_geojson: Path):
+        """``feature_info`` inspects the vector inside a bare ``.zip``."""
+        info = FeatureCollection.feature_info(zipped_geojson)
+        assert info.feature_count == 2
+        assert info.driver == "GeoJSON"
