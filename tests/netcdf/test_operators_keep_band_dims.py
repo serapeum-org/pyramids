@@ -1919,26 +1919,35 @@ class TestACoordinatelessDimensionIsWrittenWithoutStamps:
         Test scenario:
             The store's `time` is `[0, 6, 12, 18]` — the very axis the disagreement rejected;
             `set_variable` used to adopt it (or fabricate `[0, 1, 2, 3]`). It now writes a
-            coordinate-less dimension, which reads back as None.
+            coordinate-less dimension, which reads back as None. Because a coordinated `time`
+            already holds the name, the axis is written under `time_4` and the rename is
+            announced (#1201 M2) — this asserts both, not just the values.
         """
         container = _variable([("time", TIMES)])._parent_nc
-        container.set_variable("summed", self._coordinateless_result())
+        with pytest.warns(UserWarning, match="written as 'time_4'"):
+            container.set_variable("summed", self._coordinateless_result())
         values = container.get_variable("summed")._band_dim_values_map
+        assert list(values) == ["time_4"], values
         assert list(values.values()) == [None], values
         assert TIMES not in values.values()
 
     def test_no_fabricated_stamp_reaches_to_file(self, tmp_path):
         """The coordinate-less axis is still None after a `to_file` round trip.
 
+        The write collides with the store's coordinated `time`, so the axis is renamed to
+        `time_4` with a warning (#1201 M2); the round trip must preserve both the name and
+        the None coordinates.
+
         Args:
             tmp_path: pytest's temporary directory.
         """
         container = _variable([("time", TIMES)])._parent_nc
-        container.set_variable("summed", self._coordinateless_result())
+        with pytest.warns(UserWarning, match="written as 'time_4'"):
+            container.set_variable("summed", self._coordinateless_result())
         out = tmp_path / "coordless.nc"
         container.to_file(str(out))
         back = NetCDF.read_file(str(out))
-        assert list(back.get_variable("summed")._band_dim_values_map.values()) == [None]
+        assert back.get_variable("summed")._band_dim_values_map == {"time_4": None}
 
     def test_a_fresh_store_keeps_the_dimension_name(self):
         """With no coordinated `time` to collide with, the axis keeps its name and is None."""
