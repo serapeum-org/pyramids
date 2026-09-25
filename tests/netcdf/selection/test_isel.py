@@ -876,7 +876,7 @@ class TestIselDrop:
         assert "drop" not in result._band_dim_names
 
     def test_drop_keeps_a_pre_existing_length_one_dimension_it_did_not_index(self):
-        """`drop` removes only the axes this call reduced to length one, matching xarray.
+        """`drop` removes only the axis this call collapsed, matching xarray.
 
         A blanket `squeeze()` would also drop a `member=1` axis the selection never touched,
         silently losing an ensemble dimension; xarray's `isel(time=0, drop=True)` keeps it.
@@ -885,6 +885,33 @@ class TestIselDrop:
         assert variable._band_dim_names == ("member", "time")
         dropped = variable.isel(time=0, drop=True)
         assert dropped._band_dim_names == ("member",)
+
+    @pytest.mark.parametrize(
+        "selector",
+        [[0], (0,), slice(0, 1), [2, 2]],
+        ids=["list", "tuple", "slice", "duplicate-list"],
+    )
+    def test_drop_keeps_the_axis_for_a_non_scalar_length_one_selection(
+        self, cube, selector
+    ):
+        """A length-one list/tuple/slice keeps its axis under `drop`, as xarray keeps it.
+
+        Only a scalar index is dimension-reducing; a `list`, `tuple`, or `slice` that happens
+        to keep one band is not, so `drop=True` is a no-op for it (the #1201 M1 divergence).
+
+        Args:
+            cube: The 4x3 band-dim fixture.
+            selector: A non-scalar selector that resolves to a single position.
+        """
+        assert cube.isel(time=selector, drop=True)._band_dim_names == (
+            "time",
+            "pressure_level",
+        )
+
+    def test_drop_collapses_only_the_scalar_axis_of_a_mixed_call(self, cube):
+        """With a scalar and a length-one list together, only the scalar axis is dropped."""
+        result = cube.isel(time=0, pressure_level=[0], drop=True)
+        assert result._band_dim_names == ("pressure_level",)
 
 
 class TestIselRefusesEverySelectorThatKeepsNothing:

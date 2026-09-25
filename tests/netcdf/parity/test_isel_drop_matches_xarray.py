@@ -50,3 +50,16 @@ def test_without_drop_both_keep_the_axis():
     pyr = container.get_variable("temperature").isel(time=0)
     assert "time" in pyr._band_dim_names, pyr._band_dim_names
     assert "time" in da.isel(time=0).coords, list(da.isel(time=0).coords)
+
+
+def test_a_length_one_list_keeps_the_axis_in_both():
+    """A length-one list is not dimension-reducing, so `drop=True` keeps `time` in both.
+
+    Only a scalar index collapses a dimension; `isel(time=[0])` keeps a length-one `time`
+    axis in xarray, and pyramids must not drop it either (#1201 M1).
+    """
+    container, da = _sides()
+    pyr = container.get_variable("temperature").isel(time=[0], drop=True)
+    kept = da.isel(time=[0], drop=True)
+    assert "time" in pyr._band_dim_names, pyr._band_dim_names
+    assert "time" in kept.dims, kept.dims
