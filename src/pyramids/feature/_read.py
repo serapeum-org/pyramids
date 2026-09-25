@@ -181,13 +181,20 @@ def _resolve_vector_path(path: str | Path, caller: str) -> str:
 def feature_count(path: str | Path, *, layer: str | int | None = None) -> int:
     """Count a vector file's features without loading geometry (see FeatureCollection.feature_count)."""
     resolved = _resolve_vector_path(path, "feature_count")
-    return int(pyogrio.read_info(resolved, layer=layer)["features"])
+    # force_feature_count=True: guarantee a real count (never OGR's cheap -1)
+    # for drivers that do not cache one, without building a GeoDataFrame.
+    raw = pyogrio.read_info(resolved, layer=layer, force_feature_count=True)
+    return int(raw["features"])
 
 
 def feature_info(path: str | Path, *, layer: str | int | None = None) -> VectorInfo:
     """Read a vector file's metadata without loading geometry (see FeatureCollection.feature_info)."""
     resolved = _resolve_vector_path(path, "feature_info")
-    raw = pyogrio.read_info(resolved, layer=layer)
+    # force_*=True: compute the count and extent at the OGR/C level for drivers
+    # that cache neither, so the report is complete without materialising rows.
+    raw = pyogrio.read_info(
+        resolved, layer=layer, force_feature_count=True, force_total_bounds=True
+    )
     crs = raw.get("crs")
     epsg = None
     if crs is not None:

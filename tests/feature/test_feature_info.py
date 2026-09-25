@@ -54,6 +54,14 @@ def two_layer_gpkg(tmp_path: Path) -> Path:
     return p
 
 
+@pytest.fixture
+def csv_with_wkt(tmp_path: Path) -> Path:
+    """A CSV whose extent OGR only computes on a forced scan (no cached header)."""
+    p = tmp_path / "pts.csv"
+    p.write_text('id,WKT\n1,"POINT (0 0)"\n2,"POINT (2 2)"\n')
+    return p
+
+
 class TestFeatureCount:
     """``FeatureCollection.feature_count(path)`` returns the layer count."""
 
@@ -104,7 +112,7 @@ class TestFeatureCount:
         """
         captured = {}
 
-        def _fake_read_info(resolved, layer=None):
+        def _fake_read_info(resolved, layer=None, **kwargs):
             captured["resolved"] = resolved
             return {"features": 7}
 
@@ -137,6 +145,20 @@ class TestFeatureInfo:
     def test_count_matches_feature_count(self):
         info = FeatureCollection.feature_info(BASIN)
         assert info.feature_count == FeatureCollection.feature_count(BASIN)
+
+    def test_extent_computed_for_extentless_driver(self, csv_with_wkt: Path):
+        """A driver that caches no extent (CSV) still yields real bounds.
+
+        ``feature_info`` forces the extent, so the metadata is complete
+        regardless of whether the driver caches a bounding box.
+        """
+        info = FeatureCollection.feature_info(csv_with_wkt)
+        assert info.bounds == (0.0, 0.0, 2.0, 2.0)
+        assert info.feature_count == 2
+
+    def test_count_forced_for_extentless_driver(self, csv_with_wkt: Path):
+        """``feature_count`` returns a real count (never OGR's -1) for a CSV."""
+        assert FeatureCollection.feature_count(csv_with_wkt) == 2
 
     def test_layer_selects_the_right_layer(self, two_layer_gpkg: Path):
         rivers = FeatureCollection.feature_info(two_layer_gpkg, layer="rivers")

@@ -1223,20 +1223,24 @@ class FeatureCollection(GeoDataFrame):
     def feature_count(cls, path: str | Path, *, layer: str | int | None = None) -> int:
         """Count a vector file's features without loading its geometry.
 
-        Reads the count straight from the driver header via
-        :func:`pyogrio.read_info` (OGR ``GetFeatureCount``), so a
-        million-row file costs a header read rather than a full load —
-        unlike ``len(FeatureCollection.read_file(path))``, which
-        materialises every row. Routes through
-        :func:`pyramids._io._parse_path`, so the same cloud-URL / archive
-        rewriting that :meth:`read_file` uses applies here too.
+        Reads the layer metadata via :func:`pyogrio.read_info`
+        (OGR ``GetFeatureCount``) and never builds a
+        :class:`~geopandas.GeoDataFrame` of shapely geometries — unlike
+        ``len(FeatureCollection.read_file(path))``, which materialises every
+        row. For header formats (GPKG, shapefile, FlatGeobuf) the count comes
+        from the header; for headerless formats (GeoJSON, CSV) OGR still scans
+        the file, but no geometry objects are created. The count is forced, so
+        it is always the real number and never OGR's cheap ``-1``. Routes
+        through :func:`pyramids._io._parse_path`, so the same cloud-URL /
+        archive rewriting that :meth:`read_file` uses applies here too.
 
         Args:
             path (str | Path):
                 File path, URL, or archive path.
             layer (str | int | None):
                 Layer name or index for multi-layer formats (GPKG, GDB,
-                KML); `None` reads the first layer.
+                KML); `None` reads the first layer and, on a multi-layer
+                file, emits a :class:`UserWarning` from pyogrio.
 
         Returns:
             int: The number of features in the layer.
@@ -1245,6 +1249,8 @@ class FeatureCollection(GeoDataFrame):
             FileNotFoundError: If `path` is a local filesystem path that
                 does not exist. Cloud URLs and `/vsi*` paths skip this
                 check and defer to the underlying driver.
+            pyogrio.errors.DataLayerError: If `layer` names a layer that
+                the file does not contain.
 
         Examples:
             - Count without loading the rows:
@@ -1296,26 +1302,32 @@ class FeatureCollection(GeoDataFrame):
         The vector counterpart to :meth:`pyramids.dataset.Dataset.info`
         for COGs: returns a :class:`~pyramids.feature.VectorInfo` with the
         feature count, geometry type, CRS (EPSG), extent, field names,
-        layer name and driver — all from the driver header via
-        :func:`pyogrio.read_info`, so no feature rows are read. Routes
-        through :func:`pyramids._io._parse_path` for the same cloud-URL /
-        archive rewriting as :meth:`read_file`.
+        layer name and driver — all via :func:`pyogrio.read_info`, so no
+        :class:`~geopandas.GeoDataFrame` of geometries is built. The count
+        and extent are forced, so both are complete even for drivers that
+        cache neither (GeoJSON, CSV); for those OGR scans the file, but no
+        geometry objects are materialised. Routes through
+        :func:`pyramids._io._parse_path` for the same cloud-URL / archive
+        rewriting as :meth:`read_file`.
 
         Args:
             path (str | Path):
                 File path, URL, or archive path.
             layer (str | int | None):
                 Layer name or index for multi-layer formats; `None` reads
-                the first layer.
+                the first layer and, on a multi-layer file, emits a
+                :class:`UserWarning` from pyogrio.
 
         Returns:
-            VectorInfo: The layer's header metadata (see
+            VectorInfo: The layer's metadata (see
             :class:`~pyramids.feature.VectorInfo`).
 
         Raises:
             FileNotFoundError: If `path` is a local filesystem path that
                 does not exist. Cloud URLs and `/vsi*` paths skip this
                 check and defer to the underlying driver.
+            pyogrio.errors.DataLayerError: If `layer` names a layer that
+                the file does not contain.
 
         Examples:
             - Inspect a file without loading it:
