@@ -1925,8 +1925,9 @@ class TestACoordinatelessDimensionIsWrittenWithoutStamps:
             announced (#1201 M2) — this asserts both, not just the values.
         """
         container = _variable([("time", TIMES)])._parent_nc
+        result = self._coordinateless_result()
         with pytest.warns(UserWarning, match="written as 'time_4'"):
-            container.set_variable("summed", self._coordinateless_result())
+            container.set_variable("summed", result)
         values = container.get_variable("summed")._band_dim_values_map
         assert list(values) == ["time_4"], values
         assert list(values.values()) == [None], values
@@ -1943,8 +1944,9 @@ class TestACoordinatelessDimensionIsWrittenWithoutStamps:
             tmp_path: pytest's temporary directory.
         """
         container = _variable([("time", TIMES)])._parent_nc
+        result = self._coordinateless_result()
         with pytest.warns(UserWarning, match="written as 'time_4'"):
-            container.set_variable("summed", self._coordinateless_result())
+            container.set_variable("summed", result)
         out = tmp_path / "coordless.nc"
         container.to_file(str(out))
         back = NetCDF.read_file(str(out))
