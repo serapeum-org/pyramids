@@ -105,7 +105,7 @@ class VectorInfo:
         crs_epsg: EPSG code of the layer CRS, or ``None`` when undefined or unresolvable.
         bounds: ``(min_x, min_y, max_x, max_y)`` extent in the layer CRS, or ``None`` when
             the driver does not report one.
-        fields: Attribute field names, geometry column excluded.
+        fields: Attribute field names (geometry column excluded), as a tuple.
         layer: Name of the layer described.
         driver: OGR driver short name (e.g. ``"GeoJSON"``), or ``None``.
 
@@ -118,7 +118,7 @@ class VectorInfo:
             ...     geometry_type="Polygon",
             ...     crs_epsg=4326,
             ...     bounds=(0.0, 0.0, 10.0, 10.0),
-            ...     fields=["id", "name"],
+            ...     fields=("id", "name"),
             ...     layer="regions",
             ...     driver="GPKG",
             ... )
@@ -127,10 +127,10 @@ class VectorInfo:
             >>> info.crs_epsg
             4326
             >>> info.fields
-            ['id', 'name']
+            ('id', 'name')
 
             ```
-        - The report is immutable, so it is safe to cache and pass around:
+        - Every field is immutable, so the report is hashable and safe to cache:
             ```python
             >>> from pyramids.feature import VectorInfo
             >>> info = VectorInfo(
@@ -138,13 +138,13 @@ class VectorInfo:
             ...     geometry_type="Point",
             ...     crs_epsg=None,
             ...     bounds=None,
-            ...     fields=[],
+            ...     fields=(),
             ...     layer="pts",
             ...     driver="GeoJSON",
             ... )
-            >>> info.crs_epsg is None
-            True
             >>> info.bounds is None
+            True
+            >>> info in {info}
             True
 
             ```
@@ -154,7 +154,7 @@ class VectorInfo:
     geometry_type: str | None
     crs_epsg: int | None
     bounds: tuple[float, float, float, float] | None
-    fields: list[str]
+    fields: tuple[str, ...]
     layer: str
     driver: str | None
 
@@ -212,7 +212,7 @@ def feature_info(path: str | Path, *, layer: str | int | None = None) -> VectorI
         geometry_type=raw.get("geometry_type"),
         crs_epsg=epsg,
         bounds=bounds,
-        fields=[str(name) for name in raw.get("fields", [])],
+        fields=tuple(str(name) for name in raw.get("fields", [])),
         layer=str(raw.get("layer_name", "")),
         driver=raw.get("driver"),
     )

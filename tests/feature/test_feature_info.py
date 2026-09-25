@@ -135,7 +135,7 @@ class TestFeatureInfo:
         assert info.feature_count == 3
         assert info.geometry_type == "Point"
         assert info.crs_epsg == 4326
-        assert info.fields == ["id"]
+        assert info.fields == ("id",)
         assert info.driver == "GeoJSON"
 
     def test_bounds_match_geometry(self, points_geojson: Path):
@@ -234,6 +234,18 @@ class TestVectorInfo:
         info = FeatureCollection.feature_info(points_geojson)
         with pytest.raises(dataclasses.FrozenInstanceError):
             info.feature_count = 99  # type: ignore[misc]
+
+    def test_is_hashable_with_tuple_fields(self, points_geojson: Path):
+        """``fields`` is an immutable tuple, so the report is hashable.
+
+        A ``list`` field would leave the frozen dataclass mutable-in-place
+        and unhashable, breaking the "safe to cache" contract.
+        """
+        info = FeatureCollection.feature_info(points_geojson)
+        assert info.fields == ("id",)
+        assert isinstance(info.fields, tuple)
+        assert hash(info) == hash(info)
+        assert {info, info} == {info}
 
     def test_exported_from_feature_package(self):
         from pyramids import feature

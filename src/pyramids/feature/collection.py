@@ -1353,7 +1353,7 @@ class FeatureCollection(GeoDataFrame):
                 >>> info.crs_epsg
                 4326
                 >>> info.fields
-                ['id']
+                ('id',)
 
                 ```
             - Inspect the extent and driver without loading the rows:
