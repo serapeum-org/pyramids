@@ -728,7 +728,7 @@ class Selection(_Engine["NetCDF"]):
         result._curvilinear_coords = (lon_win, lat_win)
         return result
 
-    def isel(self, **indexers: Any) -> NetCDF:
+    def isel(self, *, drop: bool = False, **indexers: Any) -> NetCDF:
         """Select bands by **position** along one or more band dimensions.
 
         The positional twin of :meth:`sel`. Where `sel` asks "which band has this
@@ -741,6 +741,12 @@ class Selection(_Engine["NetCDF"]):
         because each cut is independent of the others the order does not affect the result.
 
         Args:
+            drop: When `True`, drop the length-one band dimensions the selection leaves
+                behind — `isel(time=0, drop=True)` returns the plane without a length-one
+                `time`, matching xarray's `isel(..., drop=True)`. Keyword-only, so it is
+                never read as a dimension name; `drop=False` (the default) keeps every
+                axis, as before. Implemented as :meth:`squeeze` on the result, so it drops
+                *every* length-one band dimension, not only the ones just indexed.
             **indexers: One or more `dimension=selector` pairs. Each selector is an index,
                 a `list` or `tuple` of indices, or a `slice` of them. "Index" means
                 anything `operator.index()` accepts, so a numpy integer counts and needs no
@@ -751,6 +757,7 @@ class Selection(_Engine["NetCDF"]):
         Returns:
             NetCDF: A variable holding the selected bands, with `_band_dim_sizes` and the
             coordinate map narrowed to match. A dimension with no coordinates keeps none.
+            With `drop=True`, the length-one band dimensions are removed.
 
         Raises:
             ValueError: No indexers were given, the variable tracks no band dimensions, a
@@ -796,6 +803,19 @@ class Selection(_Engine["NetCDF"]):
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
               >>> nc["temperature"].isel(time=-1)._band_dim_values_map["time"]
               [18.0]
+
+              ```
+            - `drop=True` removes the length-one `time` the selection leaves behind,
+              instead of carrying it through `to_file` / `to_xarray`:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> cube = nc["temperature"]
+              >>> cube.isel(time=0)._band_dim_names
+              ('time', 'pressure_level')
+              >>> cube.isel(time=0, drop=True)._band_dim_names
+              ('pressure_level',)
 
               ```
             - The case `sel` cannot serve — a WRF `bottom_top` axis the store gives no
@@ -869,7 +889,7 @@ class Selection(_Engine["NetCDF"]):
         result = nc
         for dim_name, dim_indices in resolved:
             result = _subset_along_dim(result, dim_name, dim_indices)
-        return result
+        return result.squeeze() if drop else result
 
     def sel(
         self,

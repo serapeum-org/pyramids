@@ -815,6 +815,48 @@ class TestIselFacade:
         )
 
 
+class TestIselDrop:
+    """`isel(drop=True)` removes the length-one axis a point selection leaves (#1193)."""
+
+    def test_drop_removes_the_selected_length_one_dimension(self, cube):
+        """`isel(time=0, drop=True)` returns the plane without a length-one `time`."""
+        assert cube.isel(time=0)._band_dim_names == ("time", "pressure_level")
+        assert cube.isel(time=0, drop=True)._band_dim_names == ("pressure_level",)
+
+    def test_the_cells_are_unchanged_by_drop(self, cube):
+        """`drop=` changes only the metadata; the values are the same as without it."""
+        assert_array_equal(
+            cube.isel(time=0, drop=True).read_array(),
+            cube.isel(time=0).read_array(),
+        )
+
+    def test_the_axis_stays_by_default(self, cube):
+        """`drop` defaults to `False`, so the length-one axis is kept as before."""
+        assert cube.isel(time=0)._band_dim_names == ("time", "pressure_level")
+        assert cube.isel(time=0)._band_dim_values_map["time"] == [0.0]
+
+    def test_drop_is_a_no_op_when_no_axis_is_length_one(self, cube):
+        """A selection that keeps several bands has nothing to drop, so drop changes nothing."""
+        assert cube.isel(time=slice(0, 2), drop=True)._band_dim_names == (
+            "time",
+            "pressure_level",
+        )
+
+    def test_two_scalar_selections_drop_to_a_single_plane(self, cube):
+        """Indexing both band dimensions to length one, `drop=True` leaves no band axis."""
+        assert cube.isel(time=1, pressure_level=2, drop=True)._band_dim_names == ()
+
+    def test_drop_still_needs_a_selection(self, cube):
+        """`drop=` is not itself a selector, so `isel(drop=True)` alone is refused by name."""
+        with pytest.raises(ValueError, match="requires at least one keyword argument"):
+            cube.isel(drop=True)
+
+    def test_drop_is_keyword_only_not_a_dimension(self, cube):
+        """`drop` is read as the flag, never as a band dimension (the #1193 defect)."""
+        result = cube.isel(time=0, drop=True)
+        assert "drop" not in result._band_dim_names
+
+
 class TestIselRefusesEverySelectorThatKeepsNothing:
     """An empty selection must be refused wherever it comes from, not just from a slice."""
 

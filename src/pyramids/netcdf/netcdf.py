@@ -8836,16 +8836,18 @@ class NetCDF(Dataset):
             result = self._preserve_netcdf_metadata(result)._persist_to(path)
         return cast("NetCDF", result)
 
-    def isel(self, **indexers: Any) -> NetCDF:
+    def isel(self, *, drop: bool = False, **indexers: Any) -> NetCDF:
         """Facade — :meth:`Selection.isel <pyramids.netcdf.engines.selection.Selection.isel>`.
 
         Args:
+            drop: When `True`, drop the length-one band dimensions the selection leaves
+                behind (via :meth:`squeeze`); see the engine method.
             **indexers: `dimension=selector` pairs; see the engine method.
 
         Returns:
             NetCDF: The variable holding the selected bands.
         """
-        return self.selection.isel(**indexers)
+        return self.selection.isel(drop=drop, **indexers)
 
     def sel(
         self,
