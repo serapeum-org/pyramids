@@ -103,6 +103,25 @@ def _one_band_dim_variable():
     return container.get_variable("temp")
 
 
+def _member_time_variable():
+    """A `(member=1, time=3)` variable — a pre-existing length-one band dim beside a longer one.
+
+    The `member` axis is length one before any selection, so it is the case that tells a
+    scoped drop (drop only the just-indexed axes) apart from a blanket `squeeze()` (#1193).
+
+    Returns:
+        NetCDF: The `ens` variable with band dims `(member, time)` sized `(1, 3)`.
+    """
+    array = np.arange(1 * 3 * NY * NX, dtype=np.float64).reshape(1, 3, NY, NX)
+    container = NetCDF.from_array(
+        arr=array,
+        geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, float(NY), 0.0, -1.0)),
+        variable_name="ens",
+        dims=ExtraDimensions(dims=[("member", [0.0]), ("time", [0.0, 6.0, 12.0])]),
+    )
+    return container.get_variable("ens")
+
+
 @pytest.fixture(scope="module")
 def cube():
     """The synthetic 4-D ``temperature`` variable, with band dims ``(time, pressure_level)``."""
@@ -855,6 +874,17 @@ class TestIselDrop:
         """`drop` is read as the flag, never as a band dimension (the #1193 defect)."""
         result = cube.isel(time=0, drop=True)
         assert "drop" not in result._band_dim_names
+
+    def test_drop_keeps_a_pre_existing_length_one_dimension_it_did_not_index(self):
+        """`drop` removes only the axes this call reduced to length one, matching xarray.
+
+        A blanket `squeeze()` would also drop a `member=1` axis the selection never touched,
+        silently losing an ensemble dimension; xarray's `isel(time=0, drop=True)` keeps it.
+        """
+        variable = _member_time_variable()
+        assert variable._band_dim_names == ("member", "time")
+        dropped = variable.isel(time=0, drop=True)
+        assert dropped._band_dim_names == ("member",)
 
 
 class TestIselRefusesEverySelectorThatKeepsNothing:

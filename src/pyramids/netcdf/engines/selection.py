@@ -741,12 +741,13 @@ class Selection(_Engine["NetCDF"]):
         because each cut is independent of the others the order does not affect the result.
 
         Args:
-            drop: When `True`, drop the length-one band dimensions the selection leaves
-                behind — `isel(time=0, drop=True)` returns the plane without a length-one
-                `time`, matching xarray's `isel(..., drop=True)`. Keyword-only, so it is
-                never read as a dimension name; `drop=False` (the default) keeps every
-                axis, as before. Implemented as :meth:`squeeze` on the result, so it drops
-                *every* length-one band dimension, not only the ones just indexed.
+            drop: When `True`, drop the axes *this call* reduced to length one —
+                `isel(time=0, drop=True)` returns the plane without a length-one `time`,
+                matching xarray's `isel(..., drop=True)`. Only the just-indexed axes are
+                dropped: a pre-existing length-one band dimension the selection never
+                touched (an ensemble `member=1`, say) is kept, as xarray keeps it.
+                Keyword-only, so it is never read as a dimension name; `drop=False` (the
+                default) keeps every axis, as before.
             **indexers: One or more `dimension=selector` pairs. Each selector is an index,
                 a `list` or `tuple` of indices, or a `slice` of them. "Index" means
                 anything `operator.index()` accepts, so a numpy integer counts and needs no
@@ -889,7 +890,15 @@ class Selection(_Engine["NetCDF"]):
         result = nc
         for dim_name, dim_indices in resolved:
             result = _subset_along_dim(result, dim_name, dim_indices)
-        return result.squeeze() if drop else result
+        if drop:
+            # Drop only the axes *this call* reduced to length one, not every length-one
+            # band dim — a blanket `squeeze()` would also lose a pre-existing `member=1`
+            # axis the selection never touched, diverging from xarray (#1193). Squeeze by
+            # name so order is irrelevant and a pre-existing length-one axis is left alone.
+            for dim_name, dim_indices in resolved:
+                if len(dim_indices) == 1 and dim_name in result._band_dim_names:
+                    result = result.squeeze(dim_name)
+        return result
 
     def sel(
         self,
