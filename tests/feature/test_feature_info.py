@@ -15,9 +15,10 @@ from pathlib import Path
 import geopandas as gpd
 import pyogrio
 import pytest
+from pyproj.exceptions import CRSError
 from shapely.geometry import Point, box
 
-from pyramids.feature import FeatureCollection, VectorInfo
+from pyramids.feature import FeatureCollection, VectorInfo, _read
 
 pytestmark = pytest.mark.core
 
@@ -94,6 +95,25 @@ class TestFeatureCount:
         with pytest.raises(FileNotFoundError, match=str(missing.name)):
             FeatureCollection.feature_count(missing)
 
+    def test_remote_path_skips_local_existence_check(self, monkeypatch):
+        """A remote URL must not be probed for local existence.
+
+        ``is_remote`` short-circuits the ``Path.exists`` check, so a cloud URL
+        is handed straight to the driver rather than raising
+        ``FileNotFoundError``.
+        """
+        captured = {}
+
+        def _fake_read_info(resolved, layer=None):
+            captured["resolved"] = resolved
+            return {"features": 7}
+
+        monkeypatch.setattr(_read, "is_remote", lambda _p: True)
+        monkeypatch.setattr(_read.pyogrio, "read_info", _fake_read_info)
+        count = FeatureCollection.feature_count("s3://bucket/missing.geojson")
+        assert count == 7
+        assert "resolved" in captured, "read_info was never reached"
+
 
 class TestFeatureInfo:
     """``FeatureCollection.feature_info(path)`` returns a ``VectorInfo``."""
@@ -136,6 +156,40 @@ class TestFeatureInfo:
         gpd.GeoDataFrame({"id": [1]}, geometry=[Point(0, 0)], crs=None).to_file(p)
         info = FeatureCollection.feature_info(p)
         assert info.crs_epsg is None
+
+    def test_crs_epsg_none_when_unresolvable(self, points_geojson: Path, monkeypatch):
+        """An unparseable CRS yields ``crs_epsg=None`` instead of propagating.
+
+        When ``pyproj`` cannot interpret the driver's CRS string it raises
+        ``CRSError``; ``feature_info`` swallows it and reports ``None``.
+        """
+
+        def _raise(*_args, **_kwargs):
+            raise CRSError("unparseable")
+
+        monkeypatch.setattr(_read.pyproj.CRS, "from_user_input", _raise)
+        info = FeatureCollection.feature_info(points_geojson)
+        assert info.crs_epsg is None
+
+    def test_bounds_none_when_driver_reports_none(
+        self, points_geojson: Path, monkeypatch
+    ):
+        """A driver that reports no extent yields ``bounds=None``.
+
+        Empty layers report ``total_bounds=None``; ``feature_info`` must pass
+        that through rather than crashing on the unpack.
+        """
+        real_read_info = _read.pyogrio.read_info
+
+        def _no_bounds(*args, **kwargs):
+            raw = dict(real_read_info(*args, **kwargs))
+            raw["total_bounds"] = None
+            return raw
+
+        monkeypatch.setattr(_read.pyogrio, "read_info", _no_bounds)
+        info = FeatureCollection.feature_info(points_geojson)
+        assert info.bounds is None
+        assert info.feature_count == 3
 
     def test_does_not_load_geometry(self, points_geojson: Path, monkeypatch):
         def _boom(*args, **kwargs):
