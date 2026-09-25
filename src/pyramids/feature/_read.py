@@ -33,6 +33,7 @@ import urllib.request
 import warnings
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -87,6 +88,87 @@ def list_layers(path: str | Path) -> list[str]:
 def list_layers_cache_clear() -> None:
     """Clear the LRU cache backing :func:`list_layers`."""
     _list_layers_cached.cache_clear()
+
+
+@dataclass(frozen=True)
+class VectorInfo:
+    """Metadata describing a vector file, read without loading its geometry.
+
+    The vector counterpart to :class:`pyramids.dataset.cog.inspect.COGInfo`: every field
+    comes from the driver's header via :func:`pyogrio.read_info`, so no feature rows are
+    materialised (see :meth:`FeatureCollection.feature_info`).
+
+    Attributes:
+        feature_count: Number of features in the layer (OGR ``GetFeatureCount``).
+        geometry_type: OGR geometry-type name (e.g. ``"MultiPolygon"``), or ``None`` when
+            the layer declares none.
+        crs_epsg: EPSG code of the layer CRS, or ``None`` when undefined or unresolvable.
+        bounds: ``(min_x, min_y, max_x, max_y)`` extent in the layer CRS, or ``None`` when
+            the driver does not report one.
+        fields: Attribute field names, geometry column excluded.
+        layer: Name of the layer described.
+        driver: OGR driver short name (e.g. ``"GeoJSON"``), or ``None``.
+    """
+
+    feature_count: int
+    geometry_type: str | None
+    crs_epsg: int | None
+    bounds: tuple[float, float, float, float] | None
+    fields: list[str]
+    layer: str
+    driver: str | None
+
+
+def _resolve_vector_path(path: str | Path, caller: str) -> str:
+    """Validate a local path exists and rewrite it to its VSI/URL form for the OGR readers.
+
+    Args:
+        path: File path, URL, or archive path.
+        caller: Name used in the `FileNotFoundError` message.
+
+    Returns:
+        str: The resolved path (`_parse_path` output) to hand to pyogrio.
+
+    Raises:
+        FileNotFoundError: `path` is a local filesystem path that does not exist.
+    """
+    path_str = str(path)
+    if not is_remote(path_str) and not Path(path_str).exists():
+        raise FileNotFoundError(f"{caller}: no file at {path_str!r}.")
+    return str(_pyramids_io._parse_path(path))
+
+
+def feature_count(path: str | Path, *, layer: str | int | None = None) -> int:
+    """Count a vector file's features without loading geometry (see FeatureCollection.feature_count)."""
+    resolved = _resolve_vector_path(path, "feature_count")
+    return int(pyogrio.read_info(resolved, layer=layer)["features"])
+
+
+def feature_info(path: str | Path, *, layer: str | int | None = None) -> VectorInfo:
+    """Read a vector file's metadata without loading geometry (see FeatureCollection.feature_info)."""
+    resolved = _resolve_vector_path(path, "feature_info")
+    raw = pyogrio.read_info(resolved, layer=layer)
+    crs = raw.get("crs")
+    epsg = None
+    if crs is not None:
+        try:
+            epsg = pyproj.CRS.from_user_input(crs).to_epsg()
+        except _PyprojCRSError:
+            epsg = None
+    raw_bounds = raw.get("total_bounds")
+    bounds: tuple[float, float, float, float] | None = None
+    if raw_bounds is not None:
+        minx, miny, maxx, maxy = raw_bounds
+        bounds = (float(minx), float(miny), float(maxx), float(maxy))
+    return VectorInfo(
+        feature_count=int(raw["features"]),
+        geometry_type=raw.get("geometry_type"),
+        crs_epsg=epsg,
+        bounds=bounds,
+        fields=[str(name) for name in raw.get("fields", [])],
+        layer=str(raw.get("layer_name", "")),
+        driver=raw.get("driver"),
+    )
 
 
 def read_gpx_layers(
