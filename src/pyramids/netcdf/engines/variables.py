@@ -839,22 +839,21 @@ def _create_multi_band_dims(
     known = {dimension.GetName() for dimension in rg.GetDimensions() or []}
     for i, dim_name in enumerate(names):
         values = values_map.get(dim_name)
-        labelled = values is not None
+        dim_type = gdal.DIM_TYPE_TEMPORAL if i == 0 else None
         if values is None:
-            values = list(range(int(sizes[i])))
+            # No coordinates for this axis (T20 disagreement): write it with no indexing
+            # variable so it reads back `None`, not a fabricated `range(size)` (#1192).
+            band_dims.append(
+                nc._coordinateless_dimension(rg, dim_name, int(sizes[i]), dim_type)
+            )
+            continue
         # `np.asarray`, not `dtype=np.float64`: a text axis stays text so it can be stored
         # as strings, where the float cast raised on WRF's `Time` stamps (#1181).
         values = np.asarray(values)
         created = nc._get_or_create_dimension(
-            rg,
-            dim_name,
-            values,
-            _coordinate_dtype(values, coord_dtype),
-            gdal.DIM_TYPE_TEMPORAL if i == 0 else None,
+            rg, dim_name, values, _coordinate_dtype(values, coord_dtype), dim_type
         )
-        _carry_band_dim_attrs(
-            rg, dim_name, created, labelled, dim_name in known, dim_attrs
-        )
+        _carry_band_dim_attrs(rg, dim_name, created, True, dim_name in known, dim_attrs)
         band_dims.append(created)
     return band_dims
 
@@ -892,24 +891,29 @@ def _build_variable_mdarray(
     elif arr.ndim == 3:
         if band_dim_name is None:
             band_dim_name = "bands"
-        labelled = band_dim_values is not None
         if band_dim_values is None:
-            band_dim_values = list(range(arr.shape[0]))
-        preexisting = band_dim_name in {
-            dimension.GetName() for dimension in rg.GetDimensions() or []
-        }
-        # `np.asarray`, not `dtype=np.float64`: a text axis stays text (#1181).
-        band_values = np.asarray(band_dim_values)
-        dim_band = nc._get_or_create_dimension(
-            rg,
-            band_dim_name,
-            band_values,
-            _coordinate_dtype(band_values, coord_dtype),
-            gdal.DIM_TYPE_TEMPORAL,
-        )
-        _carry_band_dim_attrs(
-            rg, band_dim_name, dim_band, labelled, preexisting, dim_attrs
-        )
+            # The source axis has no coordinates (T20 disagreement); write the dimension
+            # with no indexing variable so it reads back `None`, rather than fabricating
+            # `range(size)` or adopting the store's own stamps (#1192).
+            dim_band = nc._coordinateless_dimension(
+                rg, band_dim_name, arr.shape[0], gdal.DIM_TYPE_TEMPORAL
+            )
+        else:
+            preexisting = band_dim_name in {
+                dimension.GetName() for dimension in rg.GetDimensions() or []
+            }
+            # `np.asarray`, not `dtype=np.float64`: a text axis stays text (#1181).
+            band_values = np.asarray(band_dim_values)
+            dim_band = nc._get_or_create_dimension(
+                rg,
+                band_dim_name,
+                band_values,
+                _coordinate_dtype(band_values, coord_dtype),
+                gdal.DIM_TYPE_TEMPORAL,
+            )
+            _carry_band_dim_attrs(
+                rg, band_dim_name, dim_band, True, preexisting, dim_attrs
+            )
         md_arr = rg.CreateMDArray(variable_name, [dim_band, dim_y, dim_x], data_dtype)
     else:
         md_arr = rg.CreateMDArray(variable_name, [dim_y, dim_x], data_dtype)

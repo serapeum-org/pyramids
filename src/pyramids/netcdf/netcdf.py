@@ -12893,6 +12893,51 @@ class NetCDF(Dataset):
         )
 
     @staticmethod
+    def _coordinateless_dimension(
+        rg: gdal.Group, dim_name: str, size: int, dim_type=None
+    ) -> gdal.Dimension:
+        """A band dimension with **no** indexing variable, for a coordinate-less axis.
+
+        When an operator's operands disagree about their stamps, T20 keeps the dimension
+        but no coordinates (`_band_dim_values_map[dim] is None`) — neither operand's stamps
+        describe the result. Writing that axis must not invent any: not the store's own
+        `time` (that is the axis the disagreement rejected), and not the positional
+        `[0, 1, 2, …]` a `range(size)` fallback would fabricate. netCDF allows a dimension
+        with no coordinate variable — a WRF `bottom_top` is one — and `_read_band_dim_values`
+        reads that shape back as `None`, so the round trip preserves "no coordinates" (#1192).
+
+        An existing coordinate-less dimension of the same name and size is reused, so
+        rewriting the same variable does not accumulate siblings. A name already taken by a
+        *coordinated* dimension cannot be reused — one netCDF dimension cannot be both — so a
+        suffixed name is created instead.
+
+        Args:
+            rg: The root group.
+            dim_name: The band dimension's name.
+            size: Its length.
+            dim_type: The GDAL dimension type (e.g. `gdal.DIM_TYPE_TEMPORAL`), or `None`.
+
+        Returns:
+            gdal.Dimension: The reused or newly created coordinate-less dimension.
+        """
+        existing = {
+            dimension.GetName(): dimension for dimension in rg.GetDimensions() or []
+        }
+        match = existing.get(dim_name)
+        if (
+            match is not None
+            and match.GetSize() == size
+            and match.GetIndexingVariable() is None
+        ):
+            return match
+        target = (
+            dim_name
+            if match is None
+            else NetCDF._unused_dimension_name(existing, dim_name, size)
+        )
+        return rg.CreateDimension(target, dim_type or "", None, size)
+
+    @staticmethod
     def _same_grid(source: NetCDF, arr: np.ndarray, geo: tuple) -> bool:
         """Whether a rebuilt array still sits on `source`'s grid.
 

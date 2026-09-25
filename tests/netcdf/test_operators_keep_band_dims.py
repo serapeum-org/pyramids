@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
+from osgeo import gdal
 
 from pyramids.base._errors import AlignmentError
 from pyramids.dataset import Dataset
@@ -1891,3 +1892,104 @@ class TestCopyBandValuesMap:
         copied = copy_band_values_map(original)
         assert copied == {}, copied
         assert copied is not original, "the copy should be a new map"
+
+
+class TestACoordinatelessDimensionIsWrittenWithoutStamps:
+    """T20's coordinate-less axis survives `set_variable` and `to_file` as None (#1192)."""
+
+    @staticmethod
+    def _coordinateless_result() -> NetCDF:
+        """A variable whose `time` has no coordinates, from two operands that disagree.
+
+        Returns:
+            NetCDF: `left + right`, whose `time` stamps are `None` (T20).
+        """
+        result = _variable([("time", TIMES)]) + _variable(
+            [("time", [1.0, 7.0, 13.0, 19.0])]
+        )
+        assert result._band_dim_values_map["time"] is None, (
+            "precondition: T20 drops coords"
+        )
+        return result
+
+    def test_set_variable_reads_back_none_not_the_container_stamps(self):
+        """A None-coord result written into a store keeps None, not the store's `time`.
+
+        Test scenario:
+            The store's `time` is `[0, 6, 12, 18]` — the very axis the disagreement rejected;
+            `set_variable` used to adopt it (or fabricate `[0, 1, 2, 3]`). It now writes a
+            coordinate-less dimension, which reads back as None.
+        """
+        container = _variable([("time", TIMES)])._parent_nc
+        container.set_variable("summed", self._coordinateless_result())
+        values = container.get_variable("summed")._band_dim_values_map
+        assert list(values.values()) == [None], values
+        assert TIMES not in values.values()
+
+    def test_no_fabricated_stamp_reaches_to_file(self, tmp_path):
+        """The coordinate-less axis is still None after a `to_file` round trip.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        container = _variable([("time", TIMES)])._parent_nc
+        container.set_variable("summed", self._coordinateless_result())
+        out = tmp_path / "coordless.nc"
+        container.to_file(str(out))
+        back = NetCDF.read_file(str(out))
+        assert list(back.get_variable("summed")._band_dim_values_map.values()) == [None]
+
+    def test_a_fresh_store_keeps_the_dimension_name(self):
+        """With no coordinated `time` to collide with, the axis keeps its name and is None."""
+        fresh = NetCDF.from_array(
+            np.zeros((1, NY, NX)),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="seed",
+            dims=ExtraDimensions(name="band", values=[0.0]),
+        )
+        fresh.set_variable("summed", self._coordinateless_result())
+        assert fresh.get_variable("summed")._band_dim_values_map == {"time": None}
+
+    def test_a_coordinated_variable_still_round_trips_its_stamps(self):
+        """A variable that does carry coordinates is unaffected — no regression."""
+        container = _variable([("time", TIMES)])._parent_nc
+        container.set_variable("normal", _variable([("time", TIMES)]))
+        assert container.get_variable("normal")._band_dim_values_map == {"time": TIMES}
+
+
+class TestCoordinatelessDimensionHelper:
+    """`NetCDF._coordinateless_dimension` creates/reuses a dimension with no coordinates."""
+
+    @staticmethod
+    def _group():
+        """A fresh in-memory root group.
+
+        Returns:
+            The MEM multidimensional root group.
+        """
+        return gdal.GetDriverByName("MEM").CreateMultiDimensional("m").GetRootGroup()
+
+    def test_creates_a_dimension_with_no_indexing_variable(self):
+        """The created dimension has the right size and carries no coordinate array."""
+        dim = NetCDF._coordinateless_dimension(
+            self._group(), "time", 4, gdal.DIM_TYPE_TEMPORAL
+        )
+        assert dim.GetSize() == 4
+        assert dim.GetIndexingVariable() is None
+
+    def test_reuses_an_existing_coordinateless_dimension(self):
+        """Writing the same axis twice reuses the one dimension, not a suffixed sibling."""
+        rg = self._group()
+        first = NetCDF._coordinateless_dimension(rg, "time", 4, gdal.DIM_TYPE_TEMPORAL)
+        second = NetCDF._coordinateless_dimension(rg, "time", 4, gdal.DIM_TYPE_TEMPORAL)
+        assert second.GetName() == first.GetName() == "time"
+        assert len(rg.GetDimensions()) == 1
+
+    def test_suffixes_when_the_name_is_a_coordinated_dimension(self):
+        """A name owned by a coordinated dimension cannot be reused, so a sibling is made."""
+        rg = self._group()
+        f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+        NetCDF.create_main_dimension(rg, "time", f64, np.array([0.0, 6.0, 12.0, 18.0]))
+        dim = NetCDF._coordinateless_dimension(rg, "time", 4, gdal.DIM_TYPE_TEMPORAL)
+        assert dim.GetName() != "time", dim.GetName()
+        assert dim.GetIndexingVariable() is None
