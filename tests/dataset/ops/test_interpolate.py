@@ -362,13 +362,16 @@ class TestDatasetFromPointArrays:
         )
         assert ds.epsg == 4326, f"Expected EPSG 4326, got {ds.epsg}"
 
-    def test_matches_from_points(self):
-        """The array entry grids identically to from_points on the same points.
+    def test_agrees_with_from_points_entry(self):
+        """The two public entries stay in agreement (both delegate to the core).
 
         Test scenario:
-            Building a FeatureCollection and gridding via Dataset.from_points must
-            yield the same raster, pixel for pixel, as passing the raw arrays to
-            Dataset.from_point_arrays.
+            After the refactor Dataset.from_points (point layer) and
+            Dataset.from_point_arrays both funnel through grid_arrays, so this is a
+            contract test that the two entries keep producing the same raster for
+            the same points -- a guard against one entry drifting -- not an
+            independent-implementation comparison (that guard is
+            test_fast_path_matches_geojson_reference, which grids via GeoJSON).
         """
         x = [0.0, 10.0, 0.0, 10.0]
         y = [0.0, 0.0, 10.0, 10.0]
