@@ -12686,8 +12686,9 @@ class NetCDF(Dataset):
         Raises:
             ValueError: `df` is not indexed by a `MultiIndex` of at least two named levels;
                 a named `x` / `y` level is missing or the two coincide; there are no value
-                columns or a requested one is absent; the index has duplicate rows; or an
-                `x` / `y` axis is irregular or has fewer than two coordinates.
+                columns or a requested one is absent; two selected columns stringify to the
+                same variable name; the index has duplicate rows; or an `x` / `y` axis is
+                irregular or has fewer than two coordinates.
 
         Examples:
             - Round-trip a two-step cube through pandas and back:
