@@ -439,6 +439,28 @@ class TestDatasetFromPointArrays:
                 [0.0, 1.0], [0.0, 1.0], [1.0, 2.0, 3.0], cell_size=1.0
             )
 
+    def test_negative_cell_size_raises(self):
+        """A negative cell_size is rejected, not clamped to a 1x1 raster.
+
+        Test scenario:
+            Before the guard, max(1, round(negative)) silently produced a 1x1 grid.
+        """
+        with pytest.raises(ValueError, match="cell_size must be positive"):
+            Dataset.from_point_arrays(
+                [0.0, 10.0], [0.0, 10.0], [1.0, 2.0], cell_size=-1.0
+            )
+
+    def test_zero_cell_size_raises_valueerror(self):
+        """A zero cell_size raises ValueError, not a bare ZeroDivisionError.
+
+        Test scenario:
+            The documented exception type is ValueError; 0.0 used to divide by zero.
+        """
+        with pytest.raises(ValueError, match="cell_size must be positive"):
+            Dataset.from_point_arrays(
+                [0.0, 10.0], [0.0, 10.0], [1.0, 2.0], cell_size=0.0
+            )
+
     def test_no_sizing_raises(self):
         """Omitting both cell_size and width/height raises ValueError.
 

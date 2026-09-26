@@ -122,8 +122,8 @@ def _resolve_size(
         tuple[int, int]: The ``(width, height)`` to request, each at least 1 pixel.
 
     Raises:
-        ValueError: The bounds are empty/degenerate, or neither ``cell_size`` nor
-            both of ``width`` / ``height`` were given.
+        ValueError: The bounds are empty/degenerate, neither ``cell_size`` nor both
+            of ``width`` / ``height`` were given, or ``cell_size`` is not positive.
     """
     if maxx <= minx or maxy <= miny:
         raise ValueError(
@@ -135,6 +135,11 @@ def _resolve_size(
             raise ValueError(
                 "gridding requires either cell_size or both width and height."
             )
+        # A non-positive cell_size otherwise slips through: a negative one clamps to
+        # a 1x1 raster via max(1, round(negative)) with no error, and zero raises a
+        # bare ZeroDivisionError rather than the documented ValueError.
+        if cell_size <= 0:
+            raise ValueError(f"cell_size must be positive, got {cell_size}.")
         width = max(1, round((maxx - minx) / cell_size))
         height = max(1, round((maxy - miny) / cell_size))
     return int(width), int(height)
