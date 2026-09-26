@@ -38,15 +38,16 @@ def _grid_from_arrays(
     ``gdal.Grid`` needs an OGR-readable source, not a NumPy array. Serialising the
     points to GeoJSON through a :class:`~geopandas.GeoDataFrame` — the path
     :func:`grid_points` falls back to for a non-point layer — pays for a shapely
-    geometry per point and a verbose text encoding, which is unusable above roughly
-    ``10**6`` points. Writing the three arrays to an in-memory CSV read through an
-    OGR VRT skips both: the coordinates become the point geometry via the VRT's
-    ``PointFromColumns`` encoding and the value rides along as a real field.
-    Measured at about four times the throughput of the GeoJSON path on a million
-    points, with byte-identical grid output.
+    geometry per point and a verbose text encoding. Writing the three arrays to an
+    in-memory CSV read through an OGR VRT skips both: the coordinates become the
+    point geometry via the VRT's ``PointFromColumns`` encoding and the value rides
+    along as a real field. On finite inputs the two paths produce the same grid;
+    ``test_fast_path_matches_geojson_reference`` pins that equivalence.
 
     ``%.17g`` formats each float at the 17 significant digits that round-trip an
-    IEEE-754 double exactly, so the CSV detour perturbs no coordinate.
+    IEEE-754 double exactly, so the CSV detour perturbs no coordinate. Callers pass
+    only finite values here — :func:`grid_arrays` drops non-finite ones first, since
+    the CSV reader would otherwise turn a NaN into a real ``0.0``.
 
     Args:
         x: Point x-coordinates (anything :func:`numpy.asarray` reads as 1-D).
@@ -66,10 +67,6 @@ def _grid_from_arrays(
     layer = f"grid_{uuid.uuid4().hex}"
     csv_path = f"/vsimem/{layer}.csv"
     vrt_path = f"/vsimem/{layer}.vrt"
-    frame = pd.DataFrame({"x": np.asarray(x), "y": np.asarray(y), "z": np.asarray(z)})
-    gdal.FileFromMemBuffer(
-        csv_path, frame.to_csv(index=False, float_format="%.17g").encode("utf-8")
-    )
     vrt = (
         f'<OGRVRTDataSource><OGRVRTLayer name="{layer}">'
         f'<SrcDataSource relativeToVRT="0">{csv_path}</SrcDataSource>'
@@ -78,12 +75,22 @@ def _grid_from_arrays(
         '<Field name="z" src="z" type="Real"/>'
         "</OGRVRTLayer></OGRVRTDataSource>"
     )
-    gdal.FileFromMemBuffer(vrt_path, vrt.encode("utf-8"))
+    frame = pd.DataFrame({"x": np.asarray(x), "y": np.asarray(y), "z": np.asarray(z)})
+    # Both writes live inside the try so the finally unlinks the CSV even if the VRT
+    # write (or the grid) fails after it -- no /vsimem file is left behind on any
+    # path. Unlink tolerates an absent file so a failure before either write is fine.
     try:
+        gdal.FileFromMemBuffer(
+            csv_path, frame.to_csv(index=False, float_format="%.17g").encode("utf-8")
+        )
+        gdal.FileFromMemBuffer(vrt_path, vrt.encode("utf-8"))
         return gdal.Grid("", vrt_path, options=options)
     finally:
-        gdal.Unlink(csv_path)
-        gdal.Unlink(vrt_path)
+        for path in (csv_path, vrt_path):
+            try:
+                gdal.Unlink(path)
+            except RuntimeError:
+                pass
 
 
 def _resolve_size(
@@ -302,7 +309,7 @@ def grid_points(
         # A point layer needs no geometry at all for gridding — pull the raw
         # coordinates off the geometry and hand them to the shared array core,
         # which skips the per-point shapely round trip and the GeoJSON encoding.
-        return grid_arrays(
+        grid = grid_arrays(
             points.geometry.x.to_numpy(),
             points.geometry.y.to_numpy(),
             points[value_column].to_numpy(),
@@ -314,30 +321,31 @@ def grid_points(
             bbox=bbox,
             output_srs=output_srs,
         )
-
-    # A non-point layer (or an empty one) keeps the original GeoJSON round trip,
-    # which handles whatever geometry gdal.Grid is handed and reads its z from the
-    # named attribute column directly.
-    if bbox is not None:
-        minx, miny, maxx, maxy = (float(v) for v in bbox)
     else:
-        minx, miny, maxx, maxy = (float(v) for v in points.total_bounds)
-    out_w, out_h = _resolve_size(
-        minx, miny, maxx, maxy, cell_size=cell_size, width=width, height=height
-    )
-    options = gdal.GridOptions(
-        format="MEM",
-        algorithm=algorithm,
-        zfield=value_column,
-        outputBounds=[minx, maxy, maxx, miny],
-        width=out_w,
-        height=out_h,
-        outputSRS=output_srs,
-    )
-    with _feature_ogr.as_vsimem_path(points) as src_path:
-        result = gdal.Grid("", src_path, options=options)
-    if result is None:
-        raise FailedToSaveError(
-            f"gdal.Grid returned no dataset for algorithm {algorithm!r}."
+        # A non-point layer (or an empty one) keeps the original GeoJSON round trip,
+        # which handles whatever geometry gdal.Grid is handed and reads its z from
+        # the named attribute column directly.
+        if bbox is not None:
+            minx, miny, maxx, maxy = (float(v) for v in bbox)
+        else:
+            minx, miny, maxx, maxy = (float(v) for v in points.total_bounds)
+        out_w, out_h = _resolve_size(
+            minx, miny, maxx, maxy, cell_size=cell_size, width=width, height=height
         )
-    return dataset_cls(result)
+        options = gdal.GridOptions(
+            format="MEM",
+            algorithm=algorithm,
+            zfield=value_column,
+            outputBounds=[minx, maxy, maxx, miny],
+            width=out_w,
+            height=out_h,
+            outputSRS=output_srs,
+        )
+        with _feature_ogr.as_vsimem_path(points) as src_path:
+            result = gdal.Grid("", src_path, options=options)
+        if result is None:
+            raise FailedToSaveError(
+                f"gdal.Grid returned no dataset for algorithm {algorithm!r}."
+            )
+        grid = dataset_cls(result)
+    return grid

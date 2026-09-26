@@ -11,12 +11,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from geopandas import GeoDataFrame
-from shapely.geometry import Point
+from osgeo import gdal
+from shapely.geometry import Point, Polygon
 
 from pyramids.base._errors import FailedToSaveError
 from pyramids.dataset import Dataset
+from pyramids.dataset.ops import interpolate as interp_mod
 from pyramids.dataset.ops.interpolate import _DEFAULT_ALGORITHM, grid_points
 from pyramids.feature import FeatureCollection
+from pyramids.feature import _ogr as _feature_ogr
 
 pytestmark = pytest.mark.core
 
@@ -220,8 +223,6 @@ class TestGridPoints:
         Test scenario:
             Monkeypatching gdal.Grid to return None triggers the guard.
         """
-        from pyramids.dataset.ops import interpolate as interp_mod
-
         monkeypatch.setattr(interp_mod.gdal, "Grid", lambda *a, **k: None)
         with pytest.raises(FailedToSaveError, match="gdal.Grid returned no dataset"):
             grid_points(corner_points, "val", Dataset, cell_size=1.0)
@@ -276,10 +277,6 @@ class TestGridArrayFastPath:
             separately, through gdal.Grid on a GeoJSON serialization of the same
             points; the two rasters must be pixel-for-pixel identical.
         """
-        from osgeo import gdal
-
-        from pyramids.feature import _ogr as _feature_ogr
-
         fast = np.asarray(
             grid_points(corner_points, "val", Dataset, cell_size=1.0).read_array()
         )
@@ -322,8 +319,6 @@ class TestGridArrayFastPath:
             A polygon layer carrying a value column is gridded via the fallback
             branch and returns a raster of the requested size.
         """
-        from shapely.geometry import Polygon
-
         gdf = GeoDataFrame(
             {"val": [1.0, 2.0]},
             geometry=[
@@ -504,10 +499,6 @@ class TestNonFiniteInputs:
             fix the CSV path read NaN as 0.0 and diverged badly (23.99 -> 1.38 at
             the corner).
         """
-        from osgeo import gdal
-
-        from pyramids.feature import _ogr as _feature_ogr
-
         x = [0.0, 10.0, 0.0, 10.0]
         y = [0.0, 0.0, 10.0, 10.0]
         z = [10.0, 20.0, float("nan"), 40.0]
@@ -619,8 +610,6 @@ class TestGridPointsFallbackBranch:
         Returns:
             FeatureCollection: A non-point layer that forces the fallback path.
         """
-        from shapely.geometry import Polygon
-
         gdf = GeoDataFrame(
             {"val": [1.0, 2.0]},
             geometry=[
@@ -650,8 +639,6 @@ class TestGridPointsFallbackBranch:
         Test scenario:
             With gdal.Grid stubbed to return None, gridding a polygon layer raises.
         """
-        from pyramids.dataset.ops import interpolate as interp_mod
-
         monkeypatch.setattr(interp_mod.gdal, "Grid", lambda *a, **k: None)
         with pytest.raises(FailedToSaveError, match="gdal.Grid returned no dataset"):
             grid_points(self._polygon_layer(), "val", Dataset, cell_size=1.0)
