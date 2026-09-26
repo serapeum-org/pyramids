@@ -89,6 +89,16 @@ class TestRoundTripReproducesTheCube:
         back = NetCDF.from_dataframe(frame, crs=4326, variables="a")
         assert back.variable_names == ["a"]
 
+    def test_variables_as_a_list_keeps_those_columns(self):
+        """A list of names selects exactly those columns as variables."""
+        first = _cube(np.arange(8.0).reshape(2, 2, 2), name="a")
+        second = _cube(np.arange(8.0).reshape(2, 2, 2) * 10.0, name="b")
+        frame = first.to_dataframe().join(second.to_dataframe())
+        back = NetCDF.from_dataframe(frame, crs=4326, variables=["a", "b"])
+        assert sorted(back.variable_names) == ["a", "b"], (
+            f"expected both listed columns as variables, got {back.variable_names}"
+        )
+
     def test_a_written_store_round_trips(self, tmp_path):
         """With `path=`, the cube is written to netCDF and read back with its coordinates.
 
@@ -207,3 +217,58 @@ class TestFromDataframeRefusals:
         nc = _cube(np.arange(8.0).reshape(2, 2, 2))
         with pytest.raises(ValueError, match="not an\\s+index level"):
             NetCDF.from_dataframe(nc.to_dataframe(), x="lon")
+
+    def test_a_one_level_multiindex_is_refused(self):
+        """A one-level MultiIndex cannot hold both grid axes, so it raises."""
+        idx = pd.MultiIndex.from_arrays([[0.0, 1.0]], names=["x"])
+        frame = pd.DataFrame({"v": [3.0, 4.0]}, index=idx)
+        with pytest.raises(ValueError, match="indexed by its dimensions"):
+            NetCDF.from_dataframe(frame)
+
+    def test_an_unnamed_index_level_is_refused(self):
+        """An unnamed index level cannot be addressed as an axis, so it raises."""
+        idx = pd.MultiIndex.from_product([[20.0, 18.0], [0.0, 1.0]], names=["y", None])
+        frame = pd.DataFrame({"v": np.arange(4.0)}, index=idx)
+        with pytest.raises(ValueError, match="every index level named"):
+            NetCDF.from_dataframe(frame)
+
+    def test_x_and_y_naming_the_same_level_is_refused(self):
+        """Pointing both the y and x axes at one level collapses the grid, so it raises."""
+        nc = _cube(np.arange(8.0).reshape(2, 2, 2))
+        with pytest.raises(ValueError, match="both the y and x axes"):
+            NetCDF.from_dataframe(nc.to_dataframe(), x="y", y="y")
+
+    def test_a_frame_with_no_value_columns_is_refused(self):
+        """An index-only frame has nothing to become a data variable, so it raises."""
+        idx = pd.MultiIndex.from_product([[20.0, 18.0], [0.0, 1.0]], names=["y", "x"])
+        frame = pd.DataFrame(index=idx)
+        with pytest.raises(ValueError, match="at least one value column"):
+            NetCDF.from_dataframe(frame)
+
+    def test_a_repeated_variable_is_refused(self):
+        """Asking for the same column twice would build one variable twice, so it raises."""
+        nc = _cube(np.arange(8.0).reshape(2, 2, 2))
+        with pytest.raises(ValueError, match="more than once"):
+            NetCDF.from_dataframe(nc.to_dataframe(), variables=["t", "t"])
+
+    def test_an_empty_variable_selection_is_refused(self):
+        """An empty `variables=` selects no column, so no cube can be built and it raises."""
+        nc = _cube(np.arange(8.0).reshape(2, 2, 2))
+        with pytest.raises(ValueError, match="empty selection"):
+            NetCDF.from_dataframe(nc.to_dataframe(), variables=[])
+
+    def test_an_irregular_x_axis_is_refused(self):
+        """A jittered x axis has no affine transform, so it raises naming the x axis."""
+        idx = pd.MultiIndex.from_product(
+            [[20.0, 18.0], [0.0, 1.0, 3.0]], names=["y", "x"]
+        )
+        frame = pd.DataFrame({"v": np.arange(6.0)}, index=idx)
+        with pytest.raises(ValueError, match="regular x axis"):
+            NetCDF.from_dataframe(frame)
+
+    def test_a_single_cell_x_axis_is_refused(self):
+        """One x coordinate gives no spacing to infer, so it raises naming the x axis."""
+        idx = pd.MultiIndex.from_product([[20.0, 18.0], [0.0]], names=["y", "x"])
+        frame = pd.DataFrame({"v": np.arange(2.0)}, index=idx)
+        with pytest.raises(ValueError, match="single x coordinate"):
+            NetCDF.from_dataframe(frame)
