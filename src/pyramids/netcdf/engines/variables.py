@@ -1460,9 +1460,11 @@ def _regular_step(coords: np.ndarray, axis: str) -> float:
             f"from_dataframe() cannot infer the {axis} cell size from a single {axis} "
             f"coordinate; give an axis with at least two cells, or resample to a grid first."
         )
+    # `coords` are `np.unique`'d, hence strictly monotonic, so every diff is non-zero; the
+    # only failure to guard is uneven spacing, which `np.allclose` catches.
     diffs = np.diff(coords)
     step = float(diffs[0])
-    if step == 0.0 or not np.allclose(diffs, step, rtol=1e-6, atol=0.0):
+    if not np.allclose(diffs, step, rtol=1e-6, atol=0.0):
         raise ValueError(
             f"from_dataframe() needs a regular {axis} axis to build a geotransform, but its "
             f"spacing varies. An irregular grid has no affine transform; resample to a "
