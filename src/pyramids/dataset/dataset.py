@@ -6004,8 +6004,8 @@ class Dataset(RasterBase):
         width: int | None = None,
         height: int | None = None,
         bbox: tuple[float, float, float, float] | None = None,
-        crs: Any | None = None,
-        epsg: Any | None = None,
+        crs: Any = None,
+        epsg: int | None = None,
     ) -> Dataset:
         """Interpolate raw coordinate arrays onto a grid — no geometry built.
 
@@ -6051,10 +6051,10 @@ class Dataset(RasterBase):
             bbox (tuple[float, float, float, float] | None):
                 ``(minx, miny, maxx, maxy)`` output extent. Defaults to the arrays'
                 own min/max.
-            crs (Any | None):
+            crs (Any):
                 CRS the coordinates are in, to stamp on the output (any form
-                :func:`~pyramids.base.crs.sr_from_user_input` accepts). Mutually
-                informative with ``epsg``; ``epsg`` wins if both are given.
+                :func:`~pyramids.base.crs.sr_from_user_input` accepts), or ``None``.
+                Mutually informative with ``epsg``; ``epsg`` wins if both are given.
             epsg (int | None):
                 Output EPSG code. Takes precedence over ``crs``.
 
@@ -6063,8 +6063,10 @@ class Dataset(RasterBase):
 
         Raises:
             ValueError: ``x`` / ``y`` / ``z`` are not 1-D of equal length, are
-                empty, the bounds are degenerate, or neither ``cell_size`` nor
-                ``width`` + ``height`` was given.
+                empty, a coordinate (``x`` or ``y``) or ``bbox`` is non-finite,
+                every ``z`` value is non-finite (nothing to interpolate), the bounds
+                are degenerate, ``cell_size`` is not positive, or neither
+                ``cell_size`` nor ``width`` + ``height`` was given.
             FailedToSaveError: ``gdal.Grid`` produced no dataset.
 
         Examples:
