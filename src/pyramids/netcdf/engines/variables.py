@@ -1210,6 +1210,20 @@ def from_dataframe(
     """
     band_names, row_name, col_name = _dataframe_axes(df, x, y)
     columns = _dataframe_value_columns(df, variables)
+    # Two *distinct* labels that stringify to one NetCDF variable name would otherwise build
+    # two same-named cubes and either merge silently (equal cells) or fail with a merge()
+    # error (differing cells); refuse them here with a from_dataframe() message (#1203 L1).
+    # An identically-repeated label falls through to _dataframe_column_array, which names it.
+    seen: dict[str, Any] = {}
+    for col in columns:
+        name = str(col)
+        if name in seen and col != seen[name]:
+            raise ValueError(
+                f"from_dataframe() columns {seen[name]!r} and {col!r} both become the "
+                f"variable name {name!r}, which cannot name two variables. Rename or drop "
+                "one."
+            )
+        seen[name] = col
     if df.index.duplicated().any():
         raise ValueError(
             "from_dataframe() found duplicate index rows, so a cell has more than one "

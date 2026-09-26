@@ -392,3 +392,14 @@ class TestNonStandardColumns:
             ValueError, match="from_dataframe.*more than one column labelled 'v'"
         ):
             NetCDF.from_dataframe(frame)
+
+    def test_labels_that_stringify_to_one_name_are_refused(self):
+        """Distinct labels that map to the same variable name raise up front (#1203 L1).
+
+        The integer `7` and the string `"7"` are different columns but both name the variable
+        `"7"`; without the guard this surfaced only as a downstream `merge()` error.
+        """
+        idx = pd.MultiIndex.from_product([[20.0, 19.0], [0.0, 1.0]], names=["y", "x"])
+        frame = pd.DataFrame({7: np.arange(4.0), "7": np.arange(4.0)}, index=idx)
+        with pytest.raises(ValueError, match="from_dataframe.*variable name '7'"):
+            NetCDF.from_dataframe(frame, crs=4326)
