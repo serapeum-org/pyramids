@@ -6021,6 +6021,13 @@ class Dataset(RasterBase):
         The grid is computed in the coordinates' own space, so ``cell_size`` and
         ``bbox`` are in those units.
 
+        This is the low-level array entry, and like :meth:`from_points` it does not
+        enforce the minimum-point-count or column-dtype policy that the higher-level
+        :meth:`~pyramids.feature.FeatureCollection.interpolate_to_raster` applies --
+        gridding a single point is allowed. It does reject the inputs ``gdal.Grid``
+        cannot use: non-finite coordinates or ``bbox`` raise, non-finite values are
+        dropped as missing readings, and an all-non-finite value array raises.
+
         Args:
             x (Any):
                 Point x-coordinates (anything :func:`numpy.asarray` reads as a 1-D

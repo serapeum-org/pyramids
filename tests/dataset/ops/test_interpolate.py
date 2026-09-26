@@ -464,6 +464,24 @@ class TestDatasetFromPointArrays:
                 cell_size=1.0,
             )
 
+    def test_crs_and_epsg_label_consistently(self):
+        """crs= (string or int) and epsg= all stamp the same EPSG on the output.
+
+        Test scenario:
+            The review noted the crs= path builds its output SRS via a different WKT
+            flavour than the epsg= path; this pins that all three spellings resolve
+            to the same EPSG on the result.
+        """
+        pts = ([0.0, 5.0, 0.0, 5.0], [0.0, 0.0, 5.0, 5.0], [1.0, 2.0, 3.0, 4.0])
+        by_epsg = Dataset.from_point_arrays(*pts, cell_size=1.0, epsg=3857).epsg
+        by_crs_str = Dataset.from_point_arrays(
+            *pts, cell_size=1.0, crs="EPSG:3857"
+        ).epsg
+        by_crs_int = Dataset.from_point_arrays(*pts, cell_size=1.0, crs=3857).epsg
+        assert by_epsg == by_crs_str == by_crs_int == 3857, (
+            f"crs/epsg spellings disagree: {by_epsg}, {by_crs_str}, {by_crs_int}"
+        )
+
 
 class TestNonFiniteInputs:
     """Non-finite handling in the array grid core (findings M1, M2).
