@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+import pandas as pd
 from osgeo import gdal, osr
 
 from pyramids.base._errors import FileFormatNotSupportedError
@@ -1127,6 +1128,349 @@ def from_array(
     result = Container(dst_ds)
 
     return result
+
+
+def from_dataframe(
+    df: pd.DataFrame,
+    *,
+    crs: str | int | None = None,
+    x: str | None = None,
+    y: str | None = None,
+    variables: str | Sequence[str] | None = None,
+    no_data_value: Any = DEFAULT_NO_DATA_VALUE,
+    path: str | Path | None = None,
+) -> Container:
+    """Rebuild a NetCDF cube from a `MultiIndex` DataFrame — the inverse of `to_dataframe`.
+
+    The frame must be indexed by its dimensions, the two innermost index levels being the
+    `(y, x)` grid axes and any outer levels the band dimensions; each non-index column
+    becomes a data variable. That is exactly the shape `to_dataframe` returns, so
+    `from_dataframe(nc.to_dataframe(), crs=nc.epsg)` reproduces `nc` — to floating-point
+    tolerance, since the geotransform is recovered by differencing the stored cell centres.
+    The one cube it cannot round-trip is a single-row or single-column raster: one centre on
+    an axis carries no spacing to recover, so that axis is refused (see `Raises`).
+
+    A DataFrame carries no georeferencing, so this recovers it: the geotransform is
+    **inferred** from the `x` / `y` cell-centre coordinates assuming a regular grid (an
+    irregular axis is refused — it has no affine transform), and the CRS comes from `crs`
+    (a DataFrame has none, so it is left unset when `crs` is `None`). The result is always
+    north-up (`y` descending, `x` ascending), whatever order the frame's rows are in. Band
+    dimensions are not sorted: their coordinates keep the order they first appear in the
+    frame, which is the order `to_dataframe` emitted them.
+
+    Args:
+        df: A DataFrame on a `pandas.MultiIndex` of at least two named levels. The innermost
+            two are the row (`y`) and column (`x`) axes unless `x` / `y` name them; any
+            further levels are band dimensions, outermost first. A tidy frame on a plain
+            index is refused — it describes scattered rows, not a grid.
+        crs: The CRS for the result, as an EPSG code or a CRS string. `None` (default)
+            leaves the CRS unset, because a DataFrame does not carry one — a full
+            `to_dataframe` → `from_dataframe` round trip therefore needs `crs=nc.epsg` to
+            recover it.
+        x: The index level holding the column (x) coordinates. Defaults to the innermost
+            level.
+        y: The index level holding the row (y) coordinates. Defaults to the second-innermost
+            level.
+        variables: Which columns become data variables, as a label or a sequence of labels.
+            `None` (default) takes every column. A `list` or `tuple` is read as several
+            labels, so a single tuple column label from a `MultiIndex` columns axis must be
+            wrapped — `variables=[("a", "b")]`, not `variables=("a", "b")`.
+        no_data_value: Sentinel for the gaps. `NaN` cells (and cells absent from the frame)
+            are stored as this value. Defaults to `DEFAULT_NO_DATA_VALUE`.
+        path: Destination. `None` (default) builds the store in memory; a `.nc` path writes
+            it, exactly as `from_array`.
+
+    Returns:
+        Container: The rebuilt store, one variable per chosen column, on the inferred grid.
+
+    Raises:
+        ValueError: `df` is not indexed by a `MultiIndex` of at least two named levels; a
+            named `x` / `y` level is missing or the two coincide; there are no value columns
+            or a requested one is absent; two selected columns stringify to the same variable
+            name; the index has duplicate rows (an ambiguous cell); or the `x` / `y` axis is
+            irregular or has fewer than two coordinates, so no geotransform can be inferred.
+
+    Examples:
+        - Round-trip a two-step cube through pandas and back:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+          >>> nc = NetCDF.from_array(
+          ...     np.arange(8.0).reshape(2, 2, 2),
+          ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+          ...     variable_name="t",
+          ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+          ... )
+          >>> back = NetCDF.from_dataframe(nc.to_dataframe(), crs=nc.epsg)
+          >>> back.get_variable("t")._band_dim_values_map["time"]
+          [0.0, 6.0]
+          >>> back.get_variable("t").read_array().tolist()
+          [[[0.0, 1.0], [2.0, 3.0]], [[4.0, 5.0], [6.0, 7.0]]]
+
+          ```
+    """
+    band_names, row_name, col_name = _dataframe_axes(df, x, y)
+    columns = _dataframe_value_columns(df, variables)
+    # Two *distinct* labels that stringify to one NetCDF variable name would otherwise build
+    # two same-named cubes and either merge silently (equal cells) or fail with a merge()
+    # error (differing cells); refuse them here with a from_dataframe() message (#1203 L1).
+    # An identically-repeated label falls through to _dataframe_column_array, which names it.
+    seen: dict[str, Any] = {}
+    for col in columns:
+        name = str(col)
+        if name in seen and col != seen[name]:
+            raise ValueError(
+                f"from_dataframe() columns {seen[name]!r} and {col!r} both become the "
+                f"variable name {name!r}, which cannot name two variables. Rename or drop "
+                "one."
+            )
+        seen[name] = col
+    if df.index.duplicated().any():
+        raise ValueError(
+            "from_dataframe() found duplicate index rows, so a cell has more than one "
+            "value. Resolve them first, e.g. "
+            "df.groupby(level=list(df.index.names)).mean()."
+        )
+
+    band_coords = [pd.unique(df.index.get_level_values(nm)) for nm in band_names]
+    y_coords = np.unique(
+        np.asarray(df.index.get_level_values(row_name), dtype="float64")
+    )[::-1]
+    x_coords = np.unique(
+        np.asarray(df.index.get_level_values(col_name), dtype="float64")
+    )
+    geo = _geotransform_from_centres(x_coords, y_coords)
+
+    ordered = df.reorder_levels([*band_names, row_name, col_name])
+    full = pd.MultiIndex.from_product(
+        [*band_coords, list(y_coords), list(x_coords)],
+        names=[*band_names, row_name, col_name],
+    )
+    ordered = ordered.reindex(full)
+    shape = (*[len(c) for c in band_coords], len(y_coords), len(x_coords))
+
+    geo_ref = GeoReference(geo=geo, epsg=crs)
+    dims = (
+        ExtraDimensions(dims=[(nm, list(c)) for nm, c in zip(band_names, band_coords)])
+        if band_names
+        else None
+    )
+    built = []
+    for col in columns:
+        arr = _dataframe_column_array(ordered, col, shape)
+        arr = np.where(np.isnan(arr), no_data_value, arr)
+        built.append(
+            from_array(
+                arr,
+                geo_ref=geo_ref,
+                variable_name=str(col),
+                no_data_value=no_data_value,
+                dims=dims,
+            )
+        )
+    result = built[0] if len(built) == 1 else built[0].merge(built[1:])
+    if path is not None:
+        result.to_file(path)
+        result = result.read_file(path)
+    return cast("Container", result)
+
+
+def _dataframe_axes(
+    df: pd.DataFrame, x: str | None, y: str | None
+) -> tuple[list[str], str, str]:
+    """Resolve the band-dimension names and the row / column axis names of a frame.
+
+    Args:
+        df: The DataFrame to read the index of.
+        x: The column-axis level name, or `None` for the innermost level.
+        y: The row-axis level name, or `None` for the second-innermost level.
+
+    Returns:
+        tuple[list[str], str, str]: `(band_dim_names, row_name, col_name)`, the band names in
+        index order (outermost first).
+
+    Raises:
+        ValueError: The index is not a `MultiIndex` of at least two named levels, a named
+            `x` / `y` level is missing, or the two coincide.
+    """
+    index = df.index
+    if not isinstance(index, pd.MultiIndex) or index.nlevels < 2:
+        raise ValueError(
+            "from_dataframe() needs a DataFrame indexed by its dimensions — a MultiIndex "
+            "of at least two named levels, the innermost two being the (y, x) grid axes. A "
+            "tidy frame on a plain index is scattered rows, not a raster; name the axes "
+            "first, e.g. df.set_index([...])."
+        )
+    names = list(index.names)
+    if any(nm is None for nm in names):
+        raise ValueError(
+            f"from_dataframe() needs every index level named; got {names}. Name them via "
+            "df.rename_axis([...]) or set_index."
+        )
+    row_name = y if y is not None else names[-2]
+    col_name = x if x is not None else names[-1]
+    for role, nm in (("y", row_name), ("x", col_name)):
+        if nm not in names:
+            raise ValueError(
+                f"from_dataframe() was told the {role} axis is {nm!r}, which is not an "
+                f"index level; the levels are {names}."
+            )
+    if row_name == col_name:
+        raise ValueError(
+            f"from_dataframe() got {row_name!r} for both the y and x axes; they must be "
+            "different index levels."
+        )
+    band_names = [nm for nm in names if nm not in (row_name, col_name)]
+    return band_names, row_name, col_name
+
+
+def _dataframe_value_columns(
+    df: pd.DataFrame, variables: str | Sequence[Any] | None
+) -> list:
+    """The columns that become data variables, in order.
+
+    The **original** column labels are returned, not stringified ones, because the caller
+    indexes the frame with them (`ordered[col]`); only the NetCDF variable name is
+    stringified, at the point it is written. Returning `str(...)`-normalised labels made
+    `ordered[col]` raise `KeyError` on any non-string column (#1203 L1).
+
+    Args:
+        df: The DataFrame whose columns are the candidate variables.
+        variables: A label, a sequence of labels, or `None` for every column.
+
+    Returns:
+        list: The chosen column labels, in the given order, never empty.
+
+    Raises:
+        ValueError: The frame has no columns, a requested label is not a column, a label was
+            given more than once, or an empty selection was given.
+    """
+    available = list(df.columns)
+    if not available:
+        raise ValueError(
+            "from_dataframe() needs at least one value column to become a data variable; "
+            "the frame has none."
+        )
+    if variables is None:
+        chosen = available
+    else:
+        # A list/tuple is a set of labels; anything else — a str, or a scalar label such as
+        # an int column name — is a single label (`list(7)` would raise).
+        names = list(variables) if isinstance(variables, (list, tuple)) else [variables]
+        if not names:
+            raise ValueError(
+                "from_dataframe() was given an empty selection; pass `variables=None` for "
+                f"every column, or one of {available}."
+            )
+        unknown = [nm for nm in names if nm not in available]
+        if unknown:
+            raise ValueError(
+                f"from_dataframe() cannot take {unknown!r} as variables: the frame's "
+                f"columns are {available}."
+            )
+        repeated = [nm for nm in dict.fromkeys(names) if names.count(nm) > 1]
+        if repeated:
+            raise ValueError(
+                f"from_dataframe() was asked for {repeated!r} more than once; a label can "
+                "only become one variable."
+            )
+        chosen = names
+    return chosen
+
+
+def _dataframe_column_array(
+    ordered: pd.DataFrame, col: Any, shape: tuple
+) -> np.ndarray:
+    """One value column as a float64 array of the cube's shape, refusing the bad cases.
+
+    Args:
+        ordered: The frame reindexed against the full dimension product.
+        col: The column label to read.
+        shape: The target `(*band_sizes, rows, cols)` shape.
+
+    Returns:
+        np.ndarray: The column's cells, `float64`, shaped `shape`.
+
+    Raises:
+        ValueError: The label matches more than one column (it cannot become one variable),
+            or the column is not numeric — each named, rather than surfacing as a raw numpy
+            reshape / conversion error (#1203 L2).
+    """
+    series = ordered[col]
+    if isinstance(series, pd.DataFrame):
+        raise ValueError(
+            f"from_dataframe() found more than one column labelled {col!r}, so it cannot "
+            "become one variable. Give each value column a unique label."
+        )
+    try:
+        values = series.to_numpy(dtype="float64")
+    except (ValueError, TypeError) as exc:
+        raise ValueError(
+            f"from_dataframe() cannot read column {col!r} as numbers: {exc}. A value column "
+            "must be numeric."
+        ) from exc
+    # `to_numpy` is typed `Any` in the pandas stubs, so reshape is too; the cast keeps the
+    # declared `-> np.ndarray` honest under `warn_return_any` (#1203 M1).
+    return cast("np.ndarray", values.reshape(shape))
+
+
+def _geotransform_from_centres(
+    x_coords: np.ndarray, y_coords: np.ndarray
+) -> tuple[float, float, float, float, float, float]:
+    """Infer a north-up geotransform from ascending x and descending y cell centres.
+
+    The two axes are assumed regular; `_regular_step` refuses an irregular one. The centres
+    are half a cell inside the edges, so the origin steps back half a cell in each axis:
+    with `dy < 0`, `y_max - dy / 2` is half a cell **above** the topmost centre.
+
+    Args:
+        x_coords: The unique column coordinates, ascending, at least two of them.
+        y_coords: The unique row coordinates, descending, at least two of them.
+
+    Returns:
+        tuple: The affine geotransform `(x_min, dx, 0.0, y_max, 0.0, dy)`, `dy` negative.
+
+    Raises:
+        ValueError: Either axis is irregular or has fewer than two coordinates.
+    """
+    dx = _regular_step(x_coords, "x")
+    dy = _regular_step(y_coords, "y")
+    x_min = float(x_coords[0]) - dx / 2.0
+    y_max = float(y_coords[0]) - dy / 2.0
+    return (x_min, dx, 0.0, y_max, 0.0, dy)
+
+
+def _regular_step(coords: np.ndarray, axis: str) -> float:
+    """The constant spacing of a coordinate axis, refusing an irregular or too-short one.
+
+    Args:
+        coords: The axis' unique coordinates, already sorted (ascending x, descending y).
+        axis: `"x"` or `"y"`, for the message.
+
+    Returns:
+        float: The step between consecutive coordinates — positive for x, negative for y.
+
+    Raises:
+        ValueError: Fewer than two coordinates (no spacing to infer), or the spacing varies
+            (an irregular grid has no affine transform).
+    """
+    if coords.size < 2:
+        raise ValueError(
+            f"from_dataframe() cannot infer the {axis} cell size from a single {axis} "
+            f"coordinate; give an axis with at least two cells, or resample to a grid first."
+        )
+    # `coords` are `np.unique`'d, hence strictly monotonic, so every diff is non-zero; the
+    # only failure to guard is uneven spacing, which `np.allclose` catches.
+    diffs = np.diff(coords)
+    step = float(diffs[0])
+    if not np.allclose(diffs, step, rtol=1e-6, atol=0.0):
+        raise ValueError(
+            f"from_dataframe() needs a regular {axis} axis to build a geotransform, but its "
+            f"spacing varies. An irregular grid has no affine transform; resample to a "
+            f"regular grid first."
+        )
+    return step
 
 
 def _require_spatial_names(spatial_names: tuple[str, str] | None) -> None:
