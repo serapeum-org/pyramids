@@ -4082,14 +4082,21 @@ def _bin_coordinates(nc: NetCDF, dim: str) -> np.ndarray:
         np.ndarray: The coordinates as `float64`.
 
     Raises:
-        ValueError: `dim` is not one of a variable's band dimensions, or its coordinates are
-            absent (a coordinate-less axis) or non-numeric (a text axis).
+        ValueError: `dim` is not one of a variable's band dimensions (or not a dimension of the
+            container at all), or its coordinates are absent (a coordinate-less axis),
+            non-numeric (a text axis), or contain `NaN`.
     """
     coords: Any
     if _reduces_as_a_variable(nc):
         _assert_band_dimension(nc, dim, caller="groupby_bins")
         coords = nc._band_dim_values_map.get(dim)
     else:
+        names = list(nc.dimension_names or [])
+        if dim not in names:
+            raise ValueError(
+                f"groupby_bins() got {dim!r}, which is not a dimension of this container; "
+                f"its dimensions are {names}."
+            )
         coords = nc.get_dimension_values(dim)
     if coords is None:
         raise ValueError(
@@ -4102,7 +4109,13 @@ def _bin_coordinates(nc: NetCDF, dim: str) -> np.ndarray:
             f"groupby_bins() needs a numeric {dim!r} axis to cut into bins; its coordinates "
             "are not numbers."
         )
-    return values.astype("float64")
+    values = values.astype("float64")
+    if np.isnan(values).any():
+        raise ValueError(
+            f"groupby_bins() cannot bin {dim!r}: its coordinates contain NaN, which falls in "
+            "no interval. Drop or fill the NaN coordinate first."
+        )
+    return values
 
 
 def _bin_membership(

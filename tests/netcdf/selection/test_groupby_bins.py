@@ -159,6 +159,17 @@ class TestGroupbyBinsRefusals:
         with pytest.raises(ValueError, match="not a bool"):
             _cube([100.0, 300.0]).groupby_bins("level", True, "mean")
 
+    def test_a_nonexistent_dimension_on_a_container_says_so(self):
+        """A wrong dim name is diagnosed as absent, not as a coordinate-less axis."""
+        with pytest.raises(ValueError, match="not a dimension of this container"):
+            _cube([100.0, 300.0]).groupby_bins("nope", [0, 500], "mean")
+
+    def test_a_nan_coordinate_is_refused_as_nan(self):
+        """A NaN in the axis is named as such, not reported as 'outside every bin'."""
+        cube = _cube([100.0, float("nan"), 600.0])
+        with pytest.raises(ValueError, match="contain NaN"):
+            cube.groupby_bins("level", [0, 500, 1000], "mean")
+
     def test_a_text_axis_is_refused(self):
         """A non-numeric coordinate cannot be cut into value intervals."""
         cube = NetCDF.from_array(
