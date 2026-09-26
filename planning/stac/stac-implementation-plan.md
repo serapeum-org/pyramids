@@ -302,6 +302,29 @@ pyramids already emits epsg/code/shape/transform/bbox correctly.
 Priority tags: **P1** (top, in-mission) · **P2** (in-mission, valuable) ·
 **P3** (adjacent / nice-to-have) · **P4** (scope-gated / optional).
 
+> **Full per-task specs live in `planning/stac/tasks/`.** Each is self-contained
+> (quoted current code, exact target signatures + code sketch, exact JSON shapes,
+> real test additions against the existing fixtures, pitfalls, and a DoD
+> checklist) so it can be implemented without re-reading the source or
+> re-researching the reference packages. Expanded so far (the M1–M4 milestone
+> set): **STAC-01 … STAC-08**. Tasks **STAC-09 … STAC-18** below are detailed
+> backlog outlines and should be expanded to the same per-task-file standard when
+> they are scheduled (STAC-18 also needs a scope decision first).
+>
+> | Task | Spec file |
+> |---|---|
+> | STAC-01 | `tasks/STAC-01-to-stac-item-band-metadata.md` |
+> | STAC-02 | `tasks/STAC-02-to-stac-item-data-footprint.md` |
+> | STAC-03 | `tasks/STAC-03-antimeridian-geometry.md` |
+> | STAC-04 | `tasks/STAC-04-rescale-on-read.md` |
+> | STAC-05 | `tasks/STAC-05-spec-stac-geoparquet.md` |
+> | STAC-06 | `tasks/STAC-06-flexible-groupby.md` |
+> | STAC-07 | `tasks/STAC-07-metadata-overrides-aliases.md` |
+> | STAC-08 | `tasks/STAC-08-stac-metadata-on-cube.md` |
+>
+> The summaries below (STAC-01…08) are kept as an index; the task file is the
+> authoritative, no-guess spec.
+
 ---
 
 ### STAC-01 — Richer `raster:bands` / `eo:bands` in `to_stac_item`  (gap A2) — **P1**
