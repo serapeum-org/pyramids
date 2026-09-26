@@ -102,6 +102,56 @@ class TestGroupbyBinsReducesEachBin:
         assert_allclose(left.get_variable("t").read_array().ravel(), [0.0, 1.5])
 
 
+class TestGroupbyBinsPassthroughAndAxisOrder:
+    """`how` / `q` / `skipna` forward to `reduce`, and labelling is value-based, not positional."""
+
+    def test_a_quantile_how_passes_through(self):
+        """`how="quantile"` with `q` reduces each bin to that quantile."""
+        cube = _cube([100.0, 110.0, 120.0, 600.0, 610.0, 620.0], values=range(6))
+        binned = cube.groupby_bins("level", [0, 500, 1000], "quantile", q=0.5)
+        assert_allclose(binned.get_variable("t").read_array().ravel(), [1.0, 4.0])
+
+    def test_a_counting_reducer_passes_through(self):
+        """`how="count"` answers each bin's valid-cell count."""
+        cube = _cube([100.0, 110.0, 120.0, 600.0, 610.0, 620.0], values=range(6))
+        binned = cube.groupby_bins("level", [0, 500, 1000], "count")
+        assert_allclose(binned.get_variable("t").read_array().ravel(), [3, 3])
+
+    def test_skipna_false_keeps_the_gap_in_the_bin(self):
+        """`skipna=False` reduces the raw sentinel, so a gapped bin differs from `skipna=True`."""
+        cube = NetCDF.from_array(
+            np.array([0.0, -9999.0, 2.0, 3.0, 4.0, 5.0]).reshape(6, 1, 1),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="t",
+            no_data_value=-9999.0,
+            dims=ExtraDimensions(
+                name="level", values=[100.0, 110.0, 120.0, 600.0, 610.0, 620.0]
+            ),
+        )
+        skipped = cube.groupby_bins("level", [0, 500, 1000], "mean")
+        raw = cube.groupby_bins("level", [0, 500, 1000], "mean", skipna=False)
+        assert (
+            skipped.get_variable("t").read_array().ravel()[0] == 1.0
+        )  # mean of 0 and 2
+        assert (
+            raw.get_variable("t").read_array().ravel()[0] != 1.0
+        )  # sentinel dragged in
+
+    def test_a_descending_axis_labels_by_value(self):
+        """A descending coordinate axis bins by value, not by position."""
+        cube = _cube([1000.0, 800.0, 600.0, 500.0], values=[10.0, 20.0, 30.0, 40.0])
+        binned = cube.groupby_bins("level", [0, 500, 1000], "mean").get_variable("t")
+        assert binned._band_dim_values_map["level"] == [0.0, 500.0]
+        assert_allclose(binned.read_array().ravel(), [40.0, 20.0])
+
+    def test_a_shuffled_axis_labels_by_value(self):
+        """An unsorted coordinate axis bins by value, and the bins come out ascending."""
+        cube = _cube([600.0, 100.0, 700.0, 200.0], values=[1.0, 2.0, 3.0, 4.0])
+        binned = cube.groupby_bins("level", [0, 500, 1000], "mean").get_variable("t")
+        assert binned._band_dim_values_map["level"] == [0.0, 500.0]
+        assert_allclose(binned.read_array().ravel(), [3.0, 2.0])
+
+
 class TestGroupbyBinsOnContainersAndVariables:
     """It works on a container (every gridded variable) and on a single variable."""
 
