@@ -1,7 +1,7 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 106 in all: 72 methods, 27 properties,
-6 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
+A one-line map of every public member the `NetCDF` class itself defines — 107 in all: 72 methods, 27 properties,
+7 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). `concat` and `merge` are counted among the methods: each is callable on the class
 (`NetCDF.concat([a, b], dim)`) and on a cube (`a.concat([b], dim)`, which joins the
 receiver first). For the full signatures, arguments and examples, see the rendered
@@ -31,6 +31,7 @@ Two object shapes share this class, and several members behave differently acros
 | `read_file()`   | Opens a `.nc` from a path, URL, or archive member; returns a Container.          |
 | `from_bytes()`  | Opens a NetCDF held in memory as a byte string.                                  |
 | `from_array()`  | Builds a Container from a NumPy array plus a geo-reference.                      |
+| `from_dataframe()` | Rebuilds a Container from a `MultiIndex` DataFrame — the inverse of `to_dataframe`. |
 | `from_xarray()` | Builds a `NetCDF` from an `xarray.Dataset` (needs the optional xarray peer dep). |
 | `copy()`        | Deep, standalone copy of this dataset, optionally written to `path`.             |
 | `close()`       | Releases every GDAL handle this container holds, then closes the base.           |
