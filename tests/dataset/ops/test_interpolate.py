@@ -338,3 +338,114 @@ class TestGridArrayFastPath:
         assert (ds.rows, ds.columns) == (10, 10), (
             f"fallback produced unexpected shape: {ds.rows}x{ds.columns}"
         )
+
+
+class TestDatasetFromPointArrays:
+    """Tests for :meth:`Dataset.from_point_arrays` — gridding from raw arrays."""
+
+    def test_grids_from_arrays(self):
+        """Raw x/y/z arrays grid to a Dataset without any FeatureCollection.
+
+        Test scenario:
+            Four corner readings gridded at cell_size=1 over their own 0..10 extent
+            give a 10x10 single-band Dataset labelled EPSG:4326.
+        """
+        ds = Dataset.from_point_arrays(
+            [0.0, 10.0, 0.0, 10.0],
+            [0.0, 0.0, 10.0, 10.0],
+            [10.0, 20.0, 30.0, 40.0],
+            cell_size=1.0,
+            epsg=4326,
+        )
+        assert (ds.rows, ds.columns, ds.band_count) == (10, 10, 1), (
+            f"unexpected shape: {ds.rows}x{ds.columns}x{ds.band_count}"
+        )
+        assert ds.epsg == 4326, f"Expected EPSG 4326, got {ds.epsg}"
+
+    def test_matches_from_points(self):
+        """The array entry grids identically to from_points on the same points.
+
+        Test scenario:
+            Building a FeatureCollection and gridding via Dataset.from_points must
+            yield the same raster, pixel for pixel, as passing the raw arrays to
+            Dataset.from_point_arrays.
+        """
+        x = [0.0, 10.0, 0.0, 10.0]
+        y = [0.0, 0.0, 10.0, 10.0]
+        z = [10.0, 20.0, 30.0, 40.0]
+        gdf = GeoDataFrame(
+            {"z": z}, geometry=[Point(a, b) for a, b in zip(x, y)], crs="EPSG:4326"
+        )
+        via_fc = Dataset.from_points(
+            FeatureCollection(gdf), "z", cell_size=1.0
+        ).read_array()
+        via_arrays = Dataset.from_point_arrays(
+            x, y, z, cell_size=1.0, epsg=4326
+        ).read_array()
+        assert np.array_equal(np.asarray(via_fc), np.asarray(via_arrays)), (
+            "from_point_arrays and from_points produced different grids"
+        )
+
+    def test_bbox_and_explicit_size(self):
+        """bbox sets the extent and width/height set the shape directly.
+
+        Test scenario:
+            A bbox wider than the points, with explicit width/height, produces a
+            raster of exactly that shape and origin.
+        """
+        ds = Dataset.from_point_arrays(
+            [0.0, 5.0],
+            [0.0, 5.0],
+            [1.0, 2.0],
+            width=20,
+            height=15,
+            bbox=(-5, -5, 15, 15),
+        )
+        assert (ds.rows, ds.columns) == (15, 20), (
+            f"unexpected shape: {ds.rows}x{ds.columns}"
+        )
+        assert ds.geotransform[0] == pytest.approx(-5.0), "x-origin not at bbox minx"
+
+    def test_crs_argument_labels_output(self):
+        """A crs= argument (not just epsg) labels the output raster.
+
+        Test scenario:
+            crs="EPSG:3857" is honoured the same as epsg=3857.
+        """
+        ds = Dataset.from_point_arrays(
+            [0.0, 5.0, 0.0, 5.0],
+            [0.0, 0.0, 5.0, 5.0],
+            [1.0, 2.0, 3.0, 4.0],
+            cell_size=1.0,
+            crs="EPSG:3857",
+        )
+        assert ds.epsg == 3857, f"Expected EPSG 3857, got {ds.epsg}"
+
+    def test_empty_arrays_raise(self):
+        """Empty inputs raise ValueError before touching gdal.Grid.
+
+        Test scenario:
+            Zero-length arrays are rejected with a clear message.
+        """
+        with pytest.raises(ValueError, match="at least one point"):
+            Dataset.from_point_arrays([], [], [], cell_size=1.0)
+
+    def test_length_mismatch_raises(self):
+        """Unequal-length arrays raise ValueError.
+
+        Test scenario:
+            x/y of length 2 with z of length 3 is rejected.
+        """
+        with pytest.raises(ValueError, match="equal length"):
+            Dataset.from_point_arrays(
+                [0.0, 1.0], [0.0, 1.0], [1.0, 2.0, 3.0], cell_size=1.0
+            )
+
+    def test_no_sizing_raises(self):
+        """Omitting both cell_size and width/height raises ValueError.
+
+        Test scenario:
+            Without any sizing the call cannot proceed.
+        """
+        with pytest.raises(ValueError, match="cell_size or both width and height"):
+            Dataset.from_point_arrays([0.0, 1.0], [0.0, 1.0], [1.0, 2.0])
