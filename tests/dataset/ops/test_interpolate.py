@@ -258,3 +258,83 @@ class TestDatasetFromPoints:
             12,
         ), f"Unexpected shape: {ds.rows}x{ds.columns}"
         assert ds.epsg == 3857, f"Expected EPSG 3857, got {ds.epsg}"
+
+
+class TestGridArrayFastPath:
+    """The all-points fast path (CSV + OGR VRT) and its guards.
+
+    A point layer skips the GeoJSON serialization and goes straight from
+    coordinate arrays into ``gdal.Grid``; a non-point layer keeps the GeoJSON
+    fallback. Both must produce a correct raster.
+    """
+
+    def test_fast_path_matches_geojson_reference(self, corner_points):
+        """The array path grids identically to an independent GeoJSON grid.
+
+        Test scenario:
+            Grid four points through grid_points (the fast CSV+VRT path) and,
+            separately, through gdal.Grid on a GeoJSON serialization of the same
+            points; the two rasters must be pixel-for-pixel identical.
+        """
+        from osgeo import gdal
+
+        from pyramids.feature import _ogr as _feature_ogr
+
+        fast = np.asarray(
+            grid_points(corner_points, "val", Dataset, cell_size=1.0).read_array()
+        )
+        options = gdal.GridOptions(
+            format="MEM",
+            algorithm=_DEFAULT_ALGORITHM,
+            zfield="val",
+            outputBounds=[0.0, 10.0, 10.0, 0.0],
+            width=10,
+            height=10,
+            outputSRS=corner_points.crs.to_wkt(),
+        )
+        with _feature_ogr.as_vsimem_path(corner_points) as src_path:
+            reference = gdal.Grid("", src_path, options=options)
+        assert np.array_equal(fast, np.asarray(reference.ReadAsArray())), (
+            "fast CSV+VRT path and the GeoJSON reference produced different grids"
+        )
+
+    def test_value_column_named_x_survives_fast_path(self):
+        """A value column named 'x' does not clash with the CSV's x coordinate.
+
+        Test scenario:
+            The fast path writes fixed x/y/z CSV columns, so gridding a column
+            literally named 'x' interpolates the values, not the coordinates.
+        """
+        gdf = GeoDataFrame(
+            {"x": [10.0, 20.0, 30.0, 40.0]},
+            geometry=[Point(0, 0), Point(10, 0), Point(0, 10), Point(10, 10)],
+            crs="EPSG:4326",
+        )
+        ds = grid_points(FeatureCollection(gdf), "x", Dataset, cell_size=1.0)
+        arr = np.asarray(ds.read_array())
+        assert float(np.nanmin(arr)) >= 10.0 - 1e-6, f"min below range: {arr.min()}"
+        assert float(np.nanmax(arr)) <= 40.0 + 1e-6, f"max above range: {arr.max()}"
+
+    def test_non_point_layer_uses_fallback(self):
+        """A layer whose geometry is not all points still grids (GeoJSON fallback).
+
+        Test scenario:
+            A polygon layer carrying a value column is gridded via the fallback
+            branch and returns a raster of the requested size.
+        """
+        from shapely.geometry import Polygon
+
+        gdf = GeoDataFrame(
+            {"val": [1.0, 2.0]},
+            geometry=[
+                Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]),
+                Polygon([(8, 8), (10, 8), (10, 10), (8, 10)]),
+            ],
+            crs="EPSG:4326",
+        )
+        ds = grid_points(
+            FeatureCollection(gdf), "val", Dataset, cell_size=1.0, bbox=(0, 0, 10, 10)
+        )
+        assert (ds.rows, ds.columns) == (10, 10), (
+            f"fallback produced unexpected shape: {ds.rows}x{ds.columns}"
+        )

@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import pyogrio
 import pyproj
@@ -1465,3 +1466,47 @@ def from_records(
             f"columns present: {list(df.columns)}"
         )
     return fc_cls(gpd.GeoDataFrame(df, geometry=geometry, crs=crs))
+
+
+def from_xyz(
+    fc_cls: type[FeatureCollection],
+    x: Any,
+    y: Any,
+    z: Any = None,
+    *,
+    crs: Any = None,
+    z_column: str = "z",
+) -> FeatureCollection:
+    """Build a point FC from parallel coordinate arrays (see FeatureCollection.from_xyz)."""
+    xs = np.asarray(x, dtype=float)
+    ys = np.asarray(y, dtype=float)
+    if xs.ndim != 1 or ys.ndim != 1:
+        raise ValueError(
+            f"from_xyz expects 1-D coordinate arrays; got x.ndim={xs.ndim}, "
+            f"y.ndim={ys.ndim}."
+        )
+    if xs.shape != ys.shape:
+        raise ValueError(
+            f"from_xyz: x and y must have equal length; got {xs.size} and {ys.size}."
+        )
+    if xs.size == 0:
+        raise ValueError(
+            "from_xyz requires at least one point; got empty coordinate arrays. An "
+            "empty frame would carry no geometry column, which breaks downstream "
+            "pyramids methods."
+        )
+    # `points_from_xy` builds the whole GeometryArray in one vectorized shapely call
+    # -- no Python-level Point() per row -- which is what keeps this usable for large
+    # point tables. `z` is carried as an attribute column (the value to grid), not
+    # baked into the geometry, so a later `.to_crs()` reprojects the horizontal
+    # position without silently shifting the stored value.
+    data: dict[str, Any] = {}
+    if z is not None:
+        zs = np.asarray(z, dtype=float)
+        if zs.shape != xs.shape:
+            raise ValueError(
+                f"from_xyz: z must match x/y length; got {zs.size} and {xs.size}."
+            )
+        data[z_column] = zs
+    geometry = gpd.points_from_xy(xs, ys)
+    return fc_cls(gpd.GeoDataFrame(data, geometry=geometry, crs=crs))
