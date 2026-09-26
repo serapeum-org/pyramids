@@ -7487,6 +7487,28 @@ class NetCDF(Dataset):
             dim, window, how=how, boundary=boundary, skipna=skipna, q=q
         )
 
+    def groupby_bins(
+        self,
+        dim: str,
+        bins: int | Sequence[float],
+        how: str = "mean",
+        *,
+        right: bool = True,
+        include_lowest: bool = False,
+        skipna: bool = True,
+        q: float | None = None,
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.groupby_bins <pyramids.netcdf.engines.selection.Selection.groupby_bins>`."""
+        return self.selection.groupby_bins(
+            dim,
+            bins,
+            how,
+            right=right,
+            include_lowest=include_lowest,
+            skipna=skipna,
+            q=q,
+        )
+
     def rolling(
         self,
         dim: str,
