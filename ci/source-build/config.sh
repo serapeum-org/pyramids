@@ -20,7 +20,10 @@
 # Driver policy (evidence: planning/bundle/from-source-phase0-audit.md):
 #   - OGR vector allow-list only (OGR_BUILD_OPTIONAL_DRIVERS=OFF + explicit
 #     enables): GeoJSON/ESRIJSON, SHAPE, GPKG, GPX, PMTiles, MVT, FlatGeobuf,
-#     GML, KML, WFS, OAPIF, SQLite, OSM — the set FeatureCollection uses.
+#     GML, KML, WFS, OAPIF, SQLite, OSM, CSV — the set FeatureCollection uses.
+#     CSV backs feature_info/feature_count's extentless-driver path (#1202), and
+#     musl is the only platform that can get it from THIS build (its pyogrio is
+#     vendored against this GDAL), so dropping CSV silently breaks musl only.
 #   - OGCAPI stays ON: Dataset.from_ogc_coverages hard-requires it
 #     (src/pyramids/dataset/_ogc_coverages.py); it needs only curl.
 #   - Optional raster drivers stay auto-ON (Zarr via blosc/zstd, WCS via
@@ -524,7 +527,8 @@ src_gdal() {
             -DOGR_ENABLE_DRIVER_KML=ON \
             -DOGR_ENABLE_DRIVER_WFS=ON \
             -DOGR_ENABLE_DRIVER_OAPIF=ON \
-            -DOGR_ENABLE_DRIVER_AVC=ON
+            -DOGR_ENABLE_DRIVER_AVC=ON \
+            -DOGR_ENABLE_DRIVER_CSV=ON
         cmake --build . -j 4
         cmake --install .
     )

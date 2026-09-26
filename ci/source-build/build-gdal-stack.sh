@@ -169,7 +169,7 @@ _missing=0
 # Anchor on the "  <ShortName> -vector-/-raster-" line shape so a short name
 # cannot be satisfied by a different driver that merely contains it (KML by
 # KMLSuperOverlay/LIBKML, GML by GMLAS, ...).
-for drv in "GeoJSON" "ESRI Shapefile" "GPKG" "GPX" "PMTiles" "MVT" "GML" "KML" "WFS" "OAPIF" "FlatGeobuf"; do
+for drv in "GeoJSON" "ESRI Shapefile" "GPKG" "GPX" "PMTiles" "MVT" "GML" "KML" "WFS" "OAPIF" "FlatGeobuf" "CSV"; do
     if ! grep -q "^ *${drv} -" <<<"${_ogr_formats}"; then
         echo "MISSING OGR driver: ${drv}" >&2; _missing=1
     fi
