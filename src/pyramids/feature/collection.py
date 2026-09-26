@@ -610,16 +610,25 @@ class FeatureCollection(GeoDataFrame):
         two capabilities compose on the class: build with ``from_xyz``, reproject
         with ``to_crs``, grid with ``interpolate_to_raster``.
 
+        The coordinates must be finite: a ``NaN`` or infinite ``x``/``y`` is a
+        malformed point and raises. A ``NaN`` in ``z`` is different — it is a missing
+        *reading*, so it is accepted and stored verbatim in the value column (verified),
+        and only later dropped as a gap when that column is gridded.
+
         Args:
             x: X-coordinates (longitudes when ``crs`` is geographic). Anything
-                :func:`numpy.asarray` reads as a 1-D float array.
-            y: Y-coordinates, the same length as ``x``.
+                :func:`numpy.asarray` reads as a 1-D float array. Must be finite.
+            y: Y-coordinates, the same length as ``x``. Must be finite.
             z: Optional value at each point (elevation, depth, a reading). When
                 given it becomes the column named by ``z_column``; when ``None`` the
-                result is a bare point layer with no value column.
+                result is a bare point layer with no value column. A ``NaN`` value is
+                kept as a missing reading, not rejected.
             crs: CRS to attach, in any form
                 :class:`geopandas.GeoDataFrame` accepts (EPSG int, ``"EPSG:4326"``,
-                WKT, a :class:`pyproj.CRS`). Defaults to ``None`` (no CRS).
+                WKT, a :class:`pyproj.CRS`). Resolution goes through
+                :func:`~pyramids.base.crs.crs_from_user_input`, so an EPSG code only
+                GDAL's PROJ database knows (which raw pyproj cannot parse) still
+                attaches (issue #943). Defaults to ``None`` (no CRS).
             z_column: Name to store ``z`` under. Defaults to ``"z"``.
 
         Returns:
@@ -627,7 +636,8 @@ class FeatureCollection(GeoDataFrame):
 
         Raises:
             ValueError: ``x`` and ``y`` are not 1-D and of equal length, ``z`` (if
-                given) does not match their length, or the arrays are empty.
+                given) does not match their length, the arrays are empty, or a
+                coordinate (``x`` or ``y``) is non-finite.
 
         Examples:
             - Build a point layer from three arrays and read back its shape:
