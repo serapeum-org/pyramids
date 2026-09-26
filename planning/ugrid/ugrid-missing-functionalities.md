@@ -284,6 +284,33 @@ xarray (current), gridded (NOAA-ORR-ERD), MDAL (Lutra Consulting). "Out of scope
 - Tasks are grouped into **Epics (A–I)**. Each task has a stable id (e.g. `A2`), a **status**, an
   **objective**, a **DoD**, and full implementation notes.
 - **Do tasks in dependency order** (the "Depends on" line). Within an epic, ascending order is safe.
+
+### Task contract — what every task carries, and what it assumes (READ THIS)
+
+Each task is written to be picked up **independently**, but "independent" means *self-contained
+**together with this file's shared context***, not a standalone paragraph. Concretely:
+
+**Every task body already contains** — objective; the exact pyramids **files/symbols** to create or
+modify; the **public API** (method/class signatures); the **reference algorithm** with its verified
+upstream source (xugrid/gridded/pyramids-NetCDF file:line); **correctness/regression traps**; a concrete
+**Definition of Done**; and **test guidance** (fixtures, cases, location).
+
+**Every task assumes (does NOT repeat) the shared context** — so **before starting ANY task, read, in
+this order:**
+1. **Part 1** — the Gap the task belongs to (the "why" + how peers do it). Each task's heading names its
+   Gap number.
+2. **§S.1–S.8 in full** — the mesh-dimension model (S.1), facade/engine mirror pattern (S.2),
+   `MeshVariable` contract + the `from_arrays`/`dimensions` trap (S.3), rewrap/import-cycle rule (S.4),
+   optional-dep guards (S.5), test conventions (S.6), geometry-dep policy (S.7), and the project
+   workflow/commands/imports/ADR rules (S.8). **These are prerequisites for correctness — skipping them
+   is how you introduce a regression.**
+3. The task's **"Depends on"** tasks (their new helpers/APIs are your building blocks).
+4. Then the task body itself.
+
+If you are launching an agent on a single task, give it **this whole file** (or at minimum Part 1's
+matching Gap + all of §S + the task + its dependencies) — never just the task paragraph. A per-task
+standalone brief that inlines the needed §S excerpts can be generated on request; by default the context
+is consolidated in §S to keep the plan DRY and single-source-of-truth.
 - Every task ends **green** (see §S.8 for exact commands): `pixi run main` (or `pixi run test-fast`, or
   `pixi run -e dev pytest tests/ugrid`) passes, `pre-commit run -a` clean, `pixi run mypy` clean, new
   public symbols documented (Google docstrings + a `docs/reference/netcdf/ugrid/*.md` mkdocstrings stub
