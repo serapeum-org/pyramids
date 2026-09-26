@@ -2553,14 +2553,18 @@ class Selection(_Engine["NetCDF"]):
         Args:
             dim: The band dimension to bin. Must carry **numeric** coordinates — a text axis or
                 a variable's coordinate-less axis is refused — and must not be a spatial axis.
-            bins: An `int` number of equal-width bins spanning the data range, or an explicit
-                sequence of strictly increasing edges. `n` edges make `n - 1` bins.
+            bins: An `int` number of equal-width bins spanning the data range — right-closed
+                with the lowest edge included, so the first label is the data minimum — or an
+                explicit sequence of strictly increasing edges (`n` edges make `n - 1` bins),
+                whose closure follows `right` / `include_lowest`. A `float`, a `bool`, or any
+                other type is refused.
             how: The reduction, as on `reduce` (`"mean"`, `"sum"`, `"min"`, `"max"`, `"std"`,
                 `"var"`, `"median"`, `"prod"`, `"quantile"`, `"count"`, `"all"`, `"any"`).
-            right: Whether the intervals are right-closed `(a, b]` (the default, as
-                `pandas.cut`) or left-closed `[a, b)`.
-            include_lowest: Whether the very first edge is included in the first bin. Applies
-                to explicit edges; an `int` `bins` always includes it, as `pandas.cut` does.
+            right: Whether the **explicit-edge** intervals are right-closed `(a, b]` (the
+                default, as `pandas.cut`) or left-closed `[a, b)`. An `int` `bins` is always
+                right-closed.
+            include_lowest: Whether the very first **explicit** edge is included in the first
+                bin; an `int` `bins` always includes it.
             skipna: Whether gaps are skipped, as on `reduce`.
             q: The quantile for `how="quantile"`, refused for every other `how`.
 
@@ -2569,17 +2573,21 @@ class Selection(_Engine["NetCDF"]):
             to one slice per non-empty bin and its coordinate holding those bins' left edges.
 
         Raises:
-            ValueError: `dim` is not a band dimension, is spatial, or carries non-numeric /
-                no coordinates; `how` / `q` are invalid (as on `reduce`); the explicit edges
-                are fewer than two or not strictly increasing; or a coordinate falls outside
-                every bin.
+            ValueError: `dim` is not a band dimension, is spatial, is not a dimension of the
+                container, or carries non-numeric / no coordinates / a `NaN`; `bins` is not an
+                `int` count or a sequence of edges; `how` / `q` are invalid (as on `reduce`);
+                the explicit edges are fewer than two or not strictly increasing; or a
+                coordinate falls outside every bin.
 
         Notes:
             Deliberate differences from xarray: an **empty bin is dropped** (xarray keeps it
             as NaN), consistent with how `reduce`'s frequency grouping skips empty windows; the
             binned coordinate is the **left edge**, not a `pandas.Interval` (which a GDAL band
             cannot hold); and a coordinate outside every bin is **refused** rather than dropped
-            silently, so widen the bins (or pass `include_lowest=True`) to cover the axis.
+            silently, so widen the bins (or pass `include_lowest=True`) to cover the axis. When
+            an empty bin is dropped, the left-edge labels alone no longer reconstruct each
+            bin's width (the gap is invisible from the axis); carrying the right edge as an
+            attribute is a documented follow-up.
 
         Examples:
             - Average four levels into two 500-wide bins, labelled by their left edges:
