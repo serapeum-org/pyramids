@@ -4157,8 +4157,10 @@ def _bin_membership(
 
     Raises:
         ValueError: `bins` is not an `int` count or a sequence of edges (a `bool` or a `float`
-            is refused); an `int` count below one; or an explicit sequence with fewer than two
-            edges or edges that are not strictly increasing.
+            is refused); an `int` count below one; an `int` count for a constant axis (every
+            coordinate shares one value, so there is no range to divide — pass explicit edges);
+            or an explicit sequence with fewer than two edges or edges that are not strictly
+            increasing.
     """
     if isinstance(bins, bool):
         raise ValueError(
