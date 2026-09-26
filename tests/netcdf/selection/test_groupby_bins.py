@@ -186,33 +186,39 @@ class TestGroupbyBinsRefusals:
 
     def test_a_spatial_dimension_is_refused(self):
         """Binning a spatial axis would destroy the grid, so it raises."""
+        cube = _cube([100.0, 300.0])
         with pytest.raises(ValueError):
-            _cube([100.0, 300.0]).groupby_bins("x", [0, 1], "mean")
+            cube.groupby_bins("x", [0, 1], "mean")
 
     def test_non_increasing_edges_are_refused(self):
         """Explicit edges must be strictly increasing."""
+        cube = _cube([100.0, 300.0])
         with pytest.raises(ValueError, match="strictly increasing"):
-            _cube([100.0, 300.0]).groupby_bins("level", [0, 1000, 500], "mean")
+            cube.groupby_bins("level", [0, 1000, 500], "mean")
 
     def test_fewer_than_two_edges_is_refused(self):
         """A single edge forms no bin."""
+        cube = _cube([100.0, 300.0])
         with pytest.raises(ValueError, match="at least two bin edges"):
-            _cube([100.0, 300.0]).groupby_bins("level", [500], "mean")
+            cube.groupby_bins("level", [500], "mean")
 
     def test_a_float_bins_count_is_refused(self):
         """A float is neither an int count nor a sequence of edges, so it raises clearly."""
+        cube = _cube([100.0, 300.0])
         with pytest.raises(ValueError, match="bins must be an int count"):
-            _cube([100.0, 300.0]).groupby_bins("level", 2.0, "mean")
+            cube.groupby_bins("level", 2.0, "mean")
 
     def test_a_bool_bins_is_refused(self):
         """`bool` is a subclass of int but is not a bin count, so it is refused by name."""
+        cube = _cube([100.0, 300.0])
         with pytest.raises(ValueError, match="not a bool"):
-            _cube([100.0, 300.0]).groupby_bins("level", True, "mean")
+            cube.groupby_bins("level", True, "mean")
 
     def test_a_nonexistent_dimension_on_a_container_says_so(self):
         """A wrong dim name is diagnosed as absent, not as a coordinate-less axis."""
+        cube = _cube([100.0, 300.0])
         with pytest.raises(ValueError, match="not a dimension of this container"):
-            _cube([100.0, 300.0]).groupby_bins("nope", [0, 500], "mean")
+            cube.groupby_bins("nope", [0, 500], "mean")
 
     def test_a_nan_coordinate_is_refused_as_nan(self):
         """A NaN in the axis is named as such, not reported as 'outside every bin'."""
@@ -222,20 +228,24 @@ class TestGroupbyBinsRefusals:
 
     def test_a_constant_axis_with_int_bins_is_refused(self):
         """A constant axis has no range for equal-width int bins, so it raises (no below-min label)."""
+        cube = _cube([300.0, 300.0, 300.0])
         with pytest.raises(ValueError, match="constant axis"):
-            _cube([300.0, 300.0, 300.0]).groupby_bins("level", 2, "mean")
+            cube.groupby_bins("level", 2, "mean")
 
     def test_the_outside_refusal_names_the_coordinates(self):
         """The out-of-range message lists the coordinates that fell in no bin."""
+        cube = _cube([50.0, 300.0, 2000.0])
         with pytest.raises(ValueError, match=r"outside every bin.*2000\.0"):
-            _cube([50.0, 300.0, 2000.0]).groupby_bins("level", [0, 500, 1000], "mean")
+            cube.groupby_bins("level", [0, 500, 1000], "mean")
 
     def test_include_lowest_hint_appears_only_when_it_helps(self):
         """A coordinate equal to the lowest edge gets the include_lowest hint; a plain miss does not."""
+        edge_cube = _cube([300.0, 600.0])
         with pytest.raises(ValueError, match="include_lowest=True"):
-            _cube([300.0, 600.0]).groupby_bins("level", [300, 500, 1000], "mean")
+            edge_cube.groupby_bins("level", [300, 500, 1000], "mean")
+        plain_cube = _cube([50.0, 600.0])
         with pytest.raises(ValueError) as plain:
-            _cube([50.0, 600.0]).groupby_bins("level", [100, 500, 1000], "mean")
+            plain_cube.groupby_bins("level", [100, 500, 1000], "mean")
         assert "include_lowest" not in str(plain.value)
 
     def test_a_text_axis_is_refused(self):
@@ -268,5 +278,6 @@ class TestGroupbyBinsRefusals:
         Args:
             bins: A non-positive integer bin count that cannot form a single bin.
         """
+        cube = _cube([100.0, 300.0])
         with pytest.raises(ValueError, match="at least one bin"):
-            _cube([100.0, 300.0]).groupby_bins("level", bins, "mean")
+            cube.groupby_bins("level", bins, "mean")
