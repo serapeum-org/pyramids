@@ -11,16 +11,19 @@ that must come out exactly as before.
 from __future__ import annotations
 
 import operator
+import warnings
 from pathlib import Path
 
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
+from osgeo import gdal
 
 from pyramids.base._errors import AlignmentError
 from pyramids.dataset import Dataset
 from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf._mdim import copy_band_values_map
+from pyramids.netcdf.engines.variables import _create_multi_band_dims
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -1891,3 +1894,295 @@ class TestCopyBandValuesMap:
         copied = copy_band_values_map(original)
         assert copied == {}, copied
         assert copied is not original, "the copy should be a new map"
+
+
+class TestACoordinatelessDimensionIsWrittenWithoutStamps:
+    """T20's coordinate-less axis survives `set_variable` and `to_file` as None (#1192)."""
+
+    @staticmethod
+    def _coordinateless_result() -> NetCDF:
+        """A variable whose `time` has no coordinates, from two operands that disagree.
+
+        Returns:
+            NetCDF: `left + right`, whose `time` stamps are `None` (T20).
+        """
+        result = _variable([("time", TIMES)]) + _variable(
+            [("time", [1.0, 7.0, 13.0, 19.0])]
+        )
+        assert result._band_dim_values_map["time"] is None, (
+            "precondition: T20 drops coords"
+        )
+        return result
+
+    def test_set_variable_reads_back_none_not_the_container_stamps(self):
+        """A None-coord result written into a store keeps None, not the store's `time`.
+
+        Test scenario:
+            The store's `time` is `[0, 6, 12, 18]` — the very axis the disagreement rejected;
+            `set_variable` used to adopt it (or fabricate `[0, 1, 2, 3]`). It now writes a
+            coordinate-less dimension, which reads back as None. Because a coordinated `time`
+            already holds the name, the axis is written under `time_4` and the rename is
+            announced (#1201 M2) — this asserts both, not just the values.
+        """
+        container = _variable([("time", TIMES)])._parent_nc
+        result = self._coordinateless_result()
+        with pytest.warns(UserWarning, match="written as 'time_4'"):
+            container.set_variable("summed", result)
+        values = container.get_variable("summed")._band_dim_values_map
+        assert list(values) == ["time_4"], values
+        assert list(values.values()) == [None], values
+        assert TIMES not in values.values()
+
+    def test_no_fabricated_stamp_reaches_to_file(self, tmp_path):
+        """The coordinate-less axis is still None after a `to_file` round trip.
+
+        The write collides with the store's coordinated `time`, so the axis is renamed to
+        `time_4` with a warning (#1201 M2); the round trip must preserve both the name and
+        the None coordinates.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        container = _variable([("time", TIMES)])._parent_nc
+        result = self._coordinateless_result()
+        with pytest.warns(UserWarning, match="written as 'time_4'"):
+            container.set_variable("summed", result)
+        out = tmp_path / "coordless.nc"
+        container.to_file(str(out))
+        back = NetCDF.read_file(str(out))
+        assert back.get_variable("summed")._band_dim_values_map == {"time_4": None}
+
+    def test_a_fresh_store_keeps_the_dimension_name(self):
+        """With no coordinated `time` to collide with, the axis keeps its name and is None."""
+        fresh = NetCDF.from_array(
+            np.zeros((1, NY, NX)),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="seed",
+            dims=ExtraDimensions(name="band", values=[0.0]),
+        )
+        fresh.set_variable("summed", self._coordinateless_result())
+        assert fresh.get_variable("summed")._band_dim_values_map == {"time": None}
+
+    def test_a_coordinated_variable_still_round_trips_its_stamps(self):
+        """A variable that does carry coordinates is unaffected — no regression."""
+        container = _variable([("time", TIMES)])._parent_nc
+        container.set_variable("normal", _variable([("time", TIMES)]))
+        assert container.get_variable("normal")._band_dim_values_map == {"time": TIMES}
+
+    @staticmethod
+    def _multi_band_dim_result() -> NetCDF:
+        """A two-band-dim variable whose `time` disagrees but `pressure_level` agrees.
+
+        Returns:
+            NetCDF: `left + right` over `(time, pressure_level)`, where T20 drops `time`'s
+            coordinates and keeps `pressure_level`'s, so writing it drives the 4-D+ rebuild
+            through both arms of `_create_multi_band_dims` at once.
+        """
+        result = _variable([("time", TIMES), ("pressure_level", LEVELS)]) + _variable(
+            [("time", [1.0, 7.0, 13.0, 19.0]), ("pressure_level", LEVELS)]
+        )
+        assert result._band_dim_values_map == {
+            "time": None,
+            "pressure_level": LEVELS,
+        }, f"precondition: T20 must drop only time, got {result._band_dim_values_map}"
+        return result
+
+    def test_a_multi_band_dim_write_keeps_only_the_coordinate_less_axis_none(self):
+        """The 4-D+ path writes `time` without stamps and `pressure_level` with its own.
+
+        Test scenario:
+            `_create_multi_band_dims` handles a variable with several band dimensions in one
+            call, unlike the single-band path the other tests here take, so it is the only way
+            to reach both of its arms — a coordinate-less axis and a coordinated one — at once.
+            The fresh store's `band` axis leaves `time` nothing coordinated to collide with, so
+            it keeps its name and reads back None while `pressure_level` keeps its stamps.
+        """
+        fresh = NetCDF.from_array(
+            np.zeros((1, NY, NX)),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="seed",
+            dims=ExtraDimensions(name="band", values=[0.0]),
+        )
+        fresh.set_variable("summed", self._multi_band_dim_result())
+        values = fresh.get_variable("summed")._band_dim_values_map
+        assert values == {"time": None, "pressure_level": LEVELS}, values
+
+    def test_the_multi_band_dim_result_round_trips_through_to_file(self, tmp_path):
+        """After a `to_file` round trip the two-band result still holds `time` as None.
+
+        Args:
+            tmp_path: pytest's temporary directory.
+        """
+        fresh = NetCDF.from_array(
+            np.zeros((1, NY, NX)),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="seed",
+            dims=ExtraDimensions(name="band", values=[0.0]),
+        )
+        fresh.set_variable("summed", self._multi_band_dim_result())
+        out = tmp_path / "coordless_2d.nc"
+        fresh.to_file(str(out))
+        back = NetCDF.read_file(str(out)).get_variable("summed")._band_dim_values_map
+        assert back == {"time": None, "pressure_level": LEVELS}, back
+
+
+class TestCoordinatelessDimensionHelper:
+    """`NetCDF._coordinateless_dimension` creates/reuses a dimension with no coordinates."""
+
+    @staticmethod
+    def _group():
+        """A fresh in-memory root group.
+
+        Returns:
+            The MEM multidimensional root group.
+        """
+        return gdal.GetDriverByName("MEM").CreateMultiDimensional("m").GetRootGroup()
+
+    def test_creates_a_dimension_with_no_indexing_variable(self):
+        """The created dimension has the right size and carries no coordinate array."""
+        dim = NetCDF._coordinateless_dimension(
+            self._group(), "time", 4, gdal.DIM_TYPE_TEMPORAL
+        )
+        assert dim.GetSize() == 4
+        assert dim.GetIndexingVariable() is None
+
+    def test_reuses_an_existing_coordinateless_dimension(self):
+        """Writing the same axis twice reuses the one dimension, not a suffixed sibling."""
+        rg = self._group()
+        first = NetCDF._coordinateless_dimension(rg, "time", 4, gdal.DIM_TYPE_TEMPORAL)
+        second = NetCDF._coordinateless_dimension(rg, "time", 4, gdal.DIM_TYPE_TEMPORAL)
+        assert second.GetName() == first.GetName() == "time"
+        assert len(rg.GetDimensions()) == 1
+
+    def test_suffixes_when_the_name_is_a_coordinated_dimension(self):
+        """A name owned by a coordinated dimension cannot be reused, so a sibling is made.
+
+        The rename is announced with a warning, as `_get_or_create_dimension` announces the
+        analogous coordinated collision, so a later selection under the original name is not a
+        silent surprise (#1201 M2).
+        """
+        rg = self._group()
+        f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+        NetCDF.create_main_dimension(rg, "time", f64, np.array([0.0, 6.0, 12.0, 18.0]))
+        with pytest.warns(UserWarning, match="written as"):
+            dim = NetCDF._coordinateless_dimension(
+                rg, "time", 4, gdal.DIM_TYPE_TEMPORAL
+            )
+        assert dim.GetName() != "time", dim.GetName()
+        assert dim.GetIndexingVariable() is None
+
+    def test_a_plain_create_or_reuse_does_not_warn(self):
+        """Creating a fresh axis, or reusing an identical one, is silent — only a rename warns."""
+        rg = self._group()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            first = NetCDF._coordinateless_dimension(
+                rg, "time", 4, gdal.DIM_TYPE_TEMPORAL
+            )
+            second = NetCDF._coordinateless_dimension(
+                rg, "time", 4, gdal.DIM_TYPE_TEMPORAL
+            )
+        assert first.GetName() == second.GetName() == "time"
+
+    def test_suffixes_when_the_name_is_a_coordinateless_dimension_of_another_size(self):
+        """A coordinate-less name of a different size cannot be shared either, so a sibling is made.
+
+        One netCDF dimension cannot hold two lengths, so a second coordinate-less axis of the
+        same name but a different size is written under a suffixed name and the rename is
+        announced. This exercises the size clause of the reuse test that the coordinated
+        collision never reaches: dropping `match.GetSize() == size` would leave it green.
+        """
+        rg = self._group()
+        NetCDF._coordinateless_dimension(rg, "bottom_top", 27, gdal.DIM_TYPE_TEMPORAL)
+        with pytest.warns(UserWarning, match="written as"):
+            dim = NetCDF._coordinateless_dimension(rg, "bottom_top", 12)
+        assert dim.GetName() != "bottom_top", dim.GetName()
+        assert dim.GetSize() == 12, dim.GetSize()
+        assert dim.GetIndexingVariable() is None, (
+            "the suffixed axis must stay coordinate-less"
+        )
+
+
+class TestCreateMultiBandDimsInvariantGuard:
+    """`_create_multi_band_dims` splits an *absent* axis from a *present-`None`* one (#1201 N3)."""
+
+    @staticmethod
+    def _group():
+        """A fresh in-memory root group.
+
+        Returns:
+            The MEM multidimensional root group.
+        """
+        return gdal.GetDriverByName("MEM").CreateMultiDimensional("m").GetRootGroup()
+
+    def test_an_absent_axis_defaults_to_range_while_a_present_none_axis_is_coordinateless(
+        self,
+    ):
+        """A name missing from `values_map` gets `range(size)`; a name mapped to `None` gets no coords.
+
+        Test scenario:
+            Every real variable keeps `set(names) == set(values_map)`, so the key-absent arm is
+            unreachable through the public API — it only guards a future invariant slip. Calling
+            the helper directly with `time` absent and `level` mapped to `None` is the only way to
+            reach both arms at once: `time` must fall through to the positional `range(size)`
+            default with a real indexing variable holding `[0, 1, 2]`, while `level` stays
+            coordinate-less (no indexing variable), so a present-`None` axis never fabricates
+            stamps the way an absent one legitimately does.
+        """
+        rg = self._group()
+        coord_dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+
+        band_dims = _create_multi_band_dims(
+            NetCDF, rg, ("time", "level"), (3, 2), {"level": None}, coord_dtype
+        )
+
+        by_name = {dim.GetName(): dim for dim in band_dims}
+        assert set(by_name) == {"time", "level"}, f"unexpected dims {list(by_name)}"
+        time_indexing = by_name["time"].GetIndexingVariable()
+        assert time_indexing is not None, (
+            "an axis absent from values_map must default to positional coordinates"
+        )
+        assert time_indexing.ReadAsArray().tolist() == [0, 1, 2], (
+            f"the absent axis must default to range(size), got "
+            f"{time_indexing.ReadAsArray().tolist()}"
+        )
+        assert by_name["time"].GetSize() == 3, by_name["time"].GetSize()
+        assert by_name["level"].GetIndexingVariable() is None, (
+            "an axis mapped to None must stay coordinate-less, not gain range(size)"
+        )
+        assert by_name["level"].GetSize() == 2, by_name["level"].GetSize()
+
+
+class TestABandAxisWithoutValuesGetsPositionalCoordinates:
+    """The single-band 3-D write path gives a plain raster's band axis `range(size)` (#1192, #1201)."""
+
+    def test_a_plain_multi_band_dataset_reads_back_with_positional_coordinates(self):
+        """`set_variable` of a coordinate-less classic raster labels its band axis `[0, 1, 2]`.
+
+        Test scenario:
+            A plain `Dataset` tracks no `_band_dim_values` and no coordinate map, so the axis is
+            *not* the T20 coordinate-less case (a key present and `None`); it is a caller who
+            simply omitted band values. That must take the documented positional `range(size)`
+            default, matching `from_array`, rather than being written with no indexing variable.
+            The result reads back three positional stamps under the default `bands` axis.
+        """
+        fresh = NetCDF.from_array(
+            np.zeros((1, NY, NX)),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="seed",
+            dims=ExtraDimensions(name="band", values=[0.0]),
+        )
+        plain = Dataset.from_array(
+            np.arange(3 * NY * NX, dtype=np.float64).reshape(3, NY, NX),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+        )
+
+        fresh.set_variable("plain", plain)
+        written = fresh.get_variable("plain")
+
+        assert written._band_dim_names == ("bands",), written._band_dim_names
+        assert written._band_dim_sizes == (3,), written._band_dim_sizes
+        assert written._band_dim_values_map == {"bands": [0, 1, 2]}, (
+            f"a value-less band axis must default to range(size), got "
+            f"{written._band_dim_values_map}"
+        )

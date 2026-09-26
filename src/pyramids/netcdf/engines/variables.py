@@ -829,15 +829,32 @@ def _create_multi_band_dims(
 ) -> list:
     """Create one GDAL dimension per tracked non-spatial axis (the 4-D+ rebuild path).
 
-    Each axis takes its coordinate values from ``values_map`` (filling integer
-    indices when absent); the first axis is tagged ``DIM_TYPE_TEMPORAL``. A newly
-    created, labelled axis also carries its CF ``(units, calendar)`` from ``dim_attrs``
-    onto its coordinate array, so a variable a join adds after the first keeps them
-    through ``to_file`` (#1179).
+    Each axis takes its coordinate values from `values_map`; the first axis is tagged
+    `DIM_TYPE_TEMPORAL`. An axis *tracked* as coordinate-less — its `values_map` entry is
+    present and `None`, which a T20 operator disagreement produces — is created with no
+    indexing variable via `NetCDF._coordinateless_dimension`, so it reads back as `None`
+    (#1192). An axis simply absent from `values_map` keeps the positional `range(size)`
+    default, the same decision the single-band path makes, matching `from_array`. A newly
+    created, labelled axis also carries its CF `(units, calendar)` from `dim_attrs` onto its
+    coordinate array, so a variable a join adds after the first keeps them through `to_file`
+    (#1179).
     """
     band_dims = []
     known = {dimension.GetName() for dimension in rg.GetDimensions() or []}
     for i, dim_name in enumerate(names):
+        dim_type = gdal.DIM_TYPE_TEMPORAL if i == 0 else None
+        # Decide from the same evidence the single-band path uses: an axis *tracked* as
+        # coordinate-less is the key present with a `None` value (a T20 disagreement); a key
+        # simply absent is an omitted axis that keeps the positional `range(size)` default,
+        # matching `from_array`. For a well-formed `values_map` (every name a key) this is
+        # exactly `values is None`; the split only guards a future invariant slip (#1201 N3).
+        if dim_name in values_map and values_map[dim_name] is None:
+            # No coordinates for this axis: write it with no indexing variable so it reads
+            # back `None`, not a fabricated `range(size)` (#1192).
+            band_dims.append(
+                nc._coordinateless_dimension(rg, dim_name, int(sizes[i]), dim_type)
+            )
+            continue
         values = values_map.get(dim_name)
         labelled = values is not None
         if values is None:
@@ -846,11 +863,7 @@ def _create_multi_band_dims(
         # as strings, where the float cast raised on WRF's `Time` stamps (#1181).
         values = np.asarray(values)
         created = nc._get_or_create_dimension(
-            rg,
-            dim_name,
-            values,
-            _coordinate_dtype(values, coord_dtype),
-            gdal.DIM_TYPE_TEMPORAL if i == 0 else None,
+            rg, dim_name, values, _coordinate_dtype(values, coord_dtype), dim_type
         )
         _carry_band_dim_attrs(
             rg, dim_name, created, labelled, dim_name in known, dim_attrs
@@ -873,14 +886,19 @@ def _build_variable_mdarray(
     band: dict,
     dim_attrs: dict[str, dict[str, str]] | None = None,
 ) -> Any:
-    """Create the variable MDArray with the right band dimensions and write ``arr``.
+    """Create the variable MDArray with the right band dimensions and write `arr`.
 
-    Three layouts: a multi-band-dim 4-D+ rebuild (reshape the flattened bands
-    back into storage order, one GDAL dim per non-spatial axis via
-    :func:`_create_multi_band_dims`); the legacy single-band-dim 3-D path; and a
-    plain 2-D ``(y, x)`` variable. A newly created, labelled band axis carries its CF
-    ``(units, calendar)`` from ``dim_attrs`` onto its coordinate array so a join's
-    later variable keeps them through ``to_file`` (#1179). Returns the written MDArray.
+    Three layouts: a multi-band-dim 4-D+ rebuild (reshape the flattened bands back into
+    storage order, one GDAL dim per non-spatial axis via :func:`_create_multi_band_dims`);
+    the legacy single-band-dim 3-D path; and a plain 2-D `(y, x)` variable. An axis the
+    source *tracks* as coordinate-less — its `values_map` entry is present and `None`, which
+    a T20 operator disagreement produces — is created with no indexing variable via
+    `NetCDF._coordinateless_dimension`, so it reads back as `None` (#1192). A caller who
+    merely omits `band_dim_values` on a plain raster is not that case: the axis keeps the
+    documented positional `range(size)` default, matching `from_array`. A newly created,
+    labelled band axis carries its CF `(units, calendar)` from `dim_attrs` onto its
+    coordinate array so a join's later variable keeps them through `to_file` (#1179).
+    Returns the written MDArray.
     """
     names, sizes, values_map = band["names"], band["sizes"], band["values_map"]
     if len(names) > 1 and arr.ndim == 3 and sizes:
@@ -892,24 +910,40 @@ def _build_variable_mdarray(
     elif arr.ndim == 3:
         if band_dim_name is None:
             band_dim_name = "bands"
-        labelled = band_dim_values is not None
-        if band_dim_values is None:
-            band_dim_values = list(range(arr.shape[0]))
-        preexisting = band_dim_name in {
-            dimension.GetName() for dimension in rg.GetDimensions() or []
-        }
-        # `np.asarray`, not `dtype=np.float64`: a text axis stays text (#1181).
-        band_values = np.asarray(band_dim_values)
-        dim_band = nc._get_or_create_dimension(
-            rg,
-            band_dim_name,
-            band_values,
-            _coordinate_dtype(band_values, coord_dtype),
-            gdal.DIM_TYPE_TEMPORAL,
+        # Only a source that *tracks* this axis as coordinate-less writes a
+        # coordinate-less dimension — a T20 operator disagreement leaves
+        # `_band_dim_values_map[name] is None` (the key present, the value `None`). A
+        # caller who merely omits `band_dim_values` on a plain raster is not that case:
+        # it still gets the documented positional `range(size)` default, matching
+        # `from_array` (#1192, #1201).
+        coordinate_less = (
+            band_dim_name in values_map and values_map[band_dim_name] is None
         )
-        _carry_band_dim_attrs(
-            rg, band_dim_name, dim_band, labelled, preexisting, dim_attrs
-        )
+        if band_dim_values is None and coordinate_less:
+            # Write the dimension with no indexing variable so it reads back `None`,
+            # rather than adopting the store's own stamps (#1192).
+            dim_band = nc._coordinateless_dimension(
+                rg, band_dim_name, arr.shape[0], gdal.DIM_TYPE_TEMPORAL
+            )
+        else:
+            labelled = band_dim_values is not None
+            if band_dim_values is None:
+                band_dim_values = list(range(arr.shape[0]))
+            preexisting = band_dim_name in {
+                dimension.GetName() for dimension in rg.GetDimensions() or []
+            }
+            # `np.asarray`, not `dtype=np.float64`: a text axis stays text (#1181).
+            band_values = np.asarray(band_dim_values)
+            dim_band = nc._get_or_create_dimension(
+                rg,
+                band_dim_name,
+                band_values,
+                _coordinate_dtype(band_values, coord_dtype),
+                gdal.DIM_TYPE_TEMPORAL,
+            )
+            _carry_band_dim_attrs(
+                rg, band_dim_name, dim_band, labelled, preexisting, dim_attrs
+            )
         md_arr = rg.CreateMDArray(variable_name, [dim_band, dim_y, dim_x], data_dtype)
     else:
         md_arr = rg.CreateMDArray(variable_name, [dim_y, dim_x], data_dtype)

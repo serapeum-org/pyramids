@@ -8836,16 +8836,19 @@ class NetCDF(Dataset):
             result = self._preserve_netcdf_metadata(result)._persist_to(path)
         return cast("NetCDF", result)
 
-    def isel(self, **indexers: Any) -> NetCDF:
+    def isel(self, *, drop: bool = False, **indexers: Any) -> NetCDF:
         """Facade — :meth:`Selection.isel <pyramids.netcdf.engines.selection.Selection.isel>`.
 
         Args:
+            drop: When `True`, drop the axes a scalar (point) selector collapsed — a
+                length-one `list` or `slice`, and a pre-existing length-one dim, are kept,
+                as in xarray; see the engine method.
             **indexers: `dimension=selector` pairs; see the engine method.
 
         Returns:
             NetCDF: The variable holding the selected bands.
         """
-        return self.selection.isel(**indexers)
+        return self.selection.isel(drop=drop, **indexers)
 
     def sel(
         self,
@@ -12891,6 +12894,71 @@ class NetCDF(Dataset):
             if reused is not None
             else NetCDF.create_main_dimension(rg, dim_name, dtype, values)
         )
+
+    @staticmethod
+    def _coordinateless_dimension(
+        rg: gdal.Group, dim_name: str, size: int, dim_type: str | None = None
+    ) -> gdal.Dimension:
+        """A band dimension with **no** indexing variable, for a coordinate-less axis.
+
+        When an operator's operands disagree about their stamps, T20 keeps the dimension
+        but no coordinates (`_band_dim_values_map[dim] is None`) — neither operand's stamps
+        describe the result. Writing that axis must not invent any: not the store's own
+        `time` (that is the axis the disagreement rejected), and not the positional
+        `[0, 1, 2, …]` a `range(size)` fallback would fabricate. netCDF allows a dimension
+        with no coordinate variable — a WRF `bottom_top` is one — and `_read_band_dim_values`
+        reads that shape back as `None`, so the round trip preserves "no coordinates" (#1192).
+
+        An existing coordinate-less dimension of the same name and size is reused, so
+        rewriting the same variable does not accumulate siblings. A name already taken by a
+        *coordinated* dimension (or a coordinate-less one of another size) cannot be reused —
+        one netCDF dimension cannot be both — so a suffixed name is created instead, and a
+        warning names it so a later selection is not a silent surprise.
+
+        Args:
+            rg: The root group.
+            dim_name: The band dimension's name.
+            size: Its length.
+            dim_type: The GDAL dimension type (e.g. `gdal.DIM_TYPE_TEMPORAL`), or `None`.
+
+        Returns:
+            gdal.Dimension: The reused or newly created coordinate-less dimension.
+
+        Warns:
+            UserWarning: The name is already held by a dimension this axis cannot share, so
+                the axis was written under a suffixed name to select on instead.
+        """
+        existing = {
+            dimension.GetName(): dimension for dimension in rg.GetDimensions() or []
+        }
+        match = existing.get(dim_name)
+        reusable = (
+            match is not None
+            and match.GetSize() == size
+            and match.GetIndexingVariable() is None
+        )
+        if reusable:
+            result = match
+        else:
+            target = (
+                dim_name
+                if match is None
+                else NetCDF._unused_dimension_name(existing, dim_name, size)
+            )
+            if match is not None:
+                # The store already holds a dimension of this name that a coordinate-less
+                # axis cannot share — a coordinated one, or a coordinate-less one of another
+                # size — so it is written under a suffixed name. Announce it, as
+                # `_get_or_create_dimension` announces the analogous coordinated collision;
+                # otherwise a later `isel(<name>=...)` fails with no hint the axis was renamed.
+                warnings.warn(
+                    f"the store already holds a dimension named {dim_name!r} that this "
+                    f"coordinate-less axis cannot share, so it was written as {target!r}. "
+                    "Select on the result under that name.",
+                    stacklevel=2,
+                )
+            result = rg.CreateDimension(target, dim_type or "", None, size)
+        return result
 
     @staticmethod
     def _same_grid(source: NetCDF, arr: np.ndarray, geo: tuple) -> bool:

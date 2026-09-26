@@ -728,7 +728,7 @@ class Selection(_Engine["NetCDF"]):
         result._curvilinear_coords = (lon_win, lat_win)
         return result
 
-    def isel(self, **indexers: Any) -> NetCDF:
+    def isel(self, *, drop: bool = False, **indexers: Any) -> NetCDF:
         """Select bands by **position** along one or more band dimensions.
 
         The positional twin of :meth:`sel`. Where `sel` asks "which band has this
@@ -741,6 +741,14 @@ class Selection(_Engine["NetCDF"]):
         because each cut is independent of the others the order does not affect the result.
 
         Args:
+            drop: When `True`, drop the axes a **scalar** (point) selector collapsed —
+                `isel(time=0, drop=True)` returns the plane without a length-one `time`,
+                matching xarray's `isel(..., drop=True)`. Only a scalar index is
+                dimension-reducing: a length-one `list` or `slice` (`isel(time=[0])`,
+                `isel(time=slice(0, 1))`) keeps its axis, as xarray keeps it, and a
+                pre-existing length-one band dimension the call never indexed (an ensemble
+                `member=1`, say) is kept too. Keyword-only, so it is never read as a
+                dimension name; `drop=False` (the default) keeps every axis, as before.
             **indexers: One or more `dimension=selector` pairs. Each selector is an index,
                 a `list` or `tuple` of indices, or a `slice` of them. "Index" means
                 anything `operator.index()` accepts, so a numpy integer counts and needs no
@@ -751,6 +759,7 @@ class Selection(_Engine["NetCDF"]):
         Returns:
             NetCDF: A variable holding the selected bands, with `_band_dim_sizes` and the
             coordinate map narrowed to match. A dimension with no coordinates keeps none.
+            With `drop=True`, the axes a scalar selector collapsed are removed.
 
         Raises:
             ValueError: No indexers were given, the variable tracks no band dimensions, a
@@ -796,6 +805,19 @@ class Selection(_Engine["NetCDF"]):
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
               >>> nc["temperature"].isel(time=-1)._band_dim_values_map["time"]
               [18.0]
+
+              ```
+            - `drop=True` removes the length-one `time` the selection leaves behind,
+              instead of carrying it through `to_file` / `to_xarray`:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
+              >>> cube = nc["temperature"]
+              >>> cube.isel(time=0)._band_dim_names
+              ('time', 'pressure_level')
+              >>> cube.isel(time=0, drop=True)._band_dim_names
+              ('pressure_level',)
 
               ```
             - The case `sel` cannot serve — a WRF `bottom_top` axis the store gives no
@@ -858,6 +880,7 @@ class Selection(_Engine["NetCDF"]):
         # disk — 3 of 12 bands on the CF fixture — so the caller paid for a read whose
         # result was thrown away. Resolution touches metadata only, never pixels.
         resolved: list[tuple[str, list[int]]] = []
+        scalar_dims: list[str] = []
         for dim_name, selector in indexers.items():
             _assert_band_dimension(nc, dim_name, caller="isel")
             axis = nc._band_dim_names.index(dim_name)
@@ -865,10 +888,24 @@ class Selection(_Engine["NetCDF"]):
             resolved.append(
                 (dim_name, _resolve_positional_indices(selector, size, dim_name))
             )
+            # A scalar (point) selector is dimension-reducing, as it is in xarray; a
+            # `list`/`tuple`/`slice` is not, even when it keeps a single band. Only the
+            # former is a `drop=` candidate.
+            if not isinstance(selector, (slice, list, tuple)):
+                scalar_dims.append(dim_name)
 
         result = nc
         for dim_name, dim_indices in resolved:
             result = _subset_along_dim(result, dim_name, dim_indices)
+        if drop:
+            # Match xarray: drop only the axes a *scalar* selector collapsed. A length-one
+            # `list` or `slice` keeps its axis there, and a pre-existing length-one band dim
+            # the call never indexed is kept too — so this is neither a blanket `squeeze()`
+            # nor a drop-every-length-one rule (#1193). A scalar always resolves to one
+            # index, so each squeezed axis is length one by construction.
+            for dim_name in scalar_dims:
+                if dim_name in result._band_dim_names:
+                    result = result.squeeze(dim_name)
         return result
 
     def sel(
