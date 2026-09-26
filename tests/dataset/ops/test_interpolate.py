@@ -465,6 +465,129 @@ class TestDatasetFromPointArrays:
             )
 
 
+class TestNonFiniteInputs:
+    """Non-finite handling in the array grid core (findings M1, M2).
+
+    A NaN *value* is a missing reading and must be dropped (matching the GeoJSON
+    path), not fed to gdal.Grid as a real 0.0; a non-finite *coordinate* or bbox is
+    malformed and must raise a clear ValueError.
+    """
+
+    def test_nan_value_matches_geojson_drop(self):
+        """A partial-NaN value column grids identically through both paths.
+
+        Test scenario:
+            Four points with one NaN reading, gridded via the public
+            Dataset.from_points (the CSV fast path) must equal an independent
+            gdal.Grid-on-GeoJSON reference, which drops the NaN feature. Before the
+            fix the CSV path read NaN as 0.0 and diverged badly (23.99 -> 1.38 at
+            the corner).
+        """
+        from osgeo import gdal
+
+        from pyramids.feature import _ogr as _feature_ogr
+
+        x = [0.0, 10.0, 0.0, 10.0]
+        y = [0.0, 0.0, 10.0, 10.0]
+        z = [10.0, 20.0, float("nan"), 40.0]
+        gdf = GeoDataFrame(
+            {"z": z}, geometry=[Point(a, b) for a, b in zip(x, y)], crs="EPSG:4326"
+        )
+        fast = np.asarray(
+            Dataset.from_points(FeatureCollection(gdf), "z", cell_size=2.0).read_array()
+        )
+        options = gdal.GridOptions(
+            format="MEM",
+            algorithm=_DEFAULT_ALGORITHM,
+            zfield="z",
+            outputBounds=[0.0, 10.0, 10.0, 0.0],
+            width=5,
+            height=5,
+            outputSRS=gdf.crs.to_wkt(),
+        )
+        with _feature_ogr.as_vsimem_path(FeatureCollection(gdf)) as src_path:
+            ref = np.asarray(gdal.Grid("", src_path, options=options).ReadAsArray())
+        assert np.allclose(fast, ref, equal_nan=True), (
+            "NaN value handling diverges from the GeoJSON path"
+        )
+
+    def test_partial_nan_equals_explicit_drop(self):
+        """Gridding with a NaN value equals gridding the finite points alone.
+
+        Test scenario:
+            The same four points with one NaN, and the three finite points, over an
+            identical bbox, produce the identical raster.
+        """
+        bbox = (0.0, 0.0, 10.0, 10.0)
+        with_nan = Dataset.from_point_arrays(
+            [0.0, 10.0, 0.0, 10.0],
+            [0.0, 0.0, 10.0, 10.0],
+            [10.0, 20.0, float("nan"), 40.0],
+            cell_size=2.0,
+            bbox=bbox,
+        ).read_array()
+        finite_only = Dataset.from_point_arrays(
+            [0.0, 10.0, 10.0],
+            [0.0, 0.0, 10.0],
+            [10.0, 20.0, 40.0],
+            cell_size=2.0,
+            bbox=bbox,
+        ).read_array()
+        assert np.array_equal(np.asarray(with_nan), np.asarray(finite_only)), (
+            "dropping a NaN value must equal omitting the point"
+        )
+
+    def test_all_nan_values_raise(self):
+        """An all-non-finite value column leaves nothing to interpolate.
+
+        Test scenario:
+            Every value NaN raises a clear ValueError rather than an empty grid.
+        """
+        with pytest.raises(ValueError, match="every value is non-finite"):
+            Dataset.from_point_arrays(
+                [0.0, 1.0, 2.0], [0.0, 1.0, 2.0], [float("nan")] * 3, cell_size=1.0
+            )
+
+    def test_nan_coordinate_raises(self):
+        """A NaN coordinate is malformed and raises a clear ValueError.
+
+        Test scenario:
+            Before the guard this surfaced as 'cannot convert float NaN to integer'.
+        """
+        with pytest.raises(ValueError, match="x and y must be finite"):
+            Dataset.from_point_arrays(
+                [0.0, float("nan")], [0.0, 1.0], [1.0, 2.0], cell_size=1.0
+            )
+
+    def test_inf_coordinate_raises(self):
+        """An infinite coordinate raises ValueError, not OverflowError.
+
+        Test scenario:
+            inf in x is rejected up front instead of reaching round()/gdal.Grid.
+        """
+        with pytest.raises(ValueError, match="x and y must be finite"):
+            Dataset.from_point_arrays(
+                [0.0, float("inf")], [0.0, 1.0], [1.0, 2.0], cell_size=1.0
+            )
+
+    def test_nonfinite_bbox_raises(self):
+        """A non-finite bbox is rejected before it reaches gdal.Grid.
+
+        Test scenario:
+            With explicit width/height (which skips the sizing round()), an inf bbox
+            edge would otherwise flow straight into gdal.GridOptions.
+        """
+        with pytest.raises(ValueError, match="bbox must be finite"):
+            Dataset.from_point_arrays(
+                [0.0, 1.0],
+                [0.0, 1.0],
+                [1.0, 2.0],
+                width=5,
+                height=5,
+                bbox=(0.0, 0.0, float("inf"), 10.0),
+            )
+
+
 class TestGridPointsFallbackBranch:
     """The non-point GeoJSON fallback in :func:`grid_points`."""
 

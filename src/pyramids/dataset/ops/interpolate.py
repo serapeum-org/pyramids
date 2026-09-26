@@ -197,8 +197,15 @@ def grid_arrays(
         )
     if xs.size == 0:
         raise ValueError("grid_arrays requires at least one point; got empty arrays.")
+    if not (np.isfinite(xs).all() and np.isfinite(ys).all()):
+        raise ValueError(
+            "grid_arrays: x and y must be finite; got NaN or infinity among the "
+            "coordinates. Drop or repair the offending points before gridding."
+        )
 
     if bbox is not None:
+        if not np.isfinite(np.asarray(bbox, dtype=float)).all():
+            raise ValueError(f"grid_arrays: bbox must be finite, got {bbox!r}.")
         minx, miny, maxx, maxy = (float(v) for v in bbox)
     else:
         minx, miny = float(xs.min()), float(ys.min())
@@ -206,6 +213,21 @@ def grid_arrays(
     out_w, out_h = _resolve_size(
         minx, miny, maxx, maxy, cell_size=cell_size, width=width, height=height
     )
+
+    # Drop points whose value is non-finite -- AFTER fixing the extent above, so a
+    # gap does not shrink the output. gdal.Grid's algorithms simply omit a point
+    # that has no value, which is what the GeoJSON fallback does (a NaN property is
+    # a missing reading, not a zero). Without this, the CSV path would serialise
+    # NaN as text that GDAL's CSV reader parses as a real 0.0, silently dragging
+    # the interpolated surface toward zero -- so a gauge/sounding table with gaps
+    # grids identically through either path.
+    finite = np.isfinite(zs)
+    if not finite.all():
+        xs, ys, zs = xs[finite], ys[finite], zs[finite]
+        if xs.size == 0:
+            raise ValueError(
+                "grid_arrays: every value is non-finite; nothing to interpolate."
+            )
 
     options = gdal.GridOptions(
         format="MEM",
