@@ -15,7 +15,7 @@ import sys
 import threading
 import warnings
 import weakref
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TextIO, Unpack, cast
 
@@ -12644,7 +12644,7 @@ class NetCDF(Dataset):
         crs: str | int | None = None,
         x: str | None = None,
         y: str | None = None,
-        variables: str | list[str] | None = None,
+        variables: str | Sequence[str] | None = None,
         no_data_value: Any = DEFAULT_NO_DATA_VALUE,
         path: str | Path | None = None,
     ) -> Container:

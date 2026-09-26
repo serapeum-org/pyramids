@@ -1171,8 +1171,10 @@ def from_dataframe(
             level.
         y: The index level holding the row (y) coordinates. Defaults to the second-innermost
             level.
-        variables: Which columns become data variables, as a name or a sequence of names.
-            `None` (default) takes every column.
+        variables: Which columns become data variables, as a label or a sequence of labels.
+            `None` (default) takes every column. A `list` or `tuple` is read as several
+            labels, so a single tuple column label from a `MultiIndex` columns axis must be
+            wrapped — `variables=[("a", "b")]`, not `variables=("a", "b")`.
         no_data_value: Sentinel for the gaps. `NaN` cells (and cells absent from the frame)
             are stored as this value. Defaults to `DEFAULT_NO_DATA_VALUE`.
         path: Destination. `None` (default) builds the store in memory; a `.nc` path writes
