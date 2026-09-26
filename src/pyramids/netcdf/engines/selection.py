@@ -4126,23 +4126,26 @@ def _bin_membership(
         bin index per coordinate, `NaN` for a coordinate outside every bin.
 
     Raises:
-        ValueError: `bins` is an `int` below one, or an explicit sequence with fewer than two
+        ValueError: `bins` is not an `int` count or a sequence of edges (a `bool` or a `float`
+            is refused); an `int` count below one; or an explicit sequence with fewer than two
             edges or edges that are not strictly increasing.
     """
+    if isinstance(bins, bool):
+        raise ValueError(
+            "groupby_bins() bins must be an int count or a sequence of edges, not a bool."
+        )
     if isinstance(bins, (int, np.integer)):
         if int(bins) < 1:
             raise ValueError(
                 f"groupby_bins() needs at least one bin; got bins={bins!r}."
             )
-        codes, edges = pd.cut(
-            coords,
-            bins=int(bins),
-            right=right,
-            labels=False,
-            retbins=True,
-            include_lowest=True,
-        )
-    else:
+        # Edges span exactly [min, max], so the first label is the data minimum rather than
+        # pandas' range-expanded edge (`cut(x, int)` widens the ends ~0.1%, which for a level
+        # axis starting at 0 gives a negative first label). The int form is right-closed with
+        # the lowest edge included; `right` / `include_lowest` apply to explicit edges only.
+        edges = np.histogram_bin_edges(coords, bins=int(bins))
+        codes = pd.cut(coords, edges, right=True, include_lowest=True, labels=False)
+    elif isinstance(bins, (list, tuple, np.ndarray)):
         edges = np.asarray(list(bins), dtype="float64")
         if edges.size < 2:
             raise ValueError(
@@ -4154,6 +4157,11 @@ def _bin_membership(
             )
         codes = pd.cut(
             coords, edges, right=right, include_lowest=include_lowest, labels=False
+        )
+    else:
+        raise ValueError(
+            "groupby_bins() bins must be an int count of equal-width bins or a sequence of "
+            f"edges; got {type(bins).__name__}."
         )
     return np.asarray(edges, dtype="float64"), np.asarray(codes, dtype="float64")
 

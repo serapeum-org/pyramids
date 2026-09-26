@@ -70,11 +70,18 @@ class TestGroupbyBinsReducesEachBin:
         assert_allclose(binned.read_array(), manual.read_array())
 
     def test_an_int_bins_count_spans_the_range(self):
-        """An integer `bins` makes that many equal-width bins covering the data range."""
+        """An integer `bins` makes equal-width bins whose first label is the data minimum."""
         binned = _cube([100.0, 300.0, 600.0, 900.0]).groupby_bins("level", 2, "mean")
         var = binned.get_variable("t")
-        assert len(var._band_dim_values_map["level"]) == 2
+        # Edges span [100, 900] exactly, so the labels are the true left edges — not pandas'
+        # range-expanded first edge (which would be 99.2).
+        assert var._band_dim_values_map["level"] == [100.0, 500.0]
         assert_allclose(var.read_array().ravel(), [0.5, 2.5])
+
+    def test_an_int_bins_label_is_never_below_the_data(self):
+        """The int-bins first label is the data minimum, never a negative expanded edge."""
+        binned = _cube([0.0, 1.0, 2.0, 100.0]).groupby_bins("level", 4, "mean")
+        assert binned.get_variable("t")._band_dim_values_map["level"][0] == 0.0
 
     def test_an_empty_bin_is_dropped(self):
         """A bin no coordinate falls in is left out; only non-empty bins appear."""
@@ -141,6 +148,16 @@ class TestGroupbyBinsRefusals:
         """A single edge forms no bin."""
         with pytest.raises(ValueError, match="at least two bin edges"):
             _cube([100.0, 300.0]).groupby_bins("level", [500], "mean")
+
+    def test_a_float_bins_count_is_refused(self):
+        """A float is neither an int count nor a sequence of edges, so it raises clearly."""
+        with pytest.raises(ValueError, match="bins must be an int count"):
+            _cube([100.0, 300.0]).groupby_bins("level", 2.0, "mean")
+
+    def test_a_bool_bins_is_refused(self):
+        """`bool` is a subclass of int but is not a bin count, so it is refused by name."""
+        with pytest.raises(ValueError, match="not a bool"):
+            _cube([100.0, 300.0]).groupby_bins("level", True, "mean")
 
     def test_a_text_axis_is_refused(self):
         """A non-numeric coordinate cannot be cut into value intervals."""
