@@ -208,15 +208,15 @@ class TestFromDataframeRefusals:
 
     def test_an_unknown_variable_is_refused(self):
         """A requested column that is not in the frame raises naming the available ones."""
-        nc = _cube(np.arange(8.0).reshape(2, 2, 2))
+        frame = _cube(np.arange(8.0).reshape(2, 2, 2)).to_dataframe()
         with pytest.raises(ValueError, match="nope"):
-            NetCDF.from_dataframe(nc.to_dataframe(), variables="nope")
+            NetCDF.from_dataframe(frame, variables="nope")
 
     def test_a_missing_named_axis_is_refused(self):
         """`x=` naming a level the index does not have raises."""
-        nc = _cube(np.arange(8.0).reshape(2, 2, 2))
+        frame = _cube(np.arange(8.0).reshape(2, 2, 2)).to_dataframe()
         with pytest.raises(ValueError, match="not an\\s+index level"):
-            NetCDF.from_dataframe(nc.to_dataframe(), x="lon")
+            NetCDF.from_dataframe(frame, x="lon")
 
     def test_a_one_level_multiindex_is_refused(self):
         """A one-level MultiIndex cannot hold both grid axes, so it raises."""
@@ -234,9 +234,9 @@ class TestFromDataframeRefusals:
 
     def test_x_and_y_naming_the_same_level_is_refused(self):
         """Pointing both the y and x axes at one level collapses the grid, so it raises."""
-        nc = _cube(np.arange(8.0).reshape(2, 2, 2))
+        frame = _cube(np.arange(8.0).reshape(2, 2, 2)).to_dataframe()
         with pytest.raises(ValueError, match="both the y and x axes"):
-            NetCDF.from_dataframe(nc.to_dataframe(), x="y", y="y")
+            NetCDF.from_dataframe(frame, x="y", y="y")
 
     def test_a_frame_with_no_value_columns_is_refused(self):
         """An index-only frame has nothing to become a data variable, so it raises."""
@@ -247,15 +247,15 @@ class TestFromDataframeRefusals:
 
     def test_a_repeated_variable_is_refused(self):
         """Asking for the same column twice would build one variable twice, so it raises."""
-        nc = _cube(np.arange(8.0).reshape(2, 2, 2))
+        frame = _cube(np.arange(8.0).reshape(2, 2, 2)).to_dataframe()
         with pytest.raises(ValueError, match="more than once"):
-            NetCDF.from_dataframe(nc.to_dataframe(), variables=["t", "t"])
+            NetCDF.from_dataframe(frame, variables=["t", "t"])
 
     def test_an_empty_variable_selection_is_refused(self):
         """An empty `variables=` selects no column, so no cube can be built and it raises."""
-        nc = _cube(np.arange(8.0).reshape(2, 2, 2))
+        frame = _cube(np.arange(8.0).reshape(2, 2, 2)).to_dataframe()
         with pytest.raises(ValueError, match="empty selection"):
-            NetCDF.from_dataframe(nc.to_dataframe(), variables=[])
+            NetCDF.from_dataframe(frame, variables=[])
 
     def test_an_irregular_x_axis_is_refused(self):
         """A jittered x axis has no affine transform, so it raises naming the x axis."""
