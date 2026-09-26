@@ -57,7 +57,7 @@ from pyramids.base._ogc_api import (
     http_get_with_retry,
 )
 from pyramids.base._utils import extra_hint, import_pyarrow
-from pyramids.base.crs import _pyproj_crs_via_gdal
+from pyramids.base.crs import _pyproj_crs_via_gdal, crs_from_user_input
 from pyramids.base.remote import _ARCHIVE_MARKER_RE, is_remote, to_fsspec_url
 
 if TYPE_CHECKING:
@@ -1495,6 +1495,11 @@ def from_xyz(
             "empty frame would carry no geometry column, which breaks downstream "
             "pyramids methods."
         )
+    if not (np.isfinite(xs).all() and np.isfinite(ys).all()):
+        raise ValueError(
+            "from_xyz: x and y must be finite; got NaN or infinity among the "
+            "coordinates, which would build an invalid POINT (NaN ...) geometry."
+        )
     # `points_from_xy` builds the whole GeometryArray in one vectorized shapely call
     # -- no Python-level Point() per row -- which is what keeps this usable for large
     # point tables. `z` is carried as an attribute column (the value to grid), not
@@ -1509,4 +1514,10 @@ def from_xyz(
             )
         data[z_column] = zs
     geometry = gpd.points_from_xy(xs, ys)
-    return fc_cls(gpd.GeoDataFrame(data, geometry=geometry, crs=crs))
+    # Resolve the CRS through `crs_from_user_input` (the #943 healer the array APIs
+    # use) before handing it to the inner GeoDataFrame: a GDAL-only EPSG that pyproj
+    # cannot parse would otherwise raise here. It has to go on the inner frame
+    # rather than via `fc_cls(..., crs=...)` -- geopandas rejects a crs= that
+    # differs from an already-built geometry's (None) crs with a mismatch error.
+    resolved_crs = crs_from_user_input(crs) if crs is not None else None
+    return fc_cls(gpd.GeoDataFrame(data, geometry=geometry, crs=resolved_crs))

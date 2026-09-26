@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from osgeo import osr
+from pyproj import CRS as PyprojCRS
+from pyproj.exceptions import CRSError as PyprojCRSError
 
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
@@ -149,6 +152,63 @@ class TestFromXYZGuards:
         """
         with pytest.raises(ValueError, match="1-D coordinate arrays"):
             FeatureCollection.from_xyz([[0.0, 1.0], [2.0, 3.0]], [0.0, 1.0])
+
+    def test_non_finite_coordinate_raises(self):
+        """A NaN coordinate is malformed and raises before building POINT (NaN ...).
+
+        Test scenario:
+            A NaN in x is rejected with a message naming the finiteness requirement,
+            rather than silently producing an invalid point geometry.
+        """
+        with pytest.raises(ValueError, match="x and y must be finite"):
+            FeatureCollection.from_xyz([0.0, float("nan")], [0.0, 1.0], [1.0, 2.0])
+
+    def test_infinite_coordinate_raises(self):
+        """An infinite coordinate is likewise rejected.
+
+        Test scenario:
+            inf in y raises the finiteness ValueError.
+        """
+        with pytest.raises(ValueError, match="x and y must be finite"):
+            FeatureCollection.from_xyz([0.0, 1.0], [0.0, float("inf")], [1.0, 2.0])
+
+
+class TestFromXYZCrsHealing:
+    """from_xyz heals a GDAL-only EPSG code, like the sibling array APIs (#943)."""
+
+    @staticmethod
+    def _gdal_only_epsg() -> int | None:
+        """An EPSG code GDAL resolves but pyproj cannot, or None if the pair agrees.
+
+        Returns:
+            int | None: The skew code, or None when no candidate exhibits the skew.
+        """
+        for code in (10857, 10634, 10688, 10723, 11043):
+            srs = osr.SpatialReference()
+            try:
+                srs.ImportFromEPSG(code)
+            except RuntimeError:
+                continue
+            try:
+                PyprojCRS.from_epsg(code)
+            except PyprojCRSError:
+                return code
+        return None
+
+    def test_heals_gdal_only_epsg(self):
+        """A code pyproj cannot parse is healed through crs_from_user_input.
+
+        Test scenario:
+            Passing crs to the inner GeoDataFrame directly would raise pyproj's
+            CRSError on a GDAL-only code; from_xyz resolves it first, so the layer
+            builds and carries a CRS. Skipped when the installed GDAL/pyproj pair
+            agrees on every candidate (nothing to heal).
+        """
+        code = self._gdal_only_epsg()
+        if code is None:
+            pytest.skip("installed GDAL/pyproj pair has no reproducible #943 skew")
+        fc = FeatureCollection.from_xyz([0.0, 1.0], [0.0, 1.0], [1.0, 2.0], crs=code)
+        assert fc.crs is not None, f"CRS not attached for GDAL-only code {code}"
 
 
 class TestFromXYZComposition:
