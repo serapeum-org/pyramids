@@ -549,6 +549,25 @@ class TestNonFiniteInputs:
             "dropping a NaN value must equal omitting the point"
         )
 
+    def test_vsimem_cleanup_tolerates_a_failed_write(self, monkeypatch):
+        """A write failure propagates, and the finally cleanup does not mask it.
+
+        Test scenario:
+            Stubbing gdal.FileFromMemBuffer to raise means the /vsimem files are
+            never created, so the finally's Unlink runs against absent paths; the
+            original error must still propagate and the Unlink guard must swallow
+            any error from unlinking a missing file.
+        """
+        monkeypatch.setattr(
+            interp_mod.gdal,
+            "FileFromMemBuffer",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("write blew up")),
+        )
+        with pytest.raises(RuntimeError, match="write blew up"):
+            Dataset.from_point_arrays(
+                [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 2.0, 3.0], cell_size=1.0
+            )
+
     def test_all_nan_values_raise(self):
         """An all-non-finite value column leaves nothing to interpolate.
 
