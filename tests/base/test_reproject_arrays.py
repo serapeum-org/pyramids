@@ -128,6 +128,35 @@ class TestReprojectArrays:
         with pytest.raises(CRSError, match="reproject_arrays failed to parse CRS"):
             reproject_arrays(np.array([1.0]), np.array([1.0]), from_crs="not-a-crs")
 
+    def test_z_unchanged_through_horizontal_reprojection(self):
+        """A horizontal-only reprojection leaves z untouched (docstring claim).
+
+        Test scenario:
+            4326 -> 3857 is a 2-D transform; the z array passes through unchanged
+            even though x and y move. The no-op-CRS test cannot show this because
+            nothing moves there.
+        """
+        x = np.array([31.0, 32.0])
+        y = np.array([30.0, 29.0])
+        z = np.array([12.5, -3.0])
+        out_x, out_y, out_z = reproject_arrays(x, y, z, from_crs=4326, to_crs=3857)
+        assert np.array_equal(out_z, z), (
+            f"z changed under horizontal reproject: {out_z}"
+        )
+        assert not np.allclose(out_x, x), "x should move from 4326 to 3857"
+
+    def test_two_dimensional_input_raises(self):
+        """A 2-D coordinate array is rejected — inputs must be flat 1-D.
+
+        Test scenario:
+            A (2, 2) x array reports the offending ndim instead of silently
+            transforming an N-D array.
+        """
+        with pytest.raises(ValueError, match="1-D coordinate arrays"):
+            reproject_arrays(
+                np.array([[1.0, 2.0], [3.0, 4.0]]), np.array([[1.0, 2.0], [3.0, 4.0]])
+            )
+
     def test_exported_from_all(self):
         """reproject_arrays is part of the module's public surface.
 

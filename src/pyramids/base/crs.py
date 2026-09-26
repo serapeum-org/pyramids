@@ -1946,6 +1946,11 @@ def reproject_arrays(
         ) from exc
     xs = np.asarray(x, dtype=float)
     ys = np.asarray(y, dtype=float)
+    if xs.ndim != 1 or ys.ndim != 1:
+        raise ValueError(
+            f"reproject_arrays expects 1-D coordinate arrays; got x.ndim={xs.ndim}, "
+            f"y.ndim={ys.ndim}."
+        )
     if xs.shape != ys.shape:
         raise ValueError(
             f"reproject_arrays: x and y must share a shape; got {xs.shape} and "
@@ -1953,18 +1958,24 @@ def reproject_arrays(
         )
     if z is None:
         out_x, out_y = transformer.transform(xs, ys)
-        return np.asarray(out_x, dtype=float), np.asarray(out_y, dtype=float)
-    zs = np.asarray(z, dtype=float)
-    if zs.shape != xs.shape:
-        raise ValueError(
-            f"reproject_arrays: z must share x's shape; got {zs.shape} and {xs.shape}."
+        result: tuple[np.ndarray, ...] = (
+            np.asarray(out_x, dtype=float),
+            np.asarray(out_y, dtype=float),
         )
-    out_x, out_y, out_z = transformer.transform(xs, ys, zs)
-    return (
-        np.asarray(out_x, dtype=float),
-        np.asarray(out_y, dtype=float),
-        np.asarray(out_z, dtype=float),
-    )
+    else:
+        zs = np.asarray(z, dtype=float)
+        if zs.shape != xs.shape:
+            raise ValueError(
+                f"reproject_arrays: z must share x's shape; got {zs.shape} and "
+                f"{xs.shape}."
+            )
+        out_x, out_y, out_z = transformer.transform(xs, ys, zs)
+        result = (
+            np.asarray(out_x, dtype=float),
+            np.asarray(out_y, dtype=float),
+            np.asarray(out_z, dtype=float),
+        )
+    return result
 
 
 __all__ = [
