@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -31545,7 +31545,7 @@ The NetCDF class contains methods to deal with NetCDF files.</p>
 <a id="__codelineno-0-12644" name="__codelineno-0-12644"></a>        <span class="n">crs</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-12645" name="__codelineno-0-12645"></a>        <span class="n">x</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-12646" name="__codelineno-0-12646"></a>        <span class="n">y</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-12647" name="__codelineno-0-12647"></a>        <span class="n">variables</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-12647" name="__codelineno-0-12647"></a>        <span class="n">variables</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-12648" name="__codelineno-0-12648"></a>        <span class="n">no_data_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">DEFAULT_NO_DATA_VALUE</span><span class="p">,</span>
 <a id="__codelineno-0-12649" name="__codelineno-0-12649"></a>        <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-12650" name="__codelineno-0-12650"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Container</span><span class="p">:</span>
@@ -49701,7 +49701,7 @@ second-innermost level.</p>
                 <code>variables</code>
             </td>
             <td>
-                  <code><span title="str">str</span> | <span title="list">list</span>[<span title="str">str</span>] | None</code>
+                  <code><span title="str">str</span> | <span title="collections.abc.Sequence">Sequence</span>[<span title="str">str</span>] | None</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -49912,7 +49912,7 @@ columns or a requested one is absent; the index has duplicate rows; or an
 <a id="__codelineno-0-12644" name="__codelineno-0-12644"></a>    <span class="n">crs</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-12645" name="__codelineno-0-12645"></a>    <span class="n">x</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-12646" name="__codelineno-0-12646"></a>    <span class="n">y</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-12647" name="__codelineno-0-12647"></a>    <span class="n">variables</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-12647" name="__codelineno-0-12647"></a>    <span class="n">variables</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-12648" name="__codelineno-0-12648"></a>    <span class="n">no_data_value</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="n">DEFAULT_NO_DATA_VALUE</span><span class="p">,</span>
 <a id="__codelineno-0-12649" name="__codelineno-0-12649"></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <a id="__codelineno-0-12650" name="__codelineno-0-12650"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Container</span><span class="p">:</span>
