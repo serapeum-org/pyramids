@@ -295,6 +295,37 @@ class TestGridArrayFastPath:
             "fast CSV+VRT path and the GeoJSON reference produced different grids"
         )
 
+    def test_fast_path_matches_geojson_reference_for_nearest(self, corner_points):
+        """The array path also matches GeoJSON under a non-default algorithm.
+
+        Test scenario:
+            The pixel-for-pixel equivalence between the CSV+VRT fast path and the
+            GeoJSON round trip is otherwise only pinned for the default invdist
+            algorithm; grid the same four points with ``nearest`` through both the
+            fast path and an independent gdal.Grid-on-GeoJSON reference and require
+            identical rasters, so a source-encoding divergence on a non-default
+            algorithm cannot slip through.
+        """
+        fast = np.asarray(
+            grid_points(
+                corner_points, "val", Dataset, algorithm="nearest", cell_size=1.0
+            ).read_array()
+        )
+        options = gdal.GridOptions(
+            format="MEM",
+            algorithm="nearest",
+            zfield="val",
+            outputBounds=[0.0, 10.0, 10.0, 0.0],
+            width=10,
+            height=10,
+            outputSRS=corner_points.crs.to_wkt(),
+        )
+        with _feature_ogr.as_vsimem_path(corner_points) as src_path:
+            reference = gdal.Grid("", src_path, options=options)
+        assert np.array_equal(fast, np.asarray(reference.ReadAsArray())), (
+            "fast CSV+VRT path and the GeoJSON reference diverged under nearest"
+        )
+
     def test_value_column_named_x_survives_fast_path(self):
         """A value column named 'x' does not clash with the CSV's x coordinate.
 
@@ -571,14 +602,13 @@ class TestNonFiniteInputs:
             "dropping a NaN value must equal omitting the point"
         )
 
-    def test_vsimem_cleanup_tolerates_a_failed_write(self, monkeypatch):
-        """A write failure propagates, and the finally cleanup does not mask it.
+    def test_vsimem_cleanup_tolerates_a_missing_file(self, monkeypatch):
+        """When the first write fails, the finally unlinks absent paths harmlessly.
 
         Test scenario:
-            Stubbing gdal.FileFromMemBuffer to raise means the /vsimem files are
-            never created, so the finally's Unlink runs against absent paths; the
-            original error must still propagate and the Unlink guard must swallow
-            any error from unlinking a missing file.
+            The CSV write raises, so neither /vsimem file is created; the finally's
+            Unlink runs against absent paths, its guard swallows the resulting
+            error, and the original failure still propagates.
         """
         monkeypatch.setattr(
             interp_mod.gdal,
@@ -589,6 +619,36 @@ class TestNonFiniteInputs:
             Dataset.from_point_arrays(
                 [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 2.0, 3.0], cell_size=1.0
             )
+
+    def test_no_vsimem_leak_when_the_vrt_write_fails(self, monkeypatch):
+        """The real leak scenario: CSV written, VRT write fails, CSV must be freed.
+
+        Test scenario:
+            The first write (CSV) succeeds, the second (VRT) raises. The earlier
+            cleanup test only forced the *first* write to fail, so no file was ever
+            created; this drives the branch the leak guard exists for and asserts no
+            ``grid_*`` file is left in /vsimem afterwards.
+        """
+        real_write = interp_mod.gdal.FileFromMemBuffer
+        calls = {"n": 0}
+
+        def write_then_fail(path, buf):
+            calls["n"] += 1
+            if calls["n"] >= 2:
+                raise RuntimeError("vrt write blew up")
+            return real_write(path, buf)
+
+        monkeypatch.setattr(interp_mod.gdal, "FileFromMemBuffer", write_then_fail)
+        with pytest.raises(RuntimeError, match="vrt write blew up"):
+            Dataset.from_point_arrays(
+                [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 2.0, 3.0], cell_size=1.0
+            )
+        leftovers = [
+            name
+            for name in (gdal.ReadDir("/vsimem") or [])
+            if name.startswith("grid_")
+        ]
+        assert leftovers == [], f"/vsimem leaked files after a failed write: {leftovers}"
 
     def test_all_nan_values_raise(self):
         """An all-non-finite value column leaves nothing to interpolate.
@@ -639,6 +699,53 @@ class TestNonFiniteInputs:
                 height=5,
                 bbox=(0.0, 0.0, float("inf"), 10.0),
             )
+
+    def test_extent_from_all_coords_when_boundary_value_is_nan(self):
+        """With no bbox, a NaN-valued boundary point still sets the extent.
+
+        Test scenario:
+            The sole extreme point (20, 20) carries a NaN value, so it is dropped
+            before interpolation -- but the extent must be derived from *all*
+            coordinates first, so the raster still spans to (20, 20). Were the drop
+            applied before the bounds computation (extent from survivors only), the
+            grid would silently shrink to the 0..10 box of the four finite points.
+            This is the load-bearing "bounds from all coords, values from survivors"
+            split that both NaN tests miss by passing an explicit bbox.
+        """
+        ds = Dataset.from_point_arrays(
+            [0.0, 10.0, 0.0, 10.0, 20.0],
+            [0.0, 0.0, 10.0, 10.0, 20.0],
+            [10.0, 20.0, 30.0, 40.0, float("nan")],
+            cell_size=1.0,
+            epsg=4326,
+        )
+        assert (ds.rows, ds.columns) == (20, 20), (
+            f"extent shrank to survivors: {ds.rows}x{ds.columns} (expected 20x20)"
+        )
+        assert ds.geotransform[3] == pytest.approx(20.0), (
+            f"y-origin not at the NaN point's maxy: {ds.geotransform[3]}"
+        )
+        bottom_right_x = ds.geotransform[0] + ds.columns * ds.geotransform[1]
+        assert bottom_right_x == pytest.approx(20.0), (
+            f"extent does not reach the NaN point's maxx: {bottom_right_x}"
+        )
+
+    def test_nan_point_coordinate_raises_through_from_points(self):
+        """A NaN point geometry now raises through the from_points FC entry.
+
+        Test scenario:
+            Before the refactor a point FeatureCollection carrying POINT (nan nan)
+            flowed through the GeoJSON path into gdal.Grid; the shared grid_arrays
+            core now rejects the non-finite coordinate up front, so the public
+            Dataset.from_points entry raises a clear ValueError.
+        """
+        gdf = GeoDataFrame(
+            {"z": [1.0, 2.0, 3.0]},
+            geometry=[Point(0, 0), Point(10, 0), Point(float("nan"), float("nan"))],
+            crs="EPSG:4326",
+        )
+        with pytest.raises(ValueError, match="x and y must be finite"):
+            Dataset.from_points(FeatureCollection(gdf), "z", cell_size=1.0)
 
 
 class TestGridPointsFallbackBranch:
