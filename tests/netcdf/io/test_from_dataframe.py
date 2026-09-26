@@ -272,3 +272,48 @@ class TestFromDataframeRefusals:
         frame = pd.DataFrame({"v": np.arange(2.0)}, index=idx)
         with pytest.raises(ValueError, match="single x coordinate"):
             NetCDF.from_dataframe(frame)
+
+
+class TestNonStandardColumns:
+    """Value columns whose labels are not strings, or are non-numeric / duplicated."""
+
+    def test_an_integer_column_label_becomes_a_string_variable(self):
+        """A non-string column label indexes the frame and is stringified for the variable.
+
+        The frame is read by the real (integer) label; only the NetCDF variable name is
+        stringified. Before the fix this raised `KeyError: '7'` (#1203 L1).
+        """
+        idx = pd.MultiIndex.from_product(
+            [[0.0, 6.0], [20.0, 19.0], [0.0, 1.0]], names=["time", "y", "x"]
+        )
+        frame = pd.DataFrame({7: np.arange(8.0)}, index=idx)
+        back = NetCDF.from_dataframe(frame, crs=4326)
+        assert back.variable_names == ["7"]
+        assert_array_equal(
+            back.get_variable("7").read_array(), frame[7].to_numpy().reshape(2, 2, 2)
+        )
+
+    def test_an_integer_variable_selector_is_honoured(self):
+        """`variables=` given a non-string label is matched against the real column labels."""
+        idx = pd.MultiIndex.from_product([[20.0, 19.0], [0.0, 1.0]], names=["y", "x"])
+        frame = pd.DataFrame({7: np.arange(4.0), 8: np.arange(4.0)}, index=idx)
+        back = NetCDF.from_dataframe(frame, crs=4326, variables=7)
+        assert back.variable_names == ["7"]
+
+    def test_a_non_numeric_column_is_refused_by_name(self):
+        """A text value column raises a from_dataframe() message naming the column (#1203 L2)."""
+        idx = pd.MultiIndex.from_product([[20.0, 19.0], [0.0, 1.0]], names=["y", "x"])
+        frame = pd.DataFrame({"v": ["a", "b", "c", "d"]}, index=idx)
+        with pytest.raises(ValueError, match="from_dataframe.*'v'.*numeric"):
+            NetCDF.from_dataframe(frame)
+
+    def test_duplicate_column_labels_are_refused_by_name(self):
+        """Two columns of one name cannot become one variable, so it raises naming it (#1203 L2)."""
+        idx = pd.MultiIndex.from_product([[20.0, 19.0], [0.0, 1.0]], names=["y", "x"])
+        frame = pd.DataFrame(
+            np.arange(8.0).reshape(4, 2), index=idx, columns=["v", "v"]
+        )
+        with pytest.raises(
+            ValueError, match="from_dataframe.*more than one column labelled 'v'"
+        ):
+            NetCDF.from_dataframe(frame)

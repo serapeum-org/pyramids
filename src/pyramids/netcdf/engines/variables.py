@@ -1237,7 +1237,7 @@ def from_dataframe(
     )
     built = []
     for col in columns:
-        arr = ordered[col].to_numpy(dtype="float64").reshape(shape)
+        arr = _dataframe_column_array(ordered, col, shape)
         arr = np.where(np.isnan(arr), no_data_value, arr)
         built.append(
             from_array(
@@ -1305,48 +1305,91 @@ def _dataframe_axes(
 
 
 def _dataframe_value_columns(
-    df: pd.DataFrame, variables: str | Sequence[str] | None
-) -> list[str]:
+    df: pd.DataFrame, variables: str | Sequence[Any] | None
+) -> list:
     """The columns that become data variables, in order.
+
+    The **original** column labels are returned, not stringified ones, because the caller
+    indexes the frame with them (`ordered[col]`); only the NetCDF variable name is
+    stringified, at the point it is written. Returning `str(...)`-normalised labels made
+    `ordered[col]` raise `KeyError` on any non-string column (#1203 L1).
 
     Args:
         df: The DataFrame whose columns are the candidate variables.
-        variables: A name, a sequence of names, or `None` for every column.
+        variables: A label, a sequence of labels, or `None` for every column.
 
     Returns:
-        list[str]: The chosen column names, never empty.
+        list: The chosen column labels, in the given order, never empty.
 
     Raises:
-        ValueError: The frame has no columns, a requested name is not a column, a name was
+        ValueError: The frame has no columns, a requested label is not a column, a label was
             given more than once, or an empty selection was given.
     """
-    available = [str(c) for c in df.columns]
+    available = list(df.columns)
     if not available:
         raise ValueError(
             "from_dataframe() needs at least one value column to become a data variable; "
             "the frame has none."
         )
     if variables is None:
-        return available
-    names = [variables] if isinstance(variables, str) else list(variables)
-    unknown = [nm for nm in names if nm not in available]
-    if unknown:
+        chosen = available
+    else:
+        # A list/tuple is a set of labels; anything else — a str, or a scalar label such as
+        # an int column name — is a single label (`list(7)` would raise).
+        names = list(variables) if isinstance(variables, (list, tuple)) else [variables]
+        if not names:
+            raise ValueError(
+                "from_dataframe() was given an empty selection; pass `variables=None` for "
+                f"every column, or one of {available}."
+            )
+        unknown = [nm for nm in names if nm not in available]
+        if unknown:
+            raise ValueError(
+                f"from_dataframe() cannot take {unknown!r} as variables: the frame's "
+                f"columns are {available}."
+            )
+        repeated = [nm for nm in dict.fromkeys(names) if names.count(nm) > 1]
+        if repeated:
+            raise ValueError(
+                f"from_dataframe() was asked for {repeated!r} more than once; a label can "
+                "only become one variable."
+            )
+        chosen = names
+    return chosen
+
+
+def _dataframe_column_array(
+    ordered: pd.DataFrame, col: Any, shape: tuple
+) -> np.ndarray:
+    """One value column as a float64 array of the cube's shape, refusing the bad cases.
+
+    Args:
+        ordered: The frame reindexed against the full dimension product.
+        col: The column label to read.
+        shape: The target `(*band_sizes, rows, cols)` shape.
+
+    Returns:
+        np.ndarray: The column's cells, `float64`, shaped `shape`.
+
+    Raises:
+        ValueError: The label matches more than one column (it cannot become one variable),
+            or the column is not numeric — each named, rather than surfacing as a raw numpy
+            reshape / conversion error (#1203 L2).
+    """
+    series = ordered[col]
+    if isinstance(series, pd.DataFrame):
         raise ValueError(
-            f"from_dataframe() cannot take {unknown!r} as variables: the frame's columns "
-            f"are {available}."
+            f"from_dataframe() found more than one column labelled {col!r}, so it cannot "
+            "become one variable. Give each value column a unique label."
         )
-    repeated = sorted({nm for nm in names if names.count(nm) > 1})
-    if repeated:
+    try:
+        values = series.to_numpy(dtype="float64")
+    except (ValueError, TypeError) as exc:
         raise ValueError(
-            f"from_dataframe() was asked for {repeated!r} more than once; a name can only "
-            "become one variable."
-        )
-    if not names:
-        raise ValueError(
-            "from_dataframe() was given an empty selection; pass `variables=None` for every "
-            f"column, or one of {available}."
-        )
-    return names
+            f"from_dataframe() cannot read column {col!r} as numbers: {exc}. A value column "
+            "must be numeric."
+        ) from exc
+    return values.reshape(shape)
 
 
 def _geotransform_from_centres(
