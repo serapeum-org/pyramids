@@ -306,24 +306,34 @@ Priority tags: **P1** (top, in-mission) · **P2** (in-mission, valuable) ·
 > (quoted current code, exact target signatures + code sketch, exact JSON shapes,
 > real test additions against the existing fixtures, pitfalls, and a DoD
 > checklist) so it can be implemented without re-reading the source or
-> re-researching the reference packages. Expanded so far (the M1–M4 milestone
-> set): **STAC-01 … STAC-08**. Tasks **STAC-09 … STAC-18** below are detailed
-> backlog outlines and should be expanded to the same per-task-file standard when
-> they are scheduled (STAC-18 also needs a scope decision first).
+> re-researching the reference packages. **Every task below has a spec file**
+> (STAC-18 is scope-gated pending a decision).
 >
-> | Task | Spec file |
-> |---|---|
-> | STAC-01 | `tasks/STAC-01-to-stac-item-band-metadata.md` |
-> | STAC-02 | `tasks/STAC-02-to-stac-item-data-footprint.md` |
-> | STAC-03 | `tasks/STAC-03-antimeridian-geometry.md` |
-> | STAC-04 | `tasks/STAC-04-rescale-on-read.md` |
-> | STAC-05 | `tasks/STAC-05-spec-stac-geoparquet.md` |
-> | STAC-06 | `tasks/STAC-06-flexible-groupby.md` |
-> | STAC-07 | `tasks/STAC-07-metadata-overrides-aliases.md` |
-> | STAC-08 | `tasks/STAC-08-stac-metadata-on-cube.md` |
+> | Task | Spec file | Status |
+> |---|---|---|
+> | STAC-00 | `tasks/STAC-00-prerequisites.md` | **do first** (fixtures, extra+marker+pixi, docs) |
+> | STAC-01 | `tasks/STAC-01-to-stac-item-band-metadata.md` | ready |
+> | STAC-02 | `tasks/STAC-02-to-stac-item-data-footprint.md` | ready |
+> | STAC-03 | `tasks/STAC-03-antimeridian-geometry.md` | ready |
+> | STAC-04 | `tasks/STAC-04-rescale-on-read.md` | ready |
+> | STAC-05 | `tasks/STAC-05-spec-stac-geoparquet.md` | ready (needs STAC-00) |
+> | STAC-06 | `tasks/STAC-06-flexible-groupby.md` | ready (fixtures from STAC-00) |
+> | STAC-07 | `tasks/STAC-07-metadata-overrides-aliases.md` | ready (helper from STAC-04) |
+> | STAC-08 | `tasks/STAC-08-stac-metadata-on-cube.md` | ready (Step-0 design first) |
+> | STAC-09 | `tasks/STAC-09-errors-as-nodata.md` | ready |
+> | STAC-10 | `tasks/STAC-10-mosaic-methods.md` | ready |
+> | STAC-11 | `tasks/STAC-11-per-band-resampling.md` | ready |
+> | STAC-12 | `tasks/STAC-12-alternate-assets.md` | ready |
+> | STAC-13 | `tasks/STAC-13-collection-discovery.md` | ready |
+> | STAC-14 | `tasks/STAC-14-search-params.md` | ready |
+> | STAC-15 | `tasks/STAC-15-download-breadth.md` | ready |
+> | STAC-16 | `tasks/STAC-16-fuse-func.md` | ready (after STAC-06/10) |
+> | STAC-17 | `tasks/STAC-17-content-type-verify.md` | ready |
+> | STAC-18 | `tasks/STAC-18-windowed-reads.md` | **scope-gated** |
 >
-> The summaries below (STAC-01…08) are kept as an index; the task file is the
-> authoritative, no-guess spec.
+> The summaries below are an index; the task file is the authoritative, no-guess
+> spec. The dependency DAG and per-milestone acceptance criteria are at the end
+> of this document.
 
 ---
 
@@ -1010,6 +1020,7 @@ machinery (verify what `Dataset` exposes for point/feature reads first).
 
 | Order | Task | Priority | Rationale |
 |---|---|---|---|
+| 0 | **STAC-00** prerequisites (fixtures, extra+marker+pixi, docs) | P0 | Unblocks STAC-05 and the shared test fixtures; do first |
 | 1 | **STAC-01** band stats/histogram/scale/eo in `to_stac_item` | P1 | Smallest; reuses `stats`/`histogram`; enriches STAC-02's items |
 | 2 | **STAC-02** `footprint="data"` | P1 | `Dataset.footprint` already exists |
 | 3 | **STAC-03** antimeridian split | P2 | Completes STAC-02 correctly |
@@ -1044,6 +1055,99 @@ these):
 5. **STAC-04 mirrors stackstac** (mask→scale→fill, per-band scale/offset), not
    odc (which doesn't apply scale/offset).
 6. `unit` is **not** emitted by STAC-01 (no accessor exists).
+
+## Dependency DAG (what unblocks what)
+
+```
+STAC-00 (prerequisites: fixtures, [stac-parquet] extra+marker+pixi, docs plumbing)
+   ├─ required by ─▶ STAC-05 (extra+marker+CI env)
+   └─ fixtures used by ─▶ STAC-06, STAC-08, STAC-09, STAC-16
+
+STAC-04 (rescale: "materialise a writable copy" helper)
+   └─ helper reused by ─▶ STAC-07 (stamp missing nodata/metadata)
+
+STAC-02 (data footprint) ─▶ STAC-03 (antimeridian split of that geometry)
+
+STAC-06 (flexible groupby: _from_stac_grouped helper)
+   └─ grouped path reused by ─▶ STAC-16 (custom fuse_func)
+STAC-10 (mosaic methods) ─▶ optional input to STAC-16
+
+Independent (no task deps): STAC-01, STAC-11, STAC-12, STAC-13, STAC-14,
+STAC-15, STAC-17.
+STAC-18: blocked on a scope decision (independent otherwise).
+```
+
+Practical build order: **STAC-00 → STAC-01 → STAC-02 → STAC-03 → STAC-04 →
+STAC-05 → STAC-06 → STAC-07 → STAC-08**, then the P3/P4 set
+(STAC-09..17) in any order that respects the DAG, then STAC-18 if approved.
+
+## Per-milestone acceptance criteria
+
+A milestone is done when **all** of its tasks meet their DoD **and** the
+milestone-level check below passes.
+
+- **M0 (prerequisites) — STAC-00.** `pip install '.[parquet,stac-parquet]'`
+  resolves; `tests/dataset/stac/conftest.py` fixtures import and are used by at
+  least one test; the `stac_parquet` marker is registered; `pixi.lock`
+  regenerated and a `pixi run` test env installs `stac-geoparquet`.
+- **M1 (writer parity with rio-stac/stactools) — STAC-01, 02, 03.**
+  `Dataset.to_stac_item(..., with_stats=True, with_histogram=True, with_eo=True,
+  footprint="data")` emits an Item whose `raster:bands`/`eo:bands`/geometry match
+  the STAC raster/eo/projection v1.1.0 shapes; an antimeridian-crossing raster
+  emits a split MultiPolygon with `west > east`; **default output byte-identical
+  to today** (pre-existing `test_to_stac_item.py` unchanged).
+- **M2 (read fidelity) — STAC-04, 07.** `load_asset(..., rescale=True)` and
+  `from_stac(..., rescale=True)` return physical units with nodata preserved and
+  no double-apply; `cfg` fills missing nodata/dtype and resolves band aliases;
+  neither mutates a read-only remote handle.
+- **M3 (interop) — STAC-05.** `to_geoparquet(..., spec=True)` writes a columnar
+  file readable by plain `pyarrow.parquet` (no `stac_item` blob column; flattened
+  properties; `geo` + `stac-geoparquet` metadata); round-trips to item dicts;
+  JSON-blob default unchanged.
+- **M4 (cube ergonomics) — STAC-06, 08 (+09 read tolerance).** `groupby` accepts
+  property-key/callable/id/time; selected `properties` attach to the cube with
+  `len == time_length`; `errors_as_nodata` tolerates a dead asset; all defaults
+  unchanged.
+
+**Epic-level acceptance:** round-trip `Dataset → to_stac_item(full) →
+to_geoparquet(spec) → from_geoparquet(spec) → from_stac` reconstructs a usable
+cube; and a real public catalog item (recorded fixture) loads with `rescale=True`
+into physical units. Add this as an integration test once M1–M3 land.
+
+## Docs, changelog & release checklist (applies to every task adding public API)
+
+- **Reference docs:** new public functions/kwargs must appear under
+  `docs/reference/stac/` and be reachable from `mkdocs.yml`'s `nav:`. A new
+  concept page (e.g. a `stac_cfg` guide for STAC-07, a rescale note for STAC-04)
+  is added to `nav:`.
+- **Tutorial:** update `docs/tutorials/stac.md` with a short runnable example per
+  user-facing feature (use `# doctest: +SKIP` for network/GDAL-heavy snippets,
+  matching the file's style).
+- **Docstrings/doctests:** the STAC modules use doctest-style examples heavily —
+  add one per new public entry point; keep them runnable (the suite executes
+  them).
+- **Changelog:** the repo uses **commitizen** (`cz`), so land changes as
+  conventional commits (`feat(stac): …` / `fix(stac): …`) — the changelog is
+  generated, not hand-edited.
+- **Extras/CI:** any new optional dep (STAC-05) needs the `pyproject.toml` extra,
+  the pixi feature + env membership, a pytest marker, and a `pixi.lock` refresh
+  (STAC-00 owns this).
+
+## STAC-schema validation in tests (decided approach)
+
+pyramids deliberately does not depend on `pystac`, so **do not** add runtime
+schema validation to the library. For tests, use two tiers:
+
+1. **Default (no new dep): structural assertions.** Each writer test asserts the
+   exact keys/shapes against the verified Reference B shapes (this is what the
+   STAC-01/02/03 test specs already do). This is the required, always-on check.
+2. **Optional (dev-only) schema validation.** Add a `stac-validator` (or
+   `pystac[validation]`) **dev/test-only** dependency (never a runtime dep) and a
+   single opt-in test, marked so it's skipped when the validator isn't installed,
+   that validates a fully-populated emitted Item against the STAC + extension
+   JSON schemas. This catches spelling/shape regressions the structural asserts
+   might miss, without coupling the library to pystac. Recommended but optional;
+   if added, wire it like the other extras in STAC-00.
 
 ## Explicit non-goals
 
