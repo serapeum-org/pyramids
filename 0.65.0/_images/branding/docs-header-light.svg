@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" width="1280" height="320"
+  role="img" aria-label="pyramids: GIS utilities for rasters, vectors and datacubes">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FDF8EE"/>
+      <stop offset="1" stop-color="#F6EBD4"/>
+    </linearGradient>
+    <g id="mark">
+      <g>
+        <polygon points="256,705 286,720 256,735 226,720" fill="#9FA98F"/>
+        <polygon points="226,720 256,735 256,753 226,738" fill="#828C74"/>
+        <polygon points="256,735 286,720 286,738 256,753" fill="#6F7A62"/>
+      </g>
+      <g>
+        <polygon points="196,668 256,698 256,714 196,684" fill="#8C9379"/>
+        <polygon points="256,698 316,668 316,684 256,714" fill="#747B64"/>
+        <g transform="matrix(60,30,60,-30,196,668)" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="0.01">
+          <rect x="0" y="0" width="0.5" height="0.5" fill="#BBA97E"/>
+          <rect x="0.5" y="0" width="0.5" height="0.5" fill="#84A7AE"/>
+          <rect x="0" y="0.5" width="0.5" height="0.5" fill="#84A7AE"/>
+          <rect x="0.5" y="0.5" width="0.5" height="0.5" fill="#93A88C"/>
+        </g>
+      </g>
+      <g>
+        <polygon points="152,600 256,652 256,672 152,620" fill="#99A084"/>
+        <polygon points="256,652 360,600 360,620 256,672" fill="#7F866C"/>
+        <g transform="matrix(104,52,104,-52,152,600)" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="0.008">
+          <rect x="0" y="0" width="0.334" height="0.334" fill="#9AB286"/>
+          <rect x="0.333" y="0" width="0.334" height="0.334" fill="#CDB67F"/>
+          <rect x="0.666" y="0" width="0.334" height="0.334" fill="#74A8B5"/>
+          <rect x="0" y="0.333" width="0.334" height="0.334" fill="#CDB67F"/>
+          <rect x="0.333" y="0.333" width="0.334" height="0.334" fill="#74A8B5"/>
+          <rect x="0.666" y="0.333" width="0.334" height="0.334" fill="#9AB286"/>
+          <rect x="0" y="0.666" width="0.334" height="0.334" fill="#74A8B5"/>
+          <rect x="0.333" y="0.666" width="0.334" height="0.334" fill="#9AB286"/>
+          <rect x="0.666" y="0.666" width="0.334" height="0.334" fill="#CDB67F"/>
+        </g>
+      </g>
+      <g>
+        <polygon points="96,520 256,600 256,624 96,544" fill="#A89F72"/>
+        <polygon points="256,600 416,520 416,544 256,624" fill="#8D855E"/>
+        <g transform="matrix(160,80,160,-80,96,520)" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="0.006">
+          <rect x="0" y="0" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.167" y="0" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.333" y="0" width="0.167" height="0.167" fill="#D9BC7E"/>
+          <rect x="0.5" y="0" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.667" y="0" width="0.167" height="0.167" fill="#5FA8C0"/>
+          <rect x="0.833" y="0" width="0.167" height="0.167" fill="#5FA8C0"/>
+          <rect x="0" y="0.167" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.167" y="0.167" width="0.167" height="0.167" fill="#D9BC7E"/>
+          <rect x="0.333" y="0.167" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.5" y="0.167" width="0.167" height="0.167" fill="#5FA8C0"/>
+          <rect x="0.667" y="0.167" width="0.167" height="0.167" fill="#5FA8C0"/>
+          <rect x="0.833" y="0.167" width="0.167" height="0.167" fill="#D9BC7E"/>
+          <rect x="0" y="0.333" width="0.167" height="0.167" fill="#D9BC7E"/>
+          <rect x="0.167" y="0.333" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.333" y="0.333" width="0.167" height="0.167" fill="#5FA8C0"/>
+          <rect x="0.5" y="0.333" width="0.167" height="0.167" fill="#5FA8C0"/>
+          <rect x="0.667" y="0.333" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.833" y="0.333" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0" y="0.5" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.167" y="0.5" width="0.167" height="0.167" fill="#5FA8C0"/>
+          <rect x="0.333" y="0.5" width="0.167" height="0.167" fill="#5FA8C0"/>
+          <rect x="0.5" y="0.5" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.667" y="0.5" width="0.167" height="0.167" fill="#D9BC7E"/>
+          <rect x="0.833" y="0.5" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0" y="0.667" width="0.167" height="0.167" fill="#5FA8C0"/>
+          <rect x="0.167" y="0.667" width="0.167" height="0.167" fill="#5FA8C0"/>
+          <rect x="0.333" y="0.667" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.5" y="0.667" width="0.167" height="0.167" fill="#D9BC7E"/>
+          <rect x="0.667" y="0.667" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.833" y="0.667" width="0.167" height="0.167" fill="#D9BC7E"/>
+          <rect x="0" y="0.833" width="0.167" height="0.167" fill="#5FA8C0"/>
+          <rect x="0.167" y="0.833" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.333" y="0.833" width="0.167" height="0.167" fill="#D9BC7E"/>
+          <rect x="0.5" y="0.833" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.667" y="0.833" width="0.167" height="0.167" fill="#8FB573"/>
+          <rect x="0.833" y="0.833" width="0.167" height="0.167" fill="#D9BC7E"/>
+        </g>
+      </g>
+      <g>
+        <polygon points="96,300 256,380 256,404 96,324" fill="#C9A55C"/>
+        <polygon points="256,380 416,300 416,324 256,404" fill="#AE8B43"/>
+        <polygon points="256,220 416,300 256,380 96,300" fill="#E5C886"/>
+        <g transform="matrix(160,80,160,-80,96,300)">
+          <polygon points="0.08,0.55 0.3,0.5 0.36,0.72 0.14,0.8" fill="#A8C284" opacity="0.9"/>
+          <polygon points="0.6,0.15 0.82,0.12 0.88,0.3 0.66,0.35" fill="#A8C284" opacity="0.9"/>
+          <polygon points="0.55,0.75 0.72,0.7 0.78,0.88 0.6,0.92" fill="#97B374" opacity="0.9"/>
+          <path d="M0.25 0 V1 M0.5 0 V1 M0.75 0 V1 M0 0.25 H1 M0 0.5 H1 M0 0.75 H1"
+            fill="none" stroke="#C8A765" stroke-width="0.009" opacity="0.8"/>
+        </g>
+      </g>
+      <g>
+        <polygon points="136,208 256,268 256,288 136,228" fill="#ADCDD1"/>
+        <polygon points="256,268 376,208 376,228 256,288" fill="#8FB5BA"/>
+        <polygon points="256,148 376,208 256,268 136,208" fill="#DCEFF0"/>
+        <g transform="matrix(120,60,120,-60,136,208)" fill="none" stroke-linecap="round">
+          <path d="M0.03 0.3 C0.35 0.55 0.5 0.1 0.97 0.5" stroke="#2E9CB8" stroke-width="0.07"/>
+          <path d="M0.25 0.95 L0.7 0.05" stroke="#5FB8CE" stroke-width="0.024"/>
+          <path d="M0.05 0.6 L0.95 0.8" stroke="#5FB8CE" stroke-width="0.02"/>
+        </g>
+      </g>
+      <g>
+        <polygon points="172,140 256,182 256,200 172,158" fill="#CFC7B6"/>
+        <polygon points="256,182 340,140 340,158 256,200" fill="#B5AC99"/>
+        <polygon points="256,98 340,140 256,182 172,140" fill="#EFEAE0"/>
+        <g transform="matrix(84,42,84,-42,172,140)" fill="none">
+          <path d="M0 0.25 H1 M0 0.75 H1 M0.25 0 V1 M0.75 0 V1" stroke="#D9D2C2" stroke-width="0.026"/>
+          <path d="M0 0.5 H1 M0.5 0 V1" stroke="#FFFFFF" stroke-width="0.05" opacity="0.95"/>
+        </g>
+      </g>
+      <g>
+        <polygon points="206,92 256,117 256,133 206,108" fill="#D5C4A0"/>
+        <polygon points="256,117 306,92 306,108 256,133" fill="#BBA983"/>
+        <polygon points="256,67 306,92 256,117 206,92" fill="#F2E7CC"/>
+        <polygon points="258,74.5 265,78 258,81.5 251,78" fill="#2CA6A4"/>
+        <polygon points="251,78 258,81.5 258,93.5 251,90" fill="#1F8B8A"/>
+        <polygon points="258,81.5 265,78 265,90 258,93.5" fill="#15706F"/>
+        <polygon points="240,81.5 249,86 240,90.5 231,86" fill="#F7EFD8"/>
+        <polygon points="231,86 240,90.5 240,106.5 231,102" fill="#DCCBA4"/>
+        <polygon points="240,90.5 249,86 249,102 240,106.5" fill="#C2AC82"/>
+        <polygon points="272,90 280,94 272,98 264,94" fill="#F7EFD8"/>
+        <polygon points="264,94 272,98 272,118 264,114" fill="#DCCBA4"/>
+        <polygon points="272,98 280,94 280,114 272,118" fill="#C2AC82"/>
+        <polygon points="250,97 256,100 250,103 244,100" fill="#F7EFD8"/>
+        <polygon points="244,100 250,103 250,113 244,110" fill="#DCCBA4"/>
+        <polygon points="250,103 256,100 256,110 250,113" fill="#C2AC82"/>
+      </g>
+    </g>
+  </defs>
+
+  <rect width="1280" height="320" fill="url(#bg)"/>
+  <g fill="none" stroke="#0E7C7B">
+    <circle cx="1180" cy="160" r="200" stroke-opacity="0.10"/>
+    <circle cx="1180" cy="160" r="290" stroke-opacity="0.07"/>
+  </g>
+
+  <use href="#mark" transform="translate(50,28) scale(0.32)"/>
+
+  <g font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif">
+    <text x="244" y="92" font-size="17" letter-spacing="4" fill="#C77F35"
+      font-weight="600">BUILT ON GDAL / OGR</text>
+    <text x="240" y="178" font-size="80" font-weight="700" fill="#11505A">pyramids</text>
+    <text x="244" y="232" font-size="26" fill="#4A6B70">GIS utilities for rasters, vectors &amp; datacubes</text>
+  </g>
+</svg>
