@@ -190,8 +190,10 @@ def grid_arrays(
         Dataset: A single-band raster of the interpolated surface.
 
     Raises:
-        ValueError: The arrays are not 1-D of equal length, are empty, the bounds
-            are degenerate, or the sizing arguments are insufficient.
+        ValueError: The arrays are not 1-D of equal length, are empty, a coordinate
+            (``x`` or ``y``) is non-finite, ``bbox`` is non-finite, every ``z`` value
+            is non-finite (nothing left to interpolate), the bounds are degenerate,
+            ``cell_size`` is not positive, or the sizing arguments are insufficient.
         FailedToSaveError: ``gdal.Grid`` returned no dataset.
     """
     xs = np.asarray(x, dtype=float)
