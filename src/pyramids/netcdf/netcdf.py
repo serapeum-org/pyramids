@@ -12636,6 +12636,86 @@ class NetCDF(Dataset):
             spatial_names=spatial_names,
         )
 
+    @classmethod
+    def from_dataframe(
+        cls,
+        df: pd.DataFrame,
+        *,
+        crs: str | int | None = None,
+        x: str | None = None,
+        y: str | None = None,
+        variables: str | list[str] | None = None,
+        no_data_value: Any = DEFAULT_NO_DATA_VALUE,
+        path: str | Path | None = None,
+    ) -> Container:
+        """Build a :class:`Container` from a `MultiIndex` DataFrame — the inverse of `to_dataframe`.
+
+        The frame is indexed by its dimensions: the innermost two index levels are the
+        `(y, x)` grid axes and any outer levels are band dimensions, so
+        `NetCDF.from_dataframe(nc.to_dataframe(), crs=nc.epsg)` reproduces `nc`. A DataFrame
+        carries no georeferencing, so the geotransform is inferred from the `x` / `y`
+        cell-centre coordinates (a regular grid is required) and the CRS is taken from
+        `crs`. The result is always north-up.
+
+        Args:
+            df: A DataFrame on a `pandas.MultiIndex` of at least two named levels. The
+                innermost two are the row (`y`) and column (`x`) axes unless `x` / `y` name
+                them; further levels are band dimensions, outermost first. Each non-index
+                column becomes a data variable. A tidy frame on a plain index is refused.
+            crs: The CRS for the result, an EPSG code or a CRS string. `None` (default)
+                leaves it unset — a DataFrame carries none, so a full round trip needs
+                `crs=nc.epsg` to recover it.
+            x: The index level holding the column (x) coordinates; defaults to the innermost
+                level.
+            y: The index level holding the row (y) coordinates; defaults to the
+                second-innermost level.
+            variables: Which columns become data variables, as a name or a sequence; `None`
+                (default) takes every column.
+            no_data_value: Sentinel for the gaps; `NaN` and absent cells are stored as this.
+                Defaults to `DEFAULT_NO_DATA_VALUE`.
+            path: Destination — `None` (default) builds in memory, a `.nc` path writes it,
+                as :meth:`from_array`.
+
+        Returns:
+            Container: The rebuilt store, one variable per chosen column, on the inferred
+                grid.
+
+        Raises:
+            ValueError: `df` is not indexed by a `MultiIndex` of at least two named levels;
+                a named `x` / `y` level is missing or the two coincide; there are no value
+                columns or a requested one is absent; the index has duplicate rows; or an
+                `x` / `y` axis is irregular or has fewer than two coordinates.
+
+        Examples:
+            - Round-trip a two-step cube through pandas and back:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> nc = NetCDF.from_array(
+              ...     np.arange(8.0).reshape(2, 2, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... )
+              >>> back = NetCDF.from_dataframe(nc.to_dataframe(), crs=nc.epsg)
+              >>> back.get_variable("t")._band_dim_values_map["time"]
+              [0.0, 6.0]
+              >>> back.epsg
+              4326
+
+              ```
+        """
+        return _variables.from_dataframe(
+            df,
+            crs=crs,
+            x=x,
+            y=y,
+            variables=variables,
+            no_data_value=no_data_value,
+            path=path,
+        )
+
     @staticmethod
     def _resolve_dst_dimensions(dst_group, src_dims):
         """Map source dimensions onto `dst_group`, creating any that are missing.
