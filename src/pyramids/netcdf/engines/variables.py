@@ -1394,7 +1394,9 @@ def _dataframe_column_array(
             f"from_dataframe() cannot read column {col!r} as numbers: {exc}. A value column "
             "must be numeric."
         ) from exc
-    return values.reshape(shape)
+    # `to_numpy` is typed `Any` in the pandas stubs, so reshape is too; the cast keeps the
+    # declared `-> np.ndarray` honest under `warn_return_any` (#1203 M1).
+    return cast("np.ndarray", values.reshape(shape))
 
 
 def _geotransform_from_centres(
