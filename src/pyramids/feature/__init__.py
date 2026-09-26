@@ -13,6 +13,7 @@ CRS / EPSG / reprojection helpers live in :mod:`pyramids.base.crs`.
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import extra_hint, import_dask_geopandas
+from pyramids.feature._read import VectorInfo
 from pyramids.feature.collection import FeatureCollection
 from pyramids.feature.geometry import (
     Coords,
@@ -152,6 +153,7 @@ __all__ = [
     "FeatureCollection",
     "GeometryCoords",
     "LazyFeatureCollection",
+    "VectorInfo",
     "create_points",
     "create_polygon",
     "explode_gdf",

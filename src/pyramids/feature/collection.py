@@ -1220,6 +1220,172 @@ class FeatureCollection(GeoDataFrame):
         return _read.list_layers(path)
 
     @classmethod
+    def feature_count(cls, path: str | Path, *, layer: str | int | None = None) -> int:
+        """Count a vector file's features without loading its geometry.
+
+        Reads the layer metadata via :func:`pyogrio.read_info`
+        (OGR ``GetFeatureCount``) and never builds a
+        :class:`~geopandas.GeoDataFrame` of shapely geometries — unlike
+        ``len(FeatureCollection.read_file(path))``, which materialises every
+        row. For header formats (GPKG, shapefile, FlatGeobuf) the count comes
+        from the header; for headerless formats (GeoJSON, CSV) OGR still scans
+        the file, but no geometry objects are created. The count is forced, so
+        it is always the real number and never OGR's cheap ``-1``. Cost note:
+        forcing means an ``O(features)`` pass for headerless drivers, and a
+        remote source (`/vsicurl/`, `s3://`, ...) is downloaded in full to be
+        counted. Routes through :func:`pyramids._io._parse_path`, so the same
+        cloud-URL / archive rewriting that :meth:`read_file` uses applies here
+        too.
+
+        Args:
+            path (str | Path):
+                File path, URL, or archive path.
+            layer (str | int | None):
+                Layer name or index for multi-layer formats (GPKG, GDB,
+                KML); `None` reads the first layer and, on a multi-layer
+                file, emits a :class:`UserWarning` from pyogrio.
+
+        Returns:
+            int: The number of features in the layer.
+
+        Raises:
+            FileNotFoundError: If `path` is a local filesystem path that
+                does not exist. Cloud URLs and `/vsi*` paths skip this
+                check and defer to the underlying driver.
+            pyogrio.errors.DataLayerError: If `layer` names a layer that
+                the file does not contain.
+
+        Examples:
+            - Count without loading the rows:
+                ```python
+                >>> import tempfile
+                >>> from pathlib import Path
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> d = Path(tempfile.mkdtemp())
+                >>> path = d / "pts.geojson"
+                >>> gdf = gpd.GeoDataFrame(
+                ...     {"id": [1, 2, 3]},
+                ...     geometry=[Point(0, 0), Point(1, 1), Point(2, 2)],
+                ...     crs="EPSG:4326",
+                ... )
+                >>> gdf.to_file(path, driver="GeoJSON")
+                >>> FeatureCollection.feature_count(path)
+                3
+
+                ```
+            - Count a single layer of a multi-layer GeoPackage:
+                ```python
+                >>> import tempfile
+                >>> from pathlib import Path
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> d = Path(tempfile.mkdtemp())
+                >>> path = d / "multi.gpkg"
+                >>> gpd.GeoDataFrame(
+                ...     {"id": [1, 2]},
+                ...     geometry=[Point(0, 0), Point(1, 1)],
+                ...     crs="EPSG:4326",
+                ... ).to_file(path, driver="GPKG", layer="wells")
+                >>> FeatureCollection.feature_count(path, layer="wells")
+                2
+
+                ```
+        """
+        return _read.feature_count(path, layer=layer)
+
+    @classmethod
+    def feature_info(
+        cls, path: str | Path, *, layer: str | int | None = None
+    ) -> _read.VectorInfo:
+        """Read a vector file's metadata without loading its geometry.
+
+        The vector counterpart to :meth:`pyramids.dataset.Dataset.info`
+        for COGs: returns a :class:`~pyramids.feature.VectorInfo` with the
+        feature count, geometry type, CRS (EPSG), extent, field names,
+        layer name and driver — all via :func:`pyogrio.read_info`, so no
+        :class:`~geopandas.GeoDataFrame` of geometries is built. The count
+        and extent are forced, so both are complete even for drivers that
+        cache neither (GeoJSON, CSV); for those OGR scans the file, but no
+        geometry objects are materialised. Cost note: that scan is
+        ``O(features)`` for headerless drivers, and a remote source
+        (`/vsicurl/`, `s3://`, ...) is downloaded in full. Routes through
+        :func:`pyramids._io._parse_path` for the same cloud-URL / archive
+        rewriting as :meth:`read_file`.
+
+        Args:
+            path (str | Path):
+                File path, URL, or archive path.
+            layer (str | int | None):
+                Layer name or index for multi-layer formats; `None` reads
+                the first layer and, on a multi-layer file, emits a
+                :class:`UserWarning` from pyogrio.
+
+        Returns:
+            VectorInfo: The layer's metadata (see
+            :class:`~pyramids.feature.VectorInfo`).
+
+        Raises:
+            FileNotFoundError: If `path` is a local filesystem path that
+                does not exist. Cloud URLs and `/vsi*` paths skip this
+                check and defer to the underlying driver.
+            pyogrio.errors.DataLayerError: If `layer` names a layer that
+                the file does not contain.
+
+        Examples:
+            - Inspect a file without loading it:
+                ```python
+                >>> import tempfile
+                >>> from pathlib import Path
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> d = Path(tempfile.mkdtemp())
+                >>> path = d / "pts.geojson"
+                >>> gdf = gpd.GeoDataFrame(
+                ...     {"id": [1, 2]},
+                ...     geometry=[Point(0, 0), Point(1, 1)],
+                ...     crs="EPSG:4326",
+                ... )
+                >>> gdf.to_file(path, driver="GeoJSON")
+                >>> info = FeatureCollection.feature_info(path)
+                >>> info.feature_count
+                2
+                >>> info.geometry_type
+                'Point'
+                >>> info.crs_epsg
+                4326
+                >>> info.fields
+                ('id',)
+
+                ```
+            - Inspect the extent and driver without loading the rows:
+                ```python
+                >>> import tempfile
+                >>> from pathlib import Path
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> d = Path(tempfile.mkdtemp())
+                >>> path = d / "sites.geojson"
+                >>> gpd.GeoDataFrame(
+                ...     {"id": [1, 2]},
+                ...     geometry=[Point(0, 0), Point(3, 4)],
+                ...     crs="EPSG:4326",
+                ... ).to_file(path, driver="GeoJSON")
+                >>> info = FeatureCollection.feature_info(path)
+                >>> info.bounds
+                (0.0, 0.0, 3.0, 4.0)
+                >>> info.driver
+                'GeoJSON'
+
+                ```
+        """
+        return _read.feature_info(path, layer=layer)
+
+    @classmethod
     def list_layers_cache_clear(cls) -> None:
         """Clear the C15 LRU cache backing :meth:`list_layers`.
 
