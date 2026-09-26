@@ -2575,9 +2575,10 @@ class Selection(_Engine["NetCDF"]):
         Raises:
             ValueError: `dim` is not a band dimension, is spatial, is not a dimension of the
                 container, or carries non-numeric / no coordinates / a `NaN`; `bins` is not an
-                `int` count or a sequence of edges; `how` / `q` are invalid (as on `reduce`);
-                the explicit edges are fewer than two or not strictly increasing; or a
-                coordinate falls outside every bin.
+                `int` count or a sequence of edges; an `int` `bins` is given for a constant
+                axis (no range to divide — pass explicit edges); `how` / `q` are invalid (as on
+                `reduce`); the explicit edges are fewer than two or not strictly increasing; or
+                a coordinate falls outside every bin.
 
         Notes:
             Deliberate differences from xarray: an **empty bin is dropped** (xarray keeps it
@@ -2626,10 +2627,18 @@ class Selection(_Engine["NetCDF"]):
         outside = int(np.isnan(codes).sum())
         if outside:
             # The reduce path groups must cover the axis exactly; a coordinate in no bin has no
-            # group, so rather than drop data silently, refuse and say which bins miss it.
+            # group, so rather than drop data silently, refuse and name which coordinates miss.
+            # `include_lowest` only rescues a coordinate equal to the lowest edge, so only
+            # suggest it when that is what happened.
+            outside_vals = sorted(float(v) for v in coords[np.isnan(codes)])
+            hint = (
+                " (or pass include_lowest=True to include the lowest edge)"
+                if not include_lowest and float(edges[0]) in outside_vals
+                else ""
+            )
             raise ValueError(
                 f"groupby_bins() found {outside} {dim!r} coordinate(s) outside every bin "
-                f"{list(edges)}; widen the bins (or pass include_lowest=True) so every "
+                f"{[float(e) for e in edges]}: {outside_vals}. Widen the bins{hint} so every "
                 "coordinate falls in one."
             )
         codes = codes.astype(int)
@@ -4159,6 +4168,14 @@ def _bin_membership(
         if int(bins) < 1:
             raise ValueError(
                 f"groupby_bins() needs at least one bin; got bins={bins!r}."
+            )
+        if float(coords.min()) == float(coords.max()):
+            # A constant axis has no range to divide, and `np.histogram_bin_edges` would expand
+            # it by +-0.5 so the first label falls below the value. Refuse it (pass explicit
+            # edges for a constant axis) rather than mislabel the bin.
+            raise ValueError(
+                f"groupby_bins() cannot form {int(bins)} equal-width bins from a constant axis "
+                f"(every coordinate is {float(coords.min())}); pass explicit edges instead."
             )
         # Edges span exactly [min, max], so the first label is the data minimum rather than
         # pandas' range-expanded edge (`cut(x, int)` widens the ends ~0.1%, which for a level

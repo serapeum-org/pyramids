@@ -130,12 +130,12 @@ class TestGroupbyBinsPassthroughAndAxisOrder:
         )
         skipped = cube.groupby_bins("level", [0, 500, 1000], "mean")
         raw = cube.groupby_bins("level", [0, 500, 1000], "mean", skipna=False)
-        assert (
-            skipped.get_variable("t").read_array().ravel()[0] == 1.0
-        )  # mean of 0 and 2
-        assert (
-            raw.get_variable("t").read_array().ravel()[0] != 1.0
-        )  # sentinel dragged in
+        # skipna=True averages the two valid cells 0 and 2; skipna=False drags the -9999
+        # sentinel in, so bin 0 is (0 + -9999 + 2) / 3.
+        assert skipped.get_variable("t").read_array().ravel()[0] == 1.0
+        assert_allclose(
+            raw.get_variable("t").read_array().ravel()[0], (0 - 9999 + 2) / 3
+        )
 
     def test_a_descending_axis_labels_by_value(self):
         """A descending coordinate axis bins by value, not by position."""
@@ -219,6 +219,24 @@ class TestGroupbyBinsRefusals:
         cube = _cube([100.0, float("nan"), 600.0])
         with pytest.raises(ValueError, match="contain NaN"):
             cube.groupby_bins("level", [0, 500, 1000], "mean")
+
+    def test_a_constant_axis_with_int_bins_is_refused(self):
+        """A constant axis has no range for equal-width int bins, so it raises (no below-min label)."""
+        with pytest.raises(ValueError, match="constant axis"):
+            _cube([300.0, 300.0, 300.0]).groupby_bins("level", 2, "mean")
+
+    def test_the_outside_refusal_names_the_coordinates(self):
+        """The out-of-range message lists the coordinates that fell in no bin."""
+        with pytest.raises(ValueError, match=r"outside every bin.*2000\.0"):
+            _cube([50.0, 300.0, 2000.0]).groupby_bins("level", [0, 500, 1000], "mean")
+
+    def test_include_lowest_hint_appears_only_when_it_helps(self):
+        """A coordinate equal to the lowest edge gets the include_lowest hint; a plain miss does not."""
+        with pytest.raises(ValueError, match="include_lowest=True"):
+            _cube([300.0, 600.0]).groupby_bins("level", [300, 500, 1000], "mean")
+        with pytest.raises(ValueError) as plain:
+            _cube([50.0, 600.0]).groupby_bins("level", [100, 500, 1000], "mean")
+        assert "include_lowest" not in str(plain.value)
 
     def test_a_text_axis_is_refused(self):
         """A non-numeric coordinate cannot be cut into value intervals."""
