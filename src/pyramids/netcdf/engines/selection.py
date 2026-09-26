@@ -4068,8 +4068,11 @@ def _bin_coordinates(nc: NetCDF, dim: str) -> np.ndarray:
     """The numeric coordinates of band dimension `dim`, for `groupby_bins` to cut into bins.
 
     Read from the variable's `_band_dim_values_map` (a variable) or the store's dimension
-    values (a container). A spatial or unknown `dim` is left for the reduce path to refuse; a
-    text or coordinate-less axis is refused here, since it cannot be cut into value intervals.
+    values (a container). On a variable, `_assert_band_dimension` refuses a spatial or unknown
+    name up front with the wrong-dimension message `sel` / `isel` share. A text or
+    coordinate-less axis (including a container dimension with no coordinate variable) is
+    refused here, since it cannot be cut into value intervals; a container's spatial axis reads
+    back its own numeric coordinates and is left for the reduce path to refuse.
 
     Args:
         nc: The container or variable `groupby_bins` was called on.
