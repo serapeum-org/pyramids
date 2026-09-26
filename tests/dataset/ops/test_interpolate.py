@@ -449,3 +449,65 @@ class TestDatasetFromPointArrays:
         """
         with pytest.raises(ValueError, match="cell_size or both width and height"):
             Dataset.from_point_arrays([0.0, 1.0], [0.0, 1.0], [1.0, 2.0])
+
+    def test_two_dimensional_input_raises(self):
+        """A 2-D coordinate array is rejected by the array core.
+
+        Test scenario:
+            Passing a (2, 2) array for x reports that 1-D arrays are required.
+        """
+        with pytest.raises(ValueError, match="grid_arrays expects 1-D arrays"):
+            Dataset.from_point_arrays(
+                np.array([[0.0, 1.0], [2.0, 3.0]]),
+                np.array([0.0, 1.0]),
+                np.array([1.0, 2.0]),
+                cell_size=1.0,
+            )
+
+
+class TestGridPointsFallbackBranch:
+    """The non-point GeoJSON fallback in :func:`grid_points`."""
+
+    @staticmethod
+    def _polygon_layer() -> FeatureCollection:
+        """Two disjoint square polygons carrying a value column.
+
+        Returns:
+            FeatureCollection: A non-point layer that forces the fallback path.
+        """
+        from shapely.geometry import Polygon
+
+        gdf = GeoDataFrame(
+            {"val": [1.0, 2.0]},
+            geometry=[
+                Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]),
+                Polygon([(8, 8), (10, 8), (10, 10), (8, 10)]),
+            ],
+            crs="EPSG:4326",
+        )
+        return FeatureCollection(gdf)
+
+    def test_fallback_without_bbox_uses_total_bounds(self):
+        """A non-point layer with no bbox derives the extent from total_bounds.
+
+        Test scenario:
+            Two polygons spanning 0..10 gridded at cell_size=1 (no bbox) give a
+            10x10 raster whose origin is the layer's own top-left.
+        """
+        ds = grid_points(self._polygon_layer(), "val", Dataset, cell_size=1.0)
+        assert (ds.rows, ds.columns) == (10, 10), (
+            f"unexpected shape from total_bounds: {ds.rows}x{ds.columns}"
+        )
+        assert ds.geotransform[3] == pytest.approx(10.0), "y-origin not at maxy"
+
+    def test_fallback_failed_grid_raises(self, monkeypatch):
+        """A None from gdal.Grid on the fallback path surfaces FailedToSaveError.
+
+        Test scenario:
+            With gdal.Grid stubbed to return None, gridding a polygon layer raises.
+        """
+        from pyramids.dataset.ops import interpolate as interp_mod
+
+        monkeypatch.setattr(interp_mod.gdal, "Grid", lambda *a, **k: None)
+        with pytest.raises(FailedToSaveError, match="gdal.Grid returned no dataset"):
+            grid_points(self._polygon_layer(), "val", Dataset, cell_size=1.0)
