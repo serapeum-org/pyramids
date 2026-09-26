@@ -12652,10 +12652,13 @@ class NetCDF(Dataset):
 
         The frame is indexed by its dimensions: the innermost two index levels are the
         `(y, x)` grid axes and any outer levels are band dimensions, so
-        `NetCDF.from_dataframe(nc.to_dataframe(), crs=nc.epsg)` reproduces `nc`. A DataFrame
-        carries no georeferencing, so the geotransform is inferred from the `x` / `y`
-        cell-centre coordinates (a regular grid is required) and the CRS is taken from
-        `crs`. The result is always north-up.
+        `NetCDF.from_dataframe(nc.to_dataframe(), crs=nc.epsg)` reproduces `nc` to
+        floating-point tolerance (the geotransform is recovered by differencing cell
+        centres). A DataFrame carries no georeferencing, so the geotransform is inferred from
+        the `x` / `y` cell-centre coordinates (a regular grid is required; a single-row or
+        single-column axis carries no spacing and is refused) and the CRS is taken from
+        `crs`. The result is always north-up; band-dimension coordinates keep their
+        first-appearance order. See the engine method for the full contract.
 
         Args:
             df: A DataFrame on a `pandas.MultiIndex` of at least two named levels. The

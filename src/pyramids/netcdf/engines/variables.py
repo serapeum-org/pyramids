@@ -1145,13 +1145,18 @@ def from_dataframe(
     The frame must be indexed by its dimensions, the two innermost index levels being the
     `(y, x)` grid axes and any outer levels the band dimensions; each non-index column
     becomes a data variable. That is exactly the shape `to_dataframe` returns, so
-    `from_dataframe(nc.to_dataframe(), crs=nc.epsg)` reproduces `nc`.
+    `from_dataframe(nc.to_dataframe(), crs=nc.epsg)` reproduces `nc` — to floating-point
+    tolerance, since the geotransform is recovered by differencing the stored cell centres.
+    The one cube it cannot round-trip is a single-row or single-column raster: one centre on
+    an axis carries no spacing to recover, so that axis is refused (see `Raises`).
 
     A DataFrame carries no georeferencing, so this recovers it: the geotransform is
     **inferred** from the `x` / `y` cell-centre coordinates assuming a regular grid (an
     irregular axis is refused — it has no affine transform), and the CRS comes from `crs`
     (a DataFrame has none, so it is left unset when `crs` is `None`). The result is always
-    north-up (`y` descending, `x` ascending), whatever order the frame's rows are in.
+    north-up (`y` descending, `x` ascending), whatever order the frame's rows are in. Band
+    dimensions are not sorted: their coordinates keep the order they first appear in the
+    frame, which is the order `to_dataframe` emitted them.
 
     Args:
         df: A DataFrame on a `pandas.MultiIndex` of at least two named levels. The innermost
