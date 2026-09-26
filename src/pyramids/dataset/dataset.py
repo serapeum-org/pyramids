@@ -6074,6 +6074,20 @@ class Dataset(RasterBase):
                 4326
 
                 ```
+            - Nearest-neighbour with an explicit output size and a wider extent:
+                ```python
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.from_point_arrays(
+                ...     [0.0, 5.0, 0.0, 5.0], [0.0, 0.0, 5.0, 5.0],
+                ...     [1.0, 2.0, 3.0, 4.0],
+                ...     algorithm="nearest", width=8, height=8, bbox=(-2, -2, 7, 7),
+                ... )
+                >>> (ds.rows, ds.columns)
+                (8, 8)
+                >>> round(ds.geotransform[0])
+                -2
+
+                ```
 
         See Also:
             - :meth:`from_points`: the same gridding from a point
