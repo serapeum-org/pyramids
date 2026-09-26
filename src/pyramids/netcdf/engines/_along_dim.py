@@ -134,6 +134,9 @@ class _Reduction(_AlongDim):
             it alone.
         window_mean_coords: Label each group with the mean of its members' coordinates
             (`coarsen`) instead of its first member's (`reduce`).
+        group_coords: Explicit coordinate labels for the output groups, one per group in
+            group order (`groupby_bins`, which labels each bin with its left edge) instead of
+            the first member's coordinate. Mutually exclusive with `window_mean_coords`.
     """
 
     how: str
@@ -143,6 +146,7 @@ class _Reduction(_AlongDim):
     caller: str = "reduce"
     resize: int | None = None
     window_mean_coords: bool = False
+    group_coords: list | None = None
     _positions: list | None = field(default=None, init=False, repr=False)
 
     @property
@@ -176,6 +180,7 @@ class _Reduction(_AlongDim):
                 q=self.q,
                 resize=self.resize,
                 window_mean_coords=self.window_mean_coords,
+                group_coords=self.group_coords,
             )
         )
 
@@ -1078,6 +1083,7 @@ def _reduced_array(
     q: float | None,
     resize: int | None = None,
     window_mean_coords: bool = False,
+    group_coords: list | None = None,
 ) -> tuple[np.ndarray, list[str], dict[str, Any], Any]:
     """Reduce one raster variable along `dim`: the per-variable step of `reduce` and `coarsen`.
 
@@ -1099,6 +1105,9 @@ def _reduced_array(
             `None` leaves it alone.
         window_mean_coords: Label each group with the mean of its members' coordinates
             (`coarsen`) instead of its first member's (`reduce`).
+        group_coords: Explicit coordinate labels for the output groups (`groupby_bins`, the
+            bins' left edges), one per group in group order, instead of the first member's
+            coordinate. Mutually exclusive with `window_mean_coords`.
 
     Returns:
         tuple: The reduced numpy array, its band dimension names, its coordinate map, and
@@ -1135,6 +1144,8 @@ def _reduced_array(
     )
     if window_mean_coords and group_positions is not None:
         values_map[dim] = _window_coordinates(coords, group_positions, size)
+    elif group_coords is not None:
+        values_map[dim] = list(group_coords)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         arr = np.asarray(arr)

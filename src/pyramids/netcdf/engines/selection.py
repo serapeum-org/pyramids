@@ -19,13 +19,14 @@ from __future__ import annotations
 
 import math
 import operator
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 from shapely import box, contains_xy
 
 from pyramids.base._axes import X_AXIS_NAMES, Y_AXIS_NAMES
@@ -2526,6 +2527,125 @@ class Selection(_Engine["NetCDF"]):
             result = _apply_to_container(nc, dim, op)
         return result
 
+    def groupby_bins(
+        self,
+        dim: str,
+        bins: int | Sequence[float],
+        how: str = "mean",
+        *,
+        right: bool = True,
+        include_lowest: bool = False,
+        skipna: bool = True,
+        q: float | None = None,
+    ) -> NetCDF:
+        """Cut a band dimension's coordinates into value intervals and reduce each bin.
+
+        The value sibling of `reduce(groupby=...)`: where `reduce` groups by equal labels or a
+        calendar window, this groups by which **interval** of `bins` each coordinate falls in
+        — xarray's `groupby_bins`. It is sugar over the same group-reduce path, so `how`,
+        `skipna` and `q` mean exactly what they do on `reduce`.
+
+        Each non-empty bin becomes one output slice, labelled with the bin's **left edge**
+        (numeric and monotonic, so the result is still addressable with `sel` / `isel`); for
+        contiguous bins the right edge is the next bin's left edge. Bins come out in ascending
+        edge order whatever order the axis runs in.
+
+        Args:
+            dim: The band dimension to bin. Must carry **numeric** coordinates — a text axis or
+                a variable's coordinate-less axis is refused — and must not be a spatial axis.
+            bins: An `int` number of equal-width bins spanning the data range, or an explicit
+                sequence of strictly increasing edges. `n` edges make `n - 1` bins.
+            how: The reduction, as on `reduce` (`"mean"`, `"sum"`, `"min"`, `"max"`, `"std"`,
+                `"var"`, `"median"`, `"prod"`, `"quantile"`, `"count"`, `"all"`, `"any"`).
+            right: Whether the intervals are right-closed `(a, b]` (the default, as
+                `pandas.cut`) or left-closed `[a, b)`.
+            include_lowest: Whether the very first edge is included in the first bin. Applies
+                to explicit edges; an `int` `bins` always includes it, as `pandas.cut` does.
+            skipna: Whether gaps are skipped, as on `reduce`.
+            q: The quantile for `how="quantile"`, refused for every other `how`.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, with `dim` reduced
+            to one slice per non-empty bin and its coordinate holding those bins' left edges.
+
+        Raises:
+            ValueError: `dim` is not a band dimension, is spatial, or carries non-numeric /
+                no coordinates; `how` / `q` are invalid (as on `reduce`); the explicit edges
+                are fewer than two or not strictly increasing; or a coordinate falls outside
+                every bin.
+
+        Notes:
+            Deliberate differences from xarray: an **empty bin is dropped** (xarray keeps it
+            as NaN), consistent with how `reduce`'s frequency grouping skips empty windows; the
+            binned coordinate is the **left edge**, not a `pandas.Interval` (which a GDAL band
+            cannot hold); and a coordinate outside every bin is **refused** rather than dropped
+            silently, so widen the bins (or pass `include_lowest=True`) to cover the axis.
+
+        Examples:
+            - Average four levels into two 500-wide bins, labelled by their left edges:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="level", values=[100.0, 300.0, 600.0, 900.0]),
+              ... )
+              >>> binned = cube.groupby_bins("level", [0, 500, 1000], "mean").get_variable("t")
+              >>> binned._band_dim_values_map["level"]
+              [0.0, 500.0]
+              >>> binned.read_array().ravel().tolist()
+              [0.5, 2.5]
+
+              ```
+
+        See Also:
+            NetCDF.reduce: group by equal labels or a calendar window.
+            NetCDF.coarsen: reduce fixed-size positional windows.
+        """
+        # Local import breaks the netcdf.py <-> engines.selection import cycle, as `reduce` does.
+        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS
+
+        nc = self._ds
+        _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
+        q = _check_quantile(how, q)
+        coords = _bin_coordinates(nc, dim)
+        edges, codes = _bin_membership(
+            coords, bins, right=right, include_lowest=include_lowest
+        )
+        outside = int(np.isnan(codes).sum())
+        if outside:
+            # The reduce path groups must cover the axis exactly; a coordinate in no bin has no
+            # group, so rather than drop data silently, refuse and say which bins miss it.
+            raise ValueError(
+                f"groupby_bins() found {outside} {dim!r} coordinate(s) outside every bin "
+                f"{list(edges)}; widen the bins (or pass include_lowest=True) so every "
+                "coordinate falls in one."
+            )
+        codes = codes.astype(int)
+        positions: list = []
+        left_edges: list = []
+        for index in range(len(edges) - 1):
+            members = np.nonzero(codes == index)[0]
+            if members.size:
+                positions.append(members)
+                left_edges.append(float(edges[index]))
+        op = _Reduction(
+            how=how,
+            groups=lambda: positions,
+            skipna=skipna,
+            q=q,
+            caller="groupby_bins",
+            group_coords=left_edges,
+        )
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
+
     def rolling(
         self,
         dim: str,
@@ -3942,6 +4062,97 @@ def _check_min_periods(min_periods: Any, window: int) -> int:
                 f"step(s); pass at most {window}."
             )
     return needed
+
+
+def _bin_coordinates(nc: NetCDF, dim: str) -> np.ndarray:
+    """The numeric coordinates of band dimension `dim`, for `groupby_bins` to cut into bins.
+
+    Read from the variable's `_band_dim_values_map` (a variable) or the store's dimension
+    values (a container). A spatial or unknown `dim` is left for the reduce path to refuse; a
+    text or coordinate-less axis is refused here, since it cannot be cut into value intervals.
+
+    Args:
+        nc: The container or variable `groupby_bins` was called on.
+        dim: The band dimension to read.
+
+    Returns:
+        np.ndarray: The coordinates as `float64`.
+
+    Raises:
+        ValueError: `dim` is not one of a variable's band dimensions, or its coordinates are
+            absent (a coordinate-less axis) or non-numeric (a text axis).
+    """
+    coords: Any
+    if _reduces_as_a_variable(nc):
+        _assert_band_dimension(nc, dim, caller="groupby_bins")
+        coords = nc._band_dim_values_map.get(dim)
+    else:
+        coords = nc.get_dimension_values(dim)
+    if coords is None:
+        raise ValueError(
+            f"groupby_bins() needs numeric coordinates for {dim!r} to cut into bins, but it "
+            "carries none (a coordinate-less axis)."
+        )
+    values = np.asarray(coords)
+    if not np.issubdtype(values.dtype, np.number):
+        raise ValueError(
+            f"groupby_bins() needs a numeric {dim!r} axis to cut into bins; its coordinates "
+            "are not numbers."
+        )
+    return values.astype("float64")
+
+
+def _bin_membership(
+    coords: np.ndarray,
+    bins: int | Sequence[float],
+    *,
+    right: bool,
+    include_lowest: bool,
+) -> tuple[np.ndarray, np.ndarray]:
+    """The bin edges and each coordinate's bin index, via `pandas.cut`.
+
+    Args:
+        coords: The numeric coordinates to bin.
+        bins: An `int` count of equal-width bins, or a sequence of strictly increasing edges.
+        right: Whether the intervals are right-closed `(a, b]`.
+        include_lowest: Whether the first edge joins the first bin (explicit edges only; an
+            `int` `bins` always includes it, as `pandas.cut` does).
+
+    Returns:
+        tuple: `(edges, codes)` — the `float64` edges (`n` of them, `n - 1` bins) and one
+        bin index per coordinate, `NaN` for a coordinate outside every bin.
+
+    Raises:
+        ValueError: `bins` is an `int` below one, or an explicit sequence with fewer than two
+            edges or edges that are not strictly increasing.
+    """
+    if isinstance(bins, (int, np.integer)):
+        if int(bins) < 1:
+            raise ValueError(
+                f"groupby_bins() needs at least one bin; got bins={bins!r}."
+            )
+        codes, edges = pd.cut(
+            coords,
+            bins=int(bins),
+            right=right,
+            labels=False,
+            retbins=True,
+            include_lowest=True,
+        )
+    else:
+        edges = np.asarray(list(bins), dtype="float64")
+        if edges.size < 2:
+            raise ValueError(
+                f"groupby_bins() needs at least two bin edges to form a bin; got {list(edges)}."
+            )
+        if not np.all(np.diff(edges) > 0):
+            raise ValueError(
+                f"groupby_bins() needs strictly increasing bin edges; got {list(edges)}."
+            )
+        codes = pd.cut(
+            coords, edges, right=right, include_lowest=include_lowest, labels=False
+        )
+    return np.asarray(edges, dtype="float64"), np.asarray(codes, dtype="float64")
 
 
 def _band_dimension_size(nc: NetCDF, dim: str, *, is_variable: bool) -> int:

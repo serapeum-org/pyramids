@@ -1,6 +1,6 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 107 in all: 72 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 108 in all: 73 methods, 27 properties,
 7 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). `concat` and `merge` are counted among the methods: each is callable on the class
 (`NetCDF.concat([a, b], dim)`) and on a cube (`a.concat([b], dim)`, which joins the
@@ -118,6 +118,7 @@ A variable with no raster plane is the exception — see each member's docstring
 | `open_mfdataset()` | Stacks one variable across many files into a single lazy dask array.                 |
 | `reduce()`         | Reduces a container or a variable along `dim` — `how`, `q`, `groupby`, `skipna`.     |
 | `coarsen()`        | Reduces fixed-size windows along `dim` — `window`, `boundary`, `how`.                |
+| `groupby_bins()`   | Reduces `dim` binned into value intervals — `bins`, `right`, `include_lowest`, `how`. |
 | `rolling()`        | Reduces a moving window along `dim`, keeping its length — `center`, `min_periods`.   |
 | `diff()`           | Differences neighbouring steps along `dim` — `n`, `label`.                           |
 | `cumsum()`         | Totals the values along `dim`, step by step — `skipna`.                              |
