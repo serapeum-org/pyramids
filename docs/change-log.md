@@ -1,6 +1,21 @@
 ﻿# Change log
 
 
+## 0.65.0 (2026-09-26)
+
+### Feat
+
+- **feature**: count and inspect vector files without loading geometry (#1202)
+- **netcdf**: isel(drop=) and coordinate-less band-dimension writes (#1201)
+- **dataset,netcdf**: add **, unary - and abs() to the variable operators (#1197)
+- **wheels**: ship self-contained musllinux wheels for Alpine (#1188)
+- **dataset,netcdf**: clip, round and cast cell values; window, drop and sort bands (#1187)
+
+### Fix
+
+- **netcdf**: carry a text-coordinate band dimension through a rebuild (#1196)
+- **netcdf**: preserve a rebuild's axis names and CF units, reuse the store's own axes (#1195)
+
 ## 0.64.0 (2026-09-21)
 
 ### BREAKING CHANGE
