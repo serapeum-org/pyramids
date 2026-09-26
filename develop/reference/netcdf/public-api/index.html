@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6393,8 +6393,8 @@
 
 
 <h1 id="netcdf-public-api"><a class="toclink" href="#netcdf-public-api"><code>NetCDF</code> — public API</a><a class="headerlink" href="#netcdf-public-api" title="Permanent link">#</a></h1>
-<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 106 in all: 72 methods, 27 properties,
-6 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
+<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 107 in all: 72 methods, 27 properties,
+7 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
 <code>__len__</code>). <code>concat</code> and <code>merge</code> are counted among the methods: each is callable on the class
 (<code>NetCDF.concat([a, b], dim)</code>) and on a cube (<code>a.concat([b], dim)</code>, which joins the
 receiver first). For the full signatures, arguments and examples, see the rendered
@@ -6434,6 +6434,10 @@ members under <a href="../../dataset/analysis/#cell-wise-transforms">Cell-wise t
 <tr>
 <td><code>from_array()</code></td>
 <td>Builds a Container from a NumPy array plus a geo-reference.</td>
+</tr>
+<tr>
+<td><code>from_dataframe()</code></td>
+<td>Rebuilds a Container from a <code>MultiIndex</code> DataFrame — the inverse of <code>to_dataframe</code>.</td>
 </tr>
 <tr>
 <td><code>from_xarray()</code></td>
