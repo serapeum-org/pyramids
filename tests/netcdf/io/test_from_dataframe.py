@@ -274,6 +274,81 @@ class TestFromDataframeRefusals:
             NetCDF.from_dataframe(frame)
 
 
+def _two_band_cube() -> NetCDF:
+    """A `(time=2, level=3, y=2, x=2)` cube with distinct cells, for the 4-D reshape path.
+
+    Returns:
+        NetCDF: The container, variable `t`, over `GEO_CUBE`.
+    """
+    return NetCDF.from_array(
+        np.arange(2 * 3 * 2 * 2, dtype="float64").reshape(2, 3, 2, 2),
+        geo_ref=GeoReference(geo=GEO_CUBE, epsg=4326),
+        variable_name="t",
+        dims=ExtraDimensions(
+            dims=[("time", [0.0, 6.0]), ("level", [1000.0, 850.0, 500.0])]
+        ),
+    )
+
+
+class TestReshapeAndReorderAreValueVerified:
+    """The hardest paths — multi-band, reordered axes, odd coordinates — check placement."""
+
+    def test_a_four_dim_two_band_cube_round_trips(self):
+        """A `(time, level, y, x)` cube reproduces its cells, band names, and coordinates."""
+        nc = _two_band_cube()
+        back = NetCDF.from_dataframe(nc.to_dataframe(), crs=nc.epsg)
+        var = back.get_variable("t")
+        assert var._band_dim_names == ("time", "level")
+        assert var._band_dim_values_map["time"] == [0.0, 6.0]
+        assert var._band_dim_values_map["level"] == [1000.0, 850.0, 500.0]
+        assert_array_equal(var.read_array(), nc.get_variable("t").read_array())
+
+    def test_non_innermost_named_axes_place_values_correctly(self):
+        """With `x=` / `y=` naming non-innermost levels, the cells land where they belong."""
+        nc = _cube(np.arange(8.0).reshape(2, 2, 2))
+        reordered = nc.to_dataframe().reorder_levels(["y", "x", "time"])
+        back = NetCDF.from_dataframe(reordered, crs=4326, x="x", y="y")
+        assert back.get_variable("t")._band_dim_names == ("time",)
+        assert_array_equal(
+            back.get_variable("t").read_array(),
+            nc.get_variable("t").read_array(),
+        )
+
+    def test_descending_band_stamps_keep_their_order(self):
+        """A band axis stored descending comes back in the same order, not sorted."""
+        nc = _cube(np.arange(8.0).reshape(2, 2, 2), stamps=(18.0, 6.0))
+        back = NetCDF.from_dataframe(nc.to_dataframe(), crs=4326)
+        assert back.get_variable("t")._band_dim_values_map["time"] == [18.0, 6.0]
+        assert_array_equal(
+            back.get_variable("t").read_array(), nc.get_variable("t").read_array()
+        )
+
+    def test_an_all_nan_column_becomes_an_all_gap_variable(self):
+        """A column that is entirely `NaN` rebuilds a variable whose every cell is a gap."""
+        nc = _cube(np.arange(8.0).reshape(2, 2, 2))
+        frame = nc.to_dataframe()
+        frame["t"] = np.nan
+        back = NetCDF.from_dataframe(frame, crs=4326)
+        assert np.isnan(back.to_dataframe()["t"].to_numpy()).all()
+
+    def test_a_text_band_axis_round_trips(self):
+        """A non-numeric band axis keeps its labels through the round trip."""
+        nc = NetCDF.from_array(
+            np.arange(8.0).reshape(2, 2, 2),
+            geo_ref=GeoReference(geo=GEO_CUBE, epsg=4326),
+            variable_name="t",
+            dims=ExtraDimensions(name="scenario", values=["rcp45", "rcp85"]),
+        )
+        back = NetCDF.from_dataframe(nc.to_dataframe(), crs=4326)
+        assert list(back.get_variable("t")._band_dim_values_map["scenario"]) == [
+            "rcp45",
+            "rcp85",
+        ]
+        assert_array_equal(
+            back.get_variable("t").read_array(), nc.get_variable("t").read_array()
+        )
+
+
 class TestNonStandardColumns:
     """Value columns whose labels are not strings, or are non-numeric / duplicated."""
 
