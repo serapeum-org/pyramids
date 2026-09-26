@@ -1870,6 +1870,14 @@ def reproject_arrays(
     resolution goes through :func:`crs_from_user_input`, so an EPSG code only GDAL's
     PROJ database knows still builds a transformer (issue #943).
 
+    Non-finite coordinates pass straight through: a ``NaN`` or infinite input yields a
+    ``NaN`` or infinite output (verified), mirroring pyproj's pointwise transform.
+    This is a deliberate difference from :meth:`Dataset.from_point_arrays` and
+    :meth:`FeatureCollection.from_xyz`, added on the same branch, which reject
+    non-finite coordinates up front. A pointwise transform has no bounds to derive or
+    grid to corrupt, so it leaves a missing coordinate for the caller to interpret
+    rather than raising; guard the inputs yourself if you need finite outputs.
+
     Args:
         x: Source x-coordinates (anything :func:`numpy.asarray` reads as a float
             array — longitudes when ``from_crs`` is geographic).
