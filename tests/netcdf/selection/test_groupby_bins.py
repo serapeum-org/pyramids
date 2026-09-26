@@ -152,3 +152,25 @@ class TestGroupbyBinsRefusals:
         )
         with pytest.raises(ValueError, match="numeric"):
             cube.groupby_bins("scenario", [0, 1], "mean")
+
+    def test_a_coordinate_less_axis_is_refused(self):
+        """A band dimension carrying no coordinate values cannot be cut into intervals.
+
+        Test scenario:
+            A file-loaded coordinate-less axis tracks `_band_dim_values_map[dim] is None`;
+            binning it has nothing to cut, so it raises rather than fabricating labels.
+        """
+        var = _cube([100.0, 300.0, 600.0]).get_variable("t")
+        var._band_dim_values_map["level"] = None
+        with pytest.raises(ValueError, match="coordinate-less axis"):
+            var.groupby_bins("level", [0, 500, 1000], "mean")
+
+    @pytest.mark.parametrize("bins", [0, -2])
+    def test_an_int_bins_below_one_is_refused(self, bins):
+        """An integer bin count below one forms no bin, so it raises.
+
+        Args:
+            bins: A non-positive integer bin count that cannot form a single bin.
+        """
+        with pytest.raises(ValueError, match="at least one bin"):
+            _cube([100.0, 300.0]).groupby_bins("level", bins, "mean")
