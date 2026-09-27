@@ -744,8 +744,9 @@ class TestNonFiniteInputs:
             geometry=[Point(0, 0), Point(10, 0), Point(float("nan"), float("nan"))],
             crs="EPSG:4326",
         )
+        fc = FeatureCollection(gdf)
         with pytest.raises(ValueError, match="x and y must be finite"):
-            Dataset.from_points(FeatureCollection(gdf), "z", cell_size=1.0)
+            Dataset.from_points(fc, "z", cell_size=1.0)
 
 
 class TestGridPointsFallbackBranch:
@@ -788,5 +789,6 @@ class TestGridPointsFallbackBranch:
             With gdal.Grid stubbed to return None, gridding a polygon layer raises.
         """
         monkeypatch.setattr(interp_mod.gdal, "Grid", lambda *a, **k: None)
+        layer = self._polygon_layer()
         with pytest.raises(FailedToSaveError, match="gdal.Grid returned no dataset"):
-            grid_points(self._polygon_layer(), "val", Dataset, cell_size=1.0)
+            grid_points(layer, "val", Dataset, cell_size=1.0)
