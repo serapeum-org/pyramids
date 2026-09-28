@@ -644,11 +644,11 @@ class TestNonFiniteInputs:
                 [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 2.0, 3.0], cell_size=1.0
             )
         leftovers = [
-            name
-            for name in (gdal.ReadDir("/vsimem") or [])
-            if name.startswith("grid_")
+            name for name in (gdal.ReadDir("/vsimem") or []) if name.startswith("grid_")
         ]
-        assert leftovers == [], f"/vsimem leaked files after a failed write: {leftovers}"
+        assert leftovers == [], (
+            f"/vsimem leaked files after a failed write: {leftovers}"
+        )
 
     def test_all_nan_values_raise(self):
         """An all-non-finite value column leaves nothing to interpolate.
