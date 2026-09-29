@@ -2940,7 +2940,8 @@ class Selection(_Engine["NetCDF"]):
 
         Works on a container, interpolating every variable that has the dimension, and on a single
         variable, returning a variable. A container's auxiliary variable spanning the dimension is
-        dropped with a warning, since its length changes.
+        dropped with a warning, since its coordinates change (and its length may too), so carrying
+        it verbatim would misalign it with the interpolated axis.
 
         Args:
             method: The interpolation kind, forwarded to `scipy.interpolate.interp1d`: `"linear"`
