@@ -319,13 +319,13 @@ _COMMON_DRIVERS = (
     "VRT",
     "MEM",
 )
-# The OGR/vector drivers FeatureCollection uses. Checked via ogr.GetDriverByName,
-# NOT gdal: GDAL's unified registry returns the RASTER "VRT" for
-# gdal.GetDriverByName("VRT") and masks a missing OGR "VRT" — the exact gap that
-# broke from_points / interpolate_to_raster (#1204), which wraps the point CSV in
-# an in-memory OGRVRTDataSource for gdal.Grid. The same masking hid the missing
-# OGR CSV (#1202). Assert them through OGR so a missing driver fails here instead
-# of skipping green in the pytest layers.
+# The OGR/vector drivers FeatureCollection uses, checked via ogr.GetDriverByName.
+# The OGR VRT driver registers as "OGR_VRT" (distinct from the raster "VRT"), and
+# interpolate_to_raster / from_points feed gdal.Grid an OGRVRTDataSource .vrt
+# (#1204). The old _COMMON_DRIVERS listed only the raster "VRT" and checked it via
+# gdal, so the OGR VRT went unverified while gridding broke on the from-source
+# wheels; same gap for OGR CSV (#1202). Assert the OGR set here so a missing OGR
+# driver fails at verify time instead of skipping green in the pytest layers.
 _OGR_DRIVERS = (
     "GeoJSON",
     "ESRI Shapefile",
@@ -341,7 +341,7 @@ _OGR_DRIVERS = (
     "SQLite",
     "OSM",
     "CSV",
-    "VRT",
+    "OGR_VRT",
 )
 # Platform extras: HDF4 ships only in the conda-extract wheels (macOS +
 # Windows AMD64). The from-source builds deliberately drop it — the
