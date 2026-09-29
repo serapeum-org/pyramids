@@ -4289,7 +4289,9 @@ def _band_dims_of(nc: NetCDF) -> list[str]:
     """
     if _reduces_as_a_variable(nc):
         return list(nc._band_dim_names)
-    return [d for d in (nc.dimension_names or []) if d.lower() not in _SPATIAL_AXIS_NAMES]
+    return [
+        d for d in (nc.dimension_names or []) if d.lower() not in _SPATIAL_AXIS_NAMES
+    ]
 
 
 def _same_spatial_grid(nc: NetCDF, other: NetCDF) -> bool:
@@ -4335,7 +4337,9 @@ def _refuse_spatial_interp(nc: NetCDF, dim: str, *, caller: str) -> None:
         )
 
 
-def _interp_source_coordinates(nc: NetCDF, dim: str, caller: str = "interp") -> np.ndarray:
+def _interp_source_coordinates(
+    nc: NetCDF, dim: str, caller: str = "interp"
+) -> np.ndarray:
     """The numeric source coordinates of band dimension `dim`, for `interp` to interpolate from.
 
     Read from the variable's `_band_dim_values_map` (a variable) or the store's dimension values (a

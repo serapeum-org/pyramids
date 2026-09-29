@@ -22,7 +22,12 @@ pytestmark = pytest.mark.core
 
 GEO = (0.0, 1.0, 0.0, 1.0, 0.0, -1.0)
 
-ERA5_T2M = Path(__file__).resolve().parents[2] / "data" / "netcdf" / "cf__5v__1d4-3d1__geog__y-desc.nc"
+ERA5_T2M = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "netcdf"
+    / "cf__5v__1d4-3d1__geog__y-desc.nc"
+)
 
 
 def _cube(stamps, values=None, *, name="t", cols=1, dim="time", no_data_value=-9999.0):
@@ -194,7 +199,9 @@ class TestInterpRefusals:
     def test_spatial_axis_points_to_the_warp_verbs(self, spatial):
         """A spatial axis is refused, naming resample / to_crs / align / extract."""
         var = _var([0.0, 10.0])
-        with pytest.raises(ValueError, match="resample|to_crs|align|extract") as excinfo:
+        with pytest.raises(
+            ValueError, match="resample|to_crs|align|extract"
+        ) as excinfo:
             var.interp(**{spatial: [0.5]})
         assert "spatial" in str(excinfo.value), "message should say the axis is spatial"
 
@@ -258,23 +265,27 @@ def _cube2(time_vals, level_vals, values=None, *, cols=1):
         arr.reshape(nt, nl, 1, cols),
         geo_ref=GeoReference(geo=GEO, epsg=4326),
         variable_name="t",
-        dims=ExtraDimensions(dims=[("time", list(time_vals)), ("level", list(level_vals))]),
+        dims=ExtraDimensions(
+            dims=[("time", list(time_vals)), ("level", list(level_vals))]
+        ),
     )
 
 
 class TestInterpKinds:
     """Every `interp1d` kind `interp` advertises runs and shapes the output correctly."""
 
-    @pytest.mark.parametrize("kind", ["quadratic", "slinear", "previous", "next", "zero"])
+    @pytest.mark.parametrize(
+        "kind", ["quadratic", "slinear", "previous", "next", "zero"]
+    )
     def test_kind_runs_on_a_four_step_axis(self, kind):
         """A supported non-default kind interpolates a 4-step axis to the target length.
 
         Args:
             kind: The interpolation kind under test.
         """
-        out = _var([0.0, 1.0, 2.0, 3.0], [0.0, 1.0, 8.0, 27.0], no_data_value=None).interp(
-            time=[0.5, 1.5, 2.5], method=kind
-        )
+        out = _var(
+            [0.0, 1.0, 2.0, 3.0], [0.0, 1.0, 8.0, 27.0], no_data_value=None
+        ).interp(time=[0.5, 1.5, 2.5], method=kind)
         assert out.read_array().size == 3, f"{kind} should give three output bands"
         assert out._band_dim_values_map["time"] == [0.5, 1.5, 2.5]
 
@@ -289,7 +300,9 @@ class TestInterpSourceGaps:
         ).interp(time=[5.0, 15.0])
         result = out.read_array().ravel()
         assert result[0] == 5.0, f"clean segment [0, 10] interpolates, got {result[0]}"
-        assert result[1] == -9999.0, f"segment touching the gap stays no-data, got {result[1]}"
+        assert result[1] == -9999.0, (
+            f"segment touching the gap stays no-data, got {result[1]}"
+        )
 
     def test_nan_gap_propagates_without_declared_no_data(self):
         """Without a declared no-data value, a segment touching a gap interpolates to NaN."""
@@ -307,7 +320,9 @@ class TestInterpLikeShared:
         source = _cube2([0.0, 10.0], [0.0, 100.0]).get_variable("t")
         other = _var([0.0, 5.0, 10.0], [0.0, 0.0, 0.0])
         out = source.interp_like(other)
-        assert out._band_dim_values_map["time"] == [0.0, 5.0, 10.0], "time follows other"
+        assert out._band_dim_values_map["time"] == [0.0, 5.0, 10.0], (
+            "time follows other"
+        )
         assert out._band_dim_values_map["level"] == [0.0, 100.0], "level is untouched"
 
 
@@ -316,9 +331,11 @@ class TestInterpMultiDim:
 
     def test_two_band_dims_chained(self):
         """Interpolating `time` then `level` composes the two 1-D interpolations."""
-        out = _cube2([0.0, 10.0], [0.0, 100.0]).interp(
-            time=[5.0], level=[50.0]
-        ).get_variable("t")
+        out = (
+            _cube2([0.0, 10.0], [0.0, 100.0])
+            .interp(time=[5.0], level=[50.0])
+            .get_variable("t")
+        )
         assert out._band_dim_values_map["time"] == [5.0]
         assert out._band_dim_values_map["level"] == [50.0]
         assert_allclose(out.read_array().ravel(), [1.5])
@@ -446,7 +463,9 @@ class TestInterpSplineGapPropagation:
         ).interp(time=[5.0, 35.0])
         result = out.read_array().ravel()
         assert result[0] == 5.0, f"clean segment [0, 10] interpolates, got {result[0]}"
-        assert result[1] == 35.0, f"clean segment [30, 40] interpolates, got {result[1]}"
+        assert result[1] == 35.0, (
+            f"clean segment [30, 40] interpolates, got {result[1]}"
+        )
 
 
 class TestInterpAxisTooShort:
@@ -467,7 +486,9 @@ class TestInterpAxisTooShort:
     def test_quadratic_on_two_points_is_refused(self):
         """`quadratic` needs three steps; a two-step axis is refused."""
         var = _var([0.0, 1.0], [0.0, 1.0], no_data_value=None)
-        with pytest.raises(ValueError, match="'quadratic' needs at least 3 source steps"):
+        with pytest.raises(
+            ValueError, match="'quadratic' needs at least 3 source steps"
+        ):
             var.interp(time=[0.5], method="quadratic")
 
 
@@ -544,7 +565,9 @@ class TestInterpContainerBranches:
             ).get_variable("temperature"),
         )
         out = container.interp(time=[5.0])
-        assert_allclose(out.get_variable("elevation").read_array(), np.full((2, 2), 7.0))
+        assert_allclose(
+            out.get_variable("elevation").read_array(), np.full((2, 2), 7.0)
+        )
         assert out.get_variable("temperature")._band_dim_values_map["time"] == [5.0]
 
     def test_a_spanning_auxiliary_is_dropped_and_the_warning_names_interp(self):

@@ -883,7 +883,15 @@ class _InterpTo(_AlongDim):
         values_map = dict(var._band_dim_values_map)
         ndv = _read_no_data(var)
         axis = band_names.index(dim)
-        source = np.asarray([float(value) for value in values_map[dim]], dtype="float64")
+        coords = values_map[dim]
+        if coords is None:
+            # `Selection._run_interp` validates the source coordinates before this runs, so a
+            # coordinate-less axis is refused up front; guard here too to narrow the type and stay
+            # safe if ever reached directly.
+            raise ValueError(
+                f"interp() has no coordinates for {dim!r} to interpolate from."
+            )
+        source = np.asarray([float(value) for value in coords], dtype="float64")
         arr = nc._materialize_variable_array(var, lazy=True)
         data = _gaps_as_nan(arr, ndv)
         interpolated = _interp_onto(data, axis, source, self.target, self.kind)
