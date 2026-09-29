@@ -340,7 +340,7 @@ classDiagram
 | `from_band_files(paths)` | Stack N single-band rasters (one file per band) into one multi-band Dataset — the natural target for the `<asset>.<band>.tif` layout of GEE / Landsat / Sentinel downloads. |
 | `from_archive(url_or_path, member_glob=…)` | Merge every matching member of a local or remote archive into one multi-band Dataset (composes `from_band_files` over `gdal.ReadDir`). For one-Dataset-per-member use `DatasetCollection.from_archive`. |
 | `from_array(arr, …)` | Build a Dataset from a numpy array + geobox. |
-| `from_dataframe(df, crs=…)` | Rebuild a raster from a `(band, y, x)` `MultiIndex` frame — inverse of `to_dataframe`. |
+| `from_dataframe(df, crs=…)` | Rebuild a raster from a `(band, y, x)` frame (inverse of `to_dataframe`). |
 | `dataset_like(template, arr)` | Stamp a new Dataset that inherits its grid / CRS from `template`. |
 
 See the [Recipes](../../how-to/recipes.md) page for runnable examples

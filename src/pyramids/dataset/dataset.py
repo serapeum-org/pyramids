@@ -6137,7 +6137,8 @@ class Dataset(RasterBase):
         column holds that cell's value; the ``MultiIndex`` names ``band`` (0-based,
         outermost), then the row (``y``) and column (``x``) cell-centre coordinates — the
         order the array is laid out, so ``df["values"].to_numpy().reshape(bands, rows, cols)``
-        is the array back. The frame is coordinate-keyed and carries **no geometry or CRS**;
+        is the array back, with nodata as ``NaN``. The frame is coordinate-keyed and carries
+        **no geometry or CRS**;
         for a geometry-per-cell ``GeoDataFrame`` use :meth:`get_cell_points` /
         :meth:`get_cell_polygons`, and to read values at scattered points use :meth:`sample`
         / :meth:`extract`.
