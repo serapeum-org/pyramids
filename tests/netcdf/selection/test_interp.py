@@ -221,3 +221,138 @@ class TestInterpRefusals:
         other = _var([0.0, 10.0], [0.0, 0.0], dim="level")
         with pytest.raises(ValueError, match="no band dimension shared"):
             source.interp_like(other)
+
+
+def _cube2(time_vals, level_vals, values=None, *, cols=1):
+    """A 4-D cube with band dimensions `time` then `level` over a `1 x cols` grid.
+
+    Args:
+        time_vals: The `time` coordinate values.
+        level_vals: The `level` coordinate values.
+        values: The band values; `arange` when omitted.
+        cols: The number of grid columns.
+
+    Returns:
+        NetCDF: The container.
+    """
+    nt, nl = len(time_vals), len(level_vals)
+    arr = (
+        np.arange(nt * nl * cols, dtype="float64")
+        if values is None
+        else np.asarray(values, "float64")
+    )
+    return NetCDF.from_array(
+        arr.reshape(nt, nl, 1, cols),
+        geo_ref=GeoReference(geo=GEO, epsg=4326),
+        variable_name="t",
+        dims=ExtraDimensions(dims=[("time", list(time_vals)), ("level", list(level_vals))]),
+    )
+
+
+class TestInterpKinds:
+    """Every `interp1d` kind `interp` advertises runs and shapes the output correctly."""
+
+    @pytest.mark.parametrize("kind", ["quadratic", "slinear", "previous", "next", "zero"])
+    def test_kind_runs_on_a_four_step_axis(self, kind):
+        """A supported non-default kind interpolates a 4-step axis to the target length.
+
+        Args:
+            kind: The interpolation kind under test.
+        """
+        out = _var([0.0, 1.0, 2.0, 3.0], [0.0, 1.0, 8.0, 27.0], no_data_value=None).interp(
+            time=[0.5, 1.5, 2.5], method=kind
+        )
+        assert out.read_array().size == 3, f"{kind} should give three output bands"
+        assert out._band_dim_values_map["time"] == [0.5, 1.5, 2.5]
+
+
+class TestInterpSourceGaps:
+    """A gap in the source series interpolates to a gap."""
+
+    def test_declared_no_data_gap_propagates(self):
+        """A target in a clean segment interpolates; one touching a no-data step stays no-data."""
+        out = _var(
+            [0.0, 10.0, 20.0, 30.0], [0.0, 10.0, -9999.0, 30.0], no_data_value=-9999.0
+        ).interp(time=[5.0, 15.0])
+        result = out.read_array().ravel()
+        assert result[0] == 5.0, f"clean segment [0, 10] interpolates, got {result[0]}"
+        assert result[1] == -9999.0, f"segment touching the gap stays no-data, got {result[1]}"
+
+    def test_nan_gap_propagates_without_declared_no_data(self):
+        """Without a declared no-data value, a segment touching a gap interpolates to NaN."""
+        out = _var(
+            [0.0, 10.0, 20.0, 30.0], [0.0, 10.0, float("nan"), 30.0], no_data_value=None
+        ).interp(time=[15.0])
+        assert np.isnan(out.read_array()).all(), "gap segment should be NaN"
+
+
+class TestInterpLikeShared:
+    """`interp_like` interpolates only the band dimensions shared with `other`."""
+
+    def test_skips_a_dimension_other_lacks(self):
+        """A dim present on this cube but not on `other` is left untouched."""
+        source = _cube2([0.0, 10.0], [0.0, 100.0]).get_variable("t")
+        other = _var([0.0, 5.0, 10.0], [0.0, 0.0, 0.0])
+        out = source.interp_like(other)
+        assert out._band_dim_values_map["time"] == [0.0, 5.0, 10.0], "time follows other"
+        assert out._band_dim_values_map["level"] == [0.0, 100.0], "level is untouched"
+
+
+class TestInterpMultiDim:
+    """`interp` applies several `dim=targets` pairs one after another."""
+
+    def test_two_band_dims_chained(self):
+        """Interpolating `time` then `level` composes the two 1-D interpolations."""
+        out = _cube2([0.0, 10.0], [0.0, 100.0]).interp(
+            time=[5.0], level=[50.0]
+        ).get_variable("t")
+        assert out._band_dim_values_map["time"] == [5.0]
+        assert out._band_dim_values_map["level"] == [50.0]
+        assert_allclose(out.read_array().ravel(), [1.5])
+
+
+class TestInterpMoreRefusals:
+    """The remaining coordinate and target refusals."""
+
+    def test_text_axis_is_refused(self):
+        """A non-numeric band axis cannot be interpolated."""
+        cube = NetCDF.from_array(
+            np.arange(2.0).reshape(2, 1, 1),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="t",
+            dims=ExtraDimensions(name="scenario", values=["rcp45", "rcp85"]),
+        )
+        with pytest.raises(ValueError, match="numeric"):
+            cube.interp(scenario=[0.5])
+
+    def test_coordinate_less_axis_is_refused(self):
+        """A band axis carrying no coordinates has nothing to interpolate from."""
+        var = _var([0.0, 10.0, 20.0], [0.0, 10.0, 20.0])
+        var._band_dim_values_map["time"] = None
+        with pytest.raises(ValueError, match="coordinate-less axis"):
+            var.interp(time=[5.0])
+
+    def test_nan_source_coordinate_is_refused(self):
+        """A source coordinate holding NaN is refused before interpolating."""
+        var = _var([0.0, 10.0, 20.0], [0.0, 10.0, 20.0])
+        var._band_dim_values_map["time"] = [0.0, float("nan"), 20.0]
+        with pytest.raises(ValueError, match="contain NaN"):
+            var.interp(time=[5.0])
+
+    def test_two_dimensional_target_is_refused(self):
+        """A 2-D target array is refused; targets must be 1-D."""
+        with pytest.raises(ValueError, match="one-dimensional"):
+            _var([0.0, 10.0], [0.0, 10.0]).interp(time=[[5.0], [6.0]])
+
+    def test_interp_like_column_mismatch(self):
+        """Differing column counts (same EPSG) refuse `interp_like` too."""
+        source = _var([0.0, 20.0], [0.0, 20.0], cols=1)
+        other = _cube([0.0, 10.0], [0.0, 0.0, 0.0, 0.0], cols=2).get_variable("t")
+        with pytest.raises(ValueError, match="to_crs|resample|align"):
+            source.interp_like(other)
+
+    def test_container_unknown_dimension(self):
+        """A name that is no dimension of a container is refused by the container path."""
+        cube = _cube([0.0, 10.0], [0.0, 1.0])
+        with pytest.raises(ValueError, match="not a dimension of this container"):
+            cube.interp(depth=[5.0])
