@@ -584,6 +584,94 @@ class FeatureCollection(GeoDataFrame):
             orient=orient,
         )
 
+    @classmethod
+    def from_xyz(
+        cls,
+        x: Any,
+        y: Any,
+        z: Any = None,
+        *,
+        crs: Any = None,
+        z_column: str = "z",
+    ) -> FeatureCollection:
+        """Build a point FeatureCollection from parallel coordinate arrays.
+
+        The array-native way into the vector model: raw ``x`` / ``y`` (and an
+        optional ``z``) arrays become a point layer without the caller assembling
+        shapely geometries or dict records first. Point geometry is built in one
+        vectorized :func:`geopandas.points_from_xy` call rather than a Point per
+        row, so a large sample table (soundings, a dense gauge network, a CSV of
+        readings) turns into a FeatureCollection cheaply.
+
+        ``z`` is stored as an ordinary attribute column, not folded into the
+        geometry. That is what makes it the value to interpolate — pass its name to
+        :meth:`interpolate_to_raster` — and it means a later :meth:`to_crs` moves
+        the horizontal position without silently reprojecting the stored value. The
+        two capabilities compose on the class: build with ``from_xyz``, reproject
+        with ``to_crs``, grid with ``interpolate_to_raster``.
+
+        The coordinates must be finite: a ``NaN`` or infinite ``x``/``y`` is a
+        malformed point and raises. A ``NaN`` in ``z`` is different — it is a missing
+        *reading*, so it is accepted and stored verbatim in the value column (verified),
+        and only later dropped as a gap when that column is gridded.
+
+        Args:
+            x: X-coordinates (longitudes when ``crs`` is geographic). Anything
+                :func:`numpy.asarray` reads as a 1-D float array. Must be finite.
+            y: Y-coordinates, the same length as ``x``. Must be finite.
+            z: Optional value at each point (elevation, depth, a reading). When
+                given it becomes the column named by ``z_column``; when ``None`` the
+                result is a bare point layer with no value column. A ``NaN`` value is
+                kept as a missing reading, not rejected.
+            crs: CRS to attach, in any form
+                :class:`geopandas.GeoDataFrame` accepts (EPSG int, ``"EPSG:4326"``,
+                WKT, a :class:`pyproj.CRS`). Resolution goes through
+                :func:`~pyramids.base.crs.crs_from_user_input`, so an EPSG code only
+                GDAL's PROJ database knows (which raw pyproj cannot parse) still
+                attaches (issue #943). Defaults to ``None`` (no CRS).
+            z_column: Name to store ``z`` under. Defaults to ``"z"``.
+
+        Returns:
+            FeatureCollection: One point row per coordinate triple.
+
+        Raises:
+            ValueError: ``x`` and ``y`` are not 1-D and of equal length, ``z`` (if
+                given) does not match their length, the arrays are empty, or a
+                coordinate (``x`` or ``y``) is non-finite.
+
+        Examples:
+            - Build a point layer from three arrays and read back its shape:
+                ```python
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection.from_xyz(
+                ...     [0.0, 1.0, 2.0], [0.0, 1.0, 2.0], [10.0, 20.0, 30.0],
+                ...     crs=4326,
+                ... )
+                >>> len(fc)
+                3
+                >>> fc.epsg
+                4326
+                >>> list(fc["z"])
+                [10.0, 20.0, 30.0]
+
+                ```
+            - Without ``z`` it is a bare point layer; the geometry is still there:
+                ```python
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection.from_xyz([0.0, 1.0], [2.0, 3.0])
+                >>> fc.geometry.iloc[0].wkt
+                'POINT (0 2)'
+
+                ```
+
+        See Also:
+            - :meth:`to_crs`: reproject the built layer.
+            - :meth:`interpolate_to_raster`: grid the ``z`` column onto a raster.
+            - :meth:`from_records`: build from per-row dicts that already hold
+              shapely geometries.
+        """
+        return _read.from_xyz(cls, x, y, z, crs=crs, z_column=z_column)
+
     _VALID_TILE_STRATEGIES: tuple[str, ...] = (
         "auto",
         "rtree",

@@ -91,7 +91,7 @@ from pyramids.dataset.ops._zarr import (
     write_dataset_to_zarr,
 )
 from pyramids.dataset.ops._zonal import zonal_stats as _zonal_stats
-from pyramids.dataset.ops.interpolate import grid_points
+from pyramids.dataset.ops.interpolate import grid_arrays, grid_points
 from pyramids.dataset.ops.units import convert_array
 from pyramids.dataset.ops.vectorize import rasterize_features
 from pyramids.dataset.transform import GeoTransform
@@ -5990,6 +5990,136 @@ class Dataset(RasterBase):
             height=height,
             bbox=bbox,
             epsg=epsg,
+        )
+
+    @classmethod
+    def from_point_arrays(
+        cls,
+        x: Any,
+        y: Any,
+        z: Any,
+        *,
+        algorithm: str = "invdist:power=2.0:smoothing=0.0",
+        cell_size: float | None = None,
+        width: int | None = None,
+        height: int | None = None,
+        bbox: tuple[float, float, float, float] | None = None,
+        crs: Any = None,
+        epsg: int | None = None,
+    ) -> Dataset:
+        """Interpolate raw coordinate arrays onto a grid — no geometry built.
+
+        The array-native sibling of :meth:`from_points`. Where ``from_points``
+        takes a point :class:`~pyramids.feature.FeatureCollection` (a shapely
+        geometry per point), this takes raw ``x`` / ``y`` / ``z`` arrays straight
+        into ``gdal.Grid`` through an in-memory CSV, so a large sample table
+        (bathymetric soundings, a dense gauge network, a CSV of readings) never
+        materialises a geometry object. Both share one gridding core, so the two
+        differ only in how the points arrive.
+
+        ``gdal.Grid`` does not reproject: ``crs`` / ``epsg`` only label the output.
+        The grid is computed in the coordinates' own space, so ``cell_size`` and
+        ``bbox`` are in those units.
+
+        This is the low-level array entry, and like :meth:`from_points` it does not
+        enforce the minimum-point-count or column-dtype policy that the higher-level
+        :meth:`~pyramids.feature.FeatureCollection.interpolate_to_raster` applies --
+        gridding a single point is allowed. It does reject the inputs ``gdal.Grid``
+        cannot use: non-finite coordinates or ``bbox`` raise, non-finite values are
+        dropped as missing readings, and an all-non-finite value array raises.
+
+        Args:
+            x (Any):
+                Point x-coordinates (anything :func:`numpy.asarray` reads as a 1-D
+                float array).
+            y (Any):
+                Point y-coordinates, the same length as ``x``.
+            z (Any):
+                The value to interpolate at each point, the same length as ``x``.
+            algorithm (str):
+                A ``gdal.Grid`` algorithm string. Defaults to inverse-distance
+                weighting (``"invdist:power=2.0:smoothing=0.0"``); other options
+                include ``"invdistnn"``, ``"nearest"``, ``"linear"`` and
+                ``"average"``.
+            cell_size (float | None):
+                Output pixel size in the coordinates' units. Required unless both
+                ``width`` and ``height`` are given.
+            width (int | None):
+                Output width in pixels. With ``height``, overrides ``cell_size``.
+            height (int | None):
+                Output height in pixels. With ``width``, overrides ``cell_size``.
+            bbox (tuple[float, float, float, float] | None):
+                ``(minx, miny, maxx, maxy)`` output extent. Defaults to the arrays'
+                own min/max.
+            crs (Any):
+                CRS the coordinates are in, to stamp on the output (any form
+                :func:`~pyramids.base.crs.sr_from_user_input` accepts), or ``None``.
+                Mutually informative with ``epsg``; ``epsg`` wins if both are given.
+            epsg (int | None):
+                Output EPSG code. Takes precedence over ``crs``.
+
+        Returns:
+            Dataset: A single-band raster of the interpolated surface.
+
+        Raises:
+            ValueError: ``x`` / ``y`` / ``z`` are not 1-D of equal length, are
+                empty, a coordinate (``x`` or ``y``) or ``bbox`` is non-finite,
+                every ``z`` value is non-finite (nothing to interpolate), the bounds
+                are degenerate, ``cell_size`` is not positive, or neither
+                ``cell_size`` nor ``width`` + ``height`` was given.
+            FailedToSaveError: ``gdal.Grid`` produced no dataset.
+
+        Examples:
+            - Grid four corner readings onto a 1-degree grid straight from arrays:
+                ```python
+                >>> from pyramids.dataset import Dataset
+                >>> x = [0.0, 10.0, 0.0, 10.0]
+                >>> y = [0.0, 0.0, 10.0, 10.0]
+                >>> z = [10.0, 20.0, 30.0, 40.0]
+                >>> ds = Dataset.from_point_arrays(x, y, z, cell_size=1.0, epsg=4326)
+                >>> (ds.rows, ds.columns, ds.band_count)
+                (10, 10, 1)
+                >>> ds.epsg
+                4326
+
+                ```
+            - Nearest-neighbour with an explicit output size and a wider extent:
+                ```python
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.from_point_arrays(
+                ...     [0.0, 5.0, 0.0, 5.0], [0.0, 0.0, 5.0, 5.0],
+                ...     [1.0, 2.0, 3.0, 4.0],
+                ...     algorithm="nearest", width=8, height=8, bbox=(-2, -2, 7, 7),
+                ... )
+                >>> (ds.rows, ds.columns)
+                (8, 8)
+                >>> round(ds.geotransform[0])
+                -2
+
+                ```
+
+        See Also:
+            - :meth:`from_points`: the same gridding from a point
+              :class:`~pyramids.feature.FeatureCollection`.
+            - :meth:`pyramids.feature.FeatureCollection.from_xyz`: build a point
+              layer from arrays when you want the vector model, not a raster.
+        """
+        output_srs: str | None = None
+        if epsg is not None:
+            output_srs = f"EPSG:{int(epsg)}"
+        elif crs is not None:
+            output_srs = sr_from_user_input(crs).ExportToWkt()
+        return grid_arrays(
+            x,
+            y,
+            z,
+            cls,
+            algorithm=algorithm,
+            cell_size=cell_size,
+            width=width,
+            height=height,
+            bbox=bbox,
+            output_srs=output_srs,
         )
 
     @classmethod

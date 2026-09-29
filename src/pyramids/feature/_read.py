@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 import pyogrio
 import pyproj
@@ -56,7 +57,7 @@ from pyramids.base._ogc_api import (
     http_get_with_retry,
 )
 from pyramids.base._utils import extra_hint, import_pyarrow
-from pyramids.base.crs import _pyproj_crs_via_gdal
+from pyramids.base.crs import _pyproj_crs_via_gdal, crs_from_user_input
 from pyramids.base.remote import _ARCHIVE_MARKER_RE, is_remote, to_fsspec_url
 
 if TYPE_CHECKING:
@@ -1465,3 +1466,58 @@ def from_records(
             f"columns present: {list(df.columns)}"
         )
     return fc_cls(gpd.GeoDataFrame(df, geometry=geometry, crs=crs))
+
+
+def from_xyz(
+    fc_cls: type[FeatureCollection],
+    x: Any,
+    y: Any,
+    z: Any = None,
+    *,
+    crs: Any = None,
+    z_column: str = "z",
+) -> FeatureCollection:
+    """Build a point FC from parallel coordinate arrays (see FeatureCollection.from_xyz)."""
+    xs = np.asarray(x, dtype=float)
+    ys = np.asarray(y, dtype=float)
+    if xs.ndim != 1 or ys.ndim != 1:
+        raise ValueError(
+            f"from_xyz expects 1-D coordinate arrays; got x.ndim={xs.ndim}, "
+            f"y.ndim={ys.ndim}."
+        )
+    if xs.shape != ys.shape:
+        raise ValueError(
+            f"from_xyz: x and y must have equal length; got {xs.size} and {ys.size}."
+        )
+    if xs.size == 0:
+        raise ValueError(
+            "from_xyz requires at least one point; got empty coordinate arrays. An "
+            "empty frame would carry no geometry column, which breaks downstream "
+            "pyramids methods."
+        )
+    if not (np.isfinite(xs).all() and np.isfinite(ys).all()):
+        raise ValueError(
+            "from_xyz: x and y must be finite; got NaN or infinity among the "
+            "coordinates, which would build an invalid POINT (NaN ...) geometry."
+        )
+    # `points_from_xy` builds the whole GeometryArray in one vectorized shapely call
+    # -- no Python-level Point() per row -- which is what keeps this usable for large
+    # point tables. `z` is carried as an attribute column (the value to grid), not
+    # baked into the geometry, so a later `.to_crs()` reprojects the horizontal
+    # position without silently shifting the stored value.
+    data: dict[str, Any] = {}
+    if z is not None:
+        zs = np.asarray(z, dtype=float)
+        if zs.shape != xs.shape:
+            raise ValueError(
+                f"from_xyz: z must match x/y length; got {zs.size} and {xs.size}."
+            )
+        data[z_column] = zs
+    geometry = gpd.points_from_xy(xs, ys)
+    # Resolve the CRS through `crs_from_user_input` (the #943 healer the array APIs
+    # use) before handing it to the inner GeoDataFrame: a GDAL-only EPSG that pyproj
+    # cannot parse would otherwise raise here. It has to go on the inner frame
+    # rather than via `fc_cls(..., crs=...)` -- geopandas rejects a crs= that
+    # differs from an already-built geometry's (None) crs with a mismatch error.
+    resolved_crs = crs_from_user_input(crs) if crs is not None else None
+    return fc_cls(gpd.GeoDataFrame(data, geometry=geometry, crs=resolved_crs))

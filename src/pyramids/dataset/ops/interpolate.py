@@ -9,8 +9,11 @@ algorithm string. No new third-party dependencies.
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+import pandas as pd
 from osgeo import gdal
 
 from pyramids.base._errors import FailedToSaveError
@@ -22,6 +25,239 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from pyramids.dataset.dataset import Dataset
 
 _DEFAULT_ALGORITHM = "invdist:power=2.0:smoothing=0.0"
+
+
+def _grid_from_arrays(
+    x: Any,
+    y: Any,
+    z: Any,
+    options: Any,
+) -> gdal.Dataset | None:
+    """Run ``gdal.Grid`` on raw coordinate arrays, no geometry layer in between.
+
+    ``gdal.Grid`` needs an OGR-readable source, not a NumPy array. Serialising the
+    points to GeoJSON through a :class:`~geopandas.GeoDataFrame` — the path
+    :func:`grid_points` falls back to for a non-point layer — pays for a shapely
+    geometry per point and a verbose text encoding. Writing the three arrays to an
+    in-memory CSV read through an OGR VRT skips both: the coordinates become the
+    point geometry via the VRT's ``PointFromColumns`` encoding and the value rides
+    along as a real field. On finite inputs the two paths produce the same grid;
+    ``test_fast_path_matches_geojson_reference`` pins that equivalence.
+
+    ``%.17g`` formats each float at the 17 significant digits that round-trip an
+    IEEE-754 double exactly, so the CSV detour perturbs no coordinate. Callers pass
+    only finite values here — :func:`grid_arrays` drops non-finite ones first, since
+    the CSV reader would otherwise turn a NaN into a real ``0.0``.
+
+    Args:
+        x: Point x-coordinates (anything :func:`numpy.asarray` reads as 1-D).
+        y: Point y-coordinates, the same length as ``x``.
+        z: The value to interpolate at each point, the same length as ``x``.
+        options: A :func:`osgeo.gdal.GridOptions` bundle whose ``zfield`` is
+            ``"z"`` — the fixed name this helper writes the value column under.
+
+    Returns:
+        gdal.Dataset | None: The gridded raster, or ``None`` when ``gdal.Grid``
+        declines the request (the caller turns that into an error).
+    """
+    # The OGR CSV driver names its single layer after the file stem, and an
+    # OGRVRTLayer's name= is also the source layer it looks up — so the two must
+    # agree or GDAL reports "Failed to find layer". Deriving both from one token
+    # keeps them in step and unique across concurrent calls.
+    layer = f"grid_{uuid.uuid4().hex}"
+    csv_path = f"/vsimem/{layer}.csv"
+    vrt_path = f"/vsimem/{layer}.vrt"
+    vrt = (
+        f'<OGRVRTDataSource><OGRVRTLayer name="{layer}">'
+        f'<SrcDataSource relativeToVRT="0">{csv_path}</SrcDataSource>'
+        "<GeometryType>wkbPoint</GeometryType>"
+        '<GeometryField encoding="PointFromColumns" x="x" y="y"/>'
+        '<Field name="z" src="z" type="Real"/>'
+        "</OGRVRTLayer></OGRVRTDataSource>"
+    )
+    frame = pd.DataFrame({"x": np.asarray(x), "y": np.asarray(y), "z": np.asarray(z)})
+    # Both writes live inside the try so the finally unlinks the CSV even if the VRT
+    # write (or the grid) fails after it -- no /vsimem file is left behind on any
+    # path. Unlink tolerates an absent file so a failure before either write is fine.
+    try:
+        gdal.FileFromMemBuffer(
+            csv_path, frame.to_csv(index=False, float_format="%.17g").encode("utf-8")
+        )
+        gdal.FileFromMemBuffer(vrt_path, vrt.encode("utf-8"))
+        return gdal.Grid("", vrt_path, options=options)
+    finally:
+        for path in (csv_path, vrt_path):
+            try:
+                gdal.Unlink(path)
+            except RuntimeError:
+                pass
+
+
+def _resolve_size(
+    minx: float,
+    miny: float,
+    maxx: float,
+    maxy: float,
+    *,
+    cell_size: float | None,
+    width: int | None,
+    height: int | None,
+) -> tuple[int, int]:
+    """Validate the output bounds and settle the output ``(width, height)``.
+
+    Shared by both grid entry points so the degenerate-bounds guard and the
+    cell-size-to-pixel arithmetic live in exactly one place.
+
+    Args:
+        minx: West edge of the output extent.
+        miny: South edge.
+        maxx: East edge.
+        maxy: North edge.
+        cell_size: Output pixel size in the coordinates' own units. Used only when
+            ``width`` / ``height`` are not both given.
+        width: Explicit output width in pixels, or ``None`` to derive it.
+        height: Explicit output height in pixels, or ``None`` to derive it.
+
+    Returns:
+        tuple[int, int]: The ``(width, height)`` to request, each at least 1 pixel.
+
+    Raises:
+        ValueError: The bounds are empty/degenerate, neither ``cell_size`` nor both
+            of ``width`` / ``height`` were given, or ``cell_size`` is not positive.
+    """
+    if maxx <= minx or maxy <= miny:
+        raise ValueError(
+            f"degenerate output bounds (minx={minx}, miny={miny}, maxx={maxx}, "
+            f"maxy={maxy}); pass a valid bbox or non-collinear points."
+        )
+    if width is None or height is None:
+        if cell_size is None:
+            raise ValueError(
+                "gridding requires either cell_size or both width and height."
+            )
+        # A non-positive cell_size otherwise slips through: a negative one clamps to
+        # a 1x1 raster via max(1, round(negative)) with no error, and zero raises a
+        # bare ZeroDivisionError rather than the documented ValueError.
+        if cell_size <= 0:
+            raise ValueError(f"cell_size must be positive, got {cell_size}.")
+        width = max(1, round((maxx - minx) / cell_size))
+        height = max(1, round((maxy - miny) / cell_size))
+    return int(width), int(height)
+
+
+def grid_arrays(
+    x: Any,
+    y: Any,
+    z: Any,
+    dataset_cls: type[Dataset],
+    *,
+    algorithm: str = _DEFAULT_ALGORITHM,
+    cell_size: float | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    bbox: tuple[float, float, float, float] | None = None,
+    output_srs: str | None = None,
+) -> Dataset:
+    """Grid raw coordinate arrays with ``gdal.Grid`` — no geometry ever built.
+
+    The array-native core of the scattered-point bridge. :func:`grid_points`
+    (behind :meth:`Dataset.from_points` and
+    :meth:`~pyramids.feature.FeatureCollection.interpolate_to_raster`) delegates
+    here for a point layer after pulling ``x`` / ``y`` / ``z`` off the geometry,
+    and :meth:`Dataset.from_point_arrays` calls it directly on arrays that were
+    never wrapped in shapely at all. One core, so the sizing, options and grid call
+    are defined once.
+
+    Args:
+        x: Point x-coordinates (anything :func:`numpy.asarray` reads as 1-D).
+        y: Point y-coordinates, the same length as ``x``.
+        z: The value to interpolate at each point, the same length as ``x``.
+        dataset_cls: The :class:`~pyramids.dataset.Dataset` class to wrap the
+            result in (so a subclass round-trips).
+        algorithm: A ``gdal.Grid`` algorithm string, e.g.
+            ``"invdist:power=2.0:smoothing=0.0"``, ``"nearest"``, ``"linear"``.
+        cell_size: Output pixel size in the coordinates' units. Required unless
+            both ``width`` and ``height`` are given.
+        width: Output width in pixels (with ``height``, overrides ``cell_size``).
+        height: Output height in pixels (with ``width``, overrides ``cell_size``).
+        bbox: ``(minx, miny, maxx, maxy)`` output extent; defaults to the arrays'
+            own min/max.
+        output_srs: A resolved SRS string (WKT or ``"EPSG:<n>"``) to stamp on the
+            result, or ``None``. ``gdal.Grid`` labels the output with it; it does
+            not reproject.
+
+    Returns:
+        Dataset: A single-band raster of the interpolated surface.
+
+    Raises:
+        ValueError: The arrays are not 1-D of equal length, are empty, a coordinate
+            (``x`` or ``y``) is non-finite, ``bbox`` is non-finite, every ``z`` value
+            is non-finite (nothing left to interpolate), the bounds are degenerate,
+            ``cell_size`` is not positive, or the sizing arguments are insufficient.
+        FailedToSaveError: ``gdal.Grid`` returned no dataset.
+    """
+    xs = np.asarray(x, dtype=float)
+    ys = np.asarray(y, dtype=float)
+    zs = np.asarray(z, dtype=float)
+    if xs.ndim != 1 or ys.ndim != 1 or zs.ndim != 1:
+        raise ValueError(
+            f"grid_arrays expects 1-D arrays; got x.ndim={xs.ndim}, y.ndim="
+            f"{ys.ndim}, z.ndim={zs.ndim}."
+        )
+    if not xs.shape == ys.shape == zs.shape:
+        raise ValueError(
+            f"grid_arrays: x, y and z must have equal length; got {xs.size}, "
+            f"{ys.size} and {zs.size}."
+        )
+    if xs.size == 0:
+        raise ValueError("grid_arrays requires at least one point; got empty arrays.")
+    if not (np.isfinite(xs).all() and np.isfinite(ys).all()):
+        raise ValueError(
+            "grid_arrays: x and y must be finite; got NaN or infinity among the "
+            "coordinates. Drop or repair the offending points before gridding."
+        )
+
+    if bbox is not None:
+        if not np.isfinite(np.asarray(bbox, dtype=float)).all():
+            raise ValueError(f"grid_arrays: bbox must be finite, got {bbox!r}.")
+        minx, miny, maxx, maxy = (float(v) for v in bbox)
+    else:
+        minx, miny = float(xs.min()), float(ys.min())
+        maxx, maxy = float(xs.max()), float(ys.max())
+    out_w, out_h = _resolve_size(
+        minx, miny, maxx, maxy, cell_size=cell_size, width=width, height=height
+    )
+
+    # Drop points whose value is non-finite -- AFTER fixing the extent above, so a
+    # gap does not shrink the output. gdal.Grid's algorithms simply omit a point
+    # that has no value, which is what the GeoJSON fallback does (a NaN property is
+    # a missing reading, not a zero). Without this, the CSV path would serialise
+    # NaN as text that GDAL's CSV reader parses as a real 0.0, silently dragging
+    # the interpolated surface toward zero -- so a gauge/sounding table with gaps
+    # grids identically through either path.
+    finite = np.isfinite(zs)
+    if not finite.all():
+        xs, ys, zs = xs[finite], ys[finite], zs[finite]
+        if xs.size == 0:
+            raise ValueError(
+                "grid_arrays: every value is non-finite; nothing to interpolate."
+            )
+
+    options = gdal.GridOptions(
+        format="MEM",
+        algorithm=algorithm,
+        zfield="z",
+        outputBounds=[minx, maxy, maxx, miny],
+        width=out_w,
+        height=out_h,
+        outputSRS=output_srs,
+    )
+    result = _grid_from_arrays(xs, ys, zs, options)
+    if result is None:
+        raise FailedToSaveError(
+            f"gdal.Grid returned no dataset for algorithm {algorithm!r}."
+        )
+    return dataset_cls(result)
 
 
 def grid_points(
@@ -70,43 +306,53 @@ def grid_points(
             f"{list(points.columns)}"
         )
 
-    if bbox is not None:
-        minx, miny, maxx, maxy = (float(v) for v in bbox)
-    else:
-        minx, miny, maxx, maxy = (float(v) for v in points.total_bounds)
-    if maxx <= minx or maxy <= miny:
-        raise ValueError(
-            f"degenerate output bounds (minx={minx}, miny={miny}, maxx={maxx}, "
-            f"maxy={maxy}); pass a valid bbox or non-collinear points."
-        )
-
-    if width is None or height is None:
-        if cell_size is None:
-            raise ValueError(
-                "from_points requires either cell_size or both width and height."
-            )
-        width = max(1, round((maxx - minx) / cell_size))
-        height = max(1, round((maxy - miny) / cell_size))
-
     output_srs: str | None = None
     if epsg is not None:
         output_srs = f"EPSG:{int(epsg)}"
     elif points.crs is not None:
         output_srs = points.crs.to_wkt()
 
-    options = gdal.GridOptions(
-        format="MEM",
-        algorithm=algorithm,
-        zfield=value_column,
-        outputBounds=[minx, maxy, maxx, miny],
-        width=int(width),
-        height=int(height),
-        outputSRS=output_srs,
-    )
-    with _feature_ogr.as_vsimem_path(points) as src_path:
-        result = gdal.Grid("", src_path, options=options)
-    if result is None:
-        raise FailedToSaveError(
-            f"gdal.Grid returned no dataset for algorithm {algorithm!r}."
+    if len(points) > 0 and bool((points.geom_type == "Point").all()):
+        # A point layer needs no geometry at all for gridding — pull the raw
+        # coordinates off the geometry and hand them to the shared array core,
+        # which skips the per-point shapely round trip and the GeoJSON encoding.
+        grid = grid_arrays(
+            points.geometry.x.to_numpy(),
+            points.geometry.y.to_numpy(),
+            points[value_column].to_numpy(),
+            dataset_cls,
+            algorithm=algorithm,
+            cell_size=cell_size,
+            width=width,
+            height=height,
+            bbox=bbox,
+            output_srs=output_srs,
         )
-    return dataset_cls(result)
+    else:
+        # A non-point layer (or an empty one) keeps the original GeoJSON round trip,
+        # which handles whatever geometry gdal.Grid is handed and reads its z from
+        # the named attribute column directly.
+        if bbox is not None:
+            minx, miny, maxx, maxy = (float(v) for v in bbox)
+        else:
+            minx, miny, maxx, maxy = (float(v) for v in points.total_bounds)
+        out_w, out_h = _resolve_size(
+            minx, miny, maxx, maxy, cell_size=cell_size, width=width, height=height
+        )
+        options = gdal.GridOptions(
+            format="MEM",
+            algorithm=algorithm,
+            zfield=value_column,
+            outputBounds=[minx, maxy, maxx, miny],
+            width=out_w,
+            height=out_h,
+            outputSRS=output_srs,
+        )
+        with _feature_ogr.as_vsimem_path(points) as src_path:
+            result = gdal.Grid("", src_path, options=options)
+        if result is None:
+            raise FailedToSaveError(
+                f"gdal.Grid returned no dataset for algorithm {algorithm!r}."
+            )
+        grid = dataset_cls(result)
+    return grid

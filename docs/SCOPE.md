@@ -185,8 +185,9 @@ only the domain-specific grid *recognition* moved to `earthlens.grids`. **(S2)**
 
 ## 5. Out-of-scope register (worked boundary cases)
 
-The audit produced eight boundary findings. They are the canonical examples of where the §3 rule was
-applied, and the precedent for future decisions.
+The audit produced eight boundary findings (S1–S8); S9 was added later when the LAS/LAZ point-cloud
+question was settled (issue #1135). They are the canonical examples of where the §3 rule was applied,
+and the precedent for future decisions.
 
 **S1 — `Dataset.convert_units`.** Physical value-unit conversion (K/°C, m·s⁻¹/knots, Pa/hPa, m/mm) is
 atmospheric/geophysical value-semantics, not a GIS primitive. → *Deprecated; destination TBD. Keep the
@@ -217,8 +218,20 @@ mosaicking). → *Kept as a first-class EO convenience; documentation hardened.*
 **S8 — GRIB `_GRIB_FIELDS` glossary.** WMO-standard GRIB metadata keys — format support, like any
 format's tags. → *In scope, no action.*
 
+**S9 — LAS/LAZ point-cloud reading.** Reading a format is normally in scope (§3), even an exotic one.
+LAS/LAZ is the deliberate exception: the lidar surface a reader pulls in — classification, filtering,
+decimation, meshing, LOD/tiling, COPC/EPT, a PDAL-class pipeline — is its own competence, not a reader
+bolted onto a GIS library, and it barely touches GDAL (the reference `digitalrivers.lidar` imports
+pyramids once, only to wrap a finished array in a `Dataset`). The line is drawn by engine growth, not
+format exoticism, so the next format question does not reopen it. → *Deliberately out; lives in a
+dedicated point-cloud distribution that depends on `pyramids-gis` only through an optional extra. The
+generic primitives it reuses stay in pyramids: the scattered-point `gdal.Grid` bridge and its
+array-native entries (`reproject_arrays`, `Dataset.from_point_arrays`, `FeatureCollection.from_xyz`),
+and the UGRID mesh→raster bridge.* (issue #1135)
+
 Note: S5/S6 are low-urgency, viz-only convenience defaults; S7 is a deliberate maintainer exception kept
-for EO ergonomics; S1 awaits a relocation destination. S2/S3/S4 are the clear leaks that were relocated.
+for EO ergonomics; S1 awaits a relocation destination. S2/S3/S4 are the clear leaks that were relocated;
+S9 is a format deliberately kept out despite the format-support rule.
 
 ## 6. Proposing a scope change
 

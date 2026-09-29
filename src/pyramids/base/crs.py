@@ -1847,6 +1847,145 @@ def reproject_coordinates(
     return out_x, out_y
 
 
+def reproject_arrays(
+    x: Any,
+    y: Any,
+    z: Any = None,
+    *,
+    from_crs: Any = 4326,
+    to_crs: Any = 3857,
+) -> tuple[np.ndarray, ...]:
+    """Reproject parallel coordinate arrays between CRSes, NumPy end to end.
+
+    The array-native companion to :func:`reproject_coordinates`. That function is
+    list-typed and rounds every element with the built-in ``round`` — correct for a
+    polygon ring's few thousand vertices, but a Python loop that is ruinous for the
+    ``10**7``-scale coordinate arrays of a point cloud or a large sample table. This
+    stays in NumPy throughout: one vectorised :meth:`pyproj.Transformer.transform`
+    call, no ``.tolist()``, no per-element rounding, and an optional ``z`` forwarded
+    to the transformer so a 3-D CRS can apply a vertical-datum shift. Nothing is
+    rounded — the caller keeps the transformer's full precision.
+
+    Argument and return order is ``(x, y)`` or ``(x, y, z)`` throughout. CRS
+    resolution goes through :func:`crs_from_user_input`, so an EPSG code only GDAL's
+    PROJ database knows still builds a transformer (issue #943).
+
+    Non-finite coordinates pass straight through: a ``NaN`` or infinite input yields a
+    ``NaN`` or infinite output (verified), mirroring pyproj's pointwise transform.
+    This is a deliberate difference from :meth:`Dataset.from_point_arrays` and
+    :meth:`FeatureCollection.from_xyz`, added on the same branch, which reject
+    non-finite coordinates up front. A pointwise transform has no bounds to derive or
+    grid to corrupt, so it leaves a missing coordinate for the caller to interpret
+    rather than raising; guard the inputs yourself if you need finite outputs.
+
+    Args:
+        x: Source x-coordinates (anything :func:`numpy.asarray` reads as a float
+            array — longitudes when ``from_crs`` is geographic).
+        y: Source y-coordinates, the same shape as ``x``.
+        z: Optional source z-coordinates (elevations), the same shape as ``x``.
+            When given, they are transformed too and returned as a third array;
+            when ``None`` the result is ``(x, y)`` only.
+        from_crs: Source CRS, in any form :func:`crs_from_user_input` accepts
+            (EPSG int, authority string, WKT, Proj4, :class:`pyproj.CRS`). Default
+            ``4326``.
+        to_crs: Target CRS, same forms as ``from_crs``. Default ``3857``.
+
+    Returns:
+        tuple[numpy.ndarray, ...]: ``(x, y)`` in the target CRS, or ``(x, y, z)``
+        when ``z`` was given. Each array is ``float64`` and shares ``x``'s shape.
+
+    Raises:
+        ValueError: ``x`` and ``y`` (or ``z``, when given) do not share a shape.
+        CRSError: :meth:`pyproj.Transformer.from_crs` cannot parse a CRS — the same
+            wrapping :func:`reproject_coordinates` does, so callers need not import
+            pyproj to catch a bad CRS.
+
+    Examples:
+        - Reproject WGS84 points into Web Mercator (arrays in, arrays out):
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base.crs import reproject_arrays
+            >>> x, y = reproject_arrays(
+            ...     np.array([31.0, 32.0]), np.array([30.0, 29.0]),
+            ...     from_crs=4326, to_crs=3857,
+            ... )
+            >>> [round(v) for v in x]
+            [3450904, 3562224]
+
+            ```
+        - A same-CRS reprojection is a no-op that returns the coordinates unchanged:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base.crs import reproject_arrays
+            >>> x, y = reproject_arrays(
+            ...     np.array([31.0]), np.array([30.0]), from_crs=4326, to_crs=4326,
+            ... )
+            >>> float(x[0]), float(y[0])
+            (31.0, 30.0)
+
+            ```
+        - With ``z`` a third array is returned, carried through the transform:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base.crs import reproject_arrays
+            >>> out = reproject_arrays(
+            ...     np.array([31.0]), np.array([30.0]), np.array([12.0]),
+            ...     from_crs=4326, to_crs=4326,
+            ... )
+            >>> len(out), float(out[2][0])
+            (3, 12.0)
+
+            ```
+
+    See Also:
+        reproject_coordinates: the list-based form for polygon rings, which rounds
+            to a decimal precision.
+    """
+    try:
+        # Through `crs_from_user_input`, not `Transformer.from_crs` directly, so a
+        # code only GDAL's PROJ database knows still builds a transformer (#943).
+        transformer = Transformer.from_crs(
+            crs_from_user_input(from_crs), crs_from_user_input(to_crs), always_xy=True
+        )
+    except (pyproj.exceptions.CRSError, TypeError, ValueError) as exc:
+        raise CRSError(
+            f"reproject_arrays failed to parse CRS "
+            f"(from_crs={from_crs!r}, to_crs={to_crs!r}): {exc}"
+        ) from exc
+    xs = np.asarray(x, dtype=float)
+    ys = np.asarray(y, dtype=float)
+    if xs.ndim != 1 or ys.ndim != 1:
+        raise ValueError(
+            f"reproject_arrays expects 1-D coordinate arrays; got x.ndim={xs.ndim}, "
+            f"y.ndim={ys.ndim}."
+        )
+    if xs.shape != ys.shape:
+        raise ValueError(
+            f"reproject_arrays: x and y must share a shape; got {xs.shape} and "
+            f"{ys.shape}."
+        )
+    if z is None:
+        out_x, out_y = transformer.transform(xs, ys)
+        result: tuple[np.ndarray, ...] = (
+            np.asarray(out_x, dtype=float),
+            np.asarray(out_y, dtype=float),
+        )
+    else:
+        zs = np.asarray(z, dtype=float)
+        if zs.shape != xs.shape:
+            raise ValueError(
+                f"reproject_arrays: z must share x's shape; got {zs.shape} and "
+                f"{xs.shape}."
+            )
+        out_x, out_y, out_z = transformer.transform(xs, ys, zs)
+        result = (
+            np.asarray(out_x, dtype=float),
+            np.asarray(out_y, dtype=float),
+            np.asarray(out_z, dtype=float),
+        )
+    return result
+
+
 __all__ = [
     "LAT_UNIT_PREFIXES",
     "LON_UNIT_PREFIXES",
@@ -1863,6 +2002,7 @@ __all__ = [
     "epsg_from_wkt",
     "epsg_of_crs",
     "get_epsg_from_prj",
+    "reproject_arrays",
     "reproject_coordinates",
     "require_crs_spec",
     "sr_from_epsg",
