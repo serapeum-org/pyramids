@@ -356,3 +356,49 @@ class TestInterpMoreRefusals:
         cube = _cube([0.0, 10.0], [0.0, 1.0])
         with pytest.raises(ValueError, match="not a dimension of this container"):
             cube.interp(depth=[5.0])
+
+
+def _two_var_cube(stamps):
+    """A container with two variables `a`, `b` both spanning `time` on the same 2x2 grid.
+
+    Args:
+        stamps: The shared `time` coordinate values.
+
+    Returns:
+        NetCDF: The two-variable container.
+    """
+    ref = GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326)
+    n = len(stamps)
+    a = NetCDF.from_array(
+        np.arange(n * 4, dtype="float64").reshape(n, 2, 2),
+        geo_ref=ref,
+        variable_name="a",
+        dims=ExtraDimensions(name="time", values=list(stamps)),
+    )
+    b = NetCDF.from_array(
+        (np.arange(n * 4, dtype="float64") + 100.0).reshape(n, 2, 2),
+        geo_ref=ref,
+        variable_name="b",
+        dims=ExtraDimensions(name="time", values=list(stamps)),
+    )
+    a.set_variable("b", b.get_variable("b"))
+    return a
+
+
+class TestInterpMultiVariableContainer:
+    """A multi-variable container interpolated to a single band keeps every variable's band (H1)."""
+
+    def test_single_band_result_keeps_all_variables_metadata(self):
+        """Every variable, not just the first, keeps the interpolated dim's name and coordinates."""
+        cube = _two_var_cube([0.0, 10.0])
+        assert sorted(cube.variable_names) == ["a", "b"], cube.variable_names
+        out = cube.interp(time=[5.0])
+        for name in ("a", "b"):
+            v = out.get_variable(name)
+            assert v._band_dim_names == ("time",), (
+                f"{name} lost its band dim: {v._band_dim_names}"
+            )
+            assert v._band_dim_values_map["time"] == [5.0], (
+                f"{name} lost its time coordinate: {v._band_dim_values_map}"
+            )
+            v.sel(time=5.0)

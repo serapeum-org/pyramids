@@ -902,6 +902,14 @@ def _build_variable_mdarray(
     Returns the written MDArray.
     """
     names, sizes, values_map = band["names"], band["sizes"], band["values_map"]
+    # A single-band source reads back as a 2-D (y, x) array -- the length-1 band axis is squeezed
+    # away -- but if it still tracks a band dimension we must write that dimension, not a plain
+    # raster. Restore the flattened (1, y, x) form so the band paths below run; otherwise a
+    # multi-variable container reduced/interpolated down to a single band drops the non-first
+    # variables' band name and coordinates (H1). A source that tracks no band dimension (`names`
+    # empty) is a genuine 2-D raster and is left alone.
+    if names and arr.ndim == 2:
+        arr = arr.reshape(1, *arr.shape)
     if len(names) > 1 and arr.ndim == 3 and sizes:
         arr = unflatten_band_axes(arr, names, sizes)
         band_dims = _create_multi_band_dims(
