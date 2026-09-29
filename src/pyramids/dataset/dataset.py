@@ -6154,7 +6154,8 @@ class Dataset(RasterBase):
         Returns:
             pandas.DataFrame: ``prod(len(bands), rows, cols)`` rows, one ``values`` column,
             every value ``float64`` whatever the raster's own dtype, gaps as ``NaN``,
-            north-up (``y`` descending, ``x`` ascending).
+            north-up (``y`` descending, ``x`` ascending). Integer values above ``2**53`` are
+            not exactly representable once coerced to ``float64``.
 
         Raises:
             ValueError: A requested band index is out of range for the raster, or ``bands=``

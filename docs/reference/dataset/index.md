@@ -349,9 +349,11 @@ of each.
 ## The pandas round trip
 
 `to_dataframe()` hands the raster to pandas as one row per cell on a `(band, y, x)` `MultiIndex`
-with a single `values` column, and `from_dataframe()` rebuilds a raster from such a frame — a
-lossless round trip: `Dataset.from_dataframe(ds.to_dataframe(), crs=ds.epsg)` reproduces `ds`.
-This is the *coordinate-keyed*, geometry-free view for pandas analytics; for a geometry-per-cell
+with a single `values` column, and `from_dataframe()` rebuilds a raster from such a frame:
+`Dataset.from_dataframe(ds.to_dataframe(), crs=ds.epsg)` reproduces `ds`'s values, band
+count/order, grid and CRS. Gaps come back as `NaN` (pass `no_data_value=ds.no_data_value[0]` to
+restore a specific sentinel and dtype). This is the *coordinate-keyed*, geometry-free view for
+pandas analytics; for a geometry-per-cell
 `GeoDataFrame` use [`get_cell_points`](cell.md) / `get_cell_polygons`, and to read values at
 scattered points use [`sample` / `extract`](analysis.md). The band level is always present (a
 one-band raster carries band `0`); `df["values"].unstack("band")` gives the wide,
