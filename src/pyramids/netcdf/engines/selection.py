@@ -2978,6 +2978,21 @@ class Selection(_Engine["NetCDF"]):
               [5.0, 15.0]
 
               ```
+            - Snap each target to its nearest source step with `method="nearest"`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([0.0, 10.0, 20.0]).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 10.0, 20.0]),
+              ... ).get_variable("t")
+              >>> var.interp(time=[4.0, 16.0], method="nearest").read_array().ravel().tolist()
+              [0.0, 20.0]
+
+              ```
         """
         nc = self._ds
         if not coords:
