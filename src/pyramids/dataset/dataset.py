@@ -6160,6 +6160,8 @@ class Dataset(RasterBase):
         Raises:
             ValueError: A requested band index is out of range for the raster, or ``bands=``
                 is an empty selection (pass ``bands=None`` for every band).
+            TypeError: ``bands=`` is a boolean (``bool`` subclasses ``int``, so it is refused
+                rather than silently selecting band 0 / 1).
 
         Examples:
             - A one-band 2x2 raster as pandas sees it (the ``band`` level is kept):
@@ -6181,6 +6183,13 @@ class Dataset(RasterBase):
         count = self.band_count
         if bands is None:
             selected = list(range(count))
+        elif isinstance(bands, bool):
+            # bool subclasses int, so guard it before the int branch or True/False
+            # would silently select band 1/0 — almost certainly a caller mistake.
+            raise TypeError(
+                f"Dataset.to_dataframe() got a boolean bands={bands!r}; pass a band index, a "
+                "sequence of indices, or None for every band."
+            )
         elif isinstance(bands, (int, np.integer)):
             selected = [int(bands)]
         else:

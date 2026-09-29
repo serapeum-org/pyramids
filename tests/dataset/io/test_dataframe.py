@@ -127,6 +127,12 @@ class TestBandSelector:
         with pytest.raises(ValueError, match="empty bands"):
             ds.to_dataframe(bands=[])
 
+    def test_a_boolean_band_selection_is_refused(self):
+        """A boolean is a type mistake, not a band index (``bool`` subclasses ``int``), so it raises."""
+        ds = _raster(np.arange(8.0).reshape(2, 2, 2))
+        with pytest.raises(TypeError, match="boolean"):
+            ds.to_dataframe(bands=True)
+
 
 class TestRoundTripReproducesTheRaster:
     """`Dataset.from_dataframe(ds.to_dataframe(), crs=ds.epsg)` reproduces the source."""
