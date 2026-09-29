@@ -318,6 +318,15 @@ _COMMON_DRIVERS = (
     "OGCAPI",
     "VRT",
     "MEM",
+)
+# The OGR/vector drivers FeatureCollection uses. Checked via ogr.GetDriverByName,
+# NOT gdal: GDAL's unified registry returns the RASTER "VRT" for
+# gdal.GetDriverByName("VRT") and masks a missing OGR "VRT" — the exact gap that
+# broke from_points / interpolate_to_raster (#1204), which wraps the point CSV in
+# an in-memory OGRVRTDataSource for gdal.Grid. The same masking hid the missing
+# OGR CSV (#1202). Assert them through OGR so a missing driver fails here instead
+# of skipping green in the pytest layers.
+_OGR_DRIVERS = (
     "GeoJSON",
     "ESRI Shapefile",
     "GPKG",
@@ -331,6 +340,8 @@ _COMMON_DRIVERS = (
     "FlatGeobuf",
     "SQLite",
     "OSM",
+    "CSV",
+    "VRT",
 )
 # Platform extras: HDF4 ships only in the conda-extract wheels (macOS +
 # Windows AMD64). The from-source builds deliberately drop it — the
@@ -368,9 +379,17 @@ def _check_driver_set() -> None:
     if _platform_slug() in _HDF4_PLATFORMS:
         expected.append("HDF4")
     missing = [name for name in expected if gdal.GetDriverByName(name) is None]
+    # OGR/vector drivers go through ogr.GetDriverByName (see _OGR_DRIVERS): the
+    # unified gdal lookup masks a missing OGR VRT/CSV behind the raster driver.
+    missing += [
+        f"OGR:{name}" for name in _OGR_DRIVERS if ogr.GetDriverByName(name) is None
+    ]
     if missing:
         _fail("bundled GDAL is missing promised drivers: " + ", ".join(missing))
-    print(f"driver-set check OK — all {len(expected)} promised drivers registered.")
+    print(
+        f"driver-set check OK — {len(expected)} raster + "
+        f"{len(_OGR_DRIVERS)} OGR drivers registered."
+    )
 
 
 def _check_vendored_vector_stack() -> None:
