@@ -180,35 +180,41 @@ class TestInterpRefusals:
 
     def test_no_coords(self):
         """`interp()` with no dimension is refused."""
+        var = _var([0.0, 10.0])
         with pytest.raises(ValueError, match="at least one dimension"):
-            _var([0.0, 10.0]).interp()
+            var.interp()
 
     def test_unknown_method(self):
         """An unsupported `method` is refused with the allowed set."""
+        var = _var([0.0, 10.0])
         with pytest.raises(ValueError, match="method must be one of"):
-            _var([0.0, 10.0]).interp(time=[5.0], method="spline")
+            var.interp(time=[5.0], method="spline")
 
     @pytest.mark.parametrize("spatial", ["x", "y", "lon", "lat"])
     def test_spatial_axis_points_to_the_warp_verbs(self, spatial):
         """A spatial axis is refused, naming resample / to_crs / align / extract."""
+        var = _var([0.0, 10.0])
         with pytest.raises(ValueError, match="resample|to_crs|align|extract") as excinfo:
-            _var([0.0, 10.0]).interp(**{spatial: [0.5]})
+            var.interp(**{spatial: [0.5]})
         assert "spatial" in str(excinfo.value), "message should say the axis is spatial"
 
     def test_unknown_dimension(self):
         """A name that is no band dimension of the variable is refused."""
+        var = _var([0.0, 10.0])
         with pytest.raises(ValueError, match="does not match any band dimension"):
-            _var([0.0, 10.0]).interp(level=[1.0])
+            var.interp(level=[1.0])
 
     def test_empty_target(self):
         """An empty target sequence is refused."""
+        var = _var([0.0, 10.0])
         with pytest.raises(ValueError, match="is empty"):
-            _var([0.0, 10.0]).interp(time=[])
+            var.interp(time=[])
 
     def test_nan_target(self):
         """A target holding NaN is refused."""
+        var = _var([0.0, 10.0])
         with pytest.raises(ValueError, match="contains NaN"):
-            _var([0.0, 10.0]).interp(time=[float("nan")])
+            var.interp(time=[float("nan")])
 
     def test_interp_like_grid_mismatch(self):
         """`interp_like` across differing spatial grids is refused, naming the warp verbs."""
@@ -348,8 +354,9 @@ class TestInterpMoreRefusals:
 
     def test_two_dimensional_target_is_refused(self):
         """A 2-D target array is refused; targets must be 1-D."""
+        var = _var([0.0, 10.0], [0.0, 10.0])
         with pytest.raises(ValueError, match="one-dimensional"):
-            _var([0.0, 10.0], [0.0, 10.0]).interp(time=[[5.0], [6.0]])
+            var.interp(time=[[5.0], [6.0]])
 
     def test_interp_like_column_mismatch(self):
         """Differing column counts (same EPSG) refuse `interp_like` too."""
@@ -447,22 +454,21 @@ class TestInterpAxisTooShort:
 
     def test_single_point_axis_is_refused(self):
         """A one-step axis cannot be interpolated; refuse instead of returning NaN + a scipy warning."""
+        var = _var([5.0], [5.0], no_data_value=None)
         with pytest.raises(ValueError, match="at least 2 source steps"):
-            _var([5.0], [5.0], no_data_value=None).interp(time=[5.0])
+            var.interp(time=[5.0])
 
     def test_cubic_on_three_points_is_refused(self):
         """`cubic` needs four steps; a three-step axis is refused, not left to raw scipy."""
+        var = _var([0.0, 1.0, 2.0], [0.0, 1.0, 2.0], no_data_value=None)
         with pytest.raises(ValueError, match="'cubic' needs at least 4 source steps"):
-            _var([0.0, 1.0, 2.0], [0.0, 1.0, 2.0], no_data_value=None).interp(
-                time=[1.5], method="cubic"
-            )
+            var.interp(time=[1.5], method="cubic")
 
     def test_quadratic_on_two_points_is_refused(self):
         """`quadratic` needs three steps; a two-step axis is refused."""
+        var = _var([0.0, 1.0], [0.0, 1.0], no_data_value=None)
         with pytest.raises(ValueError, match="'quadratic' needs at least 3 source steps"):
-            _var([0.0, 1.0], [0.0, 1.0], no_data_value=None).interp(
-                time=[0.5], method="quadratic"
-            )
+            var.interp(time=[0.5], method="quadratic")
 
 
 class TestInterpLikeCallerName:
