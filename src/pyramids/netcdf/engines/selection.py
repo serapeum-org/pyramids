@@ -2951,7 +2951,9 @@ class Selection(_Engine["NetCDF"]):
                 once, so a single gap (a no-data cell or NaN) anywhere makes the entire interpolated
                 axis a gap; prefer a local kind (`"linear"` / `"nearest"`) on data with gaps.
             **coords: `dimension=targets` pairs; each `dimension` must be a numeric band dimension
-                and `targets` a 1-D sequence (or scalar) of coordinate values to interpolate onto.
+                and `targets` a 1-D sequence (or scalar) of coordinate values to interpolate onto. A
+                band dimension literally named `method` cannot be passed here — that keyword is the
+                interpolation kind — the same reserved-name limitation as `xarray.Dataset.interp`.
 
         Returns:
             NetCDF: A container for a container, a variable for a variable, float64, with each named
@@ -3051,7 +3053,7 @@ class Selection(_Engine["NetCDF"]):
               ```
         """
         nc = self._ds
-        kind = _resolve_interp_kind(method)
+        kind = _resolve_interp_kind(method, caller="interp_like")
         if not _same_spatial_grid(nc, other):
             raise ValueError(
                 "interp_like() interpolates only band dimensions, but the two spatial grids "
@@ -4255,11 +4257,12 @@ _INTERP_MIN_POINTS = {
 """Minimum source steps each `interp1d` kind needs (spline order + 1; 2 for the piecewise kinds)."""
 
 
-def _resolve_interp_kind(method: str) -> str:
+def _resolve_interp_kind(method: str, caller: str = "interp") -> str:
     """Return `method` if it is a supported `interp1d` kind, else refuse.
 
     Args:
         method: The interpolation kind the caller passed.
+        caller: The member the user called (`"interp"` / `"interp_like"`), named in the refusal.
 
     Returns:
         str: `method`, unchanged.
@@ -4269,7 +4272,7 @@ def _resolve_interp_kind(method: str) -> str:
     """
     if method not in _INTERP_KINDS:
         raise ValueError(
-            f"interp() method must be one of {list(_INTERP_KINDS)}, got {method!r}."
+            f"{caller}() method must be one of {list(_INTERP_KINDS)}, got {method!r}."
         )
     return method
 
@@ -4378,6 +4381,13 @@ def _interp_source_coordinates(nc: NetCDF, dim: str, caller: str = "interp") -> 
     if np.isnan(values).any():
         raise ValueError(
             f"{caller}() cannot interpolate along {dim!r}: its coordinates contain NaN."
+        )
+    if np.unique(values).size != values.size:
+        # interp1d is uniquely sensitive to a repeated sample point -- it returns an arbitrary,
+        # order-dependent value at the tie rather than erroring -- so refuse a duplicate stamp here.
+        raise ValueError(
+            f"{caller}() cannot interpolate along {dim!r}: its coordinates have duplicate values, "
+            "which make the interpolation ambiguous. Deduplicate the axis first."
         )
     return values
 
