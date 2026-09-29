@@ -12667,16 +12667,17 @@ class NetCDF(Dataset):
         x: str | None = None,
         y: str | None = None,
         variables: str | Sequence[str] | None = None,
-        no_data_value: Any = DEFAULT_NO_DATA_VALUE,
+        no_data_value: Any = np.nan,
         path: str | Path | None = None,
     ) -> Container:
         """Build a :class:`Container` from a `MultiIndex` DataFrame — the inverse of `to_dataframe`.
 
         The frame is indexed by its dimensions: the innermost two index levels are the
         `(y, x)` grid axes and any outer levels are band dimensions, so
-        `NetCDF.from_dataframe(nc.to_dataframe(), crs=nc.epsg)` reproduces `nc` to
-        floating-point tolerance (the geotransform is recovered by differencing cell
-        centres). A DataFrame carries no georeferencing, so the geotransform is inferred from
+        `NetCDF.from_dataframe(nc.to_dataframe(), crs=nc.epsg)` reproduces `nc`'s values,
+        variables, band coordinates, grid and CRS (the geotransform is recovered by
+        differencing cell centres); gaps come back as `NaN` unless `no_data_value=` restores a
+        sentinel. A DataFrame carries no georeferencing, so the geotransform is inferred from
         the `x` / `y` cell-centre coordinates (a regular grid is required; a single-row or
         single-column axis carries no spacing and is refused) and the CRS is taken from
         `crs`. The result is always north-up; band-dimension coordinates keep their
@@ -12696,8 +12697,9 @@ class NetCDF(Dataset):
                 second-innermost level.
             variables: Which columns become data variables, as a name or a sequence; `None`
                 (default) takes every column.
-            no_data_value: Sentinel for the gaps; `NaN` and absent cells are stored as this.
-                Defaults to `DEFAULT_NO_DATA_VALUE`.
+            no_data_value: Sentinel stamped on gaps (`NaN` cells and cells absent from the
+                frame). Defaults to `np.nan`, so gaps stay `NaN` and each rebuilt variable
+                declares `NaN` as its nodata; pass `no_data_value=` to restore a sentinel.
             path: Destination — `None` (default) builds in memory, a `.nc` path writes it,
                 as :meth:`from_array`.
 
