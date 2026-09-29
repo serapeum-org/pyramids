@@ -1144,7 +1144,7 @@ def from_dataframe(
     x: str | None = None,
     y: str | None = None,
     variables: str | Sequence[str] | None = None,
-    no_data_value: Any = DEFAULT_NO_DATA_VALUE,
+    no_data_value: Any = np.nan,
     path: str | Path | None = None,
 ) -> Container:
     """Rebuild a NetCDF cube from a `MultiIndex` DataFrame — the inverse of `to_dataframe`.
@@ -1152,8 +1152,9 @@ def from_dataframe(
     The frame must be indexed by its dimensions, the two innermost index levels being the
     `(y, x)` grid axes and any outer levels the band dimensions; each non-index column
     becomes a data variable. That is exactly the shape `to_dataframe` returns, so
-    `from_dataframe(nc.to_dataframe(), crs=nc.epsg)` reproduces `nc` — to floating-point
-    tolerance, since the geotransform is recovered by differencing the stored cell centres.
+    `from_dataframe(nc.to_dataframe(), crs=nc.epsg)` reproduces `nc`'s values, variables,
+    band coordinates, grid and CRS (the geotransform is recovered by differencing the stored
+    cell centres); gaps come back as `NaN` unless `no_data_value=` restores a sentinel.
     The one cube it cannot round-trip is a single-row or single-column raster: one centre on
     an axis carries no spacing to recover, so that axis is refused (see `Raises`).
 
@@ -1182,8 +1183,10 @@ def from_dataframe(
             `None` (default) takes every column. A `list` or `tuple` is read as several
             labels, so a single tuple column label from a `MultiIndex` columns axis must be
             wrapped — `variables=[("a", "b")]`, not `variables=("a", "b")`.
-        no_data_value: Sentinel for the gaps. `NaN` cells (and cells absent from the frame)
-            are stored as this value. Defaults to `DEFAULT_NO_DATA_VALUE`.
+        no_data_value: Sentinel stamped on gaps — `NaN` cells and cells absent from the frame.
+            Defaults to `np.nan`, so gaps stay `NaN` and each rebuilt variable declares `NaN`
+            as its nodata; pass e.g. `no_data_value=nc.get_variable(v).no_data_value[0]` to
+            restore a specific sentinel.
         path: Destination. `None` (default) builds the store in memory; a `.nc` path writes
             it, exactly as `from_array`.
 

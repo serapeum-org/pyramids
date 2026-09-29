@@ -228,6 +228,36 @@ class TestGapsSurviveTheRoundTrip:
         assert np.isnan(back.to_dataframe()["values"].to_numpy()).sum() == 1
 
 
+class TestNodataFillsWithNaNByDefault:
+    """`from_dataframe` stamps gaps with `NaN` by default, so it cannot invent or lose a gap."""
+
+    def test_a_real_value_equal_to_the_old_default_is_not_a_gap(self):
+        """A real ``-9999.0`` in a frame stays a value; the ``NaN`` default cannot collide."""
+        idx = pd.MultiIndex.from_product(
+            [[0], [2.0, 1.0], [0.0, 1.0]], names=["band", "y", "x"]
+        )
+        frame = pd.DataFrame({"values": [-9999.0, 2.0, 3.0, 4.0]}, index=idx)
+        back = Dataset.from_dataframe(frame, crs=4326)
+        values = back.to_dataframe()["values"]
+        assert not np.isnan(values.iloc[0]), "a real -9999.0 must not become a gap"
+        assert values.iloc[0] == -9999.0
+
+    def test_a_float_raster_with_nan_gaps_round_trips_losslessly(self):
+        """A float raster whose gaps are ``NaN`` comes back cell-for-cell identical."""
+        ds = _raster(np.array([[np.nan, 2.0], [3.0, 4.0]]), no_data_value=np.nan)
+        back = Dataset.from_dataframe(ds.to_dataframe(), crs=ds.epsg)
+        assert_array_equal(back.read_array(), ds.read_array())
+
+    def test_a_non_default_sentinel_returns_as_nan_but_can_be_restored(self):
+        """A ``255``-nodata gap returns as ``NaN`` by default, or as ``255`` when asked."""
+        ds = _raster(np.array([[255.0, 2.0], [3.0, 4.0]]), no_data_value=255.0)
+        frame = ds.to_dataframe()
+        default_back = Dataset.from_dataframe(frame, crs=ds.epsg)
+        assert np.isnan(default_back.to_dataframe()["values"].iloc[0])
+        restored = Dataset.from_dataframe(frame, crs=ds.epsg, no_data_value=255.0)
+        assert restored.no_data_value[0] == 255.0
+
+
 class TestGeoreferencingRules:
     """`crs=` supplies the CRS; without it the CRS is left unset."""
 

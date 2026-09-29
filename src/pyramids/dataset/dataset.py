@@ -6227,16 +6227,17 @@ class Dataset(RasterBase):
         crs: str | int | None = None,
         x: str | None = None,
         y: str | None = None,
-        no_data_value: Any = DEFAULT_NO_DATA_VALUE,
+        no_data_value: Any = np.nan,
         path: str | Path | None = None,
     ) -> Dataset:
         """Rebuild a raster from a ``(band, y, x)`` MultiIndex DataFrame — inverse of ``to_dataframe``.
 
         The frame is indexed by its axes: the innermost two index levels are the ``(y, x)``
         grid and an optional outer level is the positional ``band`` axis, so
-        ``Dataset.from_dataframe(ds.to_dataframe(), crs=ds.epsg)`` reproduces ``ds`` to
-        floating-point tolerance (the geotransform is recovered by differencing cell centres).
-        A frame with no band level (a plain ``(y, x)`` MultiIndex) builds a single-band
+        ``Dataset.from_dataframe(ds.to_dataframe(), crs=ds.epsg)`` reproduces ``ds``'s values,
+        band count/order, grid and CRS (the geotransform is recovered by differencing cell
+        centres); gaps come back as ``NaN`` unless ``no_data_value=`` restores a specific
+        sentinel. A frame with no band level (a plain ``(y, x)`` MultiIndex) builds a single-band
         raster. A DataFrame carries no georeferencing, so the geotransform is inferred from
         the ``x`` / ``y`` cell centres (a regular grid is required; a single-row or
         single-column axis is refused) and the CRS is taken from ``crs``. The result is always
@@ -6258,8 +6259,10 @@ class Dataset(RasterBase):
             x: The index level holding the column (x) coordinates; defaults to the innermost.
             y: The index level holding the row (y) coordinates; defaults to the
                 second-innermost.
-            no_data_value: Sentinel for the gaps; ``NaN`` and absent cells are stored as this.
-                Defaults to ``DEFAULT_NO_DATA_VALUE``.
+            no_data_value: Sentinel stamped on gaps (``NaN`` cells and cells absent from the
+                frame). Defaults to ``np.nan``, so gaps stay ``NaN`` and the rebuilt raster
+                declares ``NaN`` as its nodata; pass e.g. ``no_data_value=ds.no_data_value[0]``
+                to restore a specific sentinel and its dtype.
             path: Destination — ``None`` (default) builds in memory; otherwise the extension
                 selects the driver, exactly as :meth:`from_array`.
 
