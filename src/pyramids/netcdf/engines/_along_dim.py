@@ -25,6 +25,7 @@ from numbers import Real
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, cast
 
 import numpy as np
+from scipy.interpolate import interp1d
 
 from pyramids.base.crs import crs_spec
 from pyramids.dataset.transform import GeoTransform
@@ -839,6 +840,89 @@ class _Interpolate(_AlongDim):
                 f"{coords[0]!r}... Pass use_coordinate=False to interpolate by position."
             )
         return np.asarray([float(value) for value in coords], dtype="float64")
+
+
+@dataclass
+class _InterpTo(_AlongDim):
+    """`interp`: resample a band dimension onto new coordinate values by 1-D interpolation.
+
+    Where `interpolate_na` fills gaps and keeps the axis, this puts each pixel's series onto a new
+    set of stamps — xarray's `interp(dim=targets)` — so the dimension takes the target coordinates
+    and (usually) a new length. Only band dimensions come here: a spatial regrid is a GDAL warp
+    (`resample` / `to_crs` / `align`), refused before this runs.
+
+    Attributes:
+        target: The coordinate values to interpolate onto, one per output step.
+        kind: The `scipy.interpolate.interp1d` kind — `"linear"`, `"nearest"`, `"cubic"`, ...
+    """
+
+    target: np.ndarray
+    kind: str
+    caller: str = "interp"
+    verb: ClassVar[str] = "interpolate"
+    keeps_length: ClassVar[bool] = False
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Interpolate one variable's series along `dim` onto `target`.
+
+        Args:
+            nc: The object `interp` was called on.
+            var: The variable; `dim` is one of its band dimensions.
+            dim: The dimension to interpolate along.
+
+        Returns:
+            _Applied: The interpolated values with `dim` relabelled to `target`. The result is
+            float64 and declares the variable's no-data value, or NaN when it declares none — a
+            target outside the source range, or a stamp that only interpolates from a gap, is a
+            gap.
+        """
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        axis = band_names.index(dim)
+        source = np.asarray([float(value) for value in values_map[dim]], dtype="float64")
+        arr = nc._materialize_variable_array(var, lazy=True)
+        data = _gaps_as_nan(arr, ndv)
+        interpolated = _interp_onto(data, axis, source, self.target, self.kind)
+        fill: Any = np.nan if ndv is None else ndv
+        values = np.where(np.isnan(interpolated), fill, interpolated)
+        values_map[dim] = [float(value) for value in self.target]
+        return _Applied(np.asarray(values), band_names, values_map, fill)
+
+
+def _interp_onto(
+    data: Any, axis: int, source: np.ndarray, target: np.ndarray, kind: str
+) -> np.ndarray:
+    """`data` interpolated along `axis` from `source` stamps onto `target` stamps.
+
+    `scipy.interpolate.interp1d` needs an ascending sample axis, so an unsorted or descending band
+    axis is sorted (values reordered with it) first. Targets outside the source range come back NaN
+    (`bounds_error=False`); no extrapolation.
+
+    Args:
+        data: The values as float64 with NaN gaps, numpy or dask.
+        axis: The band axis to interpolate along.
+        source: The source coordinate values, one per input step.
+        target: The coordinate values to interpolate onto.
+        kind: The `interp1d` kind (`"linear"`, `"nearest"`, `"cubic"`, ...).
+
+    Returns:
+        numpy.ndarray: The interpolated values, `axis` now `len(target)` long.
+    """
+    values = np.asarray(data, dtype="float64")
+    order = np.argsort(source, kind="stable")
+    source_sorted = source[order]
+    values_sorted = np.take(values, order, axis=axis)
+    interpolator = interp1d(
+        source_sorted,
+        values_sorted,
+        axis=axis,
+        kind=kind,
+        bounds_error=False,
+        fill_value=np.nan,
+        assume_sorted=True,
+    )
+    return np.asarray(interpolator(np.asarray(target, dtype="float64")))
 
 
 def _interpolated(

@@ -65,6 +65,7 @@ from pyramids.netcdf.engines._along_dim import (
     _DropNa,
     _Extremum,
     _Interpolate,
+    _InterpTo,
     _Push,
     _reduces_as_a_variable,
     _Reduction,
@@ -2923,6 +2924,133 @@ class Selection(_Engine["NetCDF"]):
             result = _apply_to_container(nc, dim, op)
         return result
 
+    def interp(self, method: str = "linear", **coords: Any) -> NetCDF:
+        """Interpolate a band dimension onto new coordinate values.
+
+        Puts each pixel's series onto new stamps by 1-D interpolation — xarray's
+        `interp(dim=targets)`. The named dimension takes the target coordinates and, in general, a
+        new length; the values in between are interpolated, and a target outside the source range
+        comes back as a gap (the declared no-data value, or NaN). Several `dim=targets` pairs are
+        applied one after another, each an independent 1-D interpolation.
+
+        Only **band (non-spatial) dimensions** are interpolated here. A spatial axis is refused with
+        a pointer to the operations that regrid the horizontal plane correctly (they move the
+        geotransform with the data): `resample` for a new cell size, `to_crs` for a new CRS,
+        `align` onto another dataset's grid, and `extract` / `point` for scattered points.
+
+        Works on a container, interpolating every variable that has the dimension, and on a single
+        variable, returning a variable. A container's auxiliary variable spanning the dimension is
+        dropped with a warning, since its length changes.
+
+        Args:
+            method: The interpolation kind, forwarded to `scipy.interpolate.interp1d`: `"linear"`
+                (default), `"nearest"`, `"cubic"`, `"zero"`, `"slinear"`, `"quadratic"`,
+                `"previous"` or `"next"`. These match the kinds xarray forwards to scipy for 1-D
+                interpolation.
+            **coords: `dimension=targets` pairs; each `dimension` must be a numeric band dimension
+                and `targets` a 1-D sequence (or scalar) of coordinate values to interpolate onto.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, float64, with each named
+            dimension relabelled to its targets.
+
+        Raises:
+            ValueError: No `coords` given; an unknown `method`; a named dimension that is spatial
+                (with the regrid pointer), unknown, text, or coordinate-less; or a target that is
+                empty or holds NaN.
+
+        Examples:
+            - Interpolate a time axis onto stamps between the source's:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([0.0, 10.0, 20.0]).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 10.0, 20.0]),
+              ... ).get_variable("t")
+              >>> out = var.interp(time=[5.0, 15.0])
+              >>> out.read_array().ravel().tolist()
+              [5.0, 15.0]
+              >>> out._band_dim_values_map["time"]
+              [5.0, 15.0]
+
+              ```
+        """
+        nc = self._ds
+        if not coords:
+            raise ValueError(
+                "interp() needs at least one dimension to interpolate, e.g. interp(time=[...])."
+            )
+        kind = _resolve_interp_kind(method)
+        result = nc
+        for dim, target in coords.items():
+            result = _run_interp(result, dim, target, kind)
+        return result
+
+    def interp_like(self, other: NetCDF, method: str = "linear") -> NetCDF:
+        """Interpolate the band dimensions shared with `other` onto `other`'s coordinates.
+
+        The band-axis half of xarray's `interp_like`: for every band dimension this cube shares
+        with `other`, interpolate onto `other`'s coordinate values for that dimension. The spatial
+        plane is **not** regridded here — if the two spatial grids differ the call is refused, with
+        a pointer to `to_crs` / `resample` / `align`, so `interp_like` stays a pure band-axis
+        operation (compose `cube.to_crs(other.epsg).interp_like(other)` for the full effect).
+
+        Args:
+            other: The cube whose band coordinates this one is interpolated onto. Its spatial grid
+                must match this cube's.
+            method: The interpolation kind, as in `interp`.
+
+        Returns:
+            NetCDF: This cube with each shared band dimension interpolated onto `other`'s
+            coordinates.
+
+        Raises:
+            ValueError: An unknown `method`; the two spatial grids differ (with the regrid
+                pointer); or no band dimension is shared with `other`.
+
+        Examples:
+            - Put one cube on another's time axis:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> ref = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> a = NetCDF.from_array(
+              ...     np.array([0.0, 20.0]).reshape(2, 1, 1), geo_ref=ref, variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 20.0]),
+              ... ).get_variable("t")
+              >>> b = NetCDF.from_array(
+              ...     np.zeros((3, 1, 1)), geo_ref=ref, variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 10.0, 20.0]),
+              ... ).get_variable("t")
+              >>> a.interp_like(b).read_array().ravel().tolist()
+              [0.0, 10.0, 20.0]
+
+              ```
+        """
+        nc = self._ds
+        kind = _resolve_interp_kind(method)
+        if not _same_spatial_grid(nc, other):
+            raise ValueError(
+                "interp_like() interpolates only band dimensions, but the two spatial grids "
+                "differ. Put this cube on other's grid first with to_crs() / resample() / "
+                "align(), then interp_like()."
+            )
+        shared = [dim for dim in _band_dims_of(nc) if dim in _band_dims_of(other)]
+        if not shared:
+            raise ValueError(
+                "interp_like() found no band dimension shared with other to interpolate onto."
+            )
+        result = nc
+        for dim in shared:
+            target = _interp_source_coordinates(other, dim)
+            result = _run_interp(result, dim, target, kind)
+        return result
+
     def cumsum(self, dim: str, *, skipna: bool = True) -> NetCDF:
         """Total the values along a non-spatial dimension, step by step.
 
@@ -4079,6 +4207,194 @@ def _check_min_periods(min_periods: Any, window: int) -> int:
                 f"step(s); pass at most {window}."
             )
     return needed
+
+
+_INTERP_KINDS = (
+    "linear",
+    "nearest",
+    "cubic",
+    "zero",
+    "slinear",
+    "quadratic",
+    "previous",
+    "next",
+)
+"""The `scipy.interpolate.interp1d` kinds `interp` / `interp_like` accept as `method`."""
+
+_SPATIAL_AXIS_NAMES = {name.lower() for name in (*X_AXIS_NAMES, *Y_AXIS_NAMES)}
+"""Axis names that identify the horizontal plane, which `interp` regrids through the warp path."""
+
+
+def _resolve_interp_kind(method: str) -> str:
+    """Return `method` if it is a supported `interp1d` kind, else refuse.
+
+    Args:
+        method: The interpolation kind the caller passed.
+
+    Returns:
+        str: `method`, unchanged.
+
+    Raises:
+        ValueError: `method` is not one of `_INTERP_KINDS`.
+    """
+    if method not in _INTERP_KINDS:
+        raise ValueError(
+            f"interp() method must be one of {list(_INTERP_KINDS)}, got {method!r}."
+        )
+    return method
+
+
+def _band_dims_of(nc: NetCDF) -> list[str]:
+    """The band (non-spatial) dimension names of a variable or container.
+
+    Args:
+        nc: A variable or a container.
+
+    Returns:
+        list[str]: The variable's tracked band dimensions, or the container's dimensions minus the
+        spatial axes.
+    """
+    if _reduces_as_a_variable(nc):
+        return list(nc._band_dim_names)
+    return [d for d in (nc.dimension_names or []) if d.lower() not in _SPATIAL_AXIS_NAMES]
+
+
+def _same_spatial_grid(nc: NetCDF, other: NetCDF) -> bool:
+    """Whether two cubes occupy the same horizontal grid (CRS, size and geotransform).
+
+    Compared from the raster properties directly rather than through `Dataset.same_grid`, so it
+    holds for a root MDIM container whose geotransform is derived.
+
+    Args:
+        nc: One cube.
+        other: The other cube.
+
+    Returns:
+        bool: `True` iff both share EPSG, row/column counts and geotransform.
+    """
+    return bool(
+        nc.epsg == other.epsg
+        and nc.rows == other.rows
+        and nc.columns == other.columns
+        and np.allclose(
+            np.asarray(nc.geotransform, dtype="float64"),
+            np.asarray(other.geotransform, dtype="float64"),
+        )
+    )
+
+
+def _refuse_spatial_interp(nc: NetCDF, dim: str, *, caller: str) -> None:
+    """Refuse interpolating a spatial axis, pointing at the operations that regrid it correctly.
+
+    Args:
+        nc: The cube being interpolated.
+        dim: The dimension the caller named.
+        caller: The member the user called, named in the message.
+
+    Raises:
+        ValueError: `dim` is a spatial axis (and not a band dimension of `nc`).
+    """
+    if dim.lower() in _SPATIAL_AXIS_NAMES and dim not in _band_dims_of(nc):
+        raise ValueError(
+            f"{caller}() interpolates only band (non-spatial) dimensions; {dim!r} is a spatial "
+            "axis. For a new spatial grid use resample() (new cell size), to_crs() (new CRS) or "
+            "align() (onto another dataset's grid); for scattered points use extract() / point()."
+        )
+
+
+def _interp_source_coordinates(nc: NetCDF, dim: str) -> np.ndarray:
+    """The numeric source coordinates of band dimension `dim`, for `interp` to interpolate from.
+
+    Read from the variable's `_band_dim_values_map` (a variable) or the store's dimension values (a
+    container), mirroring `_bin_coordinates`.
+
+    Args:
+        nc: The container or variable being interpolated (or `other`, read for its targets).
+        dim: The band dimension to read.
+
+    Returns:
+        np.ndarray: The coordinates as `float64`.
+
+    Raises:
+        ValueError: `dim` is not one of a variable's band dimensions (or not a dimension of the
+            container), or its coordinates are absent (coordinate-less), non-numeric (text) or hold
+            NaN.
+    """
+    coords: Any
+    if _reduces_as_a_variable(nc):
+        _assert_band_dimension(nc, dim, caller="interp")
+        coords = nc._band_dim_values_map.get(dim)
+    else:
+        names = list(nc.dimension_names or [])
+        if dim not in names:
+            raise ValueError(
+                f"interp() got {dim!r}, which is not a dimension of this container; its "
+                f"dimensions are {names}."
+            )
+        coords = nc.get_dimension_values(dim)
+    if coords is None:
+        raise ValueError(
+            f"interp() needs coordinate values on {dim!r} to interpolate from, but it carries "
+            "none (a coordinate-less axis)."
+        )
+    values = np.asarray(coords)
+    if not np.issubdtype(values.dtype, np.number):
+        raise ValueError(
+            f"interp() needs a numeric {dim!r} axis to interpolate; its coordinates are not "
+            "numbers."
+        )
+    values = values.astype("float64")
+    if np.isnan(values).any():
+        raise ValueError(
+            f"interp() cannot interpolate along {dim!r}: its coordinates contain NaN."
+        )
+    return values
+
+
+def _interp_targets(target: Any, dim: str) -> np.ndarray:
+    """The target coordinate values to interpolate onto, as a validated 1-D float64 array.
+
+    Args:
+        target: A scalar or 1-D sequence of coordinate values.
+        dim: The dimension the targets are for, named in refusals.
+
+    Returns:
+        np.ndarray: The targets as a 1-D `float64` array.
+
+    Raises:
+        ValueError: `target` is not 1-D, is empty, or holds NaN.
+    """
+    values = np.atleast_1d(np.asarray(target, dtype="float64"))
+    if values.ndim != 1:
+        raise ValueError(
+            f"interp() target for {dim!r} must be one-dimensional; got shape {values.shape}."
+        )
+    if values.size == 0:
+        raise ValueError(f"interp() target for {dim!r} is empty.")
+    if np.isnan(values).any():
+        raise ValueError(f"interp() target for {dim!r} contains NaN.")
+    return values
+
+
+def _run_interp(nc: NetCDF, dim: str, target: Any, kind: str) -> NetCDF:
+    """Interpolate one band dimension of `nc` onto `target`, container or variable.
+
+    Args:
+        nc: The container or variable to interpolate.
+        dim: The band dimension to interpolate along.
+        target: The coordinate values to interpolate onto.
+        kind: The resolved `interp1d` kind.
+
+    Returns:
+        NetCDF: The interpolated container or variable.
+    """
+    _refuse_spatial_interp(nc, dim, caller="interp")
+    _interp_source_coordinates(nc, dim)
+    targets = _interp_targets(target, dim)
+    op = _InterpTo(target=targets, kind=kind)
+    if _reduces_as_a_variable(nc):
+        return _apply_to_variable(nc, dim, op)
+    return _apply_to_container(nc, dim, op)
 
 
 def _bin_coordinates(nc: NetCDF, dim: str) -> np.ndarray:

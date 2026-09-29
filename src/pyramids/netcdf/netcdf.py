@@ -7528,6 +7528,14 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.diff <pyramids.netcdf.engines.selection.Selection.diff>`."""
         return self.selection.diff(dim, n, label=label)
 
+    def interp(self, method: str = "linear", **coords: Any) -> NetCDF:
+        """Facade — :meth:`Selection.interp <pyramids.netcdf.engines.selection.Selection.interp>`."""
+        return self.selection.interp(method, **coords)
+
+    def interp_like(self, other: NetCDF, method: str = "linear") -> NetCDF:
+        """Facade — :meth:`Selection.interp_like <pyramids.netcdf.engines.selection.Selection.interp_like>`."""
+        return self.selection.interp_like(other, method=method)
+
     def cumsum(self, dim: str, *, skipna: bool = True) -> NetCDF:
         """Facade — :meth:`Selection.cumsum <pyramids.netcdf.engines.selection.Selection.cumsum>`."""
         return self.selection.cumsum(dim, skipna=skipna)
