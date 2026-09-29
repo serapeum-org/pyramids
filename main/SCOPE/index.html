@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6704,8 +6704,9 @@ ECMWF octahedral reduced-Gaussian grids, NEMO ORCA curvilinear ocean grids) <str
 <em>regridding</em> they performed is generic and stays (<code>ops/interpolate.py</code>, <code>ugrid</code> mesh→raster bridge);
 only the domain-specific grid <em>recognition</em> moved to <code>earthlens.grids</code>. <strong>(S2)</strong></p>
 <h2 id="5-out-of-scope-register-worked-boundary-cases"><a class="toclink" href="#5-out-of-scope-register-worked-boundary-cases">5. Out-of-scope register (worked boundary cases)</a><a class="headerlink" href="#5-out-of-scope-register-worked-boundary-cases" title="Permanent link">#</a></h2>
-<p>The audit produced eight boundary findings. They are the canonical examples of where the §3 rule was
-applied, and the precedent for future decisions.</p>
+<p>The audit produced eight boundary findings (S1–S8); S9 was added later when the LAS/LAZ point-cloud
+question was settled (issue #1135). They are the canonical examples of where the §3 rule was applied,
+and the precedent for future decisions.</p>
 <p><strong>S1 — <code>Dataset.convert_units</code>.</strong> Physical value-unit conversion (K/°C, m·s⁻¹/knots, Pa/hPa, m/mm) is
 atmospheric/geophysical value-semantics, not a GIS primitive. → <em>Deprecated; destination TBD. Keep the
 <code>band_units</code> metadata in pyramids and convert values downstream.</em></p>
@@ -6727,8 +6728,19 @@ prefer the CF attribute or an explicit <code>coords=</code>. Plot-fallback only.
 mosaicking). → <em>Kept as a first-class EO convenience; documentation hardened.</em></p>
 <p><strong>S8 — GRIB <code>_GRIB_FIELDS</code> glossary.</strong> WMO-standard GRIB metadata keys — format support, like any
 format's tags. → <em>In scope, no action.</em></p>
+<p><strong>S9 — LAS/LAZ point-cloud reading.</strong> Reading a format is normally in scope (§3), even an exotic one.
+LAS/LAZ is the deliberate exception: the lidar surface a reader pulls in — classification, filtering,
+decimation, meshing, LOD/tiling, COPC/EPT, a PDAL-class pipeline — is its own competence, not a reader
+bolted onto a GIS library, and it barely touches GDAL (the reference <code>digitalrivers.lidar</code> imports
+pyramids once, only to wrap a finished array in a <code>Dataset</code>). The line is drawn by engine growth, not
+format exoticism, so the next format question does not reopen it. → <em>Deliberately out; lives in a
+dedicated point-cloud distribution that depends on <code>pyramids-gis</code> only through an optional extra. The
+generic primitives it reuses stay in pyramids: the scattered-point <code>gdal.Grid</code> bridge and its
+array-native entries (<code>reproject_arrays</code>, <code>Dataset.from_point_arrays</code>, <code>FeatureCollection.from_xyz</code>),
+and the UGRID mesh→raster bridge.</em> (issue #1135)</p>
 <p>Note: S5/S6 are low-urgency, viz-only convenience defaults; S7 is a deliberate maintainer exception kept
-for EO ergonomics; S1 awaits a relocation destination. S2/S3/S4 are the clear leaks that were relocated.</p>
+for EO ergonomics; S1 awaits a relocation destination. S2/S3/S4 are the clear leaks that were relocated;
+S9 is a format deliberately kept out despite the format-support rule.</p>
 <h2 id="6-proposing-a-scope-change"><a class="toclink" href="#6-proposing-a-scope-change">6. Proposing a scope change</a><a class="headerlink" href="#6-proposing-a-scope-change" title="Permanent link">#</a></h2>
 <p>Before adding a surface, run it through §3:</p>
 <ol>
