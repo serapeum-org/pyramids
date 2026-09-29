@@ -121,6 +121,12 @@ class TestBandSelector:
         with pytest.raises(ValueError, match="out of range"):
             ds.to_dataframe(bands=5)
 
+    def test_an_empty_band_selection_is_refused(self):
+        """An empty ``bands=`` selection has nothing to put in rows, so it raises."""
+        ds = _raster(np.arange(8.0).reshape(2, 2, 2))
+        with pytest.raises(ValueError, match="empty bands"):
+            ds.to_dataframe(bands=[])
+
 
 class TestRoundTripReproducesTheRaster:
     """`Dataset.from_dataframe(ds.to_dataframe(), crs=ds.epsg)` reproduces the source."""

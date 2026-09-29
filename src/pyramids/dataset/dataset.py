@@ -6156,7 +6156,8 @@ class Dataset(RasterBase):
             north-up (``y`` descending, ``x`` ascending).
 
         Raises:
-            ValueError: A requested band index is out of range for the raster.
+            ValueError: A requested band index is out of range for the raster, or ``bands=``
+                is an empty selection (pass ``bands=None`` for every band).
 
         Examples:
             - A one-band 2x2 raster as pandas sees it (the ``band`` level is kept):
@@ -6182,6 +6183,11 @@ class Dataset(RasterBase):
             selected = [int(bands)]
         else:
             selected = [int(b) for b in bands]
+        if not selected:
+            raise ValueError(
+                "Dataset.to_dataframe() was given an empty bands= selection; pass "
+                f"bands=None for every band, or indices in 0..{count - 1}."
+            )
         out_of_range = [b for b in selected if not 0 <= b < count]
         if out_of_range:
             raise ValueError(
