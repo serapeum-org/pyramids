@@ -873,6 +873,29 @@ def _create_multi_band_dims(
     return band_dims
 
 
+def _restore_single_band_axis(arr: np.ndarray, names: tuple) -> np.ndarray:
+    """Re-add the length-1 band axis a single-band source squeezed away, if it tracks band dims.
+
+    A single-band source reads back as a 2-D `(y, x)` array — the length-1 band axis is squeezed —
+    but if it still tracks a band dimension the writer must keep that dimension, not fall through to
+    the plain 2-D path. Restore the flattened `(1, y, x)` form so the band paths run; otherwise a
+    multi-variable container reduced/interpolated down to a single band drops the non-first
+    variables' band name and coordinates (H1). A source tracking no band dimension (`names` empty)
+    is a genuine 2-D raster and is returned unchanged.
+
+    Args:
+        arr: The variable's cells, `(y, x)` when a single band was squeezed away.
+        names: The source's tracked band-dimension names.
+
+    Returns:
+        np.ndarray: `arr` with a leading length-1 axis when it tracks band dims but read back 2-D,
+        else `arr` unchanged.
+    """
+    if names and arr.ndim == 2:
+        return arr.reshape(1, *arr.shape)
+    return arr
+
+
 def _build_variable_mdarray(
     nc: NetCDF,
     rg: Any,
@@ -902,14 +925,7 @@ def _build_variable_mdarray(
     Returns the written MDArray.
     """
     names, sizes, values_map = band["names"], band["sizes"], band["values_map"]
-    # A single-band source reads back as a 2-D (y, x) array -- the length-1 band axis is squeezed
-    # away -- but if it still tracks a band dimension we must write that dimension, not a plain
-    # raster. Restore the flattened (1, y, x) form so the band paths below run; otherwise a
-    # multi-variable container reduced/interpolated down to a single band drops the non-first
-    # variables' band name and coordinates (H1). A source that tracks no band dimension (`names`
-    # empty) is a genuine 2-D raster and is left alone.
-    if names and arr.ndim == 2:
-        arr = arr.reshape(1, *arr.shape)
+    arr = _restore_single_band_axis(arr, names)
     if len(names) > 1 and arr.ndim == 3 and sizes:
         arr = unflatten_band_axes(arr, names, sizes)
         band_dims = _create_multi_band_dims(
