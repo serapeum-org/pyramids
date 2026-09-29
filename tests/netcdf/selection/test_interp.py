@@ -10,6 +10,8 @@ Style: Google-style docstrings, <=120 char lines, no inline imports, descriptive
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -19,6 +21,8 @@ from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
 pytestmark = pytest.mark.core
 
 GEO = (0.0, 1.0, 0.0, 1.0, 0.0, -1.0)
+
+ERA5_T2M = Path(__file__).resolve().parents[2] / "data" / "netcdf" / "cf__5v__1d4-3d1__geog__y-desc.nc"
 
 
 def _cube(stamps, values=None, *, name="t", cols=1, dim="time", no_data_value=-9999.0):
@@ -90,15 +94,18 @@ class TestInterpValues:
         descending = _var([20.0, 10.0, 0.0], [20.0, 10.0, 0.0]).interp(time=[7.0])
         assert_allclose(descending.read_array(), ascending.read_array())
 
-    def test_multiple_dims_apply_sequentially(self):
-        """Two `dim=targets` pairs interpolate one after the other."""
+    def test_single_dim_relabels_the_container_axis(self):
+        """Interpolating one band dim of a container relabels that axis to the targets.
+
+        (Multi-dimension chaining is covered by ``TestInterpMultiDim.test_two_band_dims_chained``;
+        this pins the single-dim container path.)
+        """
         cube = NetCDF.from_array(
             np.arange(6.0).reshape(3, 2, 1),
             geo_ref=GeoReference(geo=GEO, epsg=4326),
             variable_name="t",
             dims=ExtraDimensions(name="time", values=[0.0, 10.0, 20.0]),
         )
-        # Only `time` is a band dim here; assert chaining a single band dim twice is stable.
         once = cube.interp(time=[5.0, 15.0]).get_variable("t")
         assert once._band_dim_values_map["time"] == [5.0, 15.0]
 
@@ -468,3 +475,78 @@ class TestInterpLikeCallerName:
         other = _var([0.0, 10.0], [0.0, 0.0])
         with pytest.raises(ValueError, match=r"interp_like\(\)"):
             source.interp_like(other)
+
+    def test_unknown_method_refusal_names_interp_like(self):
+        """A bad `method` refused via interp_like names `interp_like()`, not `interp()` (round-2 L1)."""
+        source = _var([0.0, 20.0], [0.0, 20.0])
+        other = _var([0.0, 10.0], [0.0, 0.0])
+        with pytest.raises(ValueError, match=r"interp_like\(\) method must be one of"):
+            source.interp_like(other, method="spline")
+
+
+class TestInterpDuplicateCoords:
+    """A source axis with repeated stamps is refused (interp1d is tie-sensitive) (review L3)."""
+
+    def test_duplicate_source_coordinates_are_refused(self):
+        """Duplicate coordinate values make the interpolation ambiguous, so refuse them."""
+        var = _var([0.0, 10.0, 20.0], [0.0, 5.0, 10.0], no_data_value=None)
+        var._band_dim_values_map["time"] = [0.0, 0.0, 10.0]
+        with pytest.raises(ValueError, match="duplicate values"):
+            var.interp(time=[5.0])
+
+
+class TestSetVariablePreservesSingleBand:
+    """The H1 reshape also pins direct `set_variable` of a single-band band-tracking source (L2)."""
+
+    def test_direct_set_variable_keeps_a_length_one_band_dim(self):
+        """A single-band variable that tracks a band dim keeps it through public set_variable."""
+        ref = GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326)
+        a = NetCDF.from_array(
+            np.arange(4.0).reshape(1, 2, 2),
+            geo_ref=ref,
+            variable_name="a",
+            dims=ExtraDimensions(name="time", values=[0.0]),
+        )
+        b = NetCDF.from_array(
+            (np.arange(4.0) + 100.0).reshape(1, 2, 2),
+            geo_ref=ref,
+            variable_name="b",
+            dims=ExtraDimensions(name="time", values=[0.0]),
+        )
+        a.set_variable("b", b.get_variable("b"))
+        added = a.get_variable("b")
+        assert added._band_dim_names == ("time",), added._band_dim_names
+        assert added._band_dim_values_map["time"] == [0.0], added._band_dim_values_map
+
+
+class TestInterpContainerBranches:
+    """interp's container fan-out: carry a variable without the dim, drop an auxiliary that spans it (N3)."""
+
+    def test_a_gridded_variable_without_the_dim_is_carried_through(self):
+        """A raster variable lacking the interpolated dim is passed through unchanged."""
+        ref = GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326)
+        container = NetCDF.from_array(
+            np.full((2, 2), 7.0), geo_ref=ref, variable_name="elevation"
+        )
+        container.set_variable(
+            "temperature",
+            NetCDF.from_array(
+                np.arange(8.0).reshape(2, 2, 2),
+                geo_ref=ref,
+                variable_name="temperature",
+                dims=ExtraDimensions(name="time", values=[0.0, 10.0]),
+            ).get_variable("temperature"),
+        )
+        out = container.interp(time=[5.0])
+        assert_allclose(out.get_variable("elevation").read_array(), np.full((2, 2), 7.0))
+        assert out.get_variable("temperature")._band_dim_values_map["time"] == [5.0]
+
+    def test_a_spanning_auxiliary_is_dropped_and_the_warning_names_interp(self):
+        """An auxiliary variable spanning the interpolated dim is dropped, the warning naming interp."""
+        container = NetCDF.read_file(str(ERA5_T2M))
+        stamps = list(container.get_dimension_values("valid_time"))[:2]
+        with pytest.warns(UserWarning, match=r"interp\(\) dropped auxiliary") as record:
+            container.interp(valid_time=stamps)
+        assert any("interp()" in str(w.message) for w in record), (
+            "the dropped-auxiliary warning should name interp()"
+        )
