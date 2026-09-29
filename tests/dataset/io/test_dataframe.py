@@ -170,6 +170,31 @@ class TestRoundTripReproducesTheRaster:
         assert_array_equal(back.read_array(), ds.read_array())
 
 
+class TestSingleCellAxisIsNotRoundTrippable:
+    """A 1-wide / 1-tall raster tabulates fine, but ``from_dataframe`` cannot invert it.
+
+    ``to_dataframe`` places every cell regardless of grid shape, but ``from_dataframe`` needs
+    at least two coordinates per axis to infer a cell size, so the round trip is not universally
+    invertible — a documented asymmetry, not a bug.
+    """
+
+    def test_a_single_column_raster_refuses_on_the_way_back(self):
+        """A 1-column raster tabulates, then ``from_dataframe`` refuses its single-cell x axis."""
+        ds = _raster(np.arange(2.0).reshape(2, 1))
+        df = ds.to_dataframe()
+        assert df.shape == (2, 1)
+        with pytest.raises(ValueError, match="single x coordinate"):
+            Dataset.from_dataframe(df, crs=4326)
+
+    def test_a_single_row_raster_refuses_on_the_way_back(self):
+        """A 1-row raster tabulates, then ``from_dataframe`` refuses its single-cell y axis."""
+        ds = _raster(np.arange(2.0).reshape(1, 2))
+        df = ds.to_dataframe()
+        assert df.shape == (2, 1)
+        with pytest.raises(ValueError, match="single y coordinate"):
+            Dataset.from_dataframe(df, crs=4326)
+
+
 class TestOrientationIsAlwaysNorthUp:
     """The result is north-up whatever order the frame's `y` level runs in."""
 
