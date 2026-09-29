@@ -7567,8 +7567,15 @@ class NetCDF(Dataset):
             dim, method, limit=limit, use_coordinate=use_coordinate
         )
 
-    def to_dataframe(self, *, variables: Any = None, dropna: bool = False):
-        """Facade — :meth:`Interop.to_dataframe <pyramids.netcdf.engines.interop.Interop.to_dataframe>`."""
+    def to_dataframe(  # type: ignore[override]
+        self, *, variables: Any = None, dropna: bool = False
+    ):
+        """Facade — :meth:`Interop.to_dataframe <pyramids.netcdf.engines.interop.Interop.to_dataframe>`.
+
+        A cube tabulates by variable/`dropna`, deliberately unlike the raster
+        `Dataset.to_dataframe(*, bands=…)` it overrides — hence `type: ignore[override]`,
+        matching `read_array` and the other intentionally-divergent NetCDF facades.
+        """
         return self.interop.to_dataframe(variables=variables, dropna=dropna)
 
     @_joins_cubes
