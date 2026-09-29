@@ -402,3 +402,34 @@ class TestInterpMultiVariableContainer:
                 f"{name} lost its time coordinate: {v._band_dim_values_map}"
             )
             v.sel(time=5.0)
+
+
+class TestInterpSplineGapPropagation:
+    """Spline kinds fit globally, so any gap makes the whole axis no-data (review M1)."""
+
+    @pytest.mark.parametrize("kind", ["cubic", "quadratic"])
+    def test_spline_gap_propagates_to_whole_axis(self, kind):
+        """A single interior no-data cell makes a cubic/quadratic interp all no-data (scipy/xarray).
+
+        Args:
+            kind: The global-spline interpolation kind under test.
+        """
+        out = _var(
+            [0.0, 10.0, 20.0, 30.0, 40.0],
+            [0.0, 10.0, -9999.0, 30.0, 40.0],
+            no_data_value=-9999.0,
+        ).interp(time=[5.0, 35.0], method=kind)
+        assert (out.read_array().ravel() == -9999.0).all(), (
+            f"{kind} spline should make the whole axis no-data on a single gap"
+        )
+
+    def test_linear_keeps_the_gap_local(self):
+        """Contrast: `linear` interpolates the clean segments and only gaps the gap-touched one."""
+        out = _var(
+            [0.0, 10.0, 20.0, 30.0, 40.0],
+            [0.0, 10.0, -9999.0, 30.0, 40.0],
+            no_data_value=-9999.0,
+        ).interp(time=[5.0, 35.0])
+        result = out.read_array().ravel()
+        assert result[0] == 5.0, f"clean segment [0, 10] interpolates, got {result[0]}"
+        assert result[1] == 35.0, f"clean segment [30, 40] interpolates, got {result[1]}"

@@ -873,8 +873,11 @@ class _InterpTo(_AlongDim):
         Returns:
             _Applied: The interpolated values with `dim` relabelled to `target`. The result is
             float64 and declares the variable's no-data value, or NaN when it declares none — a
-            target outside the source range, or a stamp that only interpolates from a gap, is a
-            gap.
+            target outside the source range is a gap. Gaps stay *local* for `"linear"` / `"nearest"`
+            / `"previous"` / `"next"` / `"zero"` / `"slinear"` (only a target bracketing a gap is a
+            gap); the spline kinds `"cubic"` / `"quadratic"` fit the whole series at once, so a
+            single gap anywhere makes the entire axis a gap — the same as `scipy.interpolate.interp1d`
+            and `xarray.DataArray.interp`. Use a local kind on gappy data.
         """
         band_names = list(var._band_dim_names)
         values_map = dict(var._band_dim_values_map)

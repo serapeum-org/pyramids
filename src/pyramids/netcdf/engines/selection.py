@@ -2946,7 +2946,9 @@ class Selection(_Engine["NetCDF"]):
             method: The interpolation kind, forwarded to `scipy.interpolate.interp1d`: `"linear"`
                 (default), `"nearest"`, `"cubic"`, `"zero"`, `"slinear"`, `"quadratic"`,
                 `"previous"` or `"next"`. These match the kinds xarray forwards to scipy for 1-D
-                interpolation.
+                interpolation. The spline kinds `"cubic"` / `"quadratic"` fit the whole series at
+                once, so a single gap (a no-data cell or NaN) anywhere makes the entire interpolated
+                axis a gap; prefer a local kind (`"linear"` / `"nearest"`) on data with gaps.
             **coords: `dimension=targets` pairs; each `dimension` must be a numeric band dimension
                 and `targets` a 1-D sequence (or scalar) of coordinate values to interpolate onto.
 
