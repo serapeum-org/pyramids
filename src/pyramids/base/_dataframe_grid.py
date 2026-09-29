@@ -39,6 +39,30 @@ def frame_axes(
     Raises:
         ValueError: The index is not a `MultiIndex` of at least two named levels, a named
             `x` / `y` level is missing, or the two coincide.
+
+    Examples:
+        - Read the axes of a `(band, y, x)` frame:
+            ```python
+            >>> import pandas as pd
+            >>> idx = pd.MultiIndex.from_product(
+            ...     [[0, 1], [2.0, 1.0], [0.0, 1.0]], names=["band", "y", "x"]
+            ... )
+            >>> df = pd.DataFrame({"v": range(8)}, index=idx)
+            >>> frame_axes(df, None, None)
+            (['band'], 'y', 'x')
+
+            ```
+        - Name the axes explicitly when they are not the innermost two:
+            ```python
+            >>> import pandas as pd
+            >>> idx = pd.MultiIndex.from_product(
+            ...     [[2.0, 1.0], [0.0, 1.0]], names=["lat", "lon"]
+            ... )
+            >>> df = pd.DataFrame({"v": range(4)}, index=idx)
+            >>> frame_axes(df, x="lon", y="lat")
+            ([], 'lat', 'lon')
+
+            ```
     """
     index = df.index
     if not isinstance(index, pd.MultiIndex) or index.nlevels < 2:
@@ -89,6 +113,24 @@ def value_columns(df: pd.DataFrame, variables: str | Sequence[Any] | None) -> li
     Raises:
         ValueError: The frame has no columns, a requested label is not a column, a label was
             given more than once, or an empty selection was given.
+
+    Examples:
+        - Every column becomes data when no selection is given:
+            ```python
+            >>> import pandas as pd
+            >>> df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+            >>> value_columns(df, None)
+            ['a', 'b']
+
+            ```
+        - A single label selects one column:
+            ```python
+            >>> import pandas as pd
+            >>> df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+            >>> value_columns(df, "a")
+            ['a']
+
+            ```
     """
     available = list(df.columns)
     if not available:
@@ -128,6 +170,18 @@ def check_no_duplicate_index(df: pd.DataFrame) -> None:
 
     Raises:
         ValueError: The index has duplicate rows, so a cell would carry more than one value.
+
+    Examples:
+        - A frame with unique cells passes silently:
+            ```python
+            >>> import pandas as pd
+            >>> idx = pd.MultiIndex.from_tuples(
+            ...     [(0.0, 0.0), (0.0, 1.0)], names=["y", "x"]
+            ... )
+            >>> check_no_duplicate_index(pd.DataFrame({"v": [1.0, 2.0]}, index=idx)) is None
+            True
+
+            ```
     """
     if df.index.duplicated().any():
         raise ValueError(
@@ -161,6 +215,22 @@ def reshape_to_grid(
     Raises:
         ValueError: The x or y axis is irregular or has fewer than two coordinates, so no
             geotransform can be inferred.
+
+    Examples:
+        - Reshape a `(y, x)` frame and recover its geotransform:
+            ```python
+            >>> import pandas as pd
+            >>> idx = pd.MultiIndex.from_product(
+            ...     [[2.0, 1.0], [0.0, 1.0]], names=["y", "x"]
+            ... )
+            >>> df = pd.DataFrame({"v": [1.0, 2.0, 3.0, 4.0]}, index=idx)
+            >>> _bands, _y, _x, geo, _ordered, shape = reshape_to_grid(df, [], "y", "x")
+            >>> shape
+            (2, 2)
+            >>> geo
+            (-0.5, 1.0, 0.0, 2.5, 0.0, -1.0)
+
+            ```
     """
     band_coords = [pd.unique(df.index.get_level_values(nm)) for nm in band_names]
     y_coords = np.unique(
@@ -194,6 +264,20 @@ def column_array(ordered: pd.DataFrame, col: Any, shape: tuple) -> np.ndarray:
     Raises:
         ValueError: The label matches more than one column (it cannot become one array), or the
             column is not numeric — each named, rather than a raw numpy reshape/convert error.
+
+    Examples:
+        - Pull one column out as a 2x2 grid:
+            ```python
+            >>> import pandas as pd
+            >>> idx = pd.MultiIndex.from_product(
+            ...     [[2.0, 1.0], [0.0, 1.0]], names=["y", "x"]
+            ... )
+            >>> ordered = pd.DataFrame({"v": [1.0, 2.0, 3.0, 4.0]}, index=idx)
+            >>> column_array(ordered, "v", (2, 2))
+            array([[1., 2.],
+                   [3., 4.]])
+
+            ```
     """
     series = ordered[col]
     if isinstance(series, pd.DataFrame):
@@ -231,6 +315,17 @@ def geotransform_from_centres(
 
     Raises:
         ValueError: Either axis is irregular or has fewer than two coordinates.
+
+    Examples:
+        - Infer a north-up geotransform from cell centres:
+            ```python
+            >>> import numpy as np
+            >>> geotransform_from_centres(
+            ...     np.array([0.0, 1.0, 2.0]), np.array([2.0, 1.0, 0.0])
+            ... )
+            (-0.5, 1.0, 0.0, 2.5, 0.0, -1.0)
+
+            ```
     """
     dx = regular_step(x_coords, "x")
     dy = regular_step(y_coords, "y")
@@ -252,6 +347,22 @@ def regular_step(coords: np.ndarray, axis: str) -> float:
     Raises:
         ValueError: Fewer than two coordinates (no spacing to infer), or the spacing varies (an
             irregular grid has no affine transform).
+
+    Examples:
+        - An ascending x axis has a positive step:
+            ```python
+            >>> import numpy as np
+            >>> regular_step(np.array([0.0, 0.5, 1.0]), "x")
+            0.5
+
+            ```
+        - A descending y axis has a negative step:
+            ```python
+            >>> import numpy as np
+            >>> regular_step(np.array([2.0, 1.0, 0.0]), "y")
+            -1.0
+
+            ```
     """
     if coords.size < 2:
         raise ValueError(

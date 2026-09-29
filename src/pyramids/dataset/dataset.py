@@ -6194,9 +6194,7 @@ class Dataset(RasterBase):
         array = array[selected]
         sentinels = self.no_data_value
         for i, band in enumerate(selected):
-            sentinel = (
-                sentinels[band] if isinstance(sentinels, (list, tuple)) else sentinels
-            )
+            sentinel = sentinels[band]
             # A NaN sentinel already reads back as NaN; only a real value needs masking.
             # Guard the isnan by type — it raises on integer sentinels (e.g. uint64).
             is_nan_sentinel = isinstance(sentinel, (float, np.floating)) and np.isnan(

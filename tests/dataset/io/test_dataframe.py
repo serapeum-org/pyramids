@@ -83,6 +83,13 @@ class TestToDataframeShape:
         assert bool(np.isnan(df["values"].iloc[0]))
         assert df["values"].iloc[1:].tolist() == [2.0, 3.0, 4.0]
 
+    def test_a_nan_sentinel_reads_gaps_without_extra_masking(self):
+        """A raster whose nodata is `NaN` keeps its gaps as `NaN` (no sentinel to swap)."""
+        arr = np.array([[np.nan, 2.0], [3.0, 4.0]])
+        df = _raster(arr, no_data_value=np.nan).to_dataframe()
+        assert bool(np.isnan(df["values"].iloc[0]))
+        assert df["values"].iloc[1:].tolist() == [2.0, 3.0, 4.0]
+
     def test_unstack_band_gives_the_wide_view(self):
         """`df["values"].unstack("band")` is the one-column-per-band view."""
         wide = (
