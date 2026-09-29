@@ -139,27 +139,30 @@ def value_columns(df: pd.DataFrame, variables: str | Sequence[Any] | None) -> li
             "none."
         )
     if variables is None:
-        return available
-    # A list/tuple is a set of labels; anything else — a str, or a scalar label such as an int
-    # column name — is a single label (`list(7)` would raise).
-    names = list(variables) if isinstance(variables, (list, tuple)) else [variables]
-    if not names:
-        raise ValueError(
-            "from_dataframe() was given an empty selection; pass `variables=None` for every "
-            f"column, or one of {available}."
-        )
-    unknown = [nm for nm in names if nm not in available]
-    if unknown:
-        raise ValueError(
-            f"from_dataframe() cannot take {unknown!r}: the frame's columns are {available}."
-        )
-    repeated = [nm for nm in dict.fromkeys(names) if names.count(nm) > 1]
-    if repeated:
-        raise ValueError(
-            f"from_dataframe() was asked for {repeated!r} more than once; a label can only "
-            "become one column of data."
-        )
-    return names
+        chosen = available
+    else:
+        # A list/tuple is a set of labels; anything else — a str, or a scalar label such as an
+        # int column name — is a single label (`list(7)` would raise).
+        names = list(variables) if isinstance(variables, (list, tuple)) else [variables]
+        if not names:
+            raise ValueError(
+                "from_dataframe() was given an empty selection; pass `variables=None` for "
+                f"every column, or one of {available}."
+            )
+        unknown = [nm for nm in names if nm not in available]
+        if unknown:
+            raise ValueError(
+                f"from_dataframe() cannot take {unknown!r}: the frame's columns are "
+                f"{available}."
+            )
+        repeated = [nm for nm in dict.fromkeys(names) if names.count(nm) > 1]
+        if repeated:
+            raise ValueError(
+                f"from_dataframe() was asked for {repeated!r} more than once; a label can "
+                "only become one column of data."
+            )
+        chosen = names
+    return chosen
 
 
 def check_no_duplicate_index(df: pd.DataFrame) -> None:
