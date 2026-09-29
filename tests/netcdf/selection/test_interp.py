@@ -433,3 +433,26 @@ class TestInterpSplineGapPropagation:
         result = out.read_array().ravel()
         assert result[0] == 5.0, f"clean segment [0, 10] interpolates, got {result[0]}"
         assert result[1] == 35.0, f"clean segment [30, 40] interpolates, got {result[1]}"
+
+
+class TestInterpAxisTooShort:
+    """A source axis shorter than the kind needs is refused with a friendly message (review L1, L2)."""
+
+    def test_single_point_axis_is_refused(self):
+        """A one-step axis cannot be interpolated; refuse instead of returning NaN + a scipy warning."""
+        with pytest.raises(ValueError, match="at least 2 source steps"):
+            _var([5.0], [5.0], no_data_value=None).interp(time=[5.0])
+
+    def test_cubic_on_three_points_is_refused(self):
+        """`cubic` needs four steps; a three-step axis is refused, not left to raw scipy."""
+        with pytest.raises(ValueError, match="'cubic' needs at least 4 source steps"):
+            _var([0.0, 1.0, 2.0], [0.0, 1.0, 2.0], no_data_value=None).interp(
+                time=[1.5], method="cubic"
+            )
+
+    def test_quadratic_on_two_points_is_refused(self):
+        """`quadratic` needs three steps; a two-step axis is refused."""
+        with pytest.raises(ValueError, match="'quadratic' needs at least 3 source steps"):
+            _var([0.0, 1.0], [0.0, 1.0], no_data_value=None).interp(
+                time=[0.5], method="quadratic"
+            )

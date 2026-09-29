@@ -4241,6 +4241,18 @@ _INTERP_KINDS = (
 _SPATIAL_AXIS_NAMES = {name.lower() for name in (*X_AXIS_NAMES, *Y_AXIS_NAMES)}
 """Axis names that identify the horizontal plane, which `interp` regrids through the warp path."""
 
+_INTERP_MIN_POINTS = {
+    "nearest": 2,
+    "previous": 2,
+    "next": 2,
+    "zero": 2,
+    "slinear": 2,
+    "linear": 2,
+    "quadratic": 3,
+    "cubic": 4,
+}
+"""Minimum source steps each `interp1d` kind needs (spline order + 1; 2 for the piecewise kinds)."""
+
 
 def _resolve_interp_kind(method: str) -> str:
     """Return `method` if it is a supported `interp1d` kind, else refuse.
@@ -4406,7 +4418,13 @@ def _run_interp(nc: NetCDF, dim: str, target: Any, kind: str) -> NetCDF:
         NetCDF: The interpolated container or variable.
     """
     _refuse_spatial_interp(nc, dim, caller="interp")
-    _interp_source_coordinates(nc, dim)
+    source = _interp_source_coordinates(nc, dim)
+    minimum = _INTERP_MIN_POINTS[kind]
+    if source.size < minimum:
+        raise ValueError(
+            f"interp() method {kind!r} needs at least {minimum} source steps along {dim!r}, "
+            f"but it has {source.size}. Use a lower-order method or a longer axis."
+        )
     targets = _interp_targets(target, dim)
     op = _InterpTo(target=targets, kind=kind)
     if _reduces_as_a_variable(nc):
