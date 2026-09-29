@@ -3064,8 +3064,8 @@ class Selection(_Engine["NetCDF"]):
             )
         result = nc
         for dim in shared:
-            target = _interp_source_coordinates(other, dim)
-            result = _run_interp(result, dim, target, kind)
+            target = _interp_source_coordinates(other, dim, caller="interp_like")
+            result = _run_interp(result, dim, target, kind, caller="interp_like")
         return result
 
     def cumsum(self, dim: str, *, skipna: bool = True) -> NetCDF:
@@ -4331,7 +4331,7 @@ def _refuse_spatial_interp(nc: NetCDF, dim: str, *, caller: str) -> None:
         )
 
 
-def _interp_source_coordinates(nc: NetCDF, dim: str) -> np.ndarray:
+def _interp_source_coordinates(nc: NetCDF, dim: str, caller: str = "interp") -> np.ndarray:
     """The numeric source coordinates of band dimension `dim`, for `interp` to interpolate from.
 
     Read from the variable's `_band_dim_values_map` (a variable) or the store's dimension values (a
@@ -4340,6 +4340,7 @@ def _interp_source_coordinates(nc: NetCDF, dim: str) -> np.ndarray:
     Args:
         nc: The container or variable being interpolated (or `other`, read for its targets).
         dim: The band dimension to read.
+        caller: The member the user called (`"interp"` / `"interp_like"`), named in refusals.
 
     Returns:
         np.ndarray: The coordinates as `float64`.
@@ -4351,41 +4352,42 @@ def _interp_source_coordinates(nc: NetCDF, dim: str) -> np.ndarray:
     """
     coords: Any
     if _reduces_as_a_variable(nc):
-        _assert_band_dimension(nc, dim, caller="interp")
+        _assert_band_dimension(nc, dim, caller=caller)
         coords = nc._band_dim_values_map.get(dim)
     else:
         names = list(nc.dimension_names or [])
         if dim not in names:
             raise ValueError(
-                f"interp() got {dim!r}, which is not a dimension of this container; its "
+                f"{caller}() got {dim!r}, which is not a dimension of this container; its "
                 f"dimensions are {names}."
             )
         coords = nc.get_dimension_values(dim)
     if coords is None:
         raise ValueError(
-            f"interp() needs coordinate values on {dim!r} to interpolate from, but it carries "
+            f"{caller}() needs coordinate values on {dim!r} to interpolate from, but it carries "
             "none (a coordinate-less axis)."
         )
     values = np.asarray(coords)
     if not np.issubdtype(values.dtype, np.number):
         raise ValueError(
-            f"interp() needs a numeric {dim!r} axis to interpolate; its coordinates are not "
+            f"{caller}() needs a numeric {dim!r} axis to interpolate; its coordinates are not "
             "numbers."
         )
     values = values.astype("float64")
     if np.isnan(values).any():
         raise ValueError(
-            f"interp() cannot interpolate along {dim!r}: its coordinates contain NaN."
+            f"{caller}() cannot interpolate along {dim!r}: its coordinates contain NaN."
         )
     return values
 
 
-def _interp_targets(target: Any, dim: str) -> np.ndarray:
+def _interp_targets(target: Any, dim: str, caller: str = "interp") -> np.ndarray:
     """The target coordinate values to interpolate onto, as a validated 1-D float64 array.
 
     Args:
         target: A scalar or 1-D sequence of coordinate values.
         dim: The dimension the targets are for, named in refusals.
+        caller: The member the user called (`"interp"` / `"interp_like"`), named in refusals.
 
     Returns:
         np.ndarray: The targets as a 1-D `float64` array.
@@ -4396,16 +4398,18 @@ def _interp_targets(target: Any, dim: str) -> np.ndarray:
     values = np.atleast_1d(np.asarray(target, dtype="float64"))
     if values.ndim != 1:
         raise ValueError(
-            f"interp() target for {dim!r} must be one-dimensional; got shape {values.shape}."
+            f"{caller}() target for {dim!r} must be one-dimensional; got shape {values.shape}."
         )
     if values.size == 0:
-        raise ValueError(f"interp() target for {dim!r} is empty.")
+        raise ValueError(f"{caller}() target for {dim!r} is empty.")
     if np.isnan(values).any():
-        raise ValueError(f"interp() target for {dim!r} contains NaN.")
+        raise ValueError(f"{caller}() target for {dim!r} contains NaN.")
     return values
 
 
-def _run_interp(nc: NetCDF, dim: str, target: Any, kind: str) -> NetCDF:
+def _run_interp(
+    nc: NetCDF, dim: str, target: Any, kind: str, caller: str = "interp"
+) -> NetCDF:
     """Interpolate one band dimension of `nc` onto `target`, container or variable.
 
     Args:
@@ -4413,20 +4417,22 @@ def _run_interp(nc: NetCDF, dim: str, target: Any, kind: str) -> NetCDF:
         dim: The band dimension to interpolate along.
         target: The coordinate values to interpolate onto.
         kind: The resolved `interp1d` kind.
+        caller: The member the user called (`"interp"` / `"interp_like"`), threaded into every
+            refusal and the dropped-auxiliary warning so they name the real entry point.
 
     Returns:
         NetCDF: The interpolated container or variable.
     """
-    _refuse_spatial_interp(nc, dim, caller="interp")
-    source = _interp_source_coordinates(nc, dim)
+    _refuse_spatial_interp(nc, dim, caller=caller)
+    source = _interp_source_coordinates(nc, dim, caller=caller)
     minimum = _INTERP_MIN_POINTS[kind]
     if source.size < minimum:
         raise ValueError(
-            f"interp() method {kind!r} needs at least {minimum} source steps along {dim!r}, "
+            f"{caller}() method {kind!r} needs at least {minimum} source steps along {dim!r}, "
             f"but it has {source.size}. Use a lower-order method or a longer axis."
         )
-    targets = _interp_targets(target, dim)
-    op = _InterpTo(target=targets, kind=kind)
+    targets = _interp_targets(target, dim, caller=caller)
+    op = _InterpTo(target=targets, kind=kind, caller=caller)
     if _reduces_as_a_variable(nc):
         return _apply_to_variable(nc, dim, op)
     return _apply_to_container(nc, dim, op)

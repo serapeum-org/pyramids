@@ -456,3 +456,15 @@ class TestInterpAxisTooShort:
             _var([0.0, 1.0], [0.0, 1.0], no_data_value=None).interp(
                 time=[0.5], method="quadratic"
             )
+
+
+class TestInterpLikeCallerName:
+    """Refusals raised through `interp_like` name it, not `interp` (review L3)."""
+
+    def test_coordinate_less_refusal_names_interp_like(self):
+        """A coordinate-less source axis refused via interp_like says `interp_like()`."""
+        source = _var([0.0, 20.0], [0.0, 20.0])
+        source._band_dim_values_map["time"] = None
+        other = _var([0.0, 10.0], [0.0, 0.0])
+        with pytest.raises(ValueError, match=r"interp_like\(\)"):
+            source.interp_like(other)
