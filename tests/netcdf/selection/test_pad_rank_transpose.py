@@ -125,12 +125,26 @@ class TestPadSpatial:
         assert out.rows == 3, out.rows
         assert tuple(out.geotransform)[3] == 5.0, tuple(out.geotransform)
 
-    def test_pad_then_crop_round_trips_the_extent(self):
-        """Padding then cropping back to the original bounds restores the grid."""
-        base = _grid(1, 2, 2)
-        padded = base.pad(x=(1, 1), y=(1, 1))
-        assert padded.get_variable("t").rows == 4
-        assert padded.get_variable("t").columns == 4
+    def test_pad_grows_the_grid_and_shifts_the_origin_with_data(self):
+        """A one-cell border on every side grows a 2x2 grid to 4x4, moves the origin north-west,
+        keeps the original cells in the interior, and fills the new border with no-data.
+
+        This is the invariant a pad/crop round-trip would protect: an origin shifted the wrong way
+        (east/south instead of west/north) or data placed at the wrong corner fails here.
+        """
+        base = _grid(1, 2, 2, no_data_value=-9999.0)
+        base_plane = np.asarray(base.get_variable("t").read_array()).reshape(2, 2)
+        padded = base.pad(x=(1, 1), y=(1, 1)).get_variable("t")
+        assert (padded.rows, padded.columns) == (4, 4), (padded.rows, padded.columns)
+        gt = tuple(padded.geotransform)
+        assert gt[0] == -1.0, f"x origin should shift one cell west, got {gt[0]}"
+        assert gt[3] == 5.0, f"y origin should shift one cell north, got {gt[3]}"
+        assert (gt[1], gt[5]) == (1.0, -1.0), f"pixel sizes must be unchanged, got {gt}"
+        plane = np.asarray(padded.read_array()).reshape(4, 4)
+        assert_allclose(plane[1:3, 1:3].ravel(), base_plane.ravel())
+        border = np.ones((4, 4), dtype=bool)
+        border[1:3, 1:3] = False
+        assert np.all(plane[border] == -9999.0), "the padded border must hold the no-data fill"
 
 
 class TestTranspose:
