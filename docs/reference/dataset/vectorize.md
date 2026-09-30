@@ -5,7 +5,7 @@ Raster-to-vector conversion, clustering, and translate.
 ```mermaid
 flowchart LR
     VE(("Vectorize<br/>ds.vectorize"))
-    VE --> TV["<b>raster → vector</b><br/>to_feature_collection · contour"]
+    VE --> TV["<b>raster → vector</b><br/>to_geodataframe · contour"]
     VE --> CL["<b>cluster</b><br/>cluster · to_polygons"]
     VE --> TR["<b>translate</b><br/>translate"]
 ```

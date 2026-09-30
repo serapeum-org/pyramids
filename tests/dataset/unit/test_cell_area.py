@@ -3,7 +3,7 @@
 `cell_size` answers in the CRS's units and `count_domain_cells` weighs every
 cell alike, so neither can say how much ground a geographic raster covers -- a
 1-degree cell spans 12 308 km2 at the equator and 2 272 km2 in the band just
-below 80 degrees north. `get_cell_polygons().area` cannot either: those polygons are in degrees,
+below 80 degrees north. `to_geodataframe(geometry="polygon", values=False).area` cannot either: those polygons are in degrees,
 so every cell on the grid reports the same number.
 
 The area is taken on the CRS's own ellipsoid rather than a sphere of an assumed
@@ -195,7 +195,7 @@ class TestCellAreaOnAGeographicGrid:
         Test scenario:
             The areas are constant along a row, so the 2-D result is broadcast
             from 180 values rather than materialising 64 800. Complaining that
-            `get_cell_polygons` builds one geometry per pixel and then doing
+            `to_geodataframe` builds one geometry per pixel and then doing
             the same here would miss the point of the issue.
         """
         areas = _global_grid().cell_area()

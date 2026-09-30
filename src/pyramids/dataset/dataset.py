@@ -19,10 +19,18 @@ from typing import TYPE_CHECKING, Any, Unpack, cast
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 from osgeo import gdal
 
 from pyramids import _io
 from pyramids.base._axes import AXIS_NAMES, X_AXIS_NAMES, Y_AXIS_NAMES
+from pyramids.base._dataframe_grid import (
+    check_no_duplicate_index,
+    column_array,
+    frame_axes,
+    reshape_to_grid,
+    value_columns,
+)
 from pyramids.base._domain import INHERIT_NO_DATA, inherit_no_data
 from pyramids.base._errors import AlignmentError, ContainerRasterWarning, CRSError
 from pyramids.base._utils import (
@@ -745,14 +753,6 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Cell.cell_area <pyramids.dataset.engines.Cell.cell_area>`."""
         return self.cell.cell_area(*args, **kwargs)
 
-    def get_cell_polygons(self, *args, **kwargs):
-        """Facade — delegates to :meth:`Cell.get_cell_polygons <pyramids.dataset.engines.Cell.get_cell_polygons>`."""
-        return self.cell.get_cell_polygons(*args, **kwargs)
-
-    def get_cell_points(self, *args, **kwargs):
-        """Facade — delegates to :meth:`Cell.get_cell_points <pyramids.dataset.engines.Cell.get_cell_points>`."""
-        return self.cell.get_cell_points(*args, **kwargs)
-
     def map_to_array_coordinates(self, *args, **kwargs):
         """Facade — delegates to :meth:`Cell.map_to_array_coordinates <pyramids.dataset.engines.Cell.map_to_array_coordinates>`."""
         return self.cell.map_to_array_coordinates(*args, **kwargs)
@@ -817,9 +817,9 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`COG.read_tile <pyramids.dataset.engines.COG.read_tile>`."""
         return self.cog.read_tile(*args, **kwargs)
 
-    def to_feature_collection(self, *args, **kwargs):
-        """Facade — delegates to :meth:`Vectorize.to_feature_collection <pyramids.dataset.engines.Vectorize.to_feature_collection>`."""
-        return self.vectorize.to_feature_collection(*args, **kwargs)
+    def to_geodataframe(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Vectorize.to_geodataframe <pyramids.dataset.engines.Vectorize.to_geodataframe>`."""
+        return self.vectorize.to_geodataframe(*args, **kwargs)
 
     def contour(self, *args, **kwargs):
         """Facade — delegates to :meth:`Vectorize.contour <pyramids.dataset.engines.Vectorize.contour>`."""
@@ -6120,6 +6120,214 @@ class Dataset(RasterBase):
             height=height,
             bbox=bbox,
             output_srs=output_srs,
+        )
+
+    def to_dataframe(
+        self, *, bands: int | Sequence[int] | None = None, dropna: bool = False
+    ) -> pd.DataFrame:
+        """Hand the raster to pandas, one row per cell on a ``(band, y, x)`` MultiIndex.
+
+        The inverse of :meth:`from_dataframe`. Each row is a cell; the single ``values``
+        column holds that cell's value; the ``MultiIndex`` names ``band`` (0-based,
+        outermost), then the row (``y``) and column (``x``) cell-centre coordinates — the
+        order the array is laid out, so ``df["values"].to_numpy().reshape(bands, rows, cols)``
+        is the array back, with nodata as ``NaN``. The frame is coordinate-keyed and carries
+        **no geometry or CRS**; for a geometry-per-cell ``GeoDataFrame`` (points or polygons,
+        optionally with the band values) use :meth:`to_geodataframe`, and to read values at
+        scattered points use :meth:`sample` / :meth:`extract`.
+
+        The ``band`` level is always present, even for a one-band raster (value ``[0]``);
+        ``df["values"].unstack("band")`` gives the wide, one-column-per-band view.
+
+        Args:
+            bands: Which band(s) become rows, zero-based. ``None`` (default) takes every band;
+                a single ``int`` takes that one; a sequence takes them in the given order. The
+                ``band`` index level holds these positional indices.
+            dropna: Drop rows whose ``values`` is ``NaN`` (the no-data / gap cells). ``False``
+                (default) keeps the full grid, which is what makes the round trip with
+                :meth:`from_dataframe` reproduce the raster; ``True`` returns only the cells
+                that carry data.
+
+        Returns:
+            pandas.DataFrame: ``prod(len(bands), rows, cols)`` rows, one ``values`` column,
+            every value ``float64`` whatever the raster's own dtype, gaps as ``NaN``,
+            north-up (``y`` descending, ``x`` ascending). Integer values above ``2**53`` are
+            not exactly representable once coerced to ``float64``.
+
+        Raises:
+            ValueError: A requested band index is out of range for the raster, or ``bands=``
+                is an empty selection (pass ``bands=None`` for every band).
+            TypeError: ``bands=`` is a boolean (``bool`` subclasses ``int``, so it is refused
+                rather than silently selecting band 0 / 1).
+
+        Examples:
+            - A one-band 2x2 raster as pandas sees it (the ``band`` level is kept):
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> ds = Dataset.from_array(
+              ...     np.array([[1.0, 2.0], [3.0, 4.0]]),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+              ... )
+              >>> ds.to_dataframe()["values"].tolist()
+              [1.0, 2.0, 3.0, 4.0]
+              >>> list(ds.to_dataframe().index.names)
+              ['band', 'y', 'x']
+
+              ```
+        """
+        count = self.band_count
+        if bands is None:
+            selected = list(range(count))
+        elif isinstance(bands, bool):
+            # bool subclasses int, so guard it before the int branch or True/False
+            # would silently select band 1/0 — almost certainly a caller mistake.
+            raise TypeError(
+                f"Dataset.to_dataframe() got a boolean bands={bands!r}; pass a band index, a "
+                "sequence of indices, or None for every band."
+            )
+        elif isinstance(bands, (int, np.integer)):
+            selected = [int(bands)]
+        else:
+            selected = [int(b) for b in bands]
+        if not selected:
+            raise ValueError(
+                "Dataset.to_dataframe() was given an empty bands= selection; pass "
+                f"bands=None for every band, or indices in 0..{count - 1}."
+            )
+        out_of_range = [b for b in selected if not 0 <= b < count]
+        if out_of_range:
+            raise ValueError(
+                f"Dataset.to_dataframe() got band index/indices {out_of_range} out of range "
+                f"for a {count}-band raster (valid 0..{count - 1})."
+            )
+        array = np.asarray(self.read_array(), dtype="float64")
+        if array.ndim == 2:
+            array = array[np.newaxis, ...]
+        array = array[selected]
+        sentinels = self.no_data_value
+        for i, band in enumerate(selected):
+            sentinel = sentinels[band]
+            # A NaN sentinel already reads back as NaN; only a real value needs masking.
+            # Guard the isnan by type — it raises on integer sentinels (e.g. uint64).
+            is_nan_sentinel = isinstance(sentinel, (float, np.floating)) and np.isnan(
+                sentinel
+            )
+            if sentinel is not None and not is_nan_sentinel:
+                array[i] = np.where(array[i] == sentinel, np.nan, array[i])
+        index = pd.MultiIndex.from_product(
+            [
+                selected,
+                list(np.asarray(self.y, dtype="float64")),
+                list(np.asarray(self.x, dtype="float64")),
+            ],
+            names=["band", "y", "x"],
+        )
+        frame = pd.DataFrame({"values": array.reshape(-1)}, index=index)
+        if dropna:
+            frame = frame.dropna(subset=["values"])
+        return frame
+
+    @classmethod
+    def from_dataframe(
+        cls,
+        df: pd.DataFrame,
+        *,
+        crs: str | int | None = None,
+        x: str | None = None,
+        y: str | None = None,
+        no_data_value: Any = np.nan,
+        path: str | Path | None = None,
+    ) -> Dataset:
+        """Rebuild a raster from a ``(band, y, x)`` MultiIndex DataFrame — inverse of ``to_dataframe``.
+
+        The frame is indexed by its axes: the innermost two index levels are the ``(y, x)``
+        grid and an optional outer level is the positional ``band`` axis, so
+        ``Dataset.from_dataframe(ds.to_dataframe(), crs=ds.epsg)`` reproduces ``ds``'s values,
+        band count/order, grid and CRS (the geotransform is recovered by differencing cell
+        centres); gaps come back as ``NaN`` unless ``no_data_value=`` restores a specific
+        sentinel. A frame with no band level (a plain ``(y, x)`` MultiIndex) builds a single-band
+        raster. A DataFrame carries no georeferencing, so the geotransform is inferred from
+        the ``x`` / ``y`` cell centres (a regular grid is required; a single-row or
+        single-column axis is refused) and the CRS is taken from ``crs``. The result is always
+        north-up.
+
+        A raster's bands are positional, so — unlike
+        :meth:`pyramids.netcdf.NetCDF.from_dataframe` — this takes a **single** value column
+        (the band axis lives in the index); a multi-column frame is refused with a pointer to
+        ``NetCDF.from_dataframe``.
+
+        Args:
+            df: A DataFrame on a ``pandas.MultiIndex`` of at least two named levels — the
+                innermost two the row (``y``) and column (``x``) axes (unless ``x`` / ``y``
+                name them), an optional outer level the ``band`` axis — and exactly one value
+                column. A tidy frame on a plain index is refused.
+            crs: The CRS for the result, an EPSG code or a CRS string. ``None`` (default)
+                leaves it unset — a DataFrame carries none, so a full round trip needs
+                ``crs=ds.epsg`` to recover it.
+            x: The index level holding the column (x) coordinates; defaults to the innermost.
+            y: The index level holding the row (y) coordinates; defaults to the
+                second-innermost.
+            no_data_value: Sentinel stamped on gaps (``NaN`` cells and cells absent from the
+                frame). Defaults to ``np.nan``, so gaps stay ``NaN`` and the rebuilt raster
+                declares ``NaN`` as its nodata; pass e.g. ``no_data_value=ds.no_data_value[0]``
+                to restore a specific sentinel and its dtype.
+            path: Destination — ``None`` (default) builds in memory; otherwise the extension
+                selects the driver, exactly as :meth:`from_array`.
+
+        Returns:
+            Dataset: The rebuilt raster on the inferred grid.
+
+        Raises:
+            ValueError: The frame is not a MultiIndex of at least two named levels; a named
+                ``x`` / ``y`` level is missing or the two coincide; there is not exactly one
+                value column; more than one band index level is present; the index has
+                duplicate rows; or the ``x`` / ``y`` axis is irregular or single-celled.
+
+        Examples:
+            - Round-trip a two-band raster through pandas and back:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, GeoReference
+              >>> ds = Dataset.from_array(
+              ...     np.arange(8.0).reshape(2, 2, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+              ... )
+              >>> back = Dataset.from_dataframe(ds.to_dataframe(), crs=ds.epsg)
+              >>> back.read_array().tolist()
+              [[[0.0, 1.0], [2.0, 3.0]], [[4.0, 5.0], [6.0, 7.0]]]
+              >>> back.band_count
+              2
+
+              ```
+        """
+        columns = value_columns(df, None)
+        if len(columns) != 1:
+            raise ValueError(
+                "Dataset.from_dataframe() expects a single value column — a raster's bands "
+                f"live in the index, not in columns — but the frame has {columns}. For a "
+                "multi-variable table use NetCDF.from_dataframe()."
+            )
+        band_names, row_name, col_name = frame_axes(df, x, y)
+        if len(band_names) > 1:
+            raise ValueError(
+                "Dataset.from_dataframe() expects at most one band index level (band, y, x), "
+                f"but got band levels {band_names}. For several band dimensions use "
+                "NetCDF.from_dataframe()."
+            )
+        check_no_duplicate_index(df)
+        _band_coords, _y_coords, _x_coords, geo, ordered, shape = reshape_to_grid(
+            df, band_names, row_name, col_name
+        )
+        arr = column_array(ordered, columns[0], shape)
+        arr = np.where(np.isnan(arr), no_data_value, arr)
+        return cls.from_array(
+            arr,
+            geo_ref=GeoReference(geo=geo, epsg=crs),
+            no_data_value=no_data_value,
+            path=path,
         )
 
     @classmethod

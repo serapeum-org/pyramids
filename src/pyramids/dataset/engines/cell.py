@@ -80,12 +80,12 @@ def _area_scale(unit: str) -> float:
 class Cell(_Engine["Dataset"]):
     """Cell-geometry operations on a Dataset.
 
-    Owns the real implementations of `get_cell_coords`,
-    `get_cell_polygons`, `get_cell_points`,
-    `map_to_array_coordinates`, and `array_to_map_coordinates` after
-    L-2 PR 2.1. `Dataset` exposes a same-named facade for each method
-    that delegates to this collaborator, so `ds.get_cell_coords(...)`
-    and `ds.cell.get_cell_coords(...)` are equivalent.
+    Owns the real implementations of `get_cell_coords`, the private cell-geometry
+    cores `_cell_polygons` / `_cell_points` (public entry point:
+    `Dataset.to_geodataframe`), `map_to_array_coordinates`, and
+    `array_to_map_coordinates`. `Dataset` exposes a same-named facade for the public
+    methods, so `ds.get_cell_coords(...)` and `ds.cell.get_cell_coords(...)` are
+    equivalent.
     """
 
     def get_cell_coords(
@@ -247,8 +247,9 @@ class Cell(_Engine["Dataset"]):
         `cell_size` answers in the CRS's units, which for a geographic raster
         are degrees -- and a degree of longitude is 111 km at the equator and
         19 km at 80 degrees north. Anything asking "how much ground is this"
-        therefore cannot use it, and `get_cell_polygons().area` does not help
-        either: those polygons are in the same degrees, so every cell on the
+        therefore cannot use it, and `to_geodataframe(geometry="polygon",
+        values=False).area` does not help either: those polygons are in the same
+        degrees, so every cell on the
         grid reports the identical area.
 
         Two cases, decided by the CRS:
@@ -351,7 +352,7 @@ class Cell(_Engine["Dataset"]):
         # meaning the raster truly has no CRS rather than an empty string
         # that every downstream constructor rejects opaquely (#979). Resolving
         # from `self._ds.crs` alone would let one raster answer through
-        # `get_cell_polygons` and fail here. `require_crs_spec` raises the
+        # `_cell_polygons` and fail here. `require_crs_spec` raises the
         # project's `CRSError`, itself a `ValueError`, naming the fix.
         crs = crs_from_user_input(
             require_crs_spec(self._ds.epsg, self._ds.crs, "compute cell area")
@@ -555,8 +556,11 @@ class Cell(_Engine["Dataset"]):
             areas = a * a * (1.0 - eccentricity_squared) * (rational + inverse)
         return np.asarray(np.abs(areas), dtype="float64")
 
-    def get_cell_polygons(self, domain_only: bool = False) -> GeoDataFrame:
+    def _cell_polygons(self, domain_only: bool = False) -> GeoDataFrame:
         """Get a polygon shapely geometry for the raster cells.
+
+        Private core behind :meth:`Dataset.to_geodataframe` (``geometry="polygon",
+        values=False``). Returns a ``GeoDataFrame`` with ``geometry`` + ``id`` columns.
 
         Args:
             domain_only (bool):
@@ -590,7 +594,7 @@ class Cell(_Engine["Dataset"]):
             - Get the coordinates of the center of cells inside the domain.
 
               ```python
-              >>> gdf = dataset.get_cell_polygons()
+              >>> gdf = dataset.cell._cell_polygons()
               >>> print(gdf)  # doctest: +NORMALIZE_WHITESPACE
                                                      geometry  id
               0  POLYGON ((0 0, 0.05 0, 0.05 -0.05, 0 -0.05, 0 0))   0
@@ -639,10 +643,13 @@ class Cell(_Engine["Dataset"]):
         gdf["id"] = gdf.index
         return gdf
 
-    def get_cell_points(
+    def _cell_points(
         self, location: str = "center", domain_only: bool = False
     ) -> GeoDataFrame:
         """Get a point shapely geometry for the raster cells center point.
+
+        Private core behind :meth:`Dataset.to_geodataframe` (``geometry="point",
+        values=False``). Returns a ``GeoDataFrame`` with ``geometry`` + ``id`` columns.
 
         Args:
             location (str):
@@ -678,7 +685,7 @@ class Cell(_Engine["Dataset"]):
             - Get the coordinates of the center of cells inside the domain.
 
               ```python
-              >>> gdf = dataset.get_cell_points()
+              >>> gdf = dataset.cell._cell_points()
               >>> print(gdf)
                              geometry  id
               0  POINT (0.025 -0.025)   0
@@ -701,7 +708,7 @@ class Cell(_Engine["Dataset"]):
             - Get the coordinates of the top left corner of cells inside the domain.
 
               ```python
-              >>> gdf = dataset.get_cell_points(location="corner")
+              >>> gdf = dataset.cell._cell_points(location="corner")
               >>> print(gdf)  # doctest: +NORMALIZE_WHITESPACE
                           geometry  id
               0         POINT (0 0)   0

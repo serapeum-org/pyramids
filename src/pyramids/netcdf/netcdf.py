@@ -4910,10 +4910,10 @@ class NetCDF(Dataset):
         self._check_not_container("to_cog")
         return super().to_cog(*args, **kwargs)
 
-    def to_feature_collection(self, *args, **kwargs):  # type: ignore[override]
-        """Container-guarded facade for `Dataset.to_feature_collection`."""
-        self._check_not_container("to_feature_collection")
-        return super().to_feature_collection(*args, **kwargs)
+    def to_geodataframe(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.to_geodataframe`."""
+        self._check_not_container("to_geodataframe")
+        return super().to_geodataframe(*args, **kwargs)
 
     def zonal_stats(self, *args, **kwargs):  # type: ignore[override]
         """Container-guarded facade for `Dataset.zonal_stats`."""
@@ -7591,8 +7591,15 @@ class NetCDF(Dataset):
             dim, method, limit=limit, use_coordinate=use_coordinate
         )
 
-    def to_dataframe(self, *, variables: Any = None, dropna: bool = False):
-        """Facade — :meth:`Interop.to_dataframe <pyramids.netcdf.engines.interop.Interop.to_dataframe>`."""
+    def to_dataframe(  # type: ignore[override]
+        self, *, variables: Any = None, dropna: bool = False
+    ):
+        """Facade — :meth:`Interop.to_dataframe <pyramids.netcdf.engines.interop.Interop.to_dataframe>`.
+
+        A cube tabulates by variable/`dropna`, deliberately unlike the raster
+        `Dataset.to_dataframe(*, bands=…)` it overrides — hence `type: ignore[override]`,
+        matching `read_array` and the other intentionally-divergent NetCDF facades.
+        """
         return self.interop.to_dataframe(variables=variables, dropna=dropna)
 
     @_joins_cubes
@@ -12691,16 +12698,17 @@ class NetCDF(Dataset):
         x: str | None = None,
         y: str | None = None,
         variables: str | Sequence[str] | None = None,
-        no_data_value: Any = DEFAULT_NO_DATA_VALUE,
+        no_data_value: Any = np.nan,
         path: str | Path | None = None,
     ) -> Container:
         """Build a :class:`Container` from a `MultiIndex` DataFrame — the inverse of `to_dataframe`.
 
         The frame is indexed by its dimensions: the innermost two index levels are the
         `(y, x)` grid axes and any outer levels are band dimensions, so
-        `NetCDF.from_dataframe(nc.to_dataframe(), crs=nc.epsg)` reproduces `nc` to
-        floating-point tolerance (the geotransform is recovered by differencing cell
-        centres). A DataFrame carries no georeferencing, so the geotransform is inferred from
+        `NetCDF.from_dataframe(nc.to_dataframe(), crs=nc.epsg)` reproduces `nc`'s values,
+        variables, band coordinates, grid and CRS (the geotransform is recovered by
+        differencing cell centres); gaps come back as `NaN` unless `no_data_value=` restores a
+        sentinel. A DataFrame carries no georeferencing, so the geotransform is inferred from
         the `x` / `y` cell-centre coordinates (a regular grid is required; a single-row or
         single-column axis carries no spacing and is refused) and the CRS is taken from
         `crs`. The result is always north-up; band-dimension coordinates keep their
@@ -12720,8 +12728,9 @@ class NetCDF(Dataset):
                 second-innermost level.
             variables: Which columns become data variables, as a name or a sequence; `None`
                 (default) takes every column.
-            no_data_value: Sentinel for the gaps; `NaN` and absent cells are stored as this.
-                Defaults to `DEFAULT_NO_DATA_VALUE`.
+            no_data_value: Sentinel stamped on gaps (`NaN` cells and cells absent from the
+                frame). Defaults to `np.nan`, so gaps stay `NaN` and each rebuilt variable
+                declares `NaN` as its nodata; pass `no_data_value=` to restore a sentinel.
             path: Destination — `None` (default) builds in memory, a `.nc` path writes it,
                 as :meth:`from_array`.
 

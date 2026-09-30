@@ -7,10 +7,10 @@ A one-line map of every public member the `NetCDF` class itself defines — 113 
 receiver first). For the full signatures, arguments and examples, see the rendered
 [NetCDF Class](index.md) reference; this page is the index you scan to find the member you want.
 
-`NetCDF` extends `Dataset`, so it also inherits a further 142 public members it does not redefine — band
+`NetCDF` extends `Dataset`, so it also inherits a further 140 public members it does not redefine — band
 handling, the COG surface, the missing-data members (`where`, `fillna`, `isnull`, `notnull`, `equals`,
 `identical`), the cell-wise members (`clip`, `round`, `astype`, `isin`) and the rest of the raster API.
-129 of those are declared in `Dataset`'s own body and the
+127 of those are declared in `Dataset`'s own body and the
 remaining 13 come from `RasterBase` above it. They live in the
 [Dataset reference](../dataset/index.md) — the missing-data six under
 [Missing data and comparison](../dataset/analysis.md#missing-data-and-comparison) and the four cell-wise
@@ -184,7 +184,7 @@ A variable with no raster plane is the exception — see each member's docstring
 | `to_kerchunk()`           | Emits a kerchunk JSON reference manifest for this file.                     |
 | `combine_kerchunk()`      | Combines per-file manifests into one cube index.                            |
 | `to_cog()`                | Writes a Cloud-Optimized GeoTIFF. Variable only.                            |
-| `to_feature_collection()` | Converts the raster to a vector `FeatureCollection`. Variable only.         |
+| `to_geodataframe()` | Converts the raster to a `GeoDataFrame`, one row per cell. Variable only.    |
 | `write_array()`           | Writes an array into the raster bands. Variable only.                       |
 
 ## Analysis and plotting

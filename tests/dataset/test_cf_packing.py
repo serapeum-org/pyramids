@@ -1532,7 +1532,7 @@ class TestTheSentinelAsAValue:
         dataset.scale = [0.01]
         dataset.offset = [1.5]
 
-        table = dataset.to_feature_collection(tile=tile, tile_size=1)
+        table = dataset.to_geodataframe(geometry="point", tile=tile, tile_size=1)
 
         values = table.iloc[:, 0].to_numpy(dtype="float64")
         np.testing.assert_allclose(values, [1.5, 1.5])

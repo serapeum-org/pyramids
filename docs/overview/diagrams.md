@@ -500,11 +500,11 @@ classDiagram
         +plot
     }
     class engines_Cell {
-        +get_cell_coords · get_cell_polygons · get_cell_points · cell_area
+        +get_cell_coords · cell_area
         +map_to_array_coordinates · array_to_map_coordinates
     }
     class engines_Vectorize {
-        +to_feature_collection · translate
+        +to_geodataframe · translate
         +cluster · to_polygons
     }
     class engines_COG {

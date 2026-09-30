@@ -1481,10 +1481,10 @@ class TestApplyE2E:
 
 
 class TestToFeatureCollectionE2E:
-    """End-to-end workflows combining to_feature_collection with other operations."""
+    """End-to-end workflows combining to_geodataframe with other operations."""
 
-    def test_to_feature_collection_save_geojson_reload(self):
-        """Create dataset -> to_feature_collection with geometry -> save GeoJSON -> reload.
+    def test_to_geodataframe_save_geojson_reload(self):
+        """Create dataset -> to_geodataframe with geometry -> save GeoJSON -> reload.
 
         Test scenario:
             Convert a dataset to a GeoDataFrame with point geometry, save
@@ -1497,7 +1497,7 @@ class TestToFeatureCollectionE2E:
             no_data_value=-9999.0,
             geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
         )
-        gdf = src.to_feature_collection(add_geometry="point")
+        gdf = src.to_geodataframe(geometry="point")
 
         tmp_dir = Path(tempfile.mkdtemp())
         path = tmp_dir / "test_fc.geojson"
@@ -1514,8 +1514,8 @@ class TestToFeatureCollectionE2E:
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    def test_crop_then_to_feature_collection(self):
-        """Create dataset -> crop -> to_feature_collection -> verify subset.
+    def test_crop_then_to_geodataframe(self):
+        """Create dataset -> crop -> to_geodataframe -> verify subset.
 
         Test scenario:
             Crop a 10x10 dataset to a 3x3 region, then convert to
@@ -1531,7 +1531,7 @@ class TestToFeatureCollectionE2E:
         poly = box(1.5, -3.5, 4.5, -0.5)
         mask = gpd.GeoDataFrame(geometry=[poly], crs="EPSG:4326")
         cropped = src.crop(mask)
-        df = cropped.to_feature_collection()
+        df = cropped.to_geodataframe()
 
         assert isinstance(df, pd.DataFrame), f"Expected DataFrame, got {type(df)}"
         assert len(df) < 100, (
@@ -1539,8 +1539,8 @@ class TestToFeatureCollectionE2E:
         )
         assert len(df) > 0, "Should have some domain cells"
 
-    def test_apply_then_to_feature_collection(self):
-        """Create dataset -> apply function -> to_feature_collection -> verify transformed values.
+    def test_apply_then_to_geodataframe(self):
+        """Create dataset -> apply function -> to_geodataframe -> verify transformed values.
 
         Test scenario:
             Apply x*10 to a dataset, then convert to DataFrame. All
@@ -1553,15 +1553,15 @@ class TestToFeatureCollectionE2E:
             geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
         )
         transformed = src.apply(lambda x: x * 10)
-        df = transformed.to_feature_collection()
+        df = transformed.to_geodataframe()
 
         assert len(df) == 6, f"Expected 6 rows, got {len(df)}"
         assert all(v % 10 == 0 for v in df.iloc[:, 0]), (
             "All values should be multiples of 10"
         )
 
-    def test_multiband_to_feature_collection_polygon_geometry(self):
-        """Create multi-band dataset -> to_feature_collection with polygon -> verify.
+    def test_multiband_to_geodataframe_polygon_geometry(self):
+        """Create multi-band dataset -> to_geodataframe with polygon -> verify.
 
         Test scenario:
             A 2-band dataset converted with polygon geometry should
@@ -1573,7 +1573,7 @@ class TestToFeatureCollectionE2E:
             no_data_value=-9999.0,
             geo_ref=GeoReference(top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326),
         )
-        gdf = src.to_feature_collection(add_geometry="polygon")
+        gdf = src.to_geodataframe(geometry="polygon")
 
         assert isinstance(gdf, gpd.GeoDataFrame), (
             f"Expected GeoDataFrame, got {type(gdf)}"

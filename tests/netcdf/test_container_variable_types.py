@@ -270,7 +270,7 @@ class TestContainerGuard:
             "slope",
             "hillshade",
             "to_cog",
-            "to_feature_collection",
+            "to_geodataframe",
             "zonal_stats",
             "sample",
             "write_array",

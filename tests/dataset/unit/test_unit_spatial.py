@@ -1247,7 +1247,7 @@ class TestNormalizeRescale:
 
 
 class TestCluster2:
-    """Tests for to_polygons/to_feature_collection band selection."""
+    """Tests for to_polygons/to_geodataframe band selection."""
 
     def test_to_polygons_band_as_list(self):
         """to_polygons with band as a list should use the first element."""
