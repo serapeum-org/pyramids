@@ -729,7 +729,7 @@ class TestDatasetLike:
 
 
 class TestCellGeometryMethods:
-    """Tests for get_cell_coords, get_cell_points, get_cell_polygons."""
+    """Tests for get_cell_coords and the geometry-only to_geodataframe views."""
 
     _ORTHO_PROJ4 = "+proj=ortho +lat_0=50 +lon_0=10 +datum=WGS84 +units=m +no_defs"
 
@@ -760,7 +760,7 @@ class TestCellGeometryMethods:
             single_band_dataset.get_cell_coords(location="middle")
 
     def test_get_cell_points_center(self, single_band_dataset):
-        """get_cell_points should return a GeoDataFrame with Point geometry."""
+        """to_geodataframe(geometry="point") returns a GeoDataFrame with Point geometry."""
         import geopandas as gpd
 
         gdf = single_band_dataset.to_geodataframe(
@@ -771,7 +771,7 @@ class TestCellGeometryMethods:
         assert "id" in gdf.columns, "GeoDataFrame should have 'id' column"
 
     def test_get_cell_points_corner(self, single_band_dataset):
-        """get_cell_points with corner should return corner coordinates."""
+        """to_geodataframe point geometry with location="corner" returns corner coordinates."""
         gdf = single_band_dataset.to_geodataframe(
             geometry="point", location="corner", values=False
         )
@@ -781,7 +781,7 @@ class TestCellGeometryMethods:
         )
 
     def test_get_cell_polygons(self, single_band_dataset):
-        """get_cell_polygons should return polygons covering each cell."""
+        """to_geodataframe(geometry="polygon") returns polygons covering each cell."""
         import geopandas as gpd
 
         gdf = single_band_dataset.to_geodataframe(geometry="polygon", values=False)
@@ -821,7 +821,7 @@ class TestCellGeometryMethods:
         return ds.to_crs(cls._ORTHO_PROJ4)
 
     def test_get_cell_polygons_authority_less_crs(self):
-        """get_cell_polygons labels the frame with an authority-less CRS, not a crash (#979).
+        """Polygon geometry labels the frame with an authority-less CRS, not a crash (#979).
 
         Test scenario:
             A raster on a custom orthographic CRS (no EPSG code) yields cell polygons whose
@@ -837,7 +837,7 @@ class TestCellGeometryMethods:
         )
 
     def test_get_cell_points_authority_less_crs(self):
-        """get_cell_points labels the frame with an authority-less CRS, not a crash (#979).
+        """Point geometry labels the frame with an authority-less CRS, not a crash (#979).
 
         Test scenario:
             The point variant of the raster above carries the same source CRS with no EPSG
@@ -871,7 +871,7 @@ class TestCellGeometryMethods:
         """A raster with no CRS at all yields unprojected points, not a crash (#979).
 
         Test scenario:
-            When the raster carries no CRS, get_cell_points comes back with crs=None rather
+            When the raster carries no CRS, the point geometry comes back with crs=None rather
             than raising on `crs_from_user_input(None)`, mirroring the polygon path.
         """
         arr = np.arange(9, dtype="float32").reshape(3, 3)
@@ -887,7 +887,7 @@ class TestCellGeometryMethods:
         """The domain_only path also labels an authority-less CRS correctly (#979).
 
         Test scenario:
-            get_cell_polygons(domain_only=True) on the authority-less raster (all cells valid)
+            The dropna=True polygon path on the authority-less raster (all cells valid)
             still carries the source orthographic CRS, proving the masked path shares the fix.
         """
         r = self._authority_less_raster()
@@ -926,7 +926,7 @@ class TestCellGeometryMethods:
         """The domain_only point path also labels an authority-less CRS correctly (#979).
 
         Test scenario:
-            get_cell_points(domain_only=True) on the authority-less raster carries the source
+            The dropna=True point path on the authority-less raster carries the source
             orthographic CRS, mirroring the polygon masked-path check.
         """
         r = self._authority_less_raster()

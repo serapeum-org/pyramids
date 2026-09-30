@@ -765,7 +765,7 @@ class TestCellGeometryOnIrregularGrids:
         """A 2-wide, 5-tall pixel produces a 2x5 polygon, not 2x2.
 
         Test scenario:
-            `get_cell_polygons` offset both axes by `geotransform[1]` — the
+            `_cell_polygons` offset both axes by `geotransform[1]` — the
             pixel *width* — so every cell came out square regardless of the
             pixel height. Areas and any downstream zonal maths computed from
             these polygons were wrong by the width/height ratio.
