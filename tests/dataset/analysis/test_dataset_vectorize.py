@@ -32,31 +32,29 @@ class TestToGeodataframeNewParams:
     @pytest.mark.parametrize("geometry", ["line", "", "POINTS", "poly"])
     def test_an_unknown_geometry_is_refused(self, geometry):
         """Only 'point'/'polygon' are valid; anything else raises naming the value."""
+        ds = self._raster()
         with pytest.raises(ValueError, match="expected 'point' or 'polygon'"):
-            self._raster().to_geodataframe(geometry=geometry, values=False)
+            ds.to_geodataframe(geometry=geometry, values=False)
 
     @pytest.mark.parametrize("geometry", ["point", "polygon"])
     def test_an_unknown_location_is_refused(self, geometry):
         """A garbage location raises for both point and polygon, not silently ignored."""
+        ds = self._raster()
         with pytest.raises(ValueError, match="expected 'center' or 'corner'"):
-            self._raster().to_geodataframe(
-                geometry=geometry, location="garbage", values=False
-            )
+            ds.to_geodataframe(geometry=geometry, location="garbage", values=False)
 
     def test_crs_overrides_the_labelled_crs_geometry_only(self):
         """`crs=` relabels the geometry-only frame and warns it does not reproject."""
+        ds = self._raster()
         with pytest.warns(UserWarning, match="relabels the CRS without reprojecting"):
-            gdf = self._raster().to_geodataframe(
-                geometry="point", values=False, crs=3857
-            )
+            gdf = ds.to_geodataframe(geometry="point", values=False, crs=3857)
         assert gdf.crs.to_epsg() == 3857, f"expected EPSG:3857, got {gdf.crs}"
 
     def test_crs_overrides_the_labelled_crs_with_values(self):
         """`crs=` also relabels the values+geometry frame, with the same warning."""
+        ds = self._raster()
         with pytest.warns(UserWarning, match="relabels the CRS without reprojecting"):
-            gdf = self._raster().to_geodataframe(
-                geometry="point", values=True, crs=3857
-            )
+            gdf = ds.to_geodataframe(geometry="point", values=True, crs=3857)
         assert gdf.crs.to_epsg() == 3857, f"expected EPSG:3857, got {gdf.crs}"
 
     def test_crs_same_as_raster_does_not_warn(self, recwarn):
@@ -69,14 +67,16 @@ class TestToGeodataframeNewParams:
 
     def test_values_true_with_dropna_false_is_refused(self):
         """The value path always drops gaps, so values=True + dropna=False is a contradiction."""
+        ds = self._raster()
         with pytest.raises(ValueError, match="always drops no-data"):
-            self._raster().to_geodataframe(geometry="point", values=True, dropna=False)
+            ds.to_geodataframe(geometry="point", values=True, dropna=False)
 
     @pytest.mark.parametrize("dropna", [0, 0.0, []])
     def test_values_true_with_falsy_dropna_is_refused(self, dropna):
         """Any falsy-but-not-None dropna with values=True is refused, like dropna=False."""
+        ds = self._raster()
         with pytest.raises(ValueError, match="always drops no-data"):
-            self._raster().to_geodataframe(geometry="point", values=True, dropna=dropna)
+            ds.to_geodataframe(geometry="point", values=True, dropna=dropna)
 
     def test_mask_shape_is_honoured_on_the_geometry_only_path(self):
         """A non-rectangular mask selects the same cells for values=False and values=True."""
