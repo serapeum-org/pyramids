@@ -594,7 +594,7 @@ class Cell(_Engine["Dataset"]):
             - Get the coordinates of the center of cells inside the domain.
 
               ```python
-              >>> gdf = dataset.to_geodataframe(geometry="polygon", values=False)
+              >>> gdf = dataset.cell._cell_polygons()
               >>> print(gdf)  # doctest: +NORMALIZE_WHITESPACE
                                                      geometry  id
               0  POLYGON ((0 0, 0.05 0, 0.05 -0.05, 0 -0.05, 0 0))   0
@@ -685,7 +685,7 @@ class Cell(_Engine["Dataset"]):
             - Get the coordinates of the center of cells inside the domain.
 
               ```python
-              >>> gdf = dataset.to_geodataframe(geometry="point", values=False)
+              >>> gdf = dataset.cell._cell_points()
               >>> print(gdf)
                              geometry  id
               0  POINT (0.025 -0.025)   0
@@ -708,7 +708,7 @@ class Cell(_Engine["Dataset"]):
             - Get the coordinates of the top left corner of cells inside the domain.
 
               ```python
-              >>> gdf = dataset.to_geodataframe(geometry="point", location="corner", values=False)
+              >>> gdf = dataset.cell._cell_points(location="corner")
               >>> print(gdf)  # doctest: +NORMALIZE_WHITESPACE
                           geometry  id
               0         POINT (0 0)   0

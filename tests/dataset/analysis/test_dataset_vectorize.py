@@ -14,6 +14,7 @@ from shapely.geometry import MultiPoint, Point, Polygon
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.vectorize import Vectorize
+from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
 
@@ -27,6 +28,17 @@ class TestToGeodataframeNewParams:
         return Dataset.from_array(
             np.array([[1.0, 2.0], [3.0, 4.0]]),
             geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+        )
+
+    @pytest.mark.parametrize("values", [True, False])
+    def test_returns_a_feature_collection(self, values):
+        """to_geodataframe returns a FeatureCollection (still a GeoDataFrame), both modes."""
+        fc = self._raster().to_geodataframe(geometry="point", values=values)
+        assert isinstance(fc, FeatureCollection), (
+            f"expected FeatureCollection, got {type(fc)}"
+        )
+        assert isinstance(fc, gpd.GeoDataFrame), (
+            "FeatureCollection must remain a GeoDataFrame"
         )
 
     @pytest.mark.parametrize("geometry", ["line", "", "POINTS", "poly"])

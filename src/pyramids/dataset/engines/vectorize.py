@@ -228,7 +228,7 @@ class Vectorize(_Engine["Dataset"]):
         tile: bool | None = None,
         tile_size: int = 256,
         crs: Any = None,
-    ) -> GeoDataFrame:
+    ) -> FeatureCollection:
         """Convert the raster to a `GeoDataFrame`, one row per cell.
 
         Each cell becomes a row carrying a `geometry` column — a point at the cell centre
@@ -268,9 +268,10 @@ class Vectorize(_Engine["Dataset"]):
                 raster's own CRS.
 
         Returns:
-            geopandas.GeoDataFrame: One row per cell — a `geometry` column, plus `Band_N` value
+            FeatureCollection: One row per cell — a `geometry` column, plus `Band_N` value
             columns (`values=True`) or an `id` column (`values=False`), in north-up row-major
-            order.
+            order. A `FeatureCollection` is a `geopandas.GeoDataFrame` subclass, so it is
+            usable as one and also carries pyramids' GIS methods (`to_file`, `to_crs`, …).
 
         Raises:
             ValueError: `geometry` is neither `"point"` nor `"polygon"`; `location` is neither
@@ -345,7 +346,7 @@ class Vectorize(_Engine["Dataset"]):
                 gdf = src_ds.cell._cell_polygons(domain_only=drop)
             if crs is not None:
                 gdf = self._relabel_crs(gdf, crs)
-            return gdf
+            return FeatureCollection(gdf)
 
         return self._values_geodataframe(src_ds, geom, location, tile, tile_size, crs)
 
@@ -378,7 +379,7 @@ class Vectorize(_Engine["Dataset"]):
         tile: bool | None,
         tile_size: int,
         crs: Any,
-    ) -> gpd.GeoDataFrame:
+    ) -> FeatureCollection:
         """Build the `Band_N` value table + cell geometry — the `values=True` path."""
         band_names = src_ds.band_names
 
@@ -403,7 +404,7 @@ class Vectorize(_Engine["Dataset"]):
         gdf = self._attach_geometry(src_ds, df, geom, location)
         if crs is not None:
             gdf = self._relabel_crs(gdf, crs)
-        return gdf
+        return FeatureCollection(gdf)
 
     def _extract_values_tiled(self, band_names: list, tile_size: int) -> pd.DataFrame:
         """Extract raster band values into a DataFrame using tiles.
