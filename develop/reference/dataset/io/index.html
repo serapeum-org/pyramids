@@ -14335,7 +14335,7 @@ band statistics, a warp -- is comparing two different views of the raster.</p>
 <a id="__codelineno-0-3203" name="__codelineno-0-3203"></a><span class="sd">        `add_offset`) is unpacked, so the tile is `float64` when any band is packed and</span>
 <a id="__codelineno-0-3204" name="__codelineno-0-3204"></a><span class="sd">        the stored dtype otherwise. No-data cells are included as they are, which on a</span>
 <a id="__codelineno-0-3205" name="__codelineno-0-3205"></a><span class="sd">        packed band means the sentinel arrives transformed like every other cell</span>
-<a id="__codelineno-0-3206" name="__codelineno-0-3206"></a><span class="sd">        (`-9999` at `scale=0.01` reads `-99.99`); `to_feature_collection(tile=True)`</span>
+<a id="__codelineno-0-3206" name="__codelineno-0-3206"></a><span class="sd">        (`-9999` at `scale=0.01` reads `-99.99`); `to_geodataframe(tile=True)`</span>
 <a id="__codelineno-0-3207" name="__codelineno-0-3207"></a><span class="sd">        drops them with the sentinel in those same units.</span>
 <a id="__codelineno-0-3208" name="__codelineno-0-3208"></a>
 <a id="__codelineno-0-3209" name="__codelineno-0-3209"></a><span class="sd">        Args:</span>
@@ -14439,7 +14439,7 @@ band statistics, a warp -- is comparing two different views of the raster.</p>
 <a id="__codelineno-0-3307" name="__codelineno-0-3307"></a>                <span class="n">tile</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">(</span>
 <a id="__codelineno-0-3308" name="__codelineno-0-3308"></a>                    <span class="n">xoff</span><span class="o">=</span><span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="o">=</span><span class="n">yoff</span><span class="p">,</span> <span class="n">xsize</span><span class="o">=</span><span class="n">xsize</span><span class="p">,</span> <span class="n">ysize</span><span class="o">=</span><span class="n">ysize</span>
 <a id="__codelineno-0-3309" name="__codelineno-0-3309"></a>                <span class="p">)</span>
-<a id="__codelineno-0-3310" name="__codelineno-0-3310"></a>            <span class="c1"># Physical units, like `read_array`. `to_feature_collection(tile=True)`</span>
+<a id="__codelineno-0-3310" name="__codelineno-0-3310"></a>            <span class="c1"># Physical units, like `read_array`. `to_geodataframe(tile=True)`</span>
 <a id="__codelineno-0-3311" name="__codelineno-0-3311"></a>            <span class="c1"># builds its rows from these tiles, so leaving them in stored counts made the</span>
 <a id="__codelineno-0-3312" name="__codelineno-0-3312"></a>            <span class="c1"># tiled and untiled arms of that one method disagree by the packing factor.</span>
 <a id="__codelineno-0-3313" name="__codelineno-0-3313"></a>            <span class="k">yield</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_apply_scale_offset</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span>
@@ -21552,7 +21552,7 @@ answers in the same units as <code>read_array</code>: a CF-packed band (<code>sc
 <code>add_offset</code>) is unpacked, so the tile is <code>float64</code> when any band is packed and
 the stored dtype otherwise. No-data cells are included as they are, which on a
 packed band means the sentinel arrives transformed like every other cell
-(<code>-9999</code> at <code>scale=0.01</code> reads <code>-99.99</code>); <code>to_feature_collection(tile=True)</code>
+(<code>-9999</code> at <code>scale=0.01</code> reads <code>-99.99</code>); <code>to_geodataframe(tile=True)</code>
 drops them with the sentinel in those same units.</p>
 
 
@@ -21814,7 +21814,7 @@ One tile: <code>(rows, cols)</code> for a one-band raster, <code>(bands, rows, c
 <a id="__codelineno-0-3203" name="__codelineno-0-3203"></a><span class="sd">    `add_offset`) is unpacked, so the tile is `float64` when any band is packed and</span>
 <a id="__codelineno-0-3204" name="__codelineno-0-3204"></a><span class="sd">    the stored dtype otherwise. No-data cells are included as they are, which on a</span>
 <a id="__codelineno-0-3205" name="__codelineno-0-3205"></a><span class="sd">    packed band means the sentinel arrives transformed like every other cell</span>
-<a id="__codelineno-0-3206" name="__codelineno-0-3206"></a><span class="sd">    (`-9999` at `scale=0.01` reads `-99.99`); `to_feature_collection(tile=True)`</span>
+<a id="__codelineno-0-3206" name="__codelineno-0-3206"></a><span class="sd">    (`-9999` at `scale=0.01` reads `-99.99`); `to_geodataframe(tile=True)`</span>
 <a id="__codelineno-0-3207" name="__codelineno-0-3207"></a><span class="sd">    drops them with the sentinel in those same units.</span>
 <a id="__codelineno-0-3208" name="__codelineno-0-3208"></a>
 <a id="__codelineno-0-3209" name="__codelineno-0-3209"></a><span class="sd">    Args:</span>
@@ -21918,7 +21918,7 @@ One tile: <code>(rows, cols)</code> for a one-band raster, <code>(bands, rows, c
 <a id="__codelineno-0-3307" name="__codelineno-0-3307"></a>            <span class="n">tile</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ds</span><span class="o">.</span><span class="n">raster</span><span class="o">.</span><span class="n">ReadAsArray</span><span class="p">(</span>
 <a id="__codelineno-0-3308" name="__codelineno-0-3308"></a>                <span class="n">xoff</span><span class="o">=</span><span class="n">xoff</span><span class="p">,</span> <span class="n">yoff</span><span class="o">=</span><span class="n">yoff</span><span class="p">,</span> <span class="n">xsize</span><span class="o">=</span><span class="n">xsize</span><span class="p">,</span> <span class="n">ysize</span><span class="o">=</span><span class="n">ysize</span>
 <a id="__codelineno-0-3309" name="__codelineno-0-3309"></a>            <span class="p">)</span>
-<a id="__codelineno-0-3310" name="__codelineno-0-3310"></a>        <span class="c1"># Physical units, like `read_array`. `to_feature_collection(tile=True)`</span>
+<a id="__codelineno-0-3310" name="__codelineno-0-3310"></a>        <span class="c1"># Physical units, like `read_array`. `to_geodataframe(tile=True)`</span>
 <a id="__codelineno-0-3311" name="__codelineno-0-3311"></a>        <span class="c1"># builds its rows from these tiles, so leaving them in stored counts made the</span>
 <a id="__codelineno-0-3312" name="__codelineno-0-3312"></a>        <span class="c1"># tiled and untiled arms of that one method disagree by the packing factor.</span>
 <a id="__codelineno-0-3313" name="__codelineno-0-3313"></a>        <span class="k">yield</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_apply_scale_offset</span><span class="p">(</span><span class="n">tile</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span>
