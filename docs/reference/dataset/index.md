@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart LR
-    CR["<b>create / read</b><br/>read_file · from_array<br/>from_features · from_band_files<br/>from_zarr · from_bytes"] --> DS(("Dataset"))
+    CR["<b>create / read</b><br/>read_file · from_array · from_dataframe<br/>from_features · from_band_files<br/>from_zarr · from_bytes"] --> DS(("Dataset"))
 
     DS --> PR["<b>properties</b><br/>rows · columns · band_count · band_names<br/>epsg · crs · cell_size · geotransform<br/>bbox · bounds · no_data_value · dtype"]
     DS --> AC["<b>access data</b><br/>read_array — window · bbox · chunks<br/>sample · extract · get_tile · read_part"]
@@ -13,7 +13,7 @@ flowchart LR
     DS --> ND["<b>no-data</b><br/>change_no_data_value · fill · get_mask"]
     DS --> MD["<b>missing data</b><br/>where · fillna · isnull · notnull<br/>equals · identical"]
     DS --> CW["<b>cell-wise</b><br/>clip · round · astype · isin"]
-    DS --> VE["<b>vectorize</b><br/>to_feature_collection · contour · sieve"]
+    DS --> VE["<b>vectorize</b><br/>to_geodataframe · contour · sieve"]
     DS --> VI["<b>visualize</b><br/>plot · plot_histogram · to_image<br/>color_table · create_overviews · preview"]
     DS --> WR["<b>write</b><br/>to_file — .tif · .nc · .asc<br/>to_cog · to_zarr · to_terrain_rgb"]
 ```
@@ -31,9 +31,9 @@ flowchart TB
     DS -->|ds.spatial| SP["<b>Spatial</b> · spatial.md<br/>crop · to_crs · warped_view<br/>resample · align · wrap_longitude"]
     DS -->|ds.analysis| AN["<b>Analysis</b> · analysis.md<br/>stats · extract · sample · overlay<br/>proximity · masks · footprint · plot"]
     DS -->|ds.bands| BA["<b>Bands</b> · band_metadata.md<br/>attribute tables · colours<br/>add_band · change_no_data_value"]
-    DS -->|ds.cell| CE["<b>Cell</b> · cell.md<br/>get_cell_coords/_polygons/_points<br/>cell_area · map ↔ array"]
+    DS -->|ds.cell| CE["<b>Cell</b> · cell.md<br/>get_cell_coords · to_geodataframe<br/>cell_area · map ↔ array"]
     DS -->|ds.georef| GE["<b>Georef</b> · georef.md<br/>GCPs · RPCs · orthorectify<br/>set_gcps · georeference"]
-    DS -->|ds.vectorize| VE["<b>Vectorize</b> · vectorize.md<br/>contour · to_feature_collection<br/>cluster · translate"]
+    DS -->|ds.vectorize| VE["<b>Vectorize</b> · vectorize.md<br/>contour · to_geodataframe<br/>cluster · translate"]
     DS -->|ds.cog| CG["<b>COG</b> · cog/ section<br/>to_cog · validate_cog · info<br/>read_part · preview · read_tile"]
 ```
 
@@ -257,7 +257,7 @@ classDiagram
 
     %% Group: conversion to other data types
     class Conversion {
-        +to_feature_collection()
+        +to_geodataframe()
     }
     Dataset --> Conversion : «conversion»
 
@@ -340,10 +340,25 @@ classDiagram
 | `from_band_files(paths)` | Stack N single-band rasters (one file per band) into one multi-band Dataset — the natural target for the `<asset>.<band>.tif` layout of GEE / Landsat / Sentinel downloads. |
 | `from_archive(url_or_path, member_glob=…)` | Merge every matching member of a local or remote archive into one multi-band Dataset (composes `from_band_files` over `gdal.ReadDir`). For one-Dataset-per-member use `DatasetCollection.from_archive`. |
 | `from_array(arr, …)` | Build a Dataset from a numpy array + geobox. |
+| `from_dataframe(df, crs=…)` | Rebuild a raster from a `(band, y, x)` frame (inverse of `to_dataframe`). |
 | `dataset_like(template, arr)` | Stamp a new Dataset that inherits its grid / CRS from `template`. |
 
 See the [Recipes](../../how-to/recipes.md) page for runnable examples
 of each.
+
+## The pandas round trip
+
+`to_dataframe()` hands the raster to pandas as one row per cell on a `(band, y, x)` `MultiIndex`
+with a single `values` column, and `from_dataframe()` rebuilds a raster from such a frame:
+`Dataset.from_dataframe(ds.to_dataframe(), crs=ds.epsg)` reproduces `ds`'s values, band
+count/order, grid and CRS. Gaps come back as `NaN` (pass `no_data_value=ds.no_data_value[0]` to
+restore a specific sentinel and dtype). This is the *coordinate-keyed*, geometry-free view for
+pandas analytics; for a geometry-per-cell
+`GeoDataFrame` (points or polygons, optionally with the band values) use
+[`to_geodataframe`](vectorize.md), and to read values at
+scattered points use [`sample` / `extract`](analysis.md). The band level is always present (a
+one-band raster carries band `0`); `df["values"].unstack("band")` gives the wide,
+one-column-per-band view.
 
 ::: pyramids.dataset.Dataset
     options:

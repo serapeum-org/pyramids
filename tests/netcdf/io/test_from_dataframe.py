@@ -172,6 +172,30 @@ class TestGeoreferencingRules:
         assert back.get_variable("v")._band_dim_names == ("time",)
 
 
+class TestNodataDefaultsToNaN:
+    """The public `NetCDF.from_dataframe` stamps gaps with `NaN` by default, matching Dataset."""
+
+    def test_from_dataframe_defaults_nodata_to_nan(self):
+        """A rebuilt variable declares `NaN` as its nodata when `no_data_value` is not given."""
+        nc = _cube(np.arange(8.0).reshape(2, 2, 2))
+        back = NetCDF.from_dataframe(nc.to_dataframe(), crs=nc.epsg)
+        assert np.isnan(back.get_variable("t").no_data_value[0]), (
+            f"expected NaN nodata, got {back.get_variable('t').no_data_value[0]}"
+        )
+
+    def test_a_real_minus_9999_datum_is_not_reclassified_as_a_gap(self):
+        """A genuine `-9999` value survives the round trip; the `NaN` default cannot collide."""
+        idx = pd.MultiIndex.from_product(
+            [[0.0, 6.0], [20.0, 18.0], [0.0, 1.0]], names=["time", "y", "x"]
+        )
+        frame = pd.DataFrame(
+            {"v": [-9999.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]}, index=idx
+        )
+        values = NetCDF.from_dataframe(frame, crs=4326).to_dataframe()["v"].to_numpy()
+        assert not np.isnan(values).any(), "no cell should be turned into a gap"
+        assert (values == -9999.0).sum() == 1, "the real -9999 must survive as a value"
+
+
 class TestFromDataframeRefusals:
     """Frames that cannot honestly become a georeferenced cube are refused."""
 

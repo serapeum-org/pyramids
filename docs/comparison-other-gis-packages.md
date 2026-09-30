@@ -89,7 +89,7 @@ spatial resample/warp is the `rioxarray` accessor's job.
 | Capability                | pyramids                  | rasterio               | xarray         | rioxarray       |
 |---------------------------|---------------------------|------------------------|----------------|-----------------|
 | Rasterize vectors         | ✓ `from_features`         | ✓ `features.rasterize` | ✗ `→geocube`   | ✗ `→geocube`    |
-| Vectorize / polygonize    | ✓ `to_feature_collection` | ✓ `features.shapes`    | ✗ `→rasterio`  | ✗ `→rasterio`   |
+| Vectorize / polygonize    | ✓ `to_geodataframe` | ✓ `features.shapes`    | ✗ `→rasterio`  | ✗ `→rasterio`   |
 | Dataset footprint polygon | ✓ `footprint`             | ◐ `mask` + `shapes`    | ✗ `→rioxarray` | ◐ `.rio.bounds` |
 
 ### Vector data (standalone)

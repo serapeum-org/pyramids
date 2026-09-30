@@ -146,9 +146,11 @@ CASES: list[tuple[str, Callable[[Dataset], Any]]] = [
     ("extract", lambda ds: np.sort(np.asarray(ds.extract(), dtype="float64").ravel())),
     ("get_cell_coords", lambda ds: len(ds.get_cell_coords(domain_only=True))),
     (
-        "to_feature_collection",
+        "to_geodataframe",
         lambda ds: np.sort(
-            ds.to_feature_collection(tile=False).iloc[:, 0].to_numpy(dtype="float64")
+            ds.to_geodataframe(geometry="point", tile=False)
+            .iloc[:, 0]
+            .to_numpy(dtype="float64")
         ),
     ),
     ("footprint", lambda ds: float(ds.footprint().area.sum())),
@@ -179,9 +181,9 @@ CASES: list[tuple[str, Callable[[Dataset], Any]]] = [
     ("convert_units", lambda ds: _domain(_to_celsius(ds).read_array())),
     ("get_tile", lambda ds: _domain(next(iter(ds.get_tile(size=4))))),
     (
-        "to_feature_collection-tiled",
+        "to_geodataframe-tiled",
         lambda ds: np.sort(
-            ds.to_feature_collection(tile=True, tile_size=2)
+            ds.to_geodataframe(geometry="point", tile=True, tile_size=2)
             .iloc[:, 0]
             .to_numpy(dtype="float64")
         ),

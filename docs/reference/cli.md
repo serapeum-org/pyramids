@@ -107,5 +107,5 @@ pyramids sample dem.tif --points "440000,510000;450000,505000" --json          #
 
 !!! tip "The CLI mirrors the API"
     Each command maps to a `Dataset` / `FeatureCollection` method — e.g. `warp` → `to_crs`, `clip` → `crop`,
-    `rasterize` → `Dataset.from_features`, `shapes` → `to_feature_collection`. Reach for Python when you need to
+    `rasterize` → `Dataset.from_features`, `shapes` → `to_geodataframe`. Reach for Python when you need to
     compose steps or stay in-memory; reach for the CLI for one-off file jobs.
