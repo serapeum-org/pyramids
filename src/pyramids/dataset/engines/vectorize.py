@@ -323,20 +323,7 @@ class Vectorize(_Engine["Dataset"]):
 
                 ```
         """
-        geom = geometry.lower()
-        if geom not in ("point", "polygon"):
-            raise ValueError(
-                f"to_geodataframe() got geometry={geometry!r}; expected 'point' or 'polygon'."
-            )
-        if values and dropna is not None and not dropna:
-            raise ValueError(
-                "to_geodataframe(values=True) always drops no-data cells (a value row cannot "
-                "carry a gap); pass values=False to keep every cell's geometry, or omit dropna."
-            )
-        if location not in ("center", "corner"):
-            raise ValueError(
-                f"to_geodataframe() got location={location!r}; expected 'center' or 'corner'."
-            )
+        geom = self._validate_geodataframe_args(geometry, location, values, dropna)
 
         # Crop to the mask up front so both the geometry-only and the values path honour it:
         # a masked `values=False` call must return the AOI's cell footprints, not silently the
@@ -360,6 +347,39 @@ class Vectorize(_Engine["Dataset"]):
                 gdf = self._relabel_crs(gdf, crs)
             return gdf
 
+        return self._values_geodataframe(src_ds, geom, location, tile, tile_size, crs)
+
+    @staticmethod
+    def _validate_geodataframe_args(
+        geometry: str, location: str, values: bool, dropna: bool | None
+    ) -> str:
+        """Validate the `to_geodataframe` arguments, returning the lower-cased geometry."""
+        geom = geometry.lower()
+        if geom not in ("point", "polygon"):
+            raise ValueError(
+                f"to_geodataframe() got geometry={geometry!r}; expected 'point' or 'polygon'."
+            )
+        if values and dropna is not None and not dropna:
+            raise ValueError(
+                "to_geodataframe(values=True) always drops no-data cells (a value row cannot "
+                "carry a gap); pass values=False to keep every cell's geometry, or omit dropna."
+            )
+        if location not in ("center", "corner"):
+            raise ValueError(
+                f"to_geodataframe() got location={location!r}; expected 'center' or 'corner'."
+            )
+        return geom
+
+    def _values_geodataframe(
+        self,
+        src_ds,
+        geom: str,
+        location: str,
+        tile: bool | None,
+        tile_size: int,
+        crs: Any,
+    ) -> gpd.GeoDataFrame:
+        """Build the `Band_N` value table + cell geometry — the `values=True` path."""
         band_names = src_ds.band_names
 
         # None auto-selects on the array's byte size: keep the fast whole-array read for
