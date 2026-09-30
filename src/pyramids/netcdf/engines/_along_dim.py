@@ -993,13 +993,15 @@ class _Pad(_AlongDim):
     """`pad`: extend a band dimension before/after with a constant fill.
 
     The band-axis half of xarray's `pad(mode="constant")`: the dimension grows by `before + after`
-    steps, the new cells hold the variable's no-data value (NaN when none), and the new coordinate
-    stamps are NaN (an unindexed pad, as xarray leaves them). Spatial padding moves the geotransform
-    and is handled by `Selection.pad`, not here.
+    steps, the new cells hold `fill_value` when one is given (else the variable's no-data value, NaN
+    when none), and the new coordinate stamps are NaN (an unindexed pad, as xarray leaves them).
+    Spatial padding moves the geotransform and is handled by `Selection.pad`, not here.
 
     Attributes:
         before: Steps to add at the start of the dimension.
         after: Steps to add at the end.
+        fill_value: What the new cells hold; `None` uses the variable's no-data value (NaN when it
+            declares none). The result declares the variable's own no-data value either way.
     """
 
     before: int

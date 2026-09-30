@@ -2935,8 +2935,12 @@ class Selection(_Engine["NetCDF"]):
         The ordinal position `1..N` of every step among the others along `dim`, tied values sharing
         the average of their positions, and gaps (the declared no-data value or NaN) excluded from
         the ranking and returned as no-data. `pct=True` returns the rank divided by the count of
-        valid steps, in `(0, 1]`. Matches `xarray.Dataset.rank`. Band dimensions only — a spatial
-        axis is refused (ranking a georeferenced axis is meaningless).
+        valid steps, in `(0, 1]`. The excluded gaps reuse the variable's own no-data value as their
+        sentinel, so a no-data value that itself falls inside the rank domain (`1..N`, or `(0, 1]`
+        when `pct=True`) would be indistinguishable from a real rank on read-back; real sentinels
+        such as `-9999` lie outside that range, so this is a caveat, not a defect. Matches
+        `xarray.Dataset.rank`. Band dimensions only — a spatial axis is refused (ranking a
+        georeferenced axis is meaningless).
 
         Works on a container, ranking every variable that has `dim`, and on a single variable.
 
