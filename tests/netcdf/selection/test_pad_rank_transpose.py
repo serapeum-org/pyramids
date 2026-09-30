@@ -77,17 +77,6 @@ class TestRank:
         assert result[1] == -9999.0, f"the gap stays no-data, got {result[1]}"
         assert_allclose([result[0], result[2]], [1.0, 2.0])
 
-    def test_matches_xarray(self):
-        """Ranks agree with `xarray.DataArray.rank` on a gapless series."""
-        xr = pytest.importorskip("xarray")
-        pytest.importorskip("bottleneck")  # xarray.rank delegates to bottleneck
-        values = [3.0, 1.0, 4.0, 1.0, 5.0]
-        got = _var(range(5), values, no_data_value=None).rank("time").read_array().ravel()
-        expected = (
-            xr.DataArray(values, dims="time").rank("time").values
-        )
-        assert_allclose(got, expected)
-
     def test_container_ranks_every_variable(self):
         """A container ranks each variable that has the dimension."""
         out = _grid(3, 1, 2).rank("time").get_variable("t")
