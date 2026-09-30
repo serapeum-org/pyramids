@@ -45,6 +45,18 @@ class TestToGeodataframeNewParams:
         gdf = self._raster().to_geodataframe(geometry="point", values=True, crs=3857)
         assert gdf.crs.to_epsg() == 3857, f"expected EPSG:3857, got {gdf.crs}"
 
+    def test_mask_is_honoured_on_the_geometry_only_path(self):
+        """`values=False` must still crop to `mask`, not return the whole raster."""
+        mask = gpd.GeoDataFrame(
+            geometry=[Polygon([(0.1, 1.1), (0.9, 1.1), (0.9, 1.9), (0.1, 1.9)])],
+            crs=4326,
+        )
+        ds = self._raster()
+        full = ds.to_geodataframe(geometry="polygon", values=False)
+        masked = ds.to_geodataframe(geometry="polygon", values=False, mask=mask)
+        assert len(full) == 4, f"whole raster has 4 cells, got {len(full)}"
+        assert len(masked) < 4, f"mask must reduce the cell count, got {len(masked)}"
+
 
 class TestToFeatureCollection:
     """Test converting dataset to featurecollection."""

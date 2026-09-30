@@ -319,23 +319,27 @@ class Vectorize(_Engine["Dataset"]):
                 f"to_geodataframe() got geometry={geometry!r}; expected 'point' or 'polygon'."
             )
 
+        # Crop to the mask up front so both the geometry-only and the values path honour it:
+        # a masked `values=False` call must return the AOI's cell footprints, not silently the
+        # whole raster.
+        if mask is not None:
+            src_ds = self._ds.crop(mask=mask, touch=touch)
+        else:
+            src_ds = self._ds
+
         # Geometry-only: the cell footprints, no band values. `dropna` defaults to keeping
         # every cell here (the old get_cell_points/get_cell_polygons behaviour).
         if not values:
             drop = False if dropna is None else dropna
             if geom == "point":
-                gdf = self._ds.cell._cell_points(location=location, domain_only=drop)
+                gdf = src_ds.cell._cell_points(location=location, domain_only=drop)
             else:
-                gdf = self._ds.cell._cell_polygons(domain_only=drop)
+                gdf = src_ds.cell._cell_polygons(domain_only=drop)
             if crs is not None:
                 gdf = gdf.set_crs(crs, allow_override=True)
             return gdf
 
-        band_names = self._ds.band_names
-        if mask is not None:
-            src_ds = self._ds.crop(mask=mask, touch=touch)
-        else:
-            src_ds = self._ds
+        band_names = src_ds.band_names
 
         # None auto-selects on the array's byte size: keep the fast whole-array read for
         # everyday rasters, tile a large one so the full-band ndarray is never allocated
