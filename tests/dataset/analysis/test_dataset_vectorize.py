@@ -18,6 +18,34 @@ from pyramids.dataset.engines.vectorize import Vectorize
 pytestmark = pytest.mark.core
 
 
+class TestToGeodataframeNewParams:
+    """The parameters to_geodataframe adds beyond the three methods it replaced."""
+
+    @staticmethod
+    def _raster() -> Dataset:
+        """A 1-band 2x2 raster in EPSG:4326."""
+        return Dataset.from_array(
+            np.array([[1.0, 2.0], [3.0, 4.0]]),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+        )
+
+    @pytest.mark.parametrize("geometry", ["line", "", "POINTS", "poly"])
+    def test_an_unknown_geometry_is_refused(self, geometry):
+        """Only 'point'/'polygon' are valid; anything else raises naming the value."""
+        with pytest.raises(ValueError, match="expected 'point' or 'polygon'"):
+            self._raster().to_geodataframe(geometry=geometry, values=False)
+
+    def test_crs_overrides_the_labelled_crs_geometry_only(self):
+        """`crs=` relabels the geometry-only frame's CRS instead of the raster's own."""
+        gdf = self._raster().to_geodataframe(geometry="point", values=False, crs=3857)
+        assert gdf.crs.to_epsg() == 3857, f"expected EPSG:3857, got {gdf.crs}"
+
+    def test_crs_overrides_the_labelled_crs_with_values(self):
+        """`crs=` also relabels the values+geometry frame."""
+        gdf = self._raster().to_geodataframe(geometry="point", values=True, crs=3857)
+        assert gdf.crs.to_epsg() == 3857, f"expected EPSG:3857, got {gdf.crs}"
+
+
 class TestToFeatureCollection:
     """Test converting dataset to featurecollection."""
 

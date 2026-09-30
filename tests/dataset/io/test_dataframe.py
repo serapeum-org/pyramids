@@ -90,6 +90,15 @@ class TestToDataframeShape:
         assert bool(np.isnan(df["values"].iloc[0]))
         assert df["values"].iloc[1:].tolist() == [2.0, 3.0, 4.0]
 
+    def test_dropna_omits_the_nodata_rows(self):
+        """``dropna=True`` drops the rows whose ``values`` is ``NaN`` (a nodata cell)."""
+        ds = _raster(np.array([[-9999.0, 2.0], [3.0, 4.0]]))
+        assert ds.to_dataframe().shape == (4, 1)
+        dropped = ds.to_dataframe(dropna=True)
+        assert dropped.shape == (3, 1)
+        assert not dropped["values"].isna().any()
+        assert dropped["values"].tolist() == [2.0, 3.0, 4.0]
+
     def test_unstack_band_gives_the_wide_view(self):
         """`df["values"].unstack("band")` is the one-column-per-band view."""
         wide = (
