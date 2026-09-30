@@ -4651,21 +4651,50 @@ def _pad_before_after(width: Any, dim: str) -> tuple[int, int]:
         tuple[int, int]: The validated `(before, after)`.
 
     Raises:
-        ValueError: `width` is not a 2-tuple or an int, or holds a negative value.
+        ValueError: `width` is not a 2-tuple or an int, holds a fractional or non-scalar
+            value, or holds a negative value.
     """
     if isinstance(width, (tuple, list)):
         if len(width) != 2:
             raise ValueError(
                 f"pad() width for {dim!r} must be (before, after) or an int, got {width!r}."
             )
-        before, after = int(width[0]), int(width[1])
+        before, after = _pad_width_int(width[0], dim), _pad_width_int(width[1], dim)
     else:
-        before = after = int(width)
+        before = after = _pad_width_int(width, dim)
     if before < 0 or after < 0:
         raise ValueError(
             f"pad() widths for {dim!r} must be non-negative, got ({before}, {after})."
         )
     return before, after
+
+
+def _pad_width_int(value: Any, dim: str) -> int:
+    """Coerce a single pad width to an int, refusing a fractional or non-scalar value.
+
+    Args:
+        value: One side count, or one element of a `(before, after)` pair.
+        dim: The dimension the width is for, named in refusals.
+
+    Returns:
+        int: The width as an int.
+
+    Raises:
+        ValueError: `value` is not a scalar whole number — a float with a fraction, an array,
+            `None`, or a non-numeric string all raise here rather than being truncated with
+            `int(...)` or leaking a numpy `TypeError`.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"pad() width for {dim!r} must be an int or (before, after), got {value!r}."
+        ) from None
+    if not number.is_integer():
+        raise ValueError(
+            f"pad() width for {dim!r} must be a whole number, got {value!r}."
+        )
+    return int(number)
 
 
 def _pad_spatial(

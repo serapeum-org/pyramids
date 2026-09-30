@@ -451,6 +451,18 @@ class TestPadRefusals:
         with pytest.raises(ValueError, match=r"\(before, after\)"):
             var.pad(time=(1, 2, 3))
 
+    def test_fractional_width_is_refused(self):
+        """A fractional width is refused, not silently truncated to an int."""
+        var = _var([0, 1], [1.0, 2.0])
+        with pytest.raises(ValueError, match="whole number"):
+            var.pad(time=1.5)
+
+    def test_array_width_is_refused_with_a_value_error(self):
+        """A non-scalar (array) width raises ValueError, not a raw numpy TypeError."""
+        var = _var([0, 1], [1.0, 2.0])
+        with pytest.raises(ValueError, match="int or"):
+            var.pad(time=np.array([1, 2]))
+
 
 class TestPadContainerAuxiliary:
     """`pad` on a container drops an auxiliary variable spanning the padded band dimension."""
