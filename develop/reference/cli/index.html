@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6371,7 +6371,7 @@ See the <a href="../cog/cli/">COG CLI reference</a> for the full option set.</p>
 <div class="admonition tip">
 <p class="admonition-title">The CLI mirrors the API</p>
 <p>Each command maps to a <code>Dataset</code> / <code>FeatureCollection</code> method — e.g. <code>warp</code> → <code>to_crs</code>, <code>clip</code> → <code>crop</code>,
-<code>rasterize</code> → <code>Dataset.from_features</code>, <code>shapes</code> → <code>to_feature_collection</code>. Reach for Python when you need to
+<code>rasterize</code> → <code>Dataset.from_features</code>, <code>shapes</code> → <code>to_geodataframe</code>. Reach for Python when you need to
 compose steps or stay in-memory; reach for the CLI for one-off file jobs.</p>
 </div>
 
