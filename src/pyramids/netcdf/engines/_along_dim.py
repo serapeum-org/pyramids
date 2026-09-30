@@ -978,7 +978,8 @@ class _Rank(_AlongDim):
         arr = nc._materialize_variable_array(var, lazy=True)
         data = np.asarray(_gaps_as_nan(arr, ndv), dtype="float64")
         ranks = np.asarray(
-            rankdata(data, method="average", axis=axis, nan_policy="omit"), dtype="float64"
+            rankdata(data, method="average", axis=axis, nan_policy="omit"),
+            dtype="float64",
         )
         if self.pct:
             valid = np.sum(~np.isnan(data), axis=axis, keepdims=True)
@@ -1032,14 +1033,18 @@ class _Pad(_AlongDim):
         no_data: Any = np.nan if ndv is None else ndv
         fill = no_data if self.fill_value is None else self.fill_value
         axis = band_names.index(dim)
-        arr = np.asarray(nc._materialize_variable_array(var, lazy=True), dtype="float64")
+        arr = np.asarray(
+            nc._materialize_variable_array(var, lazy=True), dtype="float64"
+        )
         pad_width = [(0, 0)] * arr.ndim
         pad_width[axis] = (self.before, self.after)
         values = np.pad(arr, pad_width, mode="constant", constant_values=fill)
         coords = values_map.get(dim)
         if coords is not None:
             values_map[dim] = (
-                [float("nan")] * self.before + list(coords) + [float("nan")] * self.after
+                [float("nan")] * self.before
+                + list(coords)
+                + [float("nan")] * self.after
             )
         return _Applied(values, band_names, values_map, no_data)
 
@@ -1640,7 +1645,9 @@ def _apply_per_variable(
             )
         _stamped(cast("NetCDF", result), cast(tuple, grid))
         cast("NetCDF", result)._band_dim_time_attrs = time_attrs
-        _carry_auxiliaries(nc, cast("NetCDF", result), rg, aux_vars, list(dropped), caller)
+        _carry_auxiliaries(
+            nc, cast("NetCDF", result), rg, aux_vars, list(dropped), caller
+        )
         out = cast("NetCDF", result)
     return out
 

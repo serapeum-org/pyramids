@@ -7536,7 +7536,9 @@ class NetCDF(Dataset):
         self, *, mode: str = "constant", constant_values: Any = None, **pad_width: Any
     ) -> NetCDF:
         """Facade — :meth:`Selection.pad <pyramids.netcdf.engines.selection.Selection.pad>`."""
-        return self.selection.pad(mode=mode, constant_values=constant_values, **pad_width)
+        return self.selection.pad(
+            mode=mode, constant_values=constant_values, **pad_width
+        )
 
     def transpose(self, *dims: Any) -> NetCDF:
         """Facade — :meth:`Selection.transpose <pyramids.netcdf.engines.selection.Selection.transpose>`."""

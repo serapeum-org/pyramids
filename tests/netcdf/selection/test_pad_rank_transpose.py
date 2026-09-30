@@ -25,7 +25,10 @@ pytestmark = pytest.mark.core
 GEO = (0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
 
 ERA5_T2M = (
-    Path(__file__).resolve().parents[2] / "data" / "netcdf" / "cf__5v__1d4-3d1__geog__y-desc.nc"
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "netcdf"
+    / "cf__5v__1d4-3d1__geog__y-desc.nc"
 )
 
 
@@ -59,7 +62,9 @@ def _cube2(time_vals, level_vals):
         np.arange(nt * nl, dtype="float64").reshape(nt, nl, 1, 1),
         geo_ref=GeoReference(geo=GEO, epsg=4326),
         variable_name="t",
-        dims=ExtraDimensions(dims=[("time", list(time_vals)), ("level", list(level_vals))]),
+        dims=ExtraDimensions(
+            dims=[("time", list(time_vals)), ("level", list(level_vals))]
+        ),
     )
 
 
@@ -71,7 +76,11 @@ def _cube3(time_vals, level_vals, depth_vals):
         geo_ref=GeoReference(geo=GEO, epsg=4326),
         variable_name="t",
         dims=ExtraDimensions(
-            dims=[("time", list(time_vals)), ("level", list(level_vals)), ("depth", list(depth_vals))]
+            dims=[
+                ("time", list(time_vals)),
+                ("level", list(level_vals)),
+                ("depth", list(depth_vals)),
+            ]
         ),
     )
 
@@ -81,7 +90,9 @@ class TestRank:
 
     def test_ordinal_ranks_with_averaged_ties(self):
         """Values rank 1..N along the axis with tied values sharing the average position."""
-        out = _var([0, 1, 2, 3], [30.0, 10.0, 10.0, 20.0], no_data_value=None).rank("time")
+        out = _var([0, 1, 2, 3], [30.0, 10.0, 10.0, 20.0], no_data_value=None).rank(
+            "time"
+        )
         assert_allclose(out.read_array().ravel(), [4.0, 1.5, 1.5, 3.0])
 
     def test_pct_divides_by_the_valid_count(self):
@@ -130,9 +141,13 @@ class TestRank:
         assert not any("divide" in str(w.message) for w in record), (
             f"the all-gap guard must not emit a divide warning, got {[str(w.message) for w in record]}"
         )
-        assert np.all(result[:, 0] == -9999.0), f"the all-gap column must stay no-data, got {result[:, 0]}"
+        assert np.all(result[:, 0] == -9999.0), (
+            f"the all-gap column must stay no-data, got {result[:, 0]}"
+        )
         assert_allclose(
-            result[:, 1], [1.0 / 3.0, 1.0, 2.0 / 3.0], err_msg="the valid column must rank as fractions"
+            result[:, 1],
+            [1.0 / 3.0, 1.0, 2.0 / 3.0],
+            err_msg="the valid column must rank as fractions",
         )
 
 
@@ -143,7 +158,9 @@ class TestPadBand:
         """Padding before the axis prepends no-data cells and a NaN stamp."""
         out = _var([0, 1], [1.0, 2.0], no_data_value=-9999.0).pad(time=(1, 0))
         assert_allclose(out.read_array().ravel(), [-9999.0, 1.0, 2.0])
-        assert out._band_dim_values_map["time"][0] != out._band_dim_values_map["time"][0]  # NaN
+        assert (
+            out._band_dim_values_map["time"][0] != out._band_dim_values_map["time"][0]
+        )  # NaN
         assert out._band_dim_values_map["time"][1:] == [0.0, 1.0]
 
     def test_constant_values_fills_that_value(self):
@@ -161,31 +178,43 @@ class TestPadBand:
         out = _var([0, 1], [1.0, 2.0], no_data_value=-9999.0).pad(time=(2, 1))
         assert_allclose(out.read_array().ravel(), [-9999.0, -9999.0, 1.0, 2.0, -9999.0])
         stamps = out._band_dim_values_map["time"]
-        assert stamps[2:4] == [0.0, 1.0], f"the original stamps must survive in place, got {stamps}"
-        assert all(s != s for s in stamps[:2] + stamps[4:]), f"every pad stamp must be NaN, got {stamps}"
+        assert stamps[2:4] == [0.0, 1.0], (
+            f"the original stamps must survive in place, got {stamps}"
+        )
+        assert all(s != s for s in stamps[:2] + stamps[4:]), (
+            f"every pad stamp must be NaN, got {stamps}"
+        )
 
     def test_no_data_none_variable_pads_with_nan(self):
         """A variable declaring no no-data value pads its band cells with NaN."""
         out = _var([0, 1], [1.0, 2.0], no_data_value=None).pad(time=(1, 0))
         result = out.read_array().ravel()
-        assert result[0] != result[0], f"the pad cell must be NaN when no no-data is declared, got {result[0]}"
+        assert result[0] != result[0], (
+            f"the pad cell must be NaN when no no-data is declared, got {result[0]}"
+        )
         assert_allclose(result[1:], [1.0, 2.0])
 
     def test_container_band_pad_extends_every_variable(self):
         """`pad` on a container band axis grows the dimension of each gridded variable."""
         out = _grid(2, 1, 2, no_data_value=-9999.0).pad(time=(1, 0)).get_variable("t")
         assert out.read_array().shape == (3, 1, 2), out.read_array().shape
-        assert_allclose(out.read_array().ravel(), [-9999.0, -9999.0, 0.0, 1.0, 2.0, 3.0])
+        assert_allclose(
+            out.read_array().ravel(), [-9999.0, -9999.0, 0.0, 1.0, 2.0, 3.0]
+        )
 
     def test_pad_a_dimension_without_coordinate_stamps_keeps_it_unstamped(self):
         """A band dim carrying no stamps (an operator result) pads its values but stays unlabelled."""
         summed = _var([0, 1], [1.0, 2.0]) + _var([5, 6], [3.0, 4.0])
-        assert summed._band_dim_values_map["time"] is None, "the operator result should drop its stamps"
+        assert summed._band_dim_values_map["time"] is None, (
+            "the operator result should drop its stamps"
+        )
         out = summed.pad(time=(1, 0))
         result = out.read_array().ravel()
         assert result[0] != result[0], f"the pad cell must be NaN, got {result[0]}"
         assert_allclose(result[1:], [4.0, 6.0])
-        assert out._band_dim_values_map["time"] is None, "an unstamped dimension must stay unstamped after pad"
+        assert out._band_dim_values_map["time"] is None, (
+            "an unstamped dimension must stay unstamped after pad"
+        )
 
 
 class TestPadSpatial:
@@ -206,9 +235,14 @@ class TestPadSpatial:
     def test_pad_x_before_fills_the_new_column_with_no_data(self):
         """Padding one cell on the left fills the whole new first column with the no-data value."""
         plane = np.asarray(
-            _grid(1, 2, 2, no_data_value=-9999.0).pad(x=(1, 0)).get_variable("t").read_array()
+            _grid(1, 2, 2, no_data_value=-9999.0)
+            .pad(x=(1, 0))
+            .get_variable("t")
+            .read_array()
         ).reshape(2, 3)
-        assert np.all(plane[:, 0] == -9999.0), f"the new left column must hold the no-data fill, got {plane[:, 0]}"
+        assert np.all(plane[:, 0] == -9999.0), (
+            f"the new left column must hold the no-data fill, got {plane[:, 0]}"
+        )
         assert_allclose(plane[:, 1:].ravel(), [0.0, 1.0, 2.0, 3.0])
 
     def test_pad_y_before_constant_values_fills_the_new_row(self):
@@ -219,15 +253,22 @@ class TestPadSpatial:
             .get_variable("t")
             .read_array()
         ).reshape(3, 2)
-        assert np.all(plane[0, :] == 7.0), f"the new top row must hold the constant fill, got {plane[0, :]}"
+        assert np.all(plane[0, :] == 7.0), (
+            f"the new top row must hold the constant fill, got {plane[0, :]}"
+        )
         assert_allclose(plane[1:, :].ravel(), [0.0, 1.0, 2.0, 3.0])
 
     def test_pad_spatial_fills_nan_when_no_no_data_is_declared(self):
         """With no declared no-data value the new spatial cells are filled with NaN."""
         plane = np.asarray(
-            _grid(1, 2, 2, no_data_value=None).pad(x=(1, 0)).get_variable("t").read_array()
+            _grid(1, 2, 2, no_data_value=None)
+            .pad(x=(1, 0))
+            .get_variable("t")
+            .read_array()
         ).reshape(2, 3)
-        assert np.all(np.isnan(plane[:, 0])), f"the new column must be NaN with no no-data declared, got {plane[:, 0]}"
+        assert np.all(np.isnan(plane[:, 0])), (
+            f"the new column must be NaN with no no-data declared, got {plane[:, 0]}"
+        )
 
     def test_pad_grows_the_grid_and_shifts_the_origin_with_data(self):
         """A one-cell border on every side grows a 2x2 grid to 4x4, moves the origin north-west,
@@ -248,7 +289,9 @@ class TestPadSpatial:
         assert_allclose(plane[1:3, 1:3].ravel(), base_plane.ravel())
         border = np.ones((4, 4), dtype=bool)
         border[1:3, 1:3] = False
-        assert np.all(plane[border] == -9999.0), "the padded border must hold the no-data fill"
+        assert np.all(plane[border] == -9999.0), (
+            "the padded border must hold the no-data fill"
+        )
 
 
 class TestTranspose:
@@ -280,10 +323,16 @@ class TestTranspose:
 
     def test_ellipsis_in_the_middle_expands_to_the_unnamed_dims(self):
         """`...` between two named dims stands in for the band dimensions left unnamed, in order."""
-        out = _cube3([0, 1], [10, 20], [100, 200]).transpose("depth", ..., "time").get_variable("t")
+        out = (
+            _cube3([0, 1], [10, 20], [100, 200])
+            .transpose("depth", ..., "time")
+            .get_variable("t")
+        )
         assert out._band_dim_names == ("depth", "level", "time"), out._band_dim_names
         source = np.arange(8.0).reshape(2, 2, 2, 1, 1)
-        assert_allclose(out.read_array().ravel(), np.transpose(source, (2, 1, 0, 3, 4)).ravel())
+        assert_allclose(
+            out.read_array().ravel(), np.transpose(source, (2, 1, 0, 3, 4)).ravel()
+        )
 
     def test_single_band_transpose_is_a_no_op(self):
         """`transpose()` on a one-band-dimension variable leaves its axis and values untouched."""
@@ -300,12 +349,18 @@ class TestTranspose:
                 np.arange(4.0).reshape(2, 2, 1, 1),
                 geo_ref=GeoReference(geo=GEO, epsg=4326),
                 variable_name="v",
-                dims=ExtraDimensions(dims=[("time", [0.0, 1.0]), ("depth", [100.0, 200.0])]),
+                dims=ExtraDimensions(
+                    dims=[("time", [0.0, 1.0]), ("depth", [100.0, 200.0])]
+                ),
             )
             cube.set_variable("v", other.get_variable("v"))
             out = cube.transpose("level", ...)
-        assert out.get_variable("t")._band_dim_names == ("level", "time"), out.get_variable("t")._band_dim_names
-        assert out.get_variable("v")._band_dim_names == ("time", "depth"), out.get_variable("v")._band_dim_names
+        assert out.get_variable("t")._band_dim_names == ("level", "time"), (
+            out.get_variable("t")._band_dim_names
+        )
+        assert out.get_variable("v")._band_dim_names == ("time", "depth"), (
+            out.get_variable("v")._band_dim_names
+        )
 
 
 class TestTransposeOrderHelper:
@@ -314,12 +369,16 @@ class TestTransposeOrderHelper:
     def test_ellipsis_skips_a_named_dim_the_variable_lacks(self):
         """An explicit name absent from a variable is skipped while `...` expands to the dims it has."""
         order = _transpose_order(["time", "depth"], ("level", ...))
-        assert order == ["time", "depth"], f"the absent 'level' must be skipped, got {order}"
+        assert order == ["time", "depth"], (
+            f"the absent 'level' must be skipped, got {order}"
+        )
 
     def test_ellipsis_places_named_dims_around_the_expanded_rest(self):
         """Named dims keep their positions and `...` fills the gap with the unnamed dims, in order."""
         order = _transpose_order(["time", "level", "depth"], ("depth", ..., "time"))
-        assert order == ["depth", "level", "time"], f"the middle `...` must expand to 'level', got {order}"
+        assert order == ["depth", "level", "time"], (
+            f"the middle `...` must expand to 'level', got {order}"
+        )
 
     def test_spatial_axis_is_refused(self):
         """Naming a spatial axis is refused with the pinned-plane reason."""
@@ -402,4 +461,6 @@ class TestPadContainerAuxiliary:
         assert any("padded dimension" in m for m in messages), (
             f"the drop warning must name the padded dimension, got {messages}"
         )
-        assert "expver" not in out.variable_names, f"the spanning auxiliary must be dropped, got {out.variable_names}"
+        assert "expver" not in out.variable_names, (
+            f"the spanning auxiliary must be dropped, got {out.variable_names}"
+        )

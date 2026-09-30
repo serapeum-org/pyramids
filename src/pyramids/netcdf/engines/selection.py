@@ -34,13 +34,13 @@ from pyramids.base._utils import carry_band_packing
 from pyramids.base.crs import crs_equal, crs_spec, sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
-from pyramids.dataset.transform import GeoTransform
 from pyramids.dataset.engines.spatial import (
     _crop_seam_halves,
     _require_antimeridian_seam,
     _split_lon_bbox,
     _stitch_lon_halves,
 )
+from pyramids.dataset.transform import GeoTransform
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf._label_select import (
     FULL_FORMAT,
@@ -3035,7 +3035,9 @@ class Selection(_Engine["NetCDF"]):
         """
         nc = self._ds
         if mode != "constant":
-            raise ValueError(f"pad() supports only mode='constant' for now, got {mode!r}.")
+            raise ValueError(
+                f"pad() supports only mode='constant' for now, got {mode!r}."
+            )
         if not pad_width:
             raise ValueError(
                 "pad() needs at least one dimension, e.g. pad(time=(1, 2)) or pad(x=3)."
@@ -4688,7 +4690,9 @@ def _pad_spatial(
     is_x = dim.lower() in {name.lower() for name in X_AXIS_NAMES}
 
     def _fn(var: NetCDF) -> tuple:
-        arr = np.asarray(nc._materialize_variable_array(var, lazy=True), dtype="float64")
+        arr = np.asarray(
+            nc._materialize_variable_array(var, lazy=True), dtype="float64"
+        )
         ndv = _read_no_data(var)
         no_data: Any = np.nan if ndv is None else ndv
         fill = no_data if constant_values is None else constant_values
@@ -4767,9 +4771,13 @@ def _validate_transpose_dims(nc: NetCDF, dims: tuple) -> None:
     explicit = [d for d in dims if d is not Ellipsis]
     for d in explicit:
         if not isinstance(d, str):
-            raise ValueError(f"transpose() dimensions must be strings or ..., got {d!r}.")
+            raise ValueError(
+                f"transpose() dimensions must be strings or ..., got {d!r}."
+            )
     band = set(_band_dims_of(nc))
-    spatial = [d for d in explicit if d.lower() in _SPATIAL_AXIS_NAMES and d not in band]
+    spatial = [
+        d for d in explicit if d.lower() in _SPATIAL_AXIS_NAMES and d not in band
+    ]
     if spatial:
         raise ValueError(
             f"transpose() reorders only band (non-spatial) dimensions; {spatial!r} is/are spatial "
