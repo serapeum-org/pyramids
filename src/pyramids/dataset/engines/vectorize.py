@@ -497,8 +497,7 @@ class Vectorize(_Engine["Dataset"]):
             df.replace(sentinel, np.nan, inplace=True)
         # Drop on band 0 only so the surviving rows match the band-0 geometry (see the tiled
         # path); a per-band no-data footprint otherwise crashes the geometry zip.
-        df.dropna(axis=0, subset=[band_names[0]], inplace=True, ignore_index=True)
-        return df
+        return df.dropna(axis=0, subset=[band_names[0]], ignore_index=True)
 
     @staticmethod
     def _relabel_crs(gdf: gpd.GeoDataFrame, crs: Any) -> gpd.GeoDataFrame:
