@@ -7700,7 +7700,7 @@ equivalent.</p>
 <a id="__codelineno-0-594" name="__codelineno-0-594"></a><span class="sd">            - Get the coordinates of the center of cells inside the domain.</span>
 <a id="__codelineno-0-595" name="__codelineno-0-595"></a>
 <a id="__codelineno-0-596" name="__codelineno-0-596"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-597" name="__codelineno-0-597"></a><span class="sd">              &gt;&gt;&gt; gdf = dataset.to_geodataframe(geometry="polygon", values=False)</span>
+<a id="__codelineno-0-597" name="__codelineno-0-597"></a><span class="sd">              &gt;&gt;&gt; gdf = dataset.cell._cell_polygons()</span>
 <a id="__codelineno-0-598" name="__codelineno-0-598"></a><span class="sd">              &gt;&gt;&gt; print(gdf)  # doctest: +NORMALIZE_WHITESPACE</span>
 <a id="__codelineno-0-599" name="__codelineno-0-599"></a><span class="sd">                                                     geometry  id</span>
 <a id="__codelineno-0-600" name="__codelineno-0-600"></a><span class="sd">              0  POLYGON ((0 0, 0.05 0, 0.05 -0.05, 0 -0.05, 0 0))   0</span>
@@ -7791,7 +7791,7 @@ equivalent.</p>
 <a id="__codelineno-0-685" name="__codelineno-0-685"></a><span class="sd">            - Get the coordinates of the center of cells inside the domain.</span>
 <a id="__codelineno-0-686" name="__codelineno-0-686"></a>
 <a id="__codelineno-0-687" name="__codelineno-0-687"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-688" name="__codelineno-0-688"></a><span class="sd">              &gt;&gt;&gt; gdf = dataset.to_geodataframe(geometry="point", values=False)</span>
+<a id="__codelineno-0-688" name="__codelineno-0-688"></a><span class="sd">              &gt;&gt;&gt; gdf = dataset.cell._cell_points()</span>
 <a id="__codelineno-0-689" name="__codelineno-0-689"></a><span class="sd">              &gt;&gt;&gt; print(gdf)</span>
 <a id="__codelineno-0-690" name="__codelineno-0-690"></a><span class="sd">                             geometry  id</span>
 <a id="__codelineno-0-691" name="__codelineno-0-691"></a><span class="sd">              0  POINT (0.025 -0.025)   0</span>
@@ -7814,7 +7814,7 @@ equivalent.</p>
 <a id="__codelineno-0-708" name="__codelineno-0-708"></a><span class="sd">            - Get the coordinates of the top left corner of cells inside the domain.</span>
 <a id="__codelineno-0-709" name="__codelineno-0-709"></a>
 <a id="__codelineno-0-710" name="__codelineno-0-710"></a><span class="sd">              ```python</span>
-<a id="__codelineno-0-711" name="__codelineno-0-711"></a><span class="sd">              &gt;&gt;&gt; gdf = dataset.to_geodataframe(geometry="point", location="corner", values=False)</span>
+<a id="__codelineno-0-711" name="__codelineno-0-711"></a><span class="sd">              &gt;&gt;&gt; gdf = dataset.cell._cell_points(location="corner")</span>
 <a id="__codelineno-0-712" name="__codelineno-0-712"></a><span class="sd">              &gt;&gt;&gt; print(gdf)  # doctest: +NORMALIZE_WHITESPACE</span>
 <a id="__codelineno-0-713" name="__codelineno-0-713"></a><span class="sd">                          geometry  id</span>
 <a id="__codelineno-0-714" name="__codelineno-0-714"></a><span class="sd">              0         POINT (0 0)   0</span>
