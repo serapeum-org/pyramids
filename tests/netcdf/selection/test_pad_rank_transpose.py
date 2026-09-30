@@ -158,7 +158,9 @@ class TestPadBand:
         """Padding before the axis prepends no-data cells and a NaN stamp."""
         out = _var([0, 1], [1.0, 2.0], no_data_value=-9999.0).pad(time=(1, 0))
         assert_allclose(out.read_array().ravel(), [-9999.0, 1.0, 2.0])
-        assert np.isnan(out._band_dim_values_map["time"][0]), "the prepended stamp must be NaN"
+        assert np.isnan(out._band_dim_values_map["time"][0]), (
+            "the prepended stamp must be NaN"
+        )
         assert out._band_dim_values_map["time"][1:] == [0.0, 1.0]
 
     def test_constant_values_fills_that_value(self):
