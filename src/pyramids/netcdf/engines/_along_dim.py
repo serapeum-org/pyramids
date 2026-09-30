@@ -1602,43 +1602,45 @@ def _apply_per_variable(
     """
     if _reduces_as_a_variable(nc):
         values, band_names, values_map, ndv, geo = fn(nc)
-        return _variable_from_applied(
+        out: NetCDF = _variable_from_applied(
             nc, _Applied(values, band_names, values_map, ndv), geotransform=geo
         )
-    if not nc.variable_names:
-        raise ValueError(f"Cannot {caller} an empty container (no data variables).")
-    rg = nc._working_group()
-    spatial_vars = nc._spatial_variable_names(rg)
-    aux_vars = nc._carryable_aux_names(rg, spatial_vars)
-    result: NetCDF | None = None
-    grid: tuple | None = None
-    time_attrs: dict[str, tuple[str, str]] = {}
-    for var_name in spatial_vars:
-        var = nc._require_raster_variable(var_name)
-        values, band_names, values_map, ndv, geo = fn(var)
-        grid = geo if grid is None else grid
-        result = nc._stack_reduced_variable(
-            result,
-            var_name,
-            values,
-            geo,
-            crs_spec(var.epsg, var.crs),
-            ndv,
-            band_names,
-            values_map,
-            source=var,
-        )
-        time_attrs.update(
-            {
-                name: attrs
-                for name, attrs in var._resolved_band_dim_time_attrs().items()
-                if name in band_names
-            }
-        )
-    _stamped(cast("NetCDF", result), cast(tuple, grid))
-    cast("NetCDF", result)._band_dim_time_attrs = time_attrs
-    _carry_auxiliaries(nc, cast("NetCDF", result), rg, aux_vars, list(dropped), caller)
-    return cast("NetCDF", result)
+    else:
+        if not nc.variable_names:
+            raise ValueError(f"Cannot {caller} an empty container (no data variables).")
+        rg = nc._working_group()
+        spatial_vars = nc._spatial_variable_names(rg)
+        aux_vars = nc._carryable_aux_names(rg, spatial_vars)
+        result: NetCDF | None = None
+        grid: tuple | None = None
+        time_attrs: dict[str, tuple[str, str]] = {}
+        for var_name in spatial_vars:
+            var = nc._require_raster_variable(var_name)
+            values, band_names, values_map, ndv, geo = fn(var)
+            grid = geo if grid is None else grid
+            result = nc._stack_reduced_variable(
+                result,
+                var_name,
+                values,
+                geo,
+                crs_spec(var.epsg, var.crs),
+                ndv,
+                band_names,
+                values_map,
+                source=var,
+            )
+            time_attrs.update(
+                {
+                    name: attrs
+                    for name, attrs in var._resolved_band_dim_time_attrs().items()
+                    if name in band_names
+                }
+            )
+        _stamped(cast("NetCDF", result), cast(tuple, grid))
+        cast("NetCDF", result)._band_dim_time_attrs = time_attrs
+        _carry_auxiliaries(nc, cast("NetCDF", result), rg, aux_vars, list(dropped), caller)
+        out = cast("NetCDF", result)
+    return out
 
 
 def _carry_auxiliaries(

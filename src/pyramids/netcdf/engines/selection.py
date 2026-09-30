@@ -2973,8 +2973,10 @@ class Selection(_Engine["NetCDF"]):
         nc = self._ds
         op = _Rank(pct=pct)
         if _reduces_as_a_variable(nc):
-            return _apply_to_variable(nc, dim, op)
-        return _apply_to_container(nc, dim, op)
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
 
     def pad(
         self,
@@ -4722,24 +4724,25 @@ def _transpose_order(band_names: list[str], dims: tuple) -> list[str]:
     Raises:
         ValueError: `dims` has no `...` and does not name every band dimension.
     """
-    if not dims:
-        return list(reversed(band_names))
     present = [d for d in dims if d is not Ellipsis and d in band_names]
-    if Ellipsis in dims:
+    if not dims:
+        order: list[str] = list(reversed(band_names))
+    elif Ellipsis in dims:
         rest = [name for name in band_names if name not in present]
-        order: list[str] = []
+        order = []
         for d in dims:
             if d is Ellipsis:
                 order.extend(rest)
             elif d in band_names:
                 order.append(d)
-        return order
-    if set(present) != set(band_names):
+    elif set(present) != set(band_names):
         raise ValueError(
             f"transpose() must name every band dimension {sorted(band_names)} (or use ...); "
             f"got {[d for d in dims if d is not Ellipsis]!r}."
         )
-    return present
+    else:
+        order = present
+    return order
 
 
 def _validate_transpose_dims(nc: NetCDF, dims: tuple) -> None:
