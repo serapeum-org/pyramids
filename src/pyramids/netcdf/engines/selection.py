@@ -2990,7 +2990,9 @@ class Selection(_Engine["NetCDF"]):
         grid and **moves the geotransform** with the data (the padded corner becomes the new
         origin), so the result stays correctly georeferenced. Only `mode="constant"` is supported;
         the fill is `constant_values` when given, otherwise the variable's no-data value (NaN when
-        it declares none). Mirrors the constant case of `xarray.Dataset.pad`.
+        it declares none). Mirrors the constant case of `xarray.Dataset.pad`, except that on a
+        container an auxiliary variable spanning a padded **band** dimension is dropped with a
+        warning (xarray would extend it) rather than left at an inconsistent length.
 
         Works on a container (every variable that has the dimension) and on a single variable.
 

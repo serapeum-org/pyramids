@@ -90,18 +90,22 @@ class _AlongDim(ABC):
         keeps_length: Whether the dimension keeps its length. A container's auxiliary variable
             spanning a dimension that keeps its length is carried over unchanged; one spanning a
             dimension that changes length is dropped with a warning.
+        change_noun: How that drop-warning names the length change, as in
+            `"…span the <change_noun> dimension …"`. Length-shortening ops leave it `"reduced"`;
+            `pad` extends the dimension, so it overrides this with `"padded"`.
     """
 
-    # One contract, declared three ways for reasons outside it. `verb` and `keeps_length` are
-    # class constants, so they are `ClassVar`: an unannotated assignment is invisible to
-    # `dataclass`, and annotating one without `ClassVar` would turn it into a constructor
-    # argument. `caller` is a plain field because two operations take it as one — `_Extremum`
-    # serves four members — and mypy refuses a field that overrides a `ClassVar`. `_Reduction`
-    # and `_Diff` answer `keeps_length` from their own state, so they override it with a
-    # property and carry the `override` waiver that needs.
+    # One contract, declared three ways for reasons outside it. `verb`, `keeps_length` and
+    # `change_noun` are class constants, so they are `ClassVar`: an unannotated assignment is
+    # invisible to `dataclass`, and annotating one without `ClassVar` would turn it into a
+    # constructor argument. `caller` is a plain field because two operations take it as one —
+    # `_Extremum` serves four members — and mypy refuses a field that overrides a `ClassVar`.
+    # `_Reduction` and `_Diff` answer `keeps_length` from their own state, so they override it
+    # with a property and carry the `override` waiver that needs.
     caller: str = ""
     verb: ClassVar[str] = ""
     keeps_length: ClassVar[bool] = False
+    change_noun: ClassVar[str] = "reduced"
 
     def start(self) -> None:
         """Work out what waits for the receiver to pass its own checks. Nothing, by default."""
@@ -1004,6 +1008,7 @@ class _Pad(_AlongDim):
     caller: str = "pad"
     verb: ClassVar[str] = "pad"
     keeps_length: ClassVar[bool] = False
+    change_noun: ClassVar[str] = "padded"
 
     def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
         """Pad one variable along `dim`.
@@ -1562,6 +1567,7 @@ def _apply_to_container(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
         aux_vars,
         [] if op.keeps_length else [dim],
         op.caller,
+        op.change_noun,
     )
     return cast("NetCDF", result)
 
@@ -1642,11 +1648,12 @@ def _carry_auxiliaries(
     aux_vars: list[str],
     removed: list[str],
     caller: str,
+    noun: str = "reduced",
 ) -> None:
     """Carry a container's auxiliary variables onto `result`, dropping those that cannot come.
 
-    An auxiliary variable spanning a dimension the operation removed or shortened cannot be
-    carried verbatim — it would keep the full-length axis while the gridded variables lose it,
+    An auxiliary variable spanning a dimension the operation changed in length cannot be carried
+    verbatim — it would keep the full-length axis while the gridded variables take the new one,
     leaving an inconsistent dimension length — so it is dropped with a warning. Every other
     auxiliary variable is carried unchanged.
 
@@ -1657,9 +1664,11 @@ def _carry_auxiliaries(
         aux_vars: The carryable auxiliary variable names.
         removed: The dimensions whose length the operation changed; empty when it changed none.
         caller: The member the user called, named in the warnings.
+        noun: How the drop-warning names the length change — `"reduced"` for a shortening op,
+            `"padded"` for `pad`, which extends the dimension.
 
     Warns:
-        UserWarning: An auxiliary variable spans a removed dimension and is dropped, or one
+        UserWarning: An auxiliary variable spans a changed dimension and is dropped, or one
             that is kept cannot be copied over.
     """
     carry_aux: list[str] = []
@@ -1672,7 +1681,7 @@ def _carry_auxiliaries(
         named = repr(removed[0]) if len(removed) == 1 else str(removed)
         warnings.warn(
             f"{caller}() dropped auxiliary variable(s) {spanning_aux} that span "
-            f"the reduced dimension {named}; carrying them unchanged would "
+            f"the {noun} dimension {named}; carrying them unchanged would "
             f"leave an inconsistent {named} length in the result.",
             # Whoever called in, however deep: the members are reachable both through the
             # one-line `NetCDF` facade and directly on the engine.
