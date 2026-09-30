@@ -66,7 +66,7 @@ Round-trip vectors and rasters:
 from pyramids.dataset import Dataset
 
 raster = Dataset.from_features(fc, cell_size=200)  # rasterize the polygons onto a grid
-polys  = raster.to_feature_collection()            # vectorize a raster back to polygons
+polys  = raster.to_geodataframe()            # vectorize a raster back to polygons
 ```
 
 ## NetCDF / CF datacubes
@@ -112,7 +112,7 @@ cube.to_zarr("cube.zarr")  # parallel, chunked write
 | Mosaic tiles / stack bands | `pyramids.dataset.merge.merge_rasters(...)` / `stack_bands(...)` |
 | Write GeoTIFF / COG | `ds.to_file(p)` · `ds.to_cog(p)` |
 | Zonal statistics | `ds.zonal_stats(feature_collection)` |
-| Rasterize / vectorize | `Dataset.from_features(fc, ...)` · `ds.to_feature_collection()` |
+| Rasterize / vectorize | `Dataset.from_features(fc, ...)` · `ds.to_geodataframe()` |
 | Read from S3 / GS / Azure | `Dataset.read_file("s3://bucket/key.tif")` |
 | Lazy / Dask-backed read | `ds.read_array(chunks="auto")` |
 | Read from a web service | `Dataset.from_wcs(...)` · `Dataset.from_wms(...)` · `FeatureCollection.from_wfs(...)` |

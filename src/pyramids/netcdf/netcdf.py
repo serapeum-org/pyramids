@@ -4910,10 +4910,10 @@ class NetCDF(Dataset):
         self._check_not_container("to_cog")
         return super().to_cog(*args, **kwargs)
 
-    def to_feature_collection(self, *args, **kwargs):  # type: ignore[override]
-        """Container-guarded facade for `Dataset.to_feature_collection`."""
-        self._check_not_container("to_feature_collection")
-        return super().to_feature_collection(*args, **kwargs)
+    def to_geodataframe(self, *args, **kwargs):  # type: ignore[override]
+        """Container-guarded facade for `Dataset.to_geodataframe`."""
+        self._check_not_container("to_geodataframe")
+        return super().to_geodataframe(*args, **kwargs)
 
     def zonal_stats(self, *args, **kwargs):  # type: ignore[override]
         """Container-guarded facade for `Dataset.zonal_stats`."""

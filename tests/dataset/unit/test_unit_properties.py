@@ -763,14 +763,18 @@ class TestCellGeometryMethods:
         """get_cell_points should return a GeoDataFrame with Point geometry."""
         import geopandas as gpd
 
-        gdf = single_band_dataset.get_cell_points(location="center")
+        gdf = single_band_dataset.to_geodataframe(
+            geometry="point", location="center", values=False
+        )
         assert isinstance(gdf, gpd.GeoDataFrame), "Should return GeoDataFrame"
         assert len(gdf) == 9, f"Expected 9 points, got {len(gdf)}"
         assert "id" in gdf.columns, "GeoDataFrame should have 'id' column"
 
     def test_get_cell_points_corner(self, single_band_dataset):
         """get_cell_points with corner should return corner coordinates."""
-        gdf = single_band_dataset.get_cell_points(location="corner")
+        gdf = single_band_dataset.to_geodataframe(
+            geometry="point", location="corner", values=False
+        )
         first_point = gdf.geometry.iloc[0]
         assert np.isclose(first_point.x, 0.0, atol=1e-6), (
             "First corner point x should be 0.0"
@@ -780,7 +784,7 @@ class TestCellGeometryMethods:
         """get_cell_polygons should return polygons covering each cell."""
         import geopandas as gpd
 
-        gdf = single_band_dataset.get_cell_polygons()
+        gdf = single_band_dataset.to_geodataframe(geometry="polygon", values=False)
         assert isinstance(gdf, gpd.GeoDataFrame), "Should return GeoDataFrame"
         assert len(gdf) == 9, f"Expected 9 polygons, got {len(gdf)}"
         poly = gdf.geometry.iloc[0]
@@ -794,7 +798,9 @@ class TestCellGeometryMethods:
         """With mask=True, only domain cells should get polygons."""
         import geopandas as gpd
 
-        gdf = dataset_with_nodata.get_cell_polygons(domain_only=True)
+        gdf = dataset_with_nodata.to_geodataframe(
+            geometry="polygon", values=False, dropna=True
+        )
         assert isinstance(gdf, gpd.GeoDataFrame), "Should return GeoDataFrame"
         assert len(gdf) == 4, f"Expected 4 polygons for domain cells, got {len(gdf)}"
 
@@ -823,7 +829,7 @@ class TestCellGeometryMethods:
             is None.
         """
         r = self._authority_less_raster()
-        gdf = r.get_cell_polygons()
+        gdf = r.to_geodataframe(geometry="polygon", values=False)
         assert gdf.crs is not None, "authority-less CRS must still label the frame"
         assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
         assert gdf.crs.equals(crs_from_user_input(self._ORTHO_PROJ4)), (
@@ -838,7 +844,7 @@ class TestCellGeometryMethods:
             code, instead of raising CRSError.
         """
         r = self._authority_less_raster()
-        gdf = r.get_cell_points()
+        gdf = r.to_geodataframe(geometry="point", values=False)
         assert gdf.crs is not None, "authority-less CRS must still label the frame"
         assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
         assert gdf.crs.equals(crs_from_user_input(self._ORTHO_PROJ4)), (
@@ -857,7 +863,7 @@ class TestCellGeometryMethods:
             arr,
             geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=None),
         )
-        gdf = ds.get_cell_polygons()
+        gdf = ds.to_geodataframe(geometry="polygon", values=False)
         assert gdf.crs is None, "a CRS-less raster must yield an unprojected frame"
         assert len(gdf) == 9, f"expected 9 polygons, got {len(gdf)}"
 
@@ -873,7 +879,7 @@ class TestCellGeometryMethods:
             arr,
             geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=None),
         )
-        gdf = ds.get_cell_points()
+        gdf = ds.to_geodataframe(geometry="point", values=False)
         assert gdf.crs is None, "a CRS-less raster must yield an unprojected frame"
         assert len(gdf) == 9, f"expected 9 points, got {len(gdf)}"
 
@@ -885,7 +891,7 @@ class TestCellGeometryMethods:
             still carries the source orthographic CRS, proving the masked path shares the fix.
         """
         r = self._authority_less_raster()
-        gdf = r.get_cell_polygons(domain_only=True)
+        gdf = r.to_geodataframe(geometry="polygon", values=False, dropna=True)
         assert gdf.crs is not None, "domain_only path must still label the frame"
         assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
         assert gdf.crs.equals(crs_from_user_input(self._ORTHO_PROJ4)), (
@@ -910,7 +916,7 @@ class TestCellGeometryMethods:
                 "pyproj resolves EPSG:10857 on this stack; the WKT-fallback branch "
                 "is not exercised here"
             )
-        gdf = ds.get_cell_polygons()
+        gdf = ds.to_geodataframe(geometry="polygon", values=False)
         assert gdf.crs is not None, "a GDAL-only code must still label the frame"
         assert gdf.crs.equals(crs_from_user_input(10857)), (
             "cell polygons must carry the CRS the GDAL-only code resolves to"
@@ -924,7 +930,7 @@ class TestCellGeometryMethods:
             orthographic CRS, mirroring the polygon masked-path check.
         """
         r = self._authority_less_raster()
-        gdf = r.get_cell_points(domain_only=True)
+        gdf = r.to_geodataframe(geometry="point", values=False, dropna=True)
         assert gdf.crs is not None, "domain_only path must still label the frame"
         assert gdf.crs.to_epsg() is None, "authority-less CRS has no EPSG code"
         assert gdf.crs.equals(crs_from_user_input(self._ORTHO_PROJ4)), (
@@ -948,7 +954,7 @@ class TestCellGeometryMethods:
                 "pyproj resolves EPSG:10857 on this stack; the WKT-fallback branch "
                 "is not exercised here"
             )
-        gdf = ds.get_cell_points()
+        gdf = ds.to_geodataframe(geometry="point", values=False)
         assert gdf.crs is not None, "a GDAL-only code must still label the frame"
         assert gdf.crs.equals(crs_from_user_input(10857)), (
             "cell points must carry the CRS the GDAL-only code resolves to"

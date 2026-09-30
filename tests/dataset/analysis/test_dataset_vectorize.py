@@ -1,4 +1,4 @@
-"""Integration tests for Dataset vectorization: to_feature_collection, extract, footprint."""
+"""Integration tests for Dataset vectorization: to_geodataframe, extract, footprint."""
 
 from typing import List
 
@@ -32,7 +32,7 @@ class TestToFeatureCollection:
                 top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
             ),
         )
-        df = dataset.to_feature_collection(tile=True, tile_size=1, add_geometry="point")
+        df = dataset.to_geodataframe(tile=True, tile_size=1, geometry="point")
         # compare extracted data with original data from arr
         np.testing.assert_array_equal(
             df.loc[:, "Band_1"].values, arr.reshape(df.shape[0])
@@ -51,7 +51,7 @@ class TestToFeatureCollection:
             raster_to_df_arr: array for comparison
             """
             src = Dataset(raster_1band_coello_gdal_dataset)
-            gdf = src.to_feature_collection(add_geometry="Point")
+            gdf = src.to_geodataframe(geometry="Point")
             assert isinstance(gdf, GeoDataFrame)
             rows, cols = raster_to_df_arr.shape
             # get values and reshape arrays for comparison
@@ -67,7 +67,7 @@ class TestToFeatureCollection:
         ):
             """the input raster is given as a string path on disk."""
             dataset = Dataset(era5_image)
-            gdf = dataset.to_feature_collection(add_geometry="Point")
+            gdf = dataset.to_geodataframe(geometry="Point")
             assert isinstance(gdf, GeoDataFrame)
             assert gdf.equals(era5_image_gdf), (
                 "the extracted values in the dataframe does not equa the real "
@@ -86,7 +86,7 @@ class TestToFeatureCollection:
             raster_to_df_arr: array for comparison
             """
             dataset = Dataset(raster_to_df_dataset_with_cropped_cell)
-            gdf = dataset.to_feature_collection(add_geometry="Point")
+            gdf = dataset.to_geodataframe(geometry="Point")
             assert isinstance(gdf, GeoDataFrame)
             # rows, cols = raster_to_df_arr.shape
             # get values and reshape arrays for comparison
@@ -120,12 +120,12 @@ class TestToFeatureCollection:
             rasterized_mask_values: array for comparison
             """
             dataset = Dataset(raster_1band_coello_gdal_dataset)
-            gdf = dataset.to_feature_collection(
-                polygon_corner_coello_gdf, add_geometry="Point", touch=False
+            gdf = dataset.to_geodataframe(
+                mask=polygon_corner_coello_gdf, geometry="Point", touch=False
             )
 
-            poly_gdf = dataset.to_feature_collection(
-                polygon_corner_coello_gdf, add_geometry="Polygon", touch=False
+            poly_gdf = dataset.to_geodataframe(
+                mask=polygon_corner_coello_gdf, geometry="Polygon", touch=False
             )
             assert isinstance(gdf, GeoDataFrame)
             assert isinstance(poly_gdf, GeoDataFrame)
@@ -152,11 +152,11 @@ class TestToFeatureCollection:
             rasterized_mask_values: array for comparison
             """
             dataset = Dataset(raster_1band_coello_gdal_dataset)
-            gdf = dataset.to_feature_collection(
-                coello_irregular_polygon_gdf, add_geometry="Point", touch=False
+            gdf = dataset.to_geodataframe(
+                mask=coello_irregular_polygon_gdf, geometry="Point", touch=False
             )
-            poly_gdf = dataset.to_feature_collection(
-                coello_irregular_polygon_gdf, add_geometry="Polygon", touch=False
+            poly_gdf = dataset.to_geodataframe(
+                mask=coello_irregular_polygon_gdf, geometry="Polygon", touch=False
             )
             assert isinstance(gdf, GeoDataFrame)
             assert isinstance(poly_gdf, GeoDataFrame)
@@ -569,10 +569,8 @@ class TestToFeatureCollectionMaskTiling:
             non-tiled branch produced 16 — and the geometry attached afterwards
             came from the cropped extent, so values and geometry disagreed.
         """
-        tiled = masked_dataset.to_feature_collection(
-            mask=box_mask, tile=True, tile_size=4
-        )
-        untiled = masked_dataset.to_feature_collection(mask=box_mask, tile=False)
+        tiled = masked_dataset.to_geodataframe(mask=box_mask, tile=True, tile_size=4)
+        untiled = masked_dataset.to_geodataframe(mask=box_mask, tile=False)
         assert len(tiled) == len(untiled), (
             f"tiled returned {len(tiled)} rows, non-tiled {len(untiled)}; the mask "
             "must apply to both paths"
@@ -591,7 +589,7 @@ class TestToFeatureCollectionMaskTiling:
             through the (possibly uncropped) source must not start dropping
             cells when no mask was given.
         """
-        tiled = masked_dataset.to_feature_collection(tile=True, tile_size=4)
+        tiled = masked_dataset.to_geodataframe(tile=True, tile_size=4)
         assert len(tiled) == 100, f"expected all 100 cells, got {len(tiled)}"
 
 
@@ -708,24 +706,22 @@ class TestTiledRowOrder:
             each tile -- against the untiled path's row-major, so the two
             frames held the same values in a different order.
         """
-        untiled = uneven.to_feature_collection(tile=False)
-        tiled = uneven.to_feature_collection(tile=True, tile_size=8)
+        untiled = uneven.to_geodataframe(tile=False)
+        tiled = uneven.to_geodataframe(tile=True, tile_size=8)
         pd.testing.assert_frame_equal(
             untiled.reset_index(drop=True), tiled.reset_index(drop=True)
         )
 
     def test_geometry_pairs_with_the_right_value_when_tiled(self, uneven):
-        """`tile=True` with `add_geometry` no longer mis-georeferences rows.
+        """`tile=True` with a `geometry` no longer mis-georeferences rows.
 
         Test scenario:
-            `to_feature_collection` zips values and geometry positionally, and
+            `to_geodataframe` zips values and geometry positionally, and
             the geometry is built row-major, so tile-major values landed on the
             wrong cells whenever the raster spanned more than one tile.
         """
-        untiled = uneven.to_feature_collection(tile=False, add_geometry="point")
-        tiled = uneven.to_feature_collection(
-            tile=True, tile_size=8, add_geometry="point"
-        )
+        untiled = uneven.to_geodataframe(tile=False, geometry="point")
+        tiled = uneven.to_geodataframe(tile=True, tile_size=8, geometry="point")
         assert untiled.geometry.equals(tiled.geometry), (
             "the same cell must carry the same point on both paths"
         )
@@ -736,15 +732,15 @@ class TestTiledRowOrder:
 
     def test_a_single_tile_covering_the_raster_is_unchanged(self, uneven):
         """A tile larger than the raster is the untiled path by another name."""
-        untiled = uneven.to_feature_collection(tile=False)
-        one_tile = uneven.to_feature_collection(tile=True, tile_size=512)
+        untiled = uneven.to_geodataframe(tile=False)
+        one_tile = uneven.to_geodataframe(tile=True, tile_size=512)
         pd.testing.assert_frame_equal(
             untiled.reset_index(drop=True), one_tile.reset_index(drop=True)
         )
 
     def test_no_data_cells_are_dropped_on_both_paths(self, uneven):
         """The two no-data cells are absent from both frames."""
-        tiled = uneven.to_feature_collection(tile=True, tile_size=8)
+        tiled = uneven.to_geodataframe(tile=True, tile_size=8)
         assert len(tiled) == 37 * 53 - 2, (
             f"expected the two no-data cells dropped, got {len(tiled)} rows"
         )
@@ -761,7 +757,7 @@ class TestTiledRowOrder:
         """
         full_spy = mocker.spy(Vectorize, "_extract_values_full")
         tiled_spy = mocker.spy(Vectorize, "_extract_values_tiled")
-        uneven.to_feature_collection()
+        uneven.to_geodataframe()
         assert full_spy.call_count == 1, "small raster should read the whole array"
         assert tiled_spy.call_count == 0, "small raster should not tile"
 
@@ -777,9 +773,9 @@ class TestTiledRowOrder:
         """
         monkeypatch.setattr("pyramids.dataset.engines.vectorize._AUTO_TILE_BYTES", 1)
         tiled_spy = mocker.spy(Vectorize, "_extract_values_tiled")
-        auto = uneven.to_feature_collection(tile_size=8)
+        auto = uneven.to_geodataframe(tile_size=8)
         assert tiled_spy.call_count == 1, "large raster should tile"
-        untiled = uneven.to_feature_collection(tile=False)
+        untiled = uneven.to_geodataframe(tile=False)
         pd.testing.assert_frame_equal(
             auto.reset_index(drop=True), untiled.reset_index(drop=True)
         )
@@ -796,6 +792,6 @@ class TestTiledRowOrder:
         monkeypatch.setattr("pyramids.dataset.engines.vectorize._AUTO_TILE_BYTES", 1)
         full_spy = mocker.spy(Vectorize, "_extract_values_full")
         tiled_spy = mocker.spy(Vectorize, "_extract_values_tiled")
-        uneven.to_feature_collection(tile=False)
+        uneven.to_geodataframe(tile=False)
         assert full_spy.call_count == 1, "explicit tile=False must read the whole array"
         assert tiled_spy.call_count == 0, "explicit tile=False must not tile"

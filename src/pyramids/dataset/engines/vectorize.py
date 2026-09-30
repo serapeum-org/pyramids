@@ -18,7 +18,6 @@ import pandas as pd
 from geopandas.geodataframe import GeoDataFrame
 from hpc.indexing import get_pixels
 from osgeo import gdal, ogr
-from pandas import DataFrame
 
 from pyramids.base._domain import is_no_data
 from pyramids.base._utils import gdal_to_ogr_dtype
@@ -57,7 +56,7 @@ _NEIGHBOUR_OFFSETS: tuple[tuple[int, int], ...] = (
 # out of order can be restored to row-major before the frame is returned.
 _CELL_ORDER = "_pyramids_cell_order"
 
-# When `to_feature_collection(tile=None)` auto-selects, read the whole array only if
+# When `to_geodataframe(tile=None)` auto-selects, read the whole array only if
 # it is at most this many bytes; a larger raster is read tile by tile so the full-band
 # ndarray is never allocated (#969) -- the resulting DataFrame still scales with the
 # surviving non-no-data cells. 256 MiB keeps the fast whole-array path for everyday
@@ -216,224 +215,150 @@ class Vectorize(_Engine["Dataset"]):
 
         return FeatureCollection(_feature_ogr.datasource_to_gdf(dst_ds))
 
-    def to_feature_collection(
+    def to_geodataframe(
         self,
+        *,
+        geometry: str = "point",
+        location: str = "center",
+        values: bool = True,
+        dropna: bool | None = None,
         mask: GeoDataFrame | None = None,
-        add_geometry: str | None = None,
+        touch: bool = True,
         tile: bool | None = None,
         tile_size: int = 256,
-        touch: bool = True,
-    ) -> DataFrame | GeoDataFrame:
-        """Convert a dataset to a vector.
+        crs: Any = None,
+    ) -> GeoDataFrame:
+        """Convert the raster to a `GeoDataFrame`, one row per cell.
 
-        The function does the following:
-            - Flatten the array in each band in the raster then mask the values if a mask is given
-                otherwise it will flatten all values.
-            - Put the values for each band in a column in a dataframe under the name of the raster band,
-                but if no meta-data in the raster band exists, an index number will be used [1, 2, 3, ...]
-            - The function has an add_geometry parameter with two possible values ["point", "polygon"], which you can
-                specify the type of shapely geometry you want to create from each cell,
-
-                - If point is chosen, the created point will be at the center of each cell
-                - If a polygon is chosen, a square polygon will be created that covers the entire cell.
-            - The values are physical, as `read_array` returns them: a CF-packed band (`scale_factor` /
-                `add_offset`) is unpacked. A row holding band 0's no-data sentinel is dropped, matched in those
-                same physical units (`-9999` at `scale=0.01` as `-99.99`), identically on the tiled and the
-                whole-array path.
+        Each cell becomes a row carrying a `geometry` column — a point at the cell centre
+        (or corner) or a polygon covering the cell — plus, when `values=True`, one column per
+        band (`Band_N`, or the band's name) holding its physical value. This is the vector/GIS
+        view of the raster; for the coordinate-keyed, invertible pandas frame use
+        :meth:`Dataset.to_dataframe`. Values are physical, as `read_array` returns them: a
+        CF-packed band (`scale_factor` / `add_offset`) is unpacked, and a cell holding band 0's
+        no-data sentinel is dropped, matched in those physical units, identically on the tiled
+        and whole-array paths.
 
         Args:
-            mask (GeoDataFrame, optional):
-                GeoDataFrame to clip the raster. If given, the raster will be cropped to the mask extent.
-            add_geometry (str):
-                "Polygon" or "Point" if you want to add a polygon geometry of the cells as column in dataframe.
-                Default is None.
-            tile (bool | None):
-                Whether to read the raster tile by tile rather than in one pass, which
-                bounds the peak allocation on a large raster. `None` (default)
-                auto-selects: the whole array is read when it is at most ~256 MiB, else
-                the raster is tiled so the full-band ndarray is never allocated (the
-                resulting DataFrame still scales with the surviving non-no-data cells).
-                Pass `True`/`False` to force the choice. The rows are the same cells in
-                the same row-major order either way -- `mask` included -- so it is a
-                memory/throughput trade, not a change of result, and `add_geometry` is
-                safe with either.
-            tile_size (int):
-                Tile size in cells, applied to both axes. Default is 256.
-            touch (bool):
-                Include the cells that touch the polygon not only those that lie entirely inside the polygon mask.
-                Default is True.
+            geometry: The cell geometry, `"point"` (default) or `"polygon"` (case-insensitive).
+            location: For `geometry="point"`, the point position — `"center"` (default) or
+                `"corner"` (the cell's top-left corner). Ignored for polygons.
+            values: Whether to attach the band values. `True` (default) adds one column per band
+                (physical units; a gap is dropped). `False` returns a geometry-only frame
+                (`geometry` + `id`) — the cell footprints alone.
+            dropna: Whether to drop no-data cells. `None` (default) drops them when `values=True`
+                (a value table cannot carry a gap) and keeps every cell when `values=False`;
+                pass `True`/`False` to force it for the geometry-only case.
+            mask: A `GeoDataFrame` to crop to before converting (with `values=True`). Cells are
+                selected by `touch`.
+            touch: With `mask`, include cells that merely touch the mask, not only those fully
+                inside it. Default `True`.
+            tile: Read the raster in tiles rather than in one pass, bounding peak memory on a
+                large raster (with `values=True`). `None` (default) auto-selects by array size;
+                the rows are identical either way. Ignored when `values=False`.
+            tile_size: Tile size in cells per axis (with `tile`). Default 256.
+            crs: Override the CRS label on the result. `None` (default) uses the raster's own.
 
         Returns:
-            DataFrame | GeoDataFrame:
-                The resulting frame will have the band value under the name of the band (if the raster file has
-                metadata; if not, the bands will be indexed from 1 to the number of bands).
+            geopandas.GeoDataFrame: One row per cell — a `geometry` column, plus `Band_N` value
+            columns (`values=True`) or an `id` column (`values=False`), in north-up row-major
+            order.
+
+        Raises:
+            ValueError: `geometry` is neither `"point"` nor `"polygon"`.
 
         Examples:
-            - Create a dataset from array with 2 bands and 3*3 array each:
+            - Cell centres carrying their band values:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.array([[1.0, 2.0], [3.0, 4.0]]),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+                ... )
+                >>> gdf = ds.to_geodataframe(geometry="point")
+                >>> gdf["Band_1"].tolist()
+                [1.0, 2.0, 3.0, 4.0]
+                >>> gdf.geometry.iloc[0].wkt
+                'POINT (0.5 1.5)'
 
-              ```python
-              >>> import numpy as np
-              >>> from pyramids.dataset import Dataset, GeoReference
-              >>> arr = np.random.rand(2, 3, 3)
-              >>> top_left_corner = (0, 0)
-              >>> cell_size = 0.05
-              >>> dataset = Dataset.from_array(
-              ...     arr,
-              ...     geo_ref=GeoReference(top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326),
-              ... )
-              >>> print(dataset.read_array(band=0)) # doctest: +SKIP
-              [[0.88625832 0.81804328 0.99372706]
-               [0.85333054 0.35448201 0.78079262]
-               [0.43887136 0.68166208 0.53170966]]
-              >>> print(dataset.read_array(band=1)) # doctest: +SKIP
-              [[0.07051872 0.67650833 0.17625027]
-               [0.41258071 0.38327938 0.18783139]
-               [0.83741314 0.70446373 0.64913575]]
+                ```
+            - Geometry only — the cell polygons, no values:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> ds = Dataset.from_array(
+                ...     np.array([[1.0, 2.0], [3.0, 4.0]]),
+                ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+                ... )
+                >>> gdf = ds.to_geodataframe(geometry="polygon", values=False)
+                >>> list(gdf.columns)
+                ['geometry', 'id']
+                >>> len(gdf)
+                4
 
-              ```
+                ```
+            - A CF-packed band gives physical values, and its gap is dropped:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> packed = Dataset.from_array(
+                ...     np.array([[100, -9999], [300, 400]], dtype="int16"),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
+                ...     no_data_value=-9999,
+                ... )
+                >>> packed.scale = [0.01]
+                >>> packed.to_geodataframe(geometry="point")["Band_1"].tolist()
+                [1.0, 3.0, 4.0]
 
-            - Convert the dataset to dataframe by calling the `to_feature_collection` method:
-
-              ```python
-              >>> df = dataset.to_feature_collection()
-              >>> list(df.columns)
-              ['Band_1', 'Band_2']
-              >>> len(df)  # one row per cell of the 3x3 grid
-              9
-              >>> print(df) # doctest: +SKIP
-                   Band_1    Band_2
-              0  0.886258  0.070519
-              1  0.818043  0.676508
-              2  0.993727  0.176250
-              3  0.853331  0.412581
-              4  0.354482  0.383279
-              5  0.780793  0.187831
-              6  0.438871  0.837413
-              7  0.681662  0.704464
-              8  0.531710  0.649136
-
-              ```
-
-            - Convert the dataset into geodataframe with either a polygon or a point geometry that represents each cell.
-                To specify the geometry type use the parameter `add_geometry`:
-
-                  ```python
-                  >>> gdf = dataset.to_feature_collection(add_geometry="point")
-                  >>> print(gdf) # doctest: +SKIP
-                       Band_1    Band_2                  geometry
-                  0  0.886258  0.070519  POINT (0.02500 -0.02500)
-                  1  0.818043  0.676508  POINT (0.07500 -0.02500)
-                  2  0.993727  0.176250  POINT (0.12500 -0.02500)
-                  3  0.853331  0.412581  POINT (0.02500 -0.07500)
-                  4  0.354482  0.383279  POINT (0.07500 -0.07500)
-                  5  0.780793  0.187831  POINT (0.12500 -0.07500)
-                  6  0.438871  0.837413  POINT (0.02500 -0.12500)
-                  7  0.681662  0.704464  POINT (0.07500 -0.12500)
-                  8  0.531710  0.649136  POINT (0.12500 -0.12500)
-                  >>> gdf = dataset.to_feature_collection(add_geometry="polygon")
-                  >>> print(gdf) # doctest: +SKIP
-                       Band_1    Band_2                                           geometry
-                  0  0.886258  0.070519  POLYGON ((0.00000 0.00000, 0.05000 0.00000, 0....
-                  1  0.818043  0.676508  POLYGON ((0.05000 0.00000, 0.10000 0.00000, 0....
-                  2  0.993727  0.176250  POLYGON ((0.10000 0.00000, 0.15000 0.00000, 0....
-                  3  0.853331  0.412581  POLYGON ((0.00000 -0.05000, 0.05000 -0.05000, ...
-                  4  0.354482  0.383279  POLYGON ((0.05000 -0.05000, 0.10000 -0.05000, ...
-                  5  0.780793  0.187831  POLYGON ((0.10000 -0.05000, 0.15000 -0.05000, ...
-                  6  0.438871  0.837413  POLYGON ((0.00000 -0.10000, 0.05000 -0.10000, ...
-                  7  0.681662  0.704464  POLYGON ((0.05000 -0.10000, 0.10000 -0.10000, ...
-                  8  0.531710  0.649136  POLYGON ((0.10000 -0.10000, 0.15000 -0.10000, ...
-
-                  ```
-
-            - Use a mask to crop part of the dataset, and then convert the cropped part to a dataframe/geodataframe:
-
-              - Create a mask that covers only the cell in the middle of the dataset.
-
-                  ```python
-                  >>> import geopandas as gpd
-                  >>> from shapely.geometry import Polygon
-                  >>> poly = gpd.GeoDataFrame(
-                  ...             geometry=[Polygon([(0.05, -0.05), (0.05, -0.1), (0.1, -0.1), (0.1, -0.05)])], crs=4326
-                  ... )
-                  >>> df = dataset.to_feature_collection(mask=poly)
-                  >>> print(df) # doctest: +SKIP
-                       Band_1    Band_2
-                  0  0.354482  0.383279
-
-                  ```
-
-            - If you have a big dataset, and you want to convert it to dataframe in tiles (do not read the whole dataset
-                at once but in tiles), you can use the `tile` and the `tile_size` parameters. The values will be the
-                same as above; the difference is reading in chunks:
-
-                  ```python
-                  >>> gdf = dataset.to_feature_collection(tile=True, tile_size=1)
-                  >>> print(gdf) # doctest: +SKIP
-                       Band_1    Band_2
-                  0  0.886258  0.070519
-                  1  0.818043  0.676508
-                  2  0.993727  0.176250
-                  3  0.853331  0.412581
-                  4  0.354482  0.383279
-                  5  0.780793  0.187831
-                  6  0.438871  0.837413
-                  7  0.681662  0.704464
-                  8  0.531710  0.649136
-
-                  ```
-
-            - A CF-packed band gives physical values, and its gap is dropped on both paths:
-
-                  ```python
-                  >>> import numpy as np
-                  >>> from pyramids.dataset import Dataset, GeoReference
-                  >>> packed = Dataset.from_array(
-                  ...     np.array([[100, -9999], [300, 400]], dtype="int16"),
-                  ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
-                  ...     no_data_value=-9999,
-                  ... )
-                  >>> packed.scale = [0.01]
-                  >>> packed.to_feature_collection()["Band_1"].tolist()
-                  [1.0, 3.0, 4.0]
-                  >>> packed.to_feature_collection(tile=True, tile_size=1)["Band_1"].tolist()
-                  [1.0, 3.0, 4.0]
-
-                  ```
-
+                ```
         """
-        band_names = self._ds.band_names
+        geom = geometry.lower()
+        if geom not in ("point", "polygon"):
+            raise ValueError(
+                f"to_geodataframe() got geometry={geometry!r}; expected 'point' or 'polygon'."
+            )
 
+        # Geometry-only: the cell footprints, no band values. `dropna` defaults to keeping
+        # every cell here (the old get_cell_points/get_cell_polygons behaviour).
+        if not values:
+            drop = False if dropna is None else dropna
+            if geom == "point":
+                gdf = self._ds.cell._cell_points(location=location, domain_only=drop)
+            else:
+                gdf = self._ds.cell._cell_polygons(domain_only=drop)
+            if crs is not None:
+                gdf = gdf.set_crs(crs, allow_override=True)
+            return gdf
+
+        band_names = self._ds.band_names
         if mask is not None:
             src_ds = self._ds.crop(mask=mask, touch=touch)
         else:
             src_ds = self._ds
 
-        # None auto-selects on the array's byte size: keep the fast whole-array read
-        # for everyday rasters, tile a large one so the full-band ndarray is never
-        # allocated (#969). The tiled path is byte-identical (same row-major rows), so
-        # this only trades memory for throughput. An explicit True/False overrides.
-        # Sum the per-band itemsizes rather than assuming band 0's dtype, so a
-        # mixed-dtype stack is estimated correctly.
+        # None auto-selects on the array's byte size: keep the fast whole-array read for
+        # everyday rasters, tile a large one so the full-band ndarray is never allocated
+        # (#969). The tiled path is byte-identical (same row-major rows), so this only trades
+        # memory for throughput. Sum the per-band itemsizes so a mixed-dtype stack is
+        # estimated correctly.
         if tile is None:
             bytes_per_cell = sum(np.dtype(dt).itemsize for dt in src_ds.dtype)
             full_bytes = src_ds.rows * src_ds.columns * bytes_per_cell
             tile = full_bytes > _AUTO_TILE_BYTES
 
-        # Both branches must read `src_ds` -- the cropped dataset when a mask was
-        # given. Reading `self` here silently discarded the mask, so a tiled call
-        # returned values for the whole raster while the geometry attached below
-        # came from the cropped extent.
+        # Both branches read `src_ds` -- the cropped dataset when a mask was given -- so the
+        # values and the geometry attached below come from the same extent.
         if tile:
             df = src_ds.vectorize._extract_values_tiled(band_names, tile_size)
         else:
             df = src_ds.vectorize._extract_values_full(band_names)
 
         df.drop(columns=["burn_value", "geometry"], errors="ignore", inplace=True)
-
-        if add_geometry:
-            df = self._attach_geometry(src_ds, df, add_geometry)
-
-        return df
+        gdf = self._attach_geometry(src_ds, df, geom, location)
+        if crs is not None:
+            gdf = gdf.set_crs(crs, allow_override=True)
+        return gdf
 
     def _extract_values_tiled(self, band_names: list, tile_size: int) -> pd.DataFrame:
         """Extract raster band values into a DataFrame using tiles.
@@ -442,7 +367,7 @@ class Vectorize(_Engine["Dataset"]):
         carried alongside its values and the result is sorted by it, so the row
         order matches `_extract_values_full` exactly. Without that, rows came
         out tile-major while the geometry `_attach_geometry` builds is
-        row-major, and `to_feature_collection` zips the two positionally --
+        row-major, and `to_geodataframe` zips the two positionally --
         `tile=True` with `add_geometry` silently mismatched values and geometry
         on any raster spanning more than one tile.
 
@@ -524,21 +449,24 @@ class Vectorize(_Engine["Dataset"]):
         return df
 
     @staticmethod
-    def _attach_geometry(src, df: pd.DataFrame, geometry_type: str) -> gpd.GeoDataFrame:
+    def _attach_geometry(
+        src, df: pd.DataFrame, geometry_type: str, location: str = "center"
+    ) -> gpd.GeoDataFrame:
         """Attach point or polygon geometry to a DataFrame.
 
         Args:
             src: The dataset to derive cell geometries from.
             df (pd.DataFrame): DataFrame with band values.
             geometry_type (str): "point" or "polygon".
+            location (str): For points, "center" or "corner". Ignored for polygons.
 
         Returns:
             gpd.GeoDataFrame: GeoDataFrame with geometry column.
         """
         if geometry_type.lower() == "point":
-            coords = src.get_cell_points(domain_only=True)
+            coords = src.cell._cell_points(location=location, domain_only=True)
         else:
-            coords = src.get_cell_polygons(domain_only=True)
+            coords = src.cell._cell_polygons(domain_only=True)
 
         gdf = gpd.GeoDataFrame(df.loc[:], geometry=coords["geometry"].to_list())
         # Carry the CRS object across rather than reducing it to an EPSG int:

@@ -13,7 +13,7 @@ flowchart LR
     DS --> ND["<b>no-data</b><br/>change_no_data_value · fill · get_mask"]
     DS --> MD["<b>missing data</b><br/>where · fillna · isnull · notnull<br/>equals · identical"]
     DS --> CW["<b>cell-wise</b><br/>clip · round · astype · isin"]
-    DS --> VE["<b>vectorize</b><br/>to_feature_collection · contour · sieve"]
+    DS --> VE["<b>vectorize</b><br/>to_geodataframe · contour · sieve"]
     DS --> VI["<b>visualize</b><br/>plot · plot_histogram · to_image<br/>color_table · create_overviews · preview"]
     DS --> WR["<b>write</b><br/>to_file — .tif · .nc · .asc<br/>to_cog · to_zarr · to_terrain_rgb"]
 ```
@@ -33,7 +33,7 @@ flowchart TB
     DS -->|ds.bands| BA["<b>Bands</b> · band_metadata.md<br/>attribute tables · colours<br/>add_band · change_no_data_value"]
     DS -->|ds.cell| CE["<b>Cell</b> · cell.md<br/>get_cell_coords/_polygons/_points<br/>cell_area · map ↔ array"]
     DS -->|ds.georef| GE["<b>Georef</b> · georef.md<br/>GCPs · RPCs · orthorectify<br/>set_gcps · georeference"]
-    DS -->|ds.vectorize| VE["<b>Vectorize</b> · vectorize.md<br/>contour · to_feature_collection<br/>cluster · translate"]
+    DS -->|ds.vectorize| VE["<b>Vectorize</b> · vectorize.md<br/>contour · to_geodataframe<br/>cluster · translate"]
     DS -->|ds.cog| CG["<b>COG</b> · cog/ section<br/>to_cog · validate_cog · info<br/>read_part · preview · read_tile"]
 ```
 
@@ -257,7 +257,7 @@ classDiagram
 
     %% Group: conversion to other data types
     class Conversion {
-        +to_feature_collection()
+        +to_geodataframe()
     }
     Dataset --> Conversion : «conversion»
 
@@ -354,7 +354,8 @@ with a single `values` column, and `from_dataframe()` rebuilds a raster from suc
 count/order, grid and CRS. Gaps come back as `NaN` (pass `no_data_value=ds.no_data_value[0]` to
 restore a specific sentinel and dtype). This is the *coordinate-keyed*, geometry-free view for
 pandas analytics; for a geometry-per-cell
-`GeoDataFrame` use [`get_cell_points`](cell.md) / `get_cell_polygons`, and to read values at
+`GeoDataFrame` (points or polygons, optionally with the band values) use
+[`to_geodataframe`](vectorize.md), and to read values at
 scattered points use [`sample` / `extract`](analysis.md). The band level is always present (a
 one-band raster carries band `0`); `df["values"].unstack("band")` gives the wide,
 one-column-per-band view.

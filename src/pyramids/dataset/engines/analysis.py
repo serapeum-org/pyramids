@@ -1175,7 +1175,7 @@ class Analysis(_Engine["Dataset"]):
         hand it to something that will do its own comparison against the physical
         array — cleopatra's `exclude_value` (`plot`, the collection and NetCDF
         animations), `get_pixels2` / `get_indices2`'s exclude lists (`extract`,
-        `overlay`), the feature table `to_feature_collection` drops rows from, an
+        `overlay`), the feature table `to_geodataframe` drops rows from, an
         ASCII header, the terrain-RGB encoder, the focal kernels' gap search, or the
         no-data a materialised Zarr store declares. Those need the same number the
         array actually holds.

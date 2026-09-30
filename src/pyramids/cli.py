@@ -660,7 +660,7 @@ def _cmd_shapes(args: argparse.Namespace) -> int:
             f"shapes emits one feature per cell ({cells:,} cells here), which can "
             f"exhaust memory; crop/downsample first, or pass --allow-large to proceed."
         )
-    gdf = ds.to_feature_collection(add_geometry=args.geometry)
+    gdf = ds.to_geodataframe(geometry=args.geometry)
     FeatureCollection(gdf).to_file(args.output, driver=args.driver)
     print(f"wrote {args.output}")
     return 0

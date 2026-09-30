@@ -77,8 +77,6 @@ INHERITED_NOARG_METHODS = [
     "get_attribute_table",
     "get_block_arrangement",
     "get_cell_coords",
-    "get_cell_points",
-    "get_cell_polygons",
     "get_histogram",
     "get_mask",
     "get_tile",
@@ -92,7 +90,7 @@ INHERITED_NOARG_METHODS = [
     "stats",
     "to_bytes",
     "to_cog_bytes",
-    "to_feature_collection",
+    "to_geodataframe",
     # to_image renders via cleopatra (viz extra); skip it on a no-viz install.
     pytest.param("to_image", marks=pytest.mark.plot),
     "to_xyz",

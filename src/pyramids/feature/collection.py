@@ -445,8 +445,9 @@ class FeatureCollection(GeoDataFrame):
     ) -> FeatureCollection:
         """Build a vector grid of square cell polygons over an arbitrary extent.
 
-        The vector / arbitrary-bbox analogue of :meth:`pyramids.dataset.Dataset.get_cell_polygons` (which is
-        raster-aligned). Cells are full ``cell_size`` squares laid row-major from the lower-left corner of
+        The vector / arbitrary-bbox analogue of
+        :meth:`pyramids.dataset.Dataset.to_geodataframe` (``geometry="polygon", values=False``,
+        which is raster-aligned). Cells are full ``cell_size`` squares laid row-major from the lower-left corner of
         ``bounds``; the grid has ``ceil(width / cell_size)`` columns and ``ceil(height / cell_size)`` rows, and
         carries integer ``row`` / ``col`` index columns.
 
@@ -477,7 +478,8 @@ class FeatureCollection(GeoDataFrame):
                 ```
 
         See Also:
-            - :meth:`pyramids.dataset.Dataset.get_cell_polygons`: the raster-aligned grid-cell equivalent.
+            - :meth:`pyramids.dataset.Dataset.to_geodataframe`: the raster-aligned grid-cell
+              equivalent (``geometry="polygon", values=False``).
         """
         polygons, rows, cols = _tess.fishnet_cells(
             cast(tuple[float, float, float, float], bounds), cell_size

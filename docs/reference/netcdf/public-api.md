@@ -179,7 +179,7 @@ A variable with no raster plane is the exception — see each member's docstring
 | `to_kerchunk()`           | Emits a kerchunk JSON reference manifest for this file.                     |
 | `combine_kerchunk()`      | Combines per-file manifests into one cube index.                            |
 | `to_cog()`                | Writes a Cloud-Optimized GeoTIFF. Variable only.                            |
-| `to_feature_collection()` | Converts the raster to a vector `FeatureCollection`. Variable only.         |
+| `to_geodataframe()` | Converts the raster to a `GeoDataFrame`, one row per cell. Variable only.    |
 | `write_array()`           | Writes an array into the raster bands. Variable only.                       |
 
 ## Analysis and plotting

@@ -753,14 +753,6 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Cell.cell_area <pyramids.dataset.engines.Cell.cell_area>`."""
         return self.cell.cell_area(*args, **kwargs)
 
-    def get_cell_polygons(self, *args, **kwargs):
-        """Facade — delegates to :meth:`Cell.get_cell_polygons <pyramids.dataset.engines.Cell.get_cell_polygons>`."""
-        return self.cell.get_cell_polygons(*args, **kwargs)
-
-    def get_cell_points(self, *args, **kwargs):
-        """Facade — delegates to :meth:`Cell.get_cell_points <pyramids.dataset.engines.Cell.get_cell_points>`."""
-        return self.cell.get_cell_points(*args, **kwargs)
-
     def map_to_array_coordinates(self, *args, **kwargs):
         """Facade — delegates to :meth:`Cell.map_to_array_coordinates <pyramids.dataset.engines.Cell.map_to_array_coordinates>`."""
         return self.cell.map_to_array_coordinates(*args, **kwargs)
@@ -825,9 +817,9 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`COG.read_tile <pyramids.dataset.engines.COG.read_tile>`."""
         return self.cog.read_tile(*args, **kwargs)
 
-    def to_feature_collection(self, *args, **kwargs):
-        """Facade — delegates to :meth:`Vectorize.to_feature_collection <pyramids.dataset.engines.Vectorize.to_feature_collection>`."""
-        return self.vectorize.to_feature_collection(*args, **kwargs)
+    def to_geodataframe(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Vectorize.to_geodataframe <pyramids.dataset.engines.Vectorize.to_geodataframe>`."""
+        return self.vectorize.to_geodataframe(*args, **kwargs)
 
     def contour(self, *args, **kwargs):
         """Facade — delegates to :meth:`Vectorize.contour <pyramids.dataset.engines.Vectorize.contour>`."""
@@ -6130,7 +6122,9 @@ class Dataset(RasterBase):
             output_srs=output_srs,
         )
 
-    def to_dataframe(self, *, bands: int | Sequence[int] | None = None) -> pd.DataFrame:
+    def to_dataframe(
+        self, *, bands: int | Sequence[int] | None = None, dropna: bool = False
+    ) -> pd.DataFrame:
         """Hand the raster to pandas, one row per cell on a ``(band, y, x)`` MultiIndex.
 
         The inverse of :meth:`from_dataframe`. Each row is a cell; the single ``values``
@@ -6138,10 +6132,9 @@ class Dataset(RasterBase):
         outermost), then the row (``y``) and column (``x``) cell-centre coordinates — the
         order the array is laid out, so ``df["values"].to_numpy().reshape(bands, rows, cols)``
         is the array back, with nodata as ``NaN``. The frame is coordinate-keyed and carries
-        **no geometry or CRS**;
-        for a geometry-per-cell ``GeoDataFrame`` use :meth:`get_cell_points` /
-        :meth:`get_cell_polygons`, and to read values at scattered points use :meth:`sample`
-        / :meth:`extract`.
+        **no geometry or CRS**; for a geometry-per-cell ``GeoDataFrame`` (points or polygons,
+        optionally with the band values) use :meth:`to_geodataframe`, and to read values at
+        scattered points use :meth:`sample` / :meth:`extract`.
 
         The ``band`` level is always present, even for a one-band raster (value ``[0]``);
         ``df["values"].unstack("band")`` gives the wide, one-column-per-band view.
@@ -6150,6 +6143,10 @@ class Dataset(RasterBase):
             bands: Which band(s) become rows, zero-based. ``None`` (default) takes every band;
                 a single ``int`` takes that one; a sequence takes them in the given order. The
                 ``band`` index level holds these positional indices.
+            dropna: Drop rows whose ``values`` is ``NaN`` (the no-data / gap cells). ``False``
+                (default) keeps the full grid, which is what makes the round trip with
+                :meth:`from_dataframe` reproduce the raster; ``True`` returns only the cells
+                that carry data.
 
         Returns:
             pandas.DataFrame: ``prod(len(bands), rows, cols)`` rows, one ``values`` column,
@@ -6227,7 +6224,10 @@ class Dataset(RasterBase):
             ],
             names=["band", "y", "x"],
         )
-        return pd.DataFrame({"values": array.reshape(-1)}, index=index)
+        frame = pd.DataFrame({"values": array.reshape(-1)}, index=index)
+        if dropna:
+            frame = frame.dropna(subset=["values"])
+        return frame
 
     @classmethod
     def from_dataframe(

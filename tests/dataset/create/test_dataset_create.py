@@ -702,7 +702,7 @@ class TestGetCellCoordsAndCreateCellGeometry:
         self, src: gdal.Dataset, src_shape: Tuple, src_epsg: int
     ):
         src = Dataset(src)
-        gdf = src.get_cell_polygons()
+        gdf = src.to_geodataframe(geometry="polygon", values=False)
         assert len(gdf) == src_shape[0] * src_shape[1]
         assert gdf.crs.to_epsg() == src_epsg
 
@@ -710,7 +710,7 @@ class TestGetCellCoordsAndCreateCellGeometry:
         self, src: gdal.Dataset, src_shape: Tuple, src_epsg: int
     ):
         src = Dataset(src)
-        gdf = src.get_cell_points()
+        gdf = src.to_geodataframe(geometry="point", values=False)
         # check the size
         assert len(gdf) == src_shape[0] * src_shape[1]
         assert gdf.crs.to_epsg() == src_epsg
@@ -719,7 +719,7 @@ class TestGetCellCoordsAndCreateCellGeometry:
         self, era5_image: gdal.Dataset, src_shape: Tuple, src_epsg: int
     ):
         src = Dataset(era5_image)
-        gdf = src.get_cell_points(domain_only=True)
+        gdf = src.to_geodataframe(geometry="point", values=False, dropna=True)
         # check the size
         assert len(gdf) == 5
         assert gdf.crs.to_epsg() == 4326
@@ -771,9 +771,7 @@ class TestCellGeometryOnIrregularGrids:
             these polygons were wrong by the width/height ratio.
         """
         dataset = self._dataset((0.0, 2.0, 0.0, 10.0, 0.0, -5.0))
-        minx, miny, maxx, maxy = (
-            dataset.cell.get_cell_polygons().geometry.iloc[0].bounds
-        )
+        minx, miny, maxx, maxy = dataset.cell._cell_polygons().geometry.iloc[0].bounds
         assert (maxx - minx) == pytest.approx(2.0), (
             f"cell width should be 2.0, got {maxx - minx}"
         )
@@ -784,9 +782,7 @@ class TestCellGeometryOnIrregularGrids:
     def test_square_cells_are_unchanged(self):
         """The square, north-up case still produces unit cells."""
         dataset = self._dataset((0.0, 1.0, 0.0, 2.0, 0.0, -1.0))
-        minx, miny, maxx, maxy = (
-            dataset.cell.get_cell_polygons().geometry.iloc[0].bounds
-        )
+        minx, miny, maxx, maxy = dataset.cell._cell_polygons().geometry.iloc[0].bounds
         assert (maxx - minx, maxy - miny) == pytest.approx((1.0, 1.0)), (
             f"square cells must stay 1x1, got {(maxx - minx, maxy - miny)}"
         )

@@ -3203,7 +3203,7 @@ class IO(_Engine["Dataset"]):
         `add_offset`) is unpacked, so the tile is `float64` when any band is packed and
         the stored dtype otherwise. No-data cells are included as they are, which on a
         packed band means the sentinel arrives transformed like every other cell
-        (`-9999` at `scale=0.01` reads `-99.99`); `to_feature_collection(tile=True)`
+        (`-9999` at `scale=0.01` reads `-99.99`); `to_geodataframe(tile=True)`
         drops them with the sentinel in those same units.
 
         Args:
@@ -3307,7 +3307,7 @@ class IO(_Engine["Dataset"]):
                 tile = self._ds.raster.ReadAsArray(
                     xoff=xoff, yoff=yoff, xsize=xsize, ysize=ysize
                 )
-            # Physical units, like `read_array`. `to_feature_collection(tile=True)`
+            # Physical units, like `read_array`. `to_geodataframe(tile=True)`
             # builds its rows from these tiles, so leaving them in stored counts made the
             # tiled and untiled arms of that one method disagree by the packing factor.
             yield np.asarray(self._apply_scale_offset(tile, None))
