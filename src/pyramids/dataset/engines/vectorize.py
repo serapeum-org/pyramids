@@ -328,7 +328,7 @@ class Vectorize(_Engine["Dataset"]):
             raise ValueError(
                 f"to_geodataframe() got geometry={geometry!r}; expected 'point' or 'polygon'."
             )
-        if values and dropna is False:
+        if values and dropna is not None and not dropna:
             raise ValueError(
                 "to_geodataframe(values=True) always drops no-data cells (a value row cannot "
                 "carry a gap); pass values=False to keep every cell's geometry, or omit dropna."
@@ -492,7 +492,7 @@ class Vectorize(_Engine["Dataset"]):
             warnings.warn(
                 f"to_geodataframe(crs={crs!r}) relabels the CRS without reprojecting; the "
                 f"coordinates stay in {existing.srs}. Use to_crs() to reproject.",
-                stacklevel=3,
+                stacklevel=4,
             )
         return gdf.set_crs(crs, allow_override=True)
 

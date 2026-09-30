@@ -72,6 +72,12 @@ class TestToGeodataframeNewParams:
         with pytest.raises(ValueError, match="always drops no-data"):
             self._raster().to_geodataframe(geometry="point", values=True, dropna=False)
 
+    @pytest.mark.parametrize("dropna", [0, 0.0, []])
+    def test_values_true_with_falsy_dropna_is_refused(self, dropna):
+        """Any falsy-but-not-None dropna with values=True is refused, like dropna=False."""
+        with pytest.raises(ValueError, match="always drops no-data"):
+            self._raster().to_geodataframe(geometry="point", values=True, dropna=dropna)
+
     def test_mask_shape_is_honoured_on_the_geometry_only_path(self):
         """A non-rectangular mask selects the same cells for values=False and values=True."""
         ds = Dataset.from_array(
@@ -109,7 +115,9 @@ class TestToGeodataframeNewParams:
             no_data_value=-9999.0,
         )
         untiled = ds.to_geodataframe(geometry="point", values=True, tile=False)
-        tiled = ds.to_geodataframe(geometry="point", values=True, tile=True, tile_size=1)
+        tiled = ds.to_geodataframe(
+            geometry="point", values=True, tile=True, tile_size=1
+        )
         assert len(untiled) == len(tiled) == 4, f"{len(untiled)} vs {len(tiled)}"
 
 
