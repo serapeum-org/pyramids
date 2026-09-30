@@ -35,6 +35,14 @@ class TestToGeodataframeNewParams:
         with pytest.raises(ValueError, match="expected 'point' or 'polygon'"):
             self._raster().to_geodataframe(geometry=geometry, values=False)
 
+    @pytest.mark.parametrize("geometry", ["point", "polygon"])
+    def test_an_unknown_location_is_refused(self, geometry):
+        """A garbage location raises for both point and polygon, not silently ignored."""
+        with pytest.raises(ValueError, match="expected 'center' or 'corner'"):
+            self._raster().to_geodataframe(
+                geometry=geometry, location="garbage", values=False
+            )
+
     def test_crs_overrides_the_labelled_crs_geometry_only(self):
         """`crs=` relabels the geometry-only frame and warns it does not reproject."""
         with pytest.warns(UserWarning, match="relabels the CRS without reprojecting"):

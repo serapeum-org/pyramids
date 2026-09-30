@@ -271,8 +271,9 @@ class Vectorize(_Engine["Dataset"]):
             order.
 
         Raises:
-            ValueError: `geometry` is neither `"point"` nor `"polygon"`, or `values=True` was
-                combined with an explicit `dropna=False`.
+            ValueError: `geometry` is neither `"point"` nor `"polygon"`; `location` is neither
+                `"center"` nor `"corner"`; or `values=True` was combined with an explicit
+                `dropna=False`.
 
         Examples:
             - Cell centres carrying their band values:
@@ -329,6 +330,10 @@ class Vectorize(_Engine["Dataset"]):
             raise ValueError(
                 "to_geodataframe(values=True) always drops no-data cells (a value row cannot "
                 "carry a gap); pass values=False to keep every cell's geometry, or omit dropna."
+            )
+        if location not in ("center", "corner"):
+            raise ValueError(
+                f"to_geodataframe() got location={location!r}; expected 'center' or 'corner'."
             )
 
         # Crop to the mask up front so both the geometry-only and the values path honour it:
