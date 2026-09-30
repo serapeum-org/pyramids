@@ -248,8 +248,10 @@ class Vectorize(_Engine["Dataset"]):
                 (physical units; a gap is dropped). `False` returns a geometry-only frame
                 (`geometry` + `id`) — the cell footprints alone.
             dropna: Whether to drop no-data cells. `None` (default) drops them when `values=True`
-                (a value table cannot carry a gap) and keeps every cell when `values=False`.
-                For the geometry-only case (`values=False`) pass `True`/`False` to force it;
+                (a value table cannot carry a gap); when `values=False` it keeps every cell,
+                except that a `mask` then selects the touched cells (so the geometry-only and
+                values paths return the same cells). For the geometry-only case (`values=False`)
+                pass `True`/`False` to force it;
                 `values=True` with an explicit `dropna=False` is refused (the value table
                 always drops gaps).
             mask: A `GeoDataFrame` to crop to before converting — honoured on both the values
@@ -345,9 +347,11 @@ class Vectorize(_Engine["Dataset"]):
             src_ds = self._ds
 
         # Geometry-only: the cell footprints, no band values. `dropna` defaults to keeping
-        # every cell here (the old get_cell_points/get_cell_polygons behaviour).
+        # every cell (the old get_cell_points/get_cell_polygons behaviour) — but when a mask
+        # was given, default to dropping the cropped-out (no-data) cells so the geometry-only
+        # path returns the same mask-shaped cells the values path does, not the whole bbox.
         if not values:
-            drop = False if dropna is None else dropna
+            drop = (mask is not None) if dropna is None else dropna
             if geom == "point":
                 gdf = src_ds.cell._cell_points(location=location, domain_only=drop)
             else:

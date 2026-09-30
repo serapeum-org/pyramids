@@ -72,17 +72,21 @@ class TestToGeodataframeNewParams:
         with pytest.raises(ValueError, match="always drops no-data"):
             self._raster().to_geodataframe(geometry="point", values=True, dropna=False)
 
-    def test_mask_is_honoured_on_the_geometry_only_path(self):
-        """`values=False` must still crop to `mask`, not return the whole raster."""
-        mask = gpd.GeoDataFrame(
-            geometry=[Polygon([(0.1, 1.1), (0.9, 1.1), (0.9, 1.9), (0.1, 1.9)])],
-            crs=4326,
+    def test_mask_shape_is_honoured_on_the_geometry_only_path(self):
+        """A non-rectangular mask selects the same cells for values=False and values=True."""
+        ds = Dataset.from_array(
+            np.arange(9.0).reshape(3, 3),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 3.0, 0.0, -1.0), epsg=4326),
         )
-        ds = self._raster()
-        full = ds.to_geodataframe(geometry="polygon", values=False)
-        masked = ds.to_geodataframe(geometry="polygon", values=False, mask=mask)
-        assert len(full) == 4, f"whole raster has 4 cells, got {len(full)}"
-        assert len(masked) < 4, f"mask must reduce the cell count, got {len(masked)}"
+        tri = gpd.GeoDataFrame(geometry=[Polygon([(0, 0), (3, 0), (0, 3)])], crs=4326)
+        geom_only = ds.to_geodataframe(geometry="polygon", values=False, mask=tri)
+        with_values = ds.to_geodataframe(geometry="polygon", values=True, mask=tri)
+        assert len(geom_only) == len(with_values), (
+            f"geometry-only ({len(geom_only)}) must match values path ({len(with_values)})"
+        )
+        assert 0 < len(geom_only) < 9, (
+            f"a partial mask must drop cells, got {len(geom_only)}"
+        )
 
 
 class TestToFeatureCollection:
