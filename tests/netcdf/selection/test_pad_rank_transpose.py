@@ -158,9 +158,7 @@ class TestPadBand:
         """Padding before the axis prepends no-data cells and a NaN stamp."""
         out = _var([0, 1], [1.0, 2.0], no_data_value=-9999.0).pad(time=(1, 0))
         assert_allclose(out.read_array().ravel(), [-9999.0, 1.0, 2.0])
-        assert (
-            out._band_dim_values_map["time"][0] != out._band_dim_values_map["time"][0]
-        )  # NaN
+        assert np.isnan(out._band_dim_values_map["time"][0]), "the prepended stamp must be NaN"
         assert out._band_dim_values_map["time"][1:] == [0.0, 1.0]
 
     def test_constant_values_fills_that_value(self):
@@ -181,7 +179,7 @@ class TestPadBand:
         assert stamps[2:4] == [0.0, 1.0], (
             f"the original stamps must survive in place, got {stamps}"
         )
-        assert all(s != s for s in stamps[:2] + stamps[4:]), (
+        assert all(np.isnan(s) for s in stamps[:2] + stamps[4:]), (
             f"every pad stamp must be NaN, got {stamps}"
         )
 
@@ -189,7 +187,7 @@ class TestPadBand:
         """A variable declaring no no-data value pads its band cells with NaN."""
         out = _var([0, 1], [1.0, 2.0], no_data_value=None).pad(time=(1, 0))
         result = out.read_array().ravel()
-        assert result[0] != result[0], (
+        assert np.isnan(result[0]), (
             f"the pad cell must be NaN when no no-data is declared, got {result[0]}"
         )
         assert_allclose(result[1:], [1.0, 2.0])
@@ -210,7 +208,7 @@ class TestPadBand:
         )
         out = summed.pad(time=(1, 0))
         result = out.read_array().ravel()
-        assert result[0] != result[0], f"the pad cell must be NaN, got {result[0]}"
+        assert np.isnan(result[0]), f"the pad cell must be NaN, got {result[0]}"
         assert_allclose(result[1:], [4.0, 6.0])
         assert out._band_dim_values_map["time"] is None, (
             "an unstamped dimension must stay unstamped after pad"
@@ -429,23 +427,27 @@ class TestPadRefusals:
 
     def test_no_dimension_is_refused(self):
         """`pad()` with no dimension is refused."""
+        var = _var([0, 1], [1.0, 2.0])
         with pytest.raises(ValueError, match="at least one dimension"):
-            _var([0, 1], [1.0, 2.0]).pad()
+            var.pad()
 
     def test_unsupported_mode_is_refused(self):
         """Only `mode='constant'` is supported."""
+        var = _var([0, 1], [1.0, 2.0])
         with pytest.raises(ValueError, match="only mode='constant'"):
-            _var([0, 1], [1.0, 2.0]).pad(time=(1, 1), mode="reflect")
+            var.pad(time=(1, 1), mode="reflect")
 
     def test_negative_width_is_refused(self):
         """A negative pad width is refused."""
+        var = _var([0, 1], [1.0, 2.0])
         with pytest.raises(ValueError, match="non-negative"):
-            _var([0, 1], [1.0, 2.0]).pad(time=(-1, 0))
+            var.pad(time=(-1, 0))
 
     def test_malformed_width_tuple_is_refused(self):
         """A width that is neither a 2-tuple nor an int (a 3-tuple) is refused."""
+        var = _var([0, 1], [1.0, 2.0])
         with pytest.raises(ValueError, match=r"\(before, after\)"):
-            _var([0, 1], [1.0, 2.0]).pad(time=(1, 2, 3))
+            var.pad(time=(1, 2, 3))
 
 
 class TestPadContainerAuxiliary:
