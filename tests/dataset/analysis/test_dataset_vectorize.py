@@ -88,6 +88,30 @@ class TestToGeodataframeNewParams:
             f"a partial mask must drop cells, got {len(geom_only)}"
         )
 
+    def test_multiband_differing_nodata_footprint_does_not_crash(self):
+        """A band-1-only no-data cell must not crash values=True; rows follow band-0 domain."""
+        arr = np.array([[[1.0, 2.0], [3.0, 4.0]], [[5.0, -9999.0], [7.0, 8.0]]])
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            no_data_value=-9999.0,
+        )
+        gdf = ds.to_geodataframe(geometry="point", values=True)
+        assert len(gdf) == 4, f"band 0 is all valid, so 4 cells survive, got {len(gdf)}"
+        assert gdf["Band_2"].isna().sum() == 1, "the band-1 gap cell keeps a NaN value"
+
+    def test_multiband_differing_nodata_tiled_matches_untiled(self):
+        """The tiled path agrees with the untiled path on a per-band no-data footprint."""
+        arr = np.array([[[1.0, 2.0], [3.0, 4.0]], [[5.0, -9999.0], [7.0, 8.0]]])
+        ds = Dataset.from_array(
+            arr,
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            no_data_value=-9999.0,
+        )
+        untiled = ds.to_geodataframe(geometry="point", values=True, tile=False)
+        tiled = ds.to_geodataframe(geometry="point", values=True, tile=True, tile_size=1)
+        assert len(untiled) == len(tiled) == 4, f"{len(untiled)} vs {len(tiled)}"
+
 
 class TestToFeatureCollection:
     """Test converting dataset to featurecollection."""

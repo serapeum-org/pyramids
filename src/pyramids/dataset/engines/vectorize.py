@@ -426,7 +426,12 @@ class Vectorize(_Engine["Dataset"]):
             df[_CELL_ORDER] = (y_off + tile_rows) * columns + (x_off + tile_cols)
             if no_data_value is not None:
                 df[band_names] = df[band_names].replace(no_data_value, np.nan)
-            df = df.dropna(axis=0, subset=band_names)
+            # Drop on band 0 only: the geometry is built from band 0's domain
+            # (`_attach_geometry` -> `_cell_points(domain_only=True)`), so dropping on any band
+            # would leave fewer value rows than geometries and break the positional zip on a
+            # raster whose bands have different no-data footprints. A cell valid in band 0 but
+            # no-data in another band keeps its row (that band reads `NaN`).
+            df = df.dropna(axis=0, subset=[band_names[0]])
             if not df.empty:
                 df_list.append(df)
 
@@ -470,7 +475,9 @@ class Vectorize(_Engine["Dataset"]):
         sentinel = self._ds.analysis._physical_no_data(0)
         if sentinel is not None:
             df.replace(sentinel, np.nan, inplace=True)
-        df.dropna(axis=0, inplace=True, ignore_index=True)
+        # Drop on band 0 only so the surviving rows match the band-0 geometry (see the tiled
+        # path); a per-band no-data footprint otherwise crashes the geometry zip.
+        df.dropna(axis=0, subset=[band_names[0]], inplace=True, ignore_index=True)
         return df
 
     @staticmethod
