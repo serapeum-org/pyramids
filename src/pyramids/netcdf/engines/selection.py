@@ -3037,7 +3037,7 @@ class Selection(_Engine["NetCDF"]):
         result = nc
         for dim, width in pad_width.items():
             before, after = _pad_before_after(width, dim)
-            if dim.lower() in _SPATIAL_AXIS_NAMES:
+            if dim.lower() in _SPATIAL_AXIS_NAMES and dim not in _band_dims_of(result):
                 result = _pad_spatial(result, dim, before, after, constant_values)
             else:
                 op = _Pad(before=before, after=after, fill_value=constant_values)
