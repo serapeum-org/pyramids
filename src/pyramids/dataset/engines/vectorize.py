@@ -18,6 +18,7 @@ import pandas as pd
 from geopandas.geodataframe import GeoDataFrame
 from hpc.indexing import get_pixels
 from osgeo import gdal, ogr
+from pyproj import CRS
 
 from pyramids.base._domain import is_no_data
 from pyramids.base._utils import gdal_to_ogr_dtype
@@ -259,7 +260,10 @@ class Vectorize(_Engine["Dataset"]):
                 large raster (with `values=True`). `None` (default) auto-selects by array size;
                 the rows are identical either way. Ignored when `values=False`.
             tile_size: Tile size in cells per axis (with `tile`). Default 256.
-            crs: Override the CRS label on the result. `None` (default) uses the raster's own.
+            crs: Relabel the result's CRS — this only changes the label, it does **not**
+                reproject the coordinates (use `to_crs` for that), and it warns if it overrides
+                a raster that already carries a different CRS. `None` (default) keeps the
+                raster's own CRS.
 
         Returns:
             geopandas.GeoDataFrame: One row per cell — a `geometry` column, plus `Band_N` value
@@ -344,7 +348,7 @@ class Vectorize(_Engine["Dataset"]):
             else:
                 gdf = src_ds.cell._cell_polygons(domain_only=drop)
             if crs is not None:
-                gdf = gdf.set_crs(crs, allow_override=True)
+                gdf = self._relabel_crs(gdf, crs)
             return gdf
 
         band_names = src_ds.band_names
@@ -369,7 +373,7 @@ class Vectorize(_Engine["Dataset"]):
         df.drop(columns=["burn_value", "geometry"], errors="ignore", inplace=True)
         gdf = self._attach_geometry(src_ds, df, geom, location)
         if crs is not None:
-            gdf = gdf.set_crs(crs, allow_override=True)
+            gdf = self._relabel_crs(gdf, crs)
         return gdf
 
     def _extract_values_tiled(self, band_names: list, tile_size: int) -> pd.DataFrame:
@@ -459,6 +463,22 @@ class Vectorize(_Engine["Dataset"]):
             df.replace(sentinel, np.nan, inplace=True)
         df.dropna(axis=0, inplace=True, ignore_index=True)
         return df
+
+    @staticmethod
+    def _relabel_crs(gdf: gpd.GeoDataFrame, crs: Any) -> gpd.GeoDataFrame:
+        """Relabel a frame's CRS without reprojecting, warning on a differing override.
+
+        `set_crs` changes the label only; if the frame already carries a *different* CRS the
+        coordinates stay put and would be mislabelled, so warn — reprojection is `to_crs`.
+        """
+        existing = gdf.crs
+        if existing is not None and not existing.equals(CRS.from_user_input(crs)):
+            warnings.warn(
+                f"to_geodataframe(crs={crs!r}) relabels the CRS without reprojecting; the "
+                f"coordinates stay in {existing.srs}. Use to_crs() to reproject.",
+                stacklevel=3,
+            )
+        return gdf.set_crs(crs, allow_override=True)
 
     @staticmethod
     def _attach_geometry(

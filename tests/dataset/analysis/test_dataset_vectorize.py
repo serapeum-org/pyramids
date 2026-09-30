@@ -36,14 +36,28 @@ class TestToGeodataframeNewParams:
             self._raster().to_geodataframe(geometry=geometry, values=False)
 
     def test_crs_overrides_the_labelled_crs_geometry_only(self):
-        """`crs=` relabels the geometry-only frame's CRS instead of the raster's own."""
-        gdf = self._raster().to_geodataframe(geometry="point", values=False, crs=3857)
+        """`crs=` relabels the geometry-only frame and warns it does not reproject."""
+        with pytest.warns(UserWarning, match="relabels the CRS without reprojecting"):
+            gdf = self._raster().to_geodataframe(
+                geometry="point", values=False, crs=3857
+            )
         assert gdf.crs.to_epsg() == 3857, f"expected EPSG:3857, got {gdf.crs}"
 
     def test_crs_overrides_the_labelled_crs_with_values(self):
-        """`crs=` also relabels the values+geometry frame."""
-        gdf = self._raster().to_geodataframe(geometry="point", values=True, crs=3857)
+        """`crs=` also relabels the values+geometry frame, with the same warning."""
+        with pytest.warns(UserWarning, match="relabels the CRS without reprojecting"):
+            gdf = self._raster().to_geodataframe(
+                geometry="point", values=True, crs=3857
+            )
         assert gdf.crs.to_epsg() == 3857, f"expected EPSG:3857, got {gdf.crs}"
+
+    def test_crs_same_as_raster_does_not_warn(self, recwarn):
+        """Relabelling to the CRS the raster already carries must not warn."""
+        gdf = self._raster().to_geodataframe(geometry="point", values=False, crs=4326)
+        assert gdf.crs.to_epsg() == 4326
+        assert not [w for w in recwarn if "relabels the CRS" in str(w.message)], (
+            "relabelling to the same CRS should not warn"
+        )
 
     def test_values_true_with_dropna_false_is_refused(self):
         """The value path always drops gaps, so values=True + dropna=False is a contradiction."""
