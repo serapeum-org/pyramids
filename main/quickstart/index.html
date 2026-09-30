@@ -6336,7 +6336,7 @@ follow along verbatim. New to the vocabulary (CRS, geotransform, datacube, …)?
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">raster</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_features</span><span class="p">(</span><span class="n">fc</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="mi">200</span><span class="p">)</span>  <span class="c1"># rasterize the polygons onto a grid</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">polys</span>  <span class="o">=</span> <span class="n">raster</span><span class="o">.</span><span class="n">to_feature_collection</span><span class="p">()</span>            <span class="c1"># vectorize a raster back to polygons</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">polys</span>  <span class="o">=</span> <span class="n">raster</span><span class="o">.</span><span class="n">to_geodataframe</span><span class="p">()</span>            <span class="c1"># vectorize a raster back to polygons</span>
 </code></pre></div>
 <h2 id="netcdf-cf-datacubes"><a class="toclink" href="#netcdf-cf-datacubes">NetCDF / CF datacubes</a><a class="headerlink" href="#netcdf-cf-datacubes" title="Permanent link">#</a></h2>
 <p><code>read_file</code> on a NetCDF returns a <strong>container</strong> (a <code>NetCDF</code> describing the whole file). Pin one variable to get a
@@ -6403,7 +6403,7 @@ follow along verbatim. New to the vocabulary (CRS, geotransform, datacube, …)?
 </tr>
 <tr>
 <td>Rasterize / vectorize</td>
-<td><code>Dataset.from_features(fc, ...)</code> · <code>ds.to_feature_collection()</code></td>
+<td><code>Dataset.from_features(fc, ...)</code> · <code>ds.to_geodataframe()</code></td>
 </tr>
 <tr>
 <td>Read from S3 / GS / Azure</td>

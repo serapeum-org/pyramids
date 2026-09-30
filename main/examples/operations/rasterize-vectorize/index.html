@@ -6989,7 +6989,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h1 id="rasterize-vectorize">Rasterize ↔ vectorize<a class="anchor-link" href="#rasterize-vectorize">¶</a></h1><p>Cross the raster/vector divide both ways:</p>
 <ul>
-<li><strong>Vectorize</strong> a raster: <code>to_feature_collection()</code> (polygonize equal-valued regions) and
+<li><strong>Vectorize</strong> a raster: <code>to_geodataframe()</code> (one row per cell: points or polygons, with the band values) and
 <code>contour(interval=...)</code> (iso-value lines).</li>
 <li><strong>Rasterize</strong> a vector: <code>Dataset.from_features(fc, ...)</code> burns an attribute column into a
 new raster grid.</li>
@@ -7119,7 +7119,7 @@ ds.shape, ds.epsg</div>
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="vectorize-polygonize">Vectorize — polygonize<a class="anchor-link" href="#vectorize-polygonize">¶</a></h2><p><code>to_feature_collection(add_geometry='Polygon')</code> merges equal-valued cells into polygons.</p>
+<h2 id="vectorize-polygonize">Vectorize — polygonize<a class="anchor-link" href="#vectorize-polygonize">¶</a></h2><p><code>to_geodataframe(geometry='polygon')</code> gives one polygon per cell, each carrying the band values.</p>
 </div>
 </div>
 </div>
@@ -7142,10 +7142,10 @@ ds.shape, ds.epsg</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">polys</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">to_feature_collection</span><span class="p">(</span><span class="n">add_geometry</span><span class="o">=</span><span class="s1">'Polygon'</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">polys</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">to_geodataframe</span><span class="p">(</span><span class="n">geometry</span><span class="o">=</span><span class="s1">'polygon'</span><span class="p">)</span>
 <span class="nb">type</span><span class="p">(</span><span class="n">polys</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">polys</span><span class="p">),</span> <span class="nb">list</span><span class="p">(</span><span class="n">polys</span><span class="o">.</span><span class="n">columns</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3">polys = ds.to_feature_collection(add_geometry='Polygon')
+<div class="clipboard-copy-txt" id="cell-3">polys = ds.to_geodataframe(geometry='polygon')
 type(polys).__name__, len(polys), list(polys.columns)</div>
 </div>
 </div>
@@ -7158,7 +7158,7 @@ type(polys).__name__, len(polys), list(polys.columns)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>('GeoDataFrame', 89, ['Band_1', 'geometry'])</pre>
+<pre>('FeatureCollection', 89, ['Band_1', 'geometry'])</pre>
 </div>
 </div>
 </div>
@@ -7376,7 +7376,7 @@ burned.plot(band=0, title='rasterized zones')</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f27237a4ad0&gt;</pre>
+<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f1c0cda8ec0&gt;</pre>
 </div>
 </div>
 <div class="jp-OutputArea-child">
@@ -7402,8 +7402,8 @@ burned.plot(band=0, title='rasterized zones')</div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="notes">Notes<a class="anchor-link" href="#notes">¶</a></h2><ul>
-<li><code>to_feature_collection()</code> without <code>add_geometry</code> returns a plain table of cell values;
-pass <code>add_geometry='Polygon'</code> (or <code>'Point'</code>) to attach geometry.</li>
+<li><code>to_geodataframe()</code> returns one row per cell with a point geometry and the band values;
+pass <code>geometry='polygon'</code> for cell polygons, or <code>values=False</code> for geometry only.</li>
 <li><code>from_features(..., template=ds)</code> inherits an existing raster's grid instead of <code>cell_size</code>.</li>
 <li><code>sieve()</code> removes speckle (small regions) before vectorizing — useful on classified rasters.</li>
 <li>See also: <a href="zonal-statistics.ipynb">Zonal statistics</a>, <a href="crop-mask.ipynb">Crop &amp; mask</a>.</li>
