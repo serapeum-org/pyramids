@@ -83,8 +83,8 @@ stac = ["pystac-client>=0.8.0", "stac-asset>=0.4.7"]
 [dependency-groups]
 dev = [
     "nbval >=0.11.0",
-    "pre-commit >=3.7.1",
-    "pre-commit-hooks >=4.6.0",
+    "pre-commit >=4.6.2",
+    "pre-commit-hooks >=6.0.0",
     # The same linter/formatter the pre-commit hook runs (ruff-pre-commit v0.15.22),
     # so `pixi run -e dev ruff {check,format}` is available locally to pre-empt the CI
     # lint/format gate. Floored, not pinned; bump the hook rev in lockstep if exact
