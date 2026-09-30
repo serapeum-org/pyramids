@@ -45,6 +45,11 @@ class TestToGeodataframeNewParams:
         gdf = self._raster().to_geodataframe(geometry="point", values=True, crs=3857)
         assert gdf.crs.to_epsg() == 3857, f"expected EPSG:3857, got {gdf.crs}"
 
+    def test_values_true_with_dropna_false_is_refused(self):
+        """The value path always drops gaps, so values=True + dropna=False is a contradiction."""
+        with pytest.raises(ValueError, match="always drops no-data"):
+            self._raster().to_geodataframe(geometry="point", values=True, dropna=False)
+
     def test_mask_is_honoured_on_the_geometry_only_path(self):
         """`values=False` must still crop to `mask`, not return the whole raster."""
         mask = gpd.GeoDataFrame(

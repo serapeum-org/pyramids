@@ -247,10 +247,12 @@ class Vectorize(_Engine["Dataset"]):
                 (physical units; a gap is dropped). `False` returns a geometry-only frame
                 (`geometry` + `id`) — the cell footprints alone.
             dropna: Whether to drop no-data cells. `None` (default) drops them when `values=True`
-                (a value table cannot carry a gap) and keeps every cell when `values=False`;
-                pass `True`/`False` to force it for the geometry-only case.
-            mask: A `GeoDataFrame` to crop to before converting (with `values=True`). Cells are
-                selected by `touch`.
+                (a value table cannot carry a gap) and keeps every cell when `values=False`.
+                For the geometry-only case (`values=False`) pass `True`/`False` to force it;
+                `values=True` with an explicit `dropna=False` is refused (the value table
+                always drops gaps).
+            mask: A `GeoDataFrame` to crop to before converting — honoured on both the values
+                and the geometry-only path. Cells are selected by `touch`.
             touch: With `mask`, include cells that merely touch the mask, not only those fully
                 inside it. Default `True`.
             tile: Read the raster in tiles rather than in one pass, bounding peak memory on a
@@ -265,7 +267,8 @@ class Vectorize(_Engine["Dataset"]):
             order.
 
         Raises:
-            ValueError: `geometry` is neither `"point"` nor `"polygon"`.
+            ValueError: `geometry` is neither `"point"` nor `"polygon"`, or `values=True` was
+                combined with an explicit `dropna=False`.
 
         Examples:
             - Cell centres carrying their band values:
@@ -317,6 +320,11 @@ class Vectorize(_Engine["Dataset"]):
         if geom not in ("point", "polygon"):
             raise ValueError(
                 f"to_geodataframe() got geometry={geometry!r}; expected 'point' or 'polygon'."
+            )
+        if values and dropna is False:
+            raise ValueError(
+                "to_geodataframe(values=True) always drops no-data cells (a value row cannot "
+                "carry a gap); pass values=False to keep every cell's geometry, or omit dropna."
             )
 
         # Crop to the mask up front so both the geometry-only and the values path honour it:
