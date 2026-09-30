@@ -4750,9 +4750,13 @@ def _validate_transpose_dims(nc: NetCDF, dims: tuple) -> None:
         dims: The requested order (may contain `...`).
 
     Raises:
-        ValueError: A named entry is not a string/`...`, is a spatial axis, is not a band dimension
-            of the cube, or is duplicated.
+        ValueError: A named entry is not a string/`...`, `...` is given more than once, an entry is
+            a spatial axis, is not a band dimension of the cube, or is duplicated.
     """
+    if sum(1 for d in dims if d is Ellipsis) > 1:
+        raise ValueError(
+            "transpose() got more than one ...; an ellipsis (...) may be used at most once."
+        )
     explicit = [d for d in dims if d is not Ellipsis]
     for d in explicit:
         if not isinstance(d, str):

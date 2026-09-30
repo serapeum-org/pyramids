@@ -188,6 +188,12 @@ class TestTransposeRefusals:
         with pytest.raises(ValueError, match="duplicate"):
             cube.transpose("time", "time")
 
+    def test_duplicate_ellipsis_is_refused(self):
+        """Passing `...` more than once is refused clearly, not with numpy's cryptic axes error."""
+        cube = _cube2([0, 1], [10, 20])
+        with pytest.raises(ValueError, match="ellipsis"):
+            cube.transpose(..., ...)
+
 
 class TestPadRefusals:
     """`pad` refuses a missing dim, a bad mode, and a malformed width."""
