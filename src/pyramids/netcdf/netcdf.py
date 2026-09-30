@@ -7528,6 +7528,20 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.diff <pyramids.netcdf.engines.selection.Selection.diff>`."""
         return self.selection.diff(dim, n, label=label)
 
+    def rank(self, dim: str, *, pct: bool = False) -> NetCDF:
+        """Facade — :meth:`Selection.rank <pyramids.netcdf.engines.selection.Selection.rank>`."""
+        return self.selection.rank(dim, pct=pct)
+
+    def pad(
+        self, *, mode: str = "constant", constant_values: Any = None, **pad_width: Any
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.pad <pyramids.netcdf.engines.selection.Selection.pad>`."""
+        return self.selection.pad(mode=mode, constant_values=constant_values, **pad_width)
+
+    def transpose(self, *dims: Any) -> NetCDF:
+        """Facade — :meth:`Selection.transpose <pyramids.netcdf.engines.selection.Selection.transpose>`."""
+        return self.selection.transpose(*dims)
+
     def interp(self, method: str = "linear", **coords: Any) -> NetCDF:
         """Facade — :meth:`Selection.interp <pyramids.netcdf.engines.selection.Selection.interp>`."""
         return self.selection.interp(method, **coords)

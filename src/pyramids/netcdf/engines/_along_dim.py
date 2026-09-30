@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, cast
 
 import numpy as np
 from scipy.interpolate import interp1d
+from scipy.stats import rankdata
 
 from pyramids.base.crs import crs_spec
 from pyramids.dataset.transform import GeoTransform
@@ -936,6 +937,106 @@ def _interp_onto(
     return np.asarray(interpolator(np.asarray(target, dtype="float64")))
 
 
+@dataclass
+class _Rank(_AlongDim):
+    """`rank`: rank each pixel's values along a band dimension, ties averaged.
+
+    xarray's `rank(dim)`: the ordinal position `1..N` of each step among the others, with tied
+    values sharing the average of their positions and gaps left as gaps. `pct=True` returns the
+    rank divided by the count of valid steps, in `(0, 1]`.
+
+    Attributes:
+        pct: Return the rank as a fraction of the valid count rather than the `1..N` position.
+    """
+
+    pct: bool
+    caller: str = "rank"
+    verb: ClassVar[str] = "rank"
+    keeps_length: ClassVar[bool] = True
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Rank one variable's values along `dim`.
+
+        Args:
+            nc: The object `rank` was called on.
+            var: The variable.
+            dim: The band dimension to rank along.
+
+        Returns:
+            _Applied: The ranks, float64, the band layout unchanged. A gap (the declared no-data
+            value or NaN) is excluded from the ranking and comes back as the no-data value, or NaN
+            when the variable declares none.
+        """
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        axis = band_names.index(dim)
+        arr = nc._materialize_variable_array(var, lazy=True)
+        data = np.asarray(_gaps_as_nan(arr, ndv), dtype="float64")
+        ranks = np.asarray(
+            rankdata(data, method="average", axis=axis, nan_policy="omit"), dtype="float64"
+        )
+        if self.pct:
+            valid = np.sum(~np.isnan(data), axis=axis, keepdims=True)
+            ranks = ranks / np.where(valid == 0, 1, valid)
+        fill: Any = np.nan if ndv is None else ndv
+        values = np.where(np.isnan(ranks), fill, ranks)
+        return _Applied(np.asarray(values), band_names, values_map, fill)
+
+
+@dataclass
+class _Pad(_AlongDim):
+    """`pad`: extend a band dimension before/after with a constant fill.
+
+    The band-axis half of xarray's `pad(mode="constant")`: the dimension grows by `before + after`
+    steps, the new cells hold the variable's no-data value (NaN when none), and the new coordinate
+    stamps are NaN (an unindexed pad, as xarray leaves them). Spatial padding moves the geotransform
+    and is handled by `Selection.pad`, not here.
+
+    Attributes:
+        before: Steps to add at the start of the dimension.
+        after: Steps to add at the end.
+    """
+
+    before: int
+    after: int
+    fill_value: Any = None
+    caller: str = "pad"
+    verb: ClassVar[str] = "pad"
+    keeps_length: ClassVar[bool] = False
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Pad one variable along `dim`.
+
+        Args:
+            nc: The object `pad` was called on.
+            var: The variable.
+            dim: The band dimension to pad.
+
+        Returns:
+            _Applied: The padded values, float64, `dim` longer by `before + after` with its new
+            stamps NaN. The pad cells hold `fill_value` when one is given, else the variable's
+            no-data value (NaN when it declares none); the result declares the variable's own
+            no-data value regardless.
+        """
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        no_data: Any = np.nan if ndv is None else ndv
+        fill = no_data if self.fill_value is None else self.fill_value
+        axis = band_names.index(dim)
+        arr = np.asarray(nc._materialize_variable_array(var, lazy=True), dtype="float64")
+        pad_width = [(0, 0)] * arr.ndim
+        pad_width[axis] = (self.before, self.after)
+        values = np.pad(arr, pad_width, mode="constant", constant_values=fill)
+        coords = values_map.get(dim)
+        if coords is not None:
+            values_map[dim] = (
+                [float("nan")] * self.before + list(coords) + [float("nan")] * self.after
+            )
+        return _Applied(values, band_names, values_map, no_data)
+
+
 def _interpolated(
     data: Any, axis: int, positions: np.ndarray, method: str, limit: int | None
 ) -> Any:
@@ -1462,6 +1563,75 @@ def _apply_to_container(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
         [] if op.keeps_length else [dim],
         op.caller,
     )
+    return cast("NetCDF", result)
+
+
+def _apply_per_variable(
+    nc: NetCDF,
+    fn: Callable[[NetCDF], tuple],
+    *,
+    caller: str,
+    dropped: tuple[str, ...] = (),
+) -> NetCDF:
+    """Rebuild a variable, or every gridded variable of a container, through `fn`.
+
+    `fn(var)` returns `(values, band_names, values_map, no_data, geotransform)`. Unlike
+    `_apply_to_container`, which runs only on the variables spanning one named dimension, this runs
+    on every gridded variable, so it serves the whole-variable operations `transpose` (reorders
+    band axes) and the spatial `pad` (grows the grid). Auxiliary variables are carried; any named in
+    `dropped` are dropped with a warning (none, for these two — transpose keeps every length and a
+    spatial pad touches no band dimension).
+
+    Args:
+        nc: The container or variable.
+        fn: Builds each result variable's `(values, band_names, values_map, no_data, geotransform)`.
+        caller: The member the user called, named in refusals/warnings.
+        dropped: Band dimensions whose length changed, for the auxiliary-drop decision.
+
+    Returns:
+        NetCDF: The rebuilt variable or container.
+
+    Raises:
+        ValueError: The container has no data variables.
+    """
+    if _reduces_as_a_variable(nc):
+        values, band_names, values_map, ndv, geo = fn(nc)
+        return _variable_from_applied(
+            nc, _Applied(values, band_names, values_map, ndv), geotransform=geo
+        )
+    if not nc.variable_names:
+        raise ValueError(f"Cannot {caller} an empty container (no data variables).")
+    rg = nc._working_group()
+    spatial_vars = nc._spatial_variable_names(rg)
+    aux_vars = nc._carryable_aux_names(rg, spatial_vars)
+    result: NetCDF | None = None
+    grid: tuple | None = None
+    time_attrs: dict[str, tuple[str, str]] = {}
+    for var_name in spatial_vars:
+        var = nc._require_raster_variable(var_name)
+        values, band_names, values_map, ndv, geo = fn(var)
+        grid = geo if grid is None else grid
+        result = nc._stack_reduced_variable(
+            result,
+            var_name,
+            values,
+            geo,
+            crs_spec(var.epsg, var.crs),
+            ndv,
+            band_names,
+            values_map,
+            source=var,
+        )
+        time_attrs.update(
+            {
+                name: attrs
+                for name, attrs in var._resolved_band_dim_time_attrs().items()
+                if name in band_names
+            }
+        )
+    _stamped(cast("NetCDF", result), cast(tuple, grid))
+    cast("NetCDF", result)._band_dim_time_attrs = time_attrs
+    _carry_auxiliaries(nc, cast("NetCDF", result), rg, aux_vars, list(dropped), caller)
     return cast("NetCDF", result)
 
 

@@ -34,6 +34,7 @@ from pyramids.base._utils import carry_band_packing
 from pyramids.base.crs import crs_equal, crs_spec, sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.transform import GeoTransform
 from pyramids.dataset.engines.spatial import (
     _crop_seam_halves,
     _require_antimeridian_seam,
@@ -56,6 +57,7 @@ from pyramids.netcdf._mdim import copy_band_values_map, open_mdarray, scalar_no_
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.array_options import GeoReference
 from pyramids.netcdf.engines._along_dim import (
+    _apply_per_variable,
     _apply_to_container,
     _apply_to_variable,
     _assert_band_dimension,
@@ -66,7 +68,10 @@ from pyramids.netcdf.engines._along_dim import (
     _Extremum,
     _Interpolate,
     _InterpTo,
+    _Pad,
     _Push,
+    _Rank,
+    _read_no_data,
     _reduces_as_a_variable,
     _Reduction,
     _Rolling,
@@ -2924,6 +2929,178 @@ class Selection(_Engine["NetCDF"]):
             result = _apply_to_container(nc, dim, op)
         return result
 
+    def rank(self, dim: str, *, pct: bool = False) -> NetCDF:
+        """Rank each pixel's values along a band dimension, ties averaged.
+
+        The ordinal position `1..N` of every step among the others along `dim`, tied values sharing
+        the average of their positions, and gaps (the declared no-data value or NaN) excluded from
+        the ranking and returned as no-data. `pct=True` returns the rank divided by the count of
+        valid steps, in `(0, 1]`. Matches `xarray.Dataset.rank`. Band dimensions only — a spatial
+        axis is refused (ranking a georeferenced axis is meaningless).
+
+        Works on a container, ranking every variable that has `dim`, and on a single variable.
+
+        Args:
+            dim: The band dimension to rank along.
+            pct: Return the rank as a fraction of the valid count rather than the `1..N` position.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, float64, the dimension
+            unchanged.
+
+        Raises:
+            ValueError: `dim` is not a band dimension (spatial or unknown), or the variable has no
+                band dimensions.
+
+        Examples:
+            - Rank a time series (ties averaged):
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([30.0, 10.0, 10.0, 20.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0, 3.0]),
+              ...     no_data_value=None,
+              ... ).get_variable("t")
+              >>> var.rank("time").read_array().ravel().tolist()
+              [4.0, 1.5, 1.5, 3.0]
+
+              ```
+        """
+        nc = self._ds
+        op = _Rank(pct=pct)
+        if _reduces_as_a_variable(nc):
+            return _apply_to_variable(nc, dim, op)
+        return _apply_to_container(nc, dim, op)
+
+    def pad(
+        self,
+        *,
+        mode: str = "constant",
+        constant_values: Any = None,
+        **pad_width: Any,
+    ) -> NetCDF:
+        """Pad band or spatial dimensions with a constant fill.
+
+        Extends each named dimension by `(before, after)` steps. A **band** dimension grows with the
+        fill and gains NaN coordinate stamps; a **spatial** axis (`x`/`y`/`lon`/`lat`) grows the
+        grid and **moves the geotransform** with the data (the padded corner becomes the new
+        origin), so the result stays correctly georeferenced. Only `mode="constant"` is supported;
+        the fill is `constant_values` when given, otherwise the variable's no-data value (NaN when
+        it declares none). Mirrors the constant case of `xarray.Dataset.pad`.
+
+        Works on a container (every variable that has the dimension) and on a single variable.
+
+        Args:
+            mode: Only `"constant"` is supported for now.
+            constant_values: The pad fill; `None` uses the variable's no-data value.
+            **pad_width: `dimension=(before, after)` or `dimension=n` (both sides) pairs. A band
+                dimension or a spatial axis (`x`/`y`/`lon`/`lat`).
+
+        Returns:
+            NetCDF: The padded container or variable.
+
+        Raises:
+            ValueError: `mode` is not `"constant"`, no dimension is given, a width is negative or
+                not `(before, after)`/`int`, or a band `dimension` is unknown.
+
+        Examples:
+            - Pad a band dimension on both sides with no-data:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 2.0]).reshape(2, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0]),
+              ...     no_data_value=-9999.0,
+              ... ).get_variable("t")
+              >>> var.pad(time=(1, 0)).read_array().ravel().tolist()
+              [-9999.0, 1.0, 2.0]
+
+              ```
+        """
+        nc = self._ds
+        if mode != "constant":
+            raise ValueError(f"pad() supports only mode='constant' for now, got {mode!r}.")
+        if not pad_width:
+            raise ValueError(
+                "pad() needs at least one dimension, e.g. pad(time=(1, 2)) or pad(x=3)."
+            )
+        result = nc
+        for dim, width in pad_width.items():
+            before, after = _pad_before_after(width, dim)
+            if dim.lower() in _SPATIAL_AXIS_NAMES:
+                result = _pad_spatial(result, dim, before, after, constant_values)
+            else:
+                op = _Pad(before=before, after=after, fill_value=constant_values)
+                if _reduces_as_a_variable(result):
+                    result = _apply_to_variable(result, dim, op)
+                else:
+                    result = _apply_to_container(result, dim, op)
+        return result
+
+    def transpose(self, *dims: Any) -> NetCDF:
+        """Reorder the band dimensions; the spatial `(y, x)` plane stays trailing.
+
+        xarray's `transpose`, restricted to what a georeferenced cube allows: the horizontal plane
+        is pinned as the trailing `(row, column)` axes by the geotransform, so only the band
+        (non-spatial) dimensions may be permuted. Naming a spatial axis is refused. With no
+        arguments the band order is reversed; `...` (Ellipsis) expands to the unnamed band
+        dimensions in their current order.
+
+        Works on a container (each variable reordered by the subset of `dims` it has) and on a
+        single variable.
+
+        Args:
+            *dims: The new band-dimension order. Every band dimension must be named, or `...` used
+                for the rest; empty reverses them.
+
+        Returns:
+            NetCDF: The container or variable with its band axes reordered; values, grid and
+            coordinates unchanged.
+
+        Raises:
+            ValueError: A named dimension is spatial or not a band dimension, a duplicate is given,
+                or (without `...`) not every band dimension is named.
+
+        Examples:
+            - Swap two band dimensions:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(2, 2, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(dims=[("time", [0.0, 1.0]), ("level", [0.0, 1.0])]),
+              ... )
+              >>> out = cube.transpose("level", "time").get_variable("t")
+              >>> out._band_dim_names
+              ('level', 'time')
+
+              ```
+        """
+        nc = self._ds
+        _validate_transpose_dims(nc, dims)
+
+        def _fn(var: NetCDF) -> tuple:
+            band_names = list(var._band_dim_names)
+            order = _transpose_order(band_names, dims)
+            perm = [band_names.index(name) for name in order]
+            arr = np.asarray(nc._materialize_variable_array(var, lazy=True))
+            arr = np.transpose(arr, [*perm, arr.ndim - 2, arr.ndim - 1])
+            values_map = {name: var._band_dim_values_map.get(name) for name in order}
+            return arr, order, values_map, _read_no_data(var), var.geotransform
+
+        return _apply_per_variable(nc, _fn, caller="transpose")
+
     def interp(self, method: str = "linear", **coords: Any) -> NetCDF:
         """Interpolate a band dimension onto new coordinate values.
 
@@ -4451,6 +4628,148 @@ def _run_interp(
     if _reduces_as_a_variable(nc):
         return _apply_to_variable(nc, dim, op)
     return _apply_to_container(nc, dim, op)
+
+
+def _pad_before_after(width: Any, dim: str) -> tuple[int, int]:
+    """Parse a `pad` width for `dim` into a `(before, after)` pair of non-negative ints.
+
+    Args:
+        width: `(before, after)` or a single `int` applied to both sides.
+        dim: The dimension the width is for, named in refusals.
+
+    Returns:
+        tuple[int, int]: The validated `(before, after)`.
+
+    Raises:
+        ValueError: `width` is not a 2-tuple or an int, or holds a negative value.
+    """
+    if isinstance(width, (tuple, list)):
+        if len(width) != 2:
+            raise ValueError(
+                f"pad() width for {dim!r} must be (before, after) or an int, got {width!r}."
+            )
+        before, after = int(width[0]), int(width[1])
+    else:
+        before = after = int(width)
+    if before < 0 or after < 0:
+        raise ValueError(
+            f"pad() widths for {dim!r} must be non-negative, got ({before}, {after})."
+        )
+    return before, after
+
+
+def _pad_spatial(
+    nc: NetCDF, dim: str, before: int, after: int, constant_values: Any
+) -> NetCDF:
+    """Pad a spatial axis, growing the grid and moving the geotransform with the data.
+
+    Padding `before` cells on the left/top shifts the origin so the padded corner becomes the new
+    top-left; the rebuilt grid's coordinates come from that geotransform. The fill is
+    `constant_values` when given, else the variable's no-data value (NaN when none).
+
+    Args:
+        nc: The container or variable to pad.
+        dim: The spatial axis (`x`/`y`/`lon`/`lat`).
+        before: Cells to add at the left (x) or top (y).
+        after: Cells to add at the right (x) or bottom (y).
+        constant_values: The fill; `None` uses the variable's no-data value.
+
+    Returns:
+        NetCDF: The spatially padded container or variable.
+    """
+    is_x = dim.lower() in {name.lower() for name in X_AXIS_NAMES}
+
+    def _fn(var: NetCDF) -> tuple:
+        arr = np.asarray(nc._materialize_variable_array(var, lazy=True), dtype="float64")
+        ndv = _read_no_data(var)
+        no_data: Any = np.nan if ndv is None else ndv
+        fill = no_data if constant_values is None else constant_values
+        pad_width = [(0, 0)] * arr.ndim
+        pad_width[-1 if is_x else -2] = (before, after)
+        padded = np.pad(arr, pad_width, mode="constant", constant_values=fill)
+        gt = GeoTransform(*var.geotransform)
+        new_gt = (
+            gt._replace(x_origin=gt.x_origin - before * gt.pixel_width)
+            if is_x
+            else gt._replace(y_origin=gt.y_origin - before * gt.pixel_height)
+        )
+        return (
+            padded,
+            list(var._band_dim_names),
+            dict(var._band_dim_values_map),
+            no_data,
+            tuple(new_gt),
+        )
+
+    return _apply_per_variable(nc, _fn, caller="pad")
+
+
+def _transpose_order(band_names: list[str], dims: tuple) -> list[str]:
+    """The new band-dimension order for one variable, given the requested `dims`.
+
+    Empty `dims` reverses the band order; `...` (Ellipsis) expands to the band dimensions not named,
+    in their current order; otherwise every band dimension must be named.
+
+    Args:
+        band_names: The variable's current band dimensions.
+        dims: The requested order (may contain `...`).
+
+    Returns:
+        list[str]: The new band order for this variable.
+
+    Raises:
+        ValueError: `dims` has no `...` and does not name every band dimension.
+    """
+    if not dims:
+        return list(reversed(band_names))
+    present = [d for d in dims if d is not Ellipsis and d in band_names]
+    if Ellipsis in dims:
+        rest = [name for name in band_names if name not in present]
+        order: list[str] = []
+        for d in dims:
+            if d is Ellipsis:
+                order.extend(rest)
+            elif d in band_names:
+                order.append(d)
+        return order
+    if set(present) != set(band_names):
+        raise ValueError(
+            f"transpose() must name every band dimension {sorted(band_names)} (or use ...); "
+            f"got {[d for d in dims if d is not Ellipsis]!r}."
+        )
+    return present
+
+
+def _validate_transpose_dims(nc: NetCDF, dims: tuple) -> None:
+    """Refuse a `transpose` that names a spatial axis, an unknown dim, or a duplicate.
+
+    Args:
+        nc: The container or variable being transposed.
+        dims: The requested order (may contain `...`).
+
+    Raises:
+        ValueError: A named entry is not a string/`...`, is a spatial axis, is not a band dimension
+            of the cube, or is duplicated.
+    """
+    explicit = [d for d in dims if d is not Ellipsis]
+    for d in explicit:
+        if not isinstance(d, str):
+            raise ValueError(f"transpose() dimensions must be strings or ..., got {d!r}.")
+    band = set(_band_dims_of(nc))
+    spatial = [d for d in explicit if d.lower() in _SPATIAL_AXIS_NAMES and d not in band]
+    if spatial:
+        raise ValueError(
+            f"transpose() reorders only band (non-spatial) dimensions; {spatial!r} is/are spatial "
+            "axes pinned as the trailing (row, column) plane by the geotransform."
+        )
+    unknown = [d for d in explicit if d not in band]
+    if unknown:
+        raise ValueError(
+            f"transpose() got {unknown!r}, which are not band dimensions of this cube; its band "
+            f"dimensions are {sorted(band)}."
+        )
+    if len(set(explicit)) != len(explicit):
+        raise ValueError(f"transpose() got duplicate dimensions: {explicit!r}.")
 
 
 def _bin_coordinates(nc: NetCDF, dim: str) -> np.ndarray:
