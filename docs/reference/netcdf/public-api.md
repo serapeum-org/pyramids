@@ -1,6 +1,6 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 110 in all: 75 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 113 in all: 78 methods, 27 properties,
 7 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). `concat` and `merge` are counted among the methods: each is callable on the class
 (`NetCDF.concat([a, b], dim)`) and on a cube (`a.concat([b], dim)`, which joins the
@@ -123,6 +123,9 @@ A variable with no raster plane is the exception — see each member's docstring
 | `diff()`           | Differences neighbouring steps along `dim` — `n`, `label`.                           |
 | `interp()`         | Interpolates band `dim`(s) onto new coordinate values — `method`, `**coords`.        |
 | `interp_like()`    | Interpolates shared band dims onto another cube's coordinates — `other`, `method`.   |
+| `rank()`           | Ranks each pixel's values along band `dim`, ties averaged — `pct`.                   |
+| `pad()`            | Pads band or spatial dims with a constant fill — `mode`, `constant_values`.          |
+| `transpose()`      | Reorders band dims (spatial plane stays trailing) — `*dims`.                         |
 | `cumsum()`         | Totals the values along `dim`, step by step — `skipna`.                              |
 | `cumprod()`        | Multiplies the values along `dim`, step by step — `skipna`.                          |
 | `shift()`          | Moves the values along `dim`, filling the vacated steps — `periods`, `fill_value`.   |
