@@ -331,10 +331,15 @@ def _resolve_chunk_axis(key: Any, shape: tuple[int, ...]) -> int:
     more than one (chunk those by integer axis index instead).
 
     Raises:
-        ValueError: An unknown key, an out-of-range index, a spatial name on a < 2-D array, or an
-            ambiguous/absent `"bands"` axis.
+        ValueError: A `bool` key, an unknown key, an out-of-range index, a spatial name on a < 2-D
+            array, or an ambiguous/absent `"bands"` axis. Names are case-insensitive.
     """
     ndim = len(shape)
+    if isinstance(key, bool):
+        # bool is an int subclass, so it would otherwise resolve as axis 0/1; reject it outright.
+        raise ValueError(
+            f"chunks dict key {key!r} is a bool, not an axis index or a name."
+        )
     if isinstance(key, int):
         if not 0 <= key < ndim:
             raise ValueError(f"chunks dict axis {key} out of range for ndim={ndim}.")
@@ -356,7 +361,7 @@ def _resolve_chunk_axis(key: Any, shape: tuple[int, ...]) -> int:
     else:
         raise ValueError(
             f"Unknown chunks dict key {key!r}; expected an int axis index or one of "
-            "'bands'/'rows'/'cols'."
+            "'bands'/'rows'/'cols'/'columns' (case-insensitive)."
         )
     return axis
 
@@ -467,6 +472,10 @@ def _expand_chunks(
     """
     per_axis: list[tuple[int, ...]] = []
     for axis, cs in zip(shape, chunk_shape):
+        if axis == 0:
+            # A 0-length dimension is a single empty chunk; divmod below would divide by zero.
+            per_axis.append((0,))
+            continue
         if cs <= 0:
             cs = axis
         full, remainder = divmod(axis, cs)

@@ -16,6 +16,7 @@ from pyramids.netcdf import NetCDF
 from pyramids.netcdf._lazy import (
     _auto_chunks,
     _default_chunks,
+    _expand_chunks,
     _normalize_chunks,
     _normalize_chunks_dict,
     _resolve_chunk_axis,
@@ -115,6 +116,25 @@ class TestAutoChunks:
         with pytest.raises(ValueError, match="expected 'auto'"):
             _normalize_chunks("bogus", (3, 5, 6), None)
 
+    def test_zero_length_dimension_expands_to_an_empty_chunk(self):
+        """A 0-length dimension yields one empty chunk, not a ZeroDivisionError (L2)."""
+        grid = _expand_chunks((0, 100), (0, 100))
+        assert grid == ((0,), (100,)), (
+            f"a 0-length axis should give one empty chunk, got {grid}"
+        )
+
+    @requires_dask
+    def test_read_array_auto_tiles_a_large_variable_end_to_end(self):
+        """read_array(chunks='auto') tiles into >1 block under a small dask chunk target (#1222 symptom)."""
+        import dask  # optional dep, guarded by @requires_dask (the module imports without dask)
+
+        nc = NetCDF.read_file(str(FIX))
+        with dask.config.set({"array.chunk-size": "2 kiB"}):
+            arr = nc.get_variable("ua").read_array(chunks="auto")
+        assert int(np.prod(arr.numblocks)) > 1, (
+            f"auto should tile a large variable under a small chunk target, got {arr.numblocks}"
+        )
+
 
 class TestResolveChunkAxis:
     """#1223 — dict chunk names map to the trailing spatial axes for any ndim."""
@@ -167,6 +187,19 @@ class TestResolveChunkAxis:
         """`rows`/`cols`/`columns` need a 2-D+ array and are refused on a 1-D shape."""
         with pytest.raises(ValueError, match="needs a 2-D"):
             _resolve_chunk_axis(key, (6,))
+
+    @pytest.mark.parametrize("key", [True, False])
+    def test_bool_key_is_refused(self, key):
+        """A bool key is refused (bool is an int subclass that would resolve as axis 0/1)."""
+        with pytest.raises(ValueError, match="bool"):
+            _resolve_chunk_axis(key, (3, 5, 6))
+
+    @pytest.mark.parametrize(
+        "key, expected", [("ROWS", 2), ("Cols", 3), ("COLUMNS", 3)]
+    )
+    def test_spatial_names_are_case_insensitive(self, key, expected):
+        """Spatial name keys resolve case-insensitively."""
+        assert _resolve_chunk_axis(key, (4, 3, 5, 6)) == expected, f"{key!r}"
 
     @requires_dask
     def test_dict_chunks_target_the_spatial_plane_on_a_4d_variable(self):
