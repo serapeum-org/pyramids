@@ -123,3 +123,38 @@ class TestDiscardPathHandles:
             "both same-file slots should be discarded"
         )
         assert len(cache) == 0, "the matching entries should be gone from the cache"
+
+    def test_discarded_handle_is_closed(self):
+        """The evicted handle is `Close()`d deterministically, not left to GC (#1224/M1)."""
+
+        class _FakeHandle:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def Close(self) -> None:
+                self.closed = True
+
+        cache = _LRUCache(maxsize=8)
+        handle = _FakeHandle()
+        key = _make_cache_key(
+            gdal_mdarray_open, str(FIX), "read_only", {}, ("id", "ua")
+        )
+        cache[key] = handle
+        assert discard_path_handles(str(FIX), cache) == 1, (
+            "the entry should be discarded"
+        )
+        assert handle.closed, "the evicted handle must be Close()d, not left for the GC"
+
+    def test_remote_path_is_matched_verbatim_and_case_sensitively(self):
+        """A remote/VSI path is matched verbatim (abspath/normcase would mangle or case-fold it) (L1)."""
+        cache = _LRUCache(maxsize=8)
+        key = _make_cache_key(
+            gdal_mdarray_open, "s3://bucket/Key.nc", "read_only", {}, ("id", "v")
+        )
+        cache[key] = object()
+        assert discard_path_handles("s3://bucket/key.nc", cache) == 0, (
+            "a remote key differing only in case must not match (keys are case-sensitive)"
+        )
+        assert discard_path_handles("s3://bucket/Key.nc", cache) == 1, (
+            "the exact remote spelling matches verbatim"
+        )

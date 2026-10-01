@@ -636,14 +636,21 @@ def _make_cache_key(
 
 
 def discard_path_handles(path: Any, cache: _LRUCache | None = None) -> int:
-    """Discard any cached file handles for `path`, returning how many entries were discarded.
+    """Discard and close any cached file handles for `path`, returning how many were discarded.
 
     Used before an in-process reopen of a file so a lazy read's parked GDAL handle does not coexist
     with a freshly opened one — two live GDAL handles to one NetCDF can crash GDAL on Windows
     (#1224). The cache key stores the path at index 1 (see :func:`_make_cache_key`); each matching
-    entry is :meth:`_LRUCache.discard`-ed, which closes the handle once no in-flight read is pinning
-    it. A lazy array that outlives this call transparently re-opens on its next chunk read, so the
-    eviction is safe for correctness.
+    entry is removed via :meth:`_LRUCache.discard` and the handle it returns is closed through
+    :func:`_close_handle` — mirroring :meth:`CachingFileManager.close`, so the release is
+    deterministic rather than left to GC. An entry pinned by an in-flight read returns `None` and is
+    closed later when it unpins. A lazy array that outlives this call transparently re-opens on its
+    next chunk read, so the eviction is safe for correctness.
+
+    The scope is the **whole path**: every cached handle for `path` is discarded regardless of
+    opener, access mode, open-options or `manager_id` — not only lazy MDArray slots. A remote / VSI
+    path (`s3://…`, `/vsi…`, `http(s)://…`) is matched verbatim (case-sensitive); a local path is
+    reconciled across relative/absolute spellings and Windows case.
 
     Args:
         path: The file path to evict handles for (anything `os.fspath` accepts).
@@ -656,18 +663,23 @@ def discard_path_handles(path: Any, cache: _LRUCache | None = None) -> int:
 
     def _norm(value: Any) -> str | None:
         try:
-            return str(os.path.normcase(os.path.abspath(os.fspath(value))))
+            text: str = os.fspath(value)
         except (TypeError, ValueError):
             return None
+        # A remote / VSI path must not go through abspath (it prepends the CWD and rewrites the
+        # separators) or normcase (it case-folds a case-sensitive key); compare it verbatim.
+        if "://" in text or text.startswith("/vsi"):
+            return text
+        return str(os.path.normcase(os.path.abspath(text)))
 
     target = _norm(path)
-    matches = [
-        key
-        for key in list(cache)
-        if len(key) > 1 and target is not None and _norm(key[1]) == target
-    ]
+    if target is None:
+        return 0
+    matches = [key for key in list(cache) if len(key) > 1 and _norm(key[1]) == target]
     for key in matches:
-        cache.discard(key)
+        handle = cache.discard(key)
+        if handle is not None:
+            _close_handle(key, handle)
     return len(matches)
 
 
