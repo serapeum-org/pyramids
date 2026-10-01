@@ -334,21 +334,44 @@ def _resolve_chunk_axis(key: Any, shape: tuple[int, ...]) -> int:
         ValueError: A `bool` key, an unknown key, an out-of-range index, a spatial name on a < 2-D
             array, or an ambiguous/absent `"bands"` axis. Names are case-insensitive.
     """
-    ndim = len(shape)
     if isinstance(key, bool):
         # bool is an int subclass, so it would otherwise resolve as axis 0/1; reject it outright.
         raise ValueError(
             f"chunks dict key {key!r} is a bool, not an axis index or a name."
         )
     if isinstance(key, int):
+        ndim = len(shape)
         if not 0 <= key < ndim:
             raise ValueError(f"chunks dict axis {key} out of range for ndim={ndim}.")
         axis = key
-    elif isinstance(key, str) and key.lower() in ("cols", "columns", "rows"):
+    elif isinstance(key, str):
+        axis = _resolve_chunk_name(key, shape)
+    else:
+        raise ValueError(
+            f"Unknown chunks dict key {key!r}; expected an int axis index or one of "
+            "'bands'/'rows'/'cols'/'columns' (case-insensitive)."
+        )
+    return axis
+
+
+def _resolve_chunk_name(key: str, shape: tuple[int, ...]) -> int:
+    """Resolve a `chunks` dict *name* key to an axis of `shape` (see `_resolve_chunk_axis`).
+
+    The names `"cols"`/`"columns"` and `"rows"` map to the trailing two (spatial) axes — axis `-1`
+    and `-2` — for **any** ndim. `"bands"` maps to the sole non-spatial leading axis, and is refused
+    as ambiguous when the variable has more than one. Names are case-insensitive.
+
+    Raises:
+        ValueError: An unknown name, a spatial name on a < 2-D array, or an ambiguous/absent
+            `"bands"` axis.
+    """
+    ndim = len(shape)
+    name = key.lower()
+    if name in ("cols", "columns", "rows"):
         if ndim < 2:
             raise ValueError(f"chunks key {key!r} needs a 2-D+ array; got ndim={ndim}.")
-        axis = ndim - 1 if key.lower() in ("cols", "columns") else ndim - 2
-    elif isinstance(key, str) and key.lower() == "bands":
+        axis = ndim - 1 if name in ("cols", "columns") else ndim - 2
+    elif name == "bands":
         band_axes = list(range(ndim - 2))
         if not band_axes:
             raise ValueError("chunks key 'bands' is not meaningful for a 2-D array.")
