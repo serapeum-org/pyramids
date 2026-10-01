@@ -29,6 +29,7 @@ from __future__ import annotations
 import atexit
 import logging
 import os
+import re
 import threading
 import uuid
 import weakref
@@ -649,8 +650,11 @@ def discard_path_handles(path: Any, cache: _LRUCache | None = None) -> int:
 
     The scope is the **whole path**: every cached handle for `path` is discarded regardless of
     opener, access mode, open-options or `manager_id` — not only lazy MDArray slots. A remote / VSI
-    path (`s3://…`, `/vsi…`, `http(s)://…`) is matched verbatim (case-sensitive); a local path is
-    reconciled across relative/absolute spellings and Windows case.
+    path (a `scheme://` URL or a `/vsi…` prefix) is matched verbatim (case-sensitive); a local path
+    is reconciled across relative/absolute spellings and Windows case. Matching uses the path as
+    given, so a remote file reopened under a different spelling than the lazy read parked under (a
+    raw URL vs its VSI-rewritten form) will not match — the guard is aimed at **local** files, where
+    the two-handle crash actually occurs (remote NetCDF is not openable on that platform anyway).
 
     Args:
         path: The file path to evict handles for (anything `os.fspath` accepts).
@@ -663,19 +667,27 @@ def discard_path_handles(path: Any, cache: _LRUCache | None = None) -> int:
 
     def _norm(value: Any) -> str | None:
         try:
-            text: str = os.fspath(value)
+            text = os.fsdecode(
+                value
+            )  # str for str / bytes / PathLike; TypeError otherwise
         except (TypeError, ValueError):
-            return None
-        # A remote / VSI path must not go through abspath (it prepends the CWD and rewrites the
-        # separators) or normcase (it case-folds a case-sensitive key); compare it verbatim.
-        if "://" in text or text.startswith("/vsi"):
-            return text
-        return str(os.path.normcase(os.path.abspath(text)))
+            result: str | None = None
+        else:
+            # A remote / VSI path must not go through abspath (prepends the CWD, rewrites the
+            # separators) or normcase (case-folds a case-sensitive key); compare it verbatim. The
+            # scheme needs >= 2 chars so a Windows drive path ("C://x") stays local, not remote.
+            if re.match(r"[A-Za-z][A-Za-z0-9+.-]+://", text) or text.startswith("/vsi"):
+                result = text
+            else:
+                result = os.path.normcase(os.path.abspath(text))
+        return result
 
     target = _norm(path)
-    if target is None:
-        return 0
-    matches = [key for key in list(cache) if len(key) > 1 and _norm(key[1]) == target]
+    matches = [
+        key
+        for key in list(cache)
+        if target is not None and len(key) > 1 and _norm(key[1]) == target
+    ]
     for key in matches:
         handle = cache.discard(key)
         if handle is not None:

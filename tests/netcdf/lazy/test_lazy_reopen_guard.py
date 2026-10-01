@@ -7,6 +7,7 @@ warns; a lazy array that outlives the reopen re-opens transparently on its next 
 
 from __future__ import annotations
 
+import os
 import warnings
 from pathlib import Path
 
@@ -157,4 +158,24 @@ class TestDiscardPathHandles:
         )
         assert discard_path_handles("s3://bucket/Key.nc", cache) == 1, (
             "the exact remote spelling matches verbatim"
+        )
+
+    def test_bytes_path_is_decoded_not_crashed(self):
+        """A bytes path is decoded via os.fsdecode and matches its str spelling, not a TypeError (L1)."""
+        cache = _LRUCache(maxsize=8)
+        key = _make_cache_key(gdal_mdarray_open, str(FIX), "read_only", {}, ("id", "v"))
+        cache[key] = object()
+        assert discard_path_handles(os.fsencode(str(FIX)), cache) == 1, (
+            "a bytes spelling of the path should decode and match the str-keyed entry"
+        )
+
+    def test_windows_double_slash_drive_path_stays_local(self):
+        """A `C://…` path is a local drive path, not a remote URL, so it matches its normal spelling (L3)."""
+        cache = _LRUCache(maxsize=8)
+        key = _make_cache_key(
+            gdal_mdarray_open, "C:/tmp/x.nc", "read_only", {}, ("id", "v")
+        )
+        cache[key] = object()
+        assert discard_path_handles("C://tmp/x.nc", cache) == 1, (
+            "a double-slash drive path should be treated as local and match 'C:/tmp/x.nc'"
         )
