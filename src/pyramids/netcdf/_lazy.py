@@ -193,10 +193,47 @@ def _default_chunks(
     return chunks
 
 
+def _auto_chunks(
+    shape: tuple[int, ...], dtype: Any, block_size: list[int] | None
+) -> tuple[int, ...]:
+    """dask's byte-targeted `"auto"` chunking, snapped to the native block size.
+
+    Returns one uniform chunk size per axis (the form :func:`_expand_chunks` tiles), chosen by
+    `dask.array.core.normalize_chunks` so a large contiguously-stored variable is split toward
+    dask's default chunk-size target instead of being read as a single whole-array task — the
+    #1222 fix. The native GDAL block size (when known) is passed as `previous_chunks` so the auto
+    chunks snap to block boundaries, mirroring the raster read path in
+    :mod:`pyramids.dataset.engines.io`.
+
+    Args:
+        shape: Full MDArray shape.
+        dtype: Element dtype, used to turn dask's byte target into element counts.
+        block_size: Native block size from `gdal.MDArray.GetBlockSize`, or `None`.
+
+    Returns:
+        tuple[int, ...]: One chunk size per axis.
+    """
+    import_dask(_DASK_MISSING_MESSAGE)
+    from dask.array.core import normalize_chunks
+
+    previous = None
+    if block_size is not None and len(block_size) == len(shape):
+        previous = tuple(
+            int(bs) if bs and bs > 0 else int(axis)
+            for bs, axis in zip(block_size, shape)
+        )
+    dask_chunks = normalize_chunks("auto", shape, dtype=dtype, previous_chunks=previous)
+    return tuple(
+        int(axis_chunks[0]) if axis_chunks else int(axis)
+        for axis_chunks, axis in zip(dask_chunks, shape)
+    )
+
+
 def _normalize_chunks(
     chunks: Any,
     shape: tuple[int, ...],
     block_size: list[int] | None,
+    dtype: Any = None,
 ) -> tuple[int, ...]:
     """Normalize a user-supplied `chunks` argument.
 
@@ -205,20 +242,26 @@ def _normalize_chunks(
     * `None` → caller should not use the lazy path; raises
       :class:`ValueError` (lazy path must not be entered with
       `chunks=None`).
-    * `"auto"` → use :func:`_default_chunks` (native block size
-      when known, conservative fallback otherwise).
+    * `"auto"` → dask's byte-targeted chunking via :func:`_auto_chunks`
+      (snapped to the native block size), so a large variable is tiled
+      toward dask's default chunk size rather than read as one
+      whole-array task (#1222). Needs `dtype`.
     * `int` → apply that size to every axis.
     * `tuple`/`list` → must match `len(shape)`; each element
       is an `int` or `-1` (meaning "full axis").
-    * `dict` → keyed by axis index (`int`) or by the literal
-      strings `"bands"`/`"rows"`/`"cols"` for 3-D arrays.
-      Missing axes fall back to the :func:`_default_chunks` value.
+    * `dict` → keyed by axis index (`int`) or by the names
+      `"bands"`/`"rows"`/`"cols"`. `"rows"`/`"cols"` map to the trailing
+      two (spatial) axes for **any** ndim and `"bands"` to the single
+      non-spatial axis (refused as ambiguous when there is more than
+      one). Missing axes fall back to the :func:`_default_chunks` value.
 
     Args:
         chunks: Raw user input — see above.
         shape: Full MDArray shape.
         block_size: Native block size, forwarded to
             :func:`_default_chunks`.
+        dtype: Element dtype, required for `chunks="auto"` (byte→element
+            sizing); ignored for every other form.
 
     Returns:
         tuple[int, ...]: Concrete per-axis chunk sizes.
@@ -233,7 +276,7 @@ def _normalize_chunks(
     if isinstance(chunks, str):
         if chunks != "auto":
             raise ValueError(f"Unknown chunks string {chunks!r}; expected 'auto'.")
-        result = default
+        result = default if dtype is None else _auto_chunks(shape, dtype, block_size)
     elif isinstance(chunks, int):
         result = _normalize_chunks_int(chunks, shape)
     elif isinstance(chunks, (tuple, list)):
@@ -276,36 +319,62 @@ def _normalize_chunks_seq(
     return tuple(normalized)
 
 
+def _resolve_chunk_axis(key: Any, shape: tuple[int, ...]) -> int:
+    """Resolve a `chunks` dict key (axis index or name) to an axis of `shape`.
+
+    An ``int`` key is an axis index, validated against ndim. The names ``"cols"``/``"columns"``
+    and ``"rows"`` map to the trailing two (spatial) axes — axis ``-1`` and ``-2`` — for **any**
+    ndim, so they hit the raster plane of a 2-D, 3-D or 4-D+ variable alike (#1223). ``"bands"``
+    maps to the sole non-spatial leading axis, and is refused as ambiguous when the variable has
+    more than one (chunk those by integer axis index instead).
+
+    Raises:
+        ValueError: An unknown key, an out-of-range index, a spatial name on a < 2-D array, or an
+            ambiguous/absent ``"bands"`` axis.
+    """
+    ndim = len(shape)
+    if isinstance(key, int):
+        if not 0 <= key < ndim:
+            raise ValueError(f"chunks dict axis {key} out of range for ndim={ndim}.")
+        axis = key
+    elif isinstance(key, str) and key.lower() in ("cols", "columns", "rows"):
+        if ndim < 2:
+            raise ValueError(f"chunks key {key!r} needs a 2-D+ array; got ndim={ndim}.")
+        axis = ndim - 1 if key.lower() in ("cols", "columns") else ndim - 2
+    elif isinstance(key, str) and key.lower() == "bands":
+        band_axes = list(range(ndim - 2))
+        if not band_axes:
+            raise ValueError("chunks key 'bands' is not meaningful for a 2-D array.")
+        if len(band_axes) > 1:
+            raise ValueError(
+                f"chunks key 'bands' is ambiguous for a {ndim}-D array with non-spatial axes "
+                f"{band_axes}; chunk them by integer axis index instead."
+            )
+        axis = band_axes[0]
+    else:
+        raise ValueError(
+            f"Unknown chunks dict key {key!r}; expected an int axis index or one of "
+            "'bands'/'rows'/'cols'."
+        )
+    return axis
+
+
 def _normalize_chunks_dict(
     chunks: dict, shape: tuple[int, ...], default: tuple[int, ...]
 ) -> tuple[int, ...]:
     """Normalize a ``dict`` of chunk sizes keyed by axis index or name.
 
-    Keys may be an ``int`` axis index or one of the ``bands``/``rows``/``cols``
-    (``columns``) aliases (3-D or 2-D depending on ``shape``). Axes absent from
-    the dict keep their ``default`` value; ``None``/``-1`` values mean "full axis".
+    Keys may be an ``int`` axis index or one of ``bands``/``rows``/``cols`` (``columns``); the
+    spatial names resolve to the trailing two axes for any ndim (see :func:`_resolve_chunk_axis`).
+    Axes absent from the dict keep their ``default`` value; ``None``/``-1`` values mean "full
+    axis".
 
     Raises:
-        ValueError: An unknown key, or an axis index out of range.
+        ValueError: An unknown key, an out-of-range index, or an ambiguous spatial/band name.
     """
-    name_aliases_3d = {"bands": 0, "rows": 1, "cols": 2, "columns": 2}
-    name_aliases_2d = {"rows": 0, "cols": 1, "columns": 1}
-    aliases = name_aliases_3d if len(shape) == 3 else name_aliases_2d
     resolved = list(default)
     for key, value in chunks.items():
-        if isinstance(key, int):
-            axis_idx = key
-        elif isinstance(key, str) and key in aliases:
-            axis_idx = aliases[key]
-        else:
-            raise ValueError(
-                f"Unknown chunks dict key {key!r}; expected an int "
-                f"axis index or one of {sorted(aliases)}."
-            )
-        if not 0 <= axis_idx < len(shape):
-            raise ValueError(
-                f"chunks dict axis {axis_idx} out of range for ndim={len(shape)}."
-            )
+        axis_idx = _resolve_chunk_axis(key, shape)
         resolved[axis_idx] = int(shape[axis_idx]) if value in (None, -1) else int(value)
     return tuple(resolved)
 
@@ -662,7 +731,7 @@ def build_lazy_array(
         path,
         variable_name,
     )
-    chunk_shape = _normalize_chunks(chunks, shape, block_size)
+    chunk_shape = _normalize_chunks(chunks, shape, block_size, dtype)
     resolved_lock = _resolve_lock(lock)
     key_id = manager_id if manager_id is not None else (path, variable_name)
     manager = CachingFileManager(
