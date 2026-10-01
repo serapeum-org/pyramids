@@ -245,10 +245,11 @@ def _normalize_chunks(
     * `"auto"` → dask's byte-targeted chunking via :func:`_auto_chunks`
       (snapped to the native block size), so a large variable is tiled
       toward dask's default chunk size rather than read as one
-      whole-array task (#1222). Needs `dtype`.
+      whole-array task (#1222). Falls back to :func:`_default_chunks`
+      when `dtype` is omitted.
     * `int` → apply that size to every axis.
     * `tuple`/`list` → must match `len(shape)`; each element
-      is an `int` or `-1` (meaning "full axis").
+      is an `int`, or `-1` / `None` (meaning "full axis").
     * `dict` → keyed by axis index (`int`) or by the names
       `"bands"`/`"rows"`/`"cols"`. `"rows"`/`"cols"` map to the trailing
       two (spatial) axes for **any** ndim and `"bands"` to the single
@@ -260,8 +261,9 @@ def _normalize_chunks(
         shape: Full MDArray shape.
         block_size: Native block size, forwarded to
             :func:`_default_chunks`.
-        dtype: Element dtype, required for `chunks="auto"` (byte→element
-            sizing); ignored for every other form.
+        dtype: Element dtype for `chunks="auto"` byte→element sizing.
+            `"auto"` falls back to :func:`_default_chunks` when it is
+            omitted; ignored for every other form.
 
     Returns:
         tuple[int, ...]: Concrete per-axis chunk sizes.
@@ -322,15 +324,15 @@ def _normalize_chunks_seq(
 def _resolve_chunk_axis(key: Any, shape: tuple[int, ...]) -> int:
     """Resolve a `chunks` dict key (axis index or name) to an axis of `shape`.
 
-    An ``int`` key is an axis index, validated against ndim. The names ``"cols"``/``"columns"``
-    and ``"rows"`` map to the trailing two (spatial) axes — axis ``-1`` and ``-2`` — for **any**
-    ndim, so they hit the raster plane of a 2-D, 3-D or 4-D+ variable alike (#1223). ``"bands"``
+    An `int` key is an axis index, validated against ndim. The names `"cols"`/`"columns"`
+    and `"rows"` map to the trailing two (spatial) axes — axis `-1` and `-2` — for **any**
+    ndim, so they hit the raster plane of a 2-D, 3-D or 4-D+ variable alike (#1223). `"bands"`
     maps to the sole non-spatial leading axis, and is refused as ambiguous when the variable has
     more than one (chunk those by integer axis index instead).
 
     Raises:
         ValueError: An unknown key, an out-of-range index, a spatial name on a < 2-D array, or an
-            ambiguous/absent ``"bands"`` axis.
+            ambiguous/absent `"bands"` axis.
     """
     ndim = len(shape)
     if isinstance(key, int):
@@ -362,15 +364,16 @@ def _resolve_chunk_axis(key: Any, shape: tuple[int, ...]) -> int:
 def _normalize_chunks_dict(
     chunks: dict, shape: tuple[int, ...], default: tuple[int, ...]
 ) -> tuple[int, ...]:
-    """Normalize a ``dict`` of chunk sizes keyed by axis index or name.
+    """Normalize a `dict` of chunk sizes keyed by axis index or name.
 
-    Keys may be an ``int`` axis index or one of ``bands``/``rows``/``cols`` (``columns``); the
+    Keys may be an `int` axis index or one of `bands`/`rows`/`cols` (`columns`); the
     spatial names resolve to the trailing two axes for any ndim (see :func:`_resolve_chunk_axis`).
-    Axes absent from the dict keep their ``default`` value; ``None``/``-1`` values mean "full
+    Axes absent from the dict keep their `default` value; `None`/`-1` values mean "full
     axis".
 
     Raises:
-        ValueError: An unknown key, an out-of-range index, or an ambiguous spatial/band name.
+        ValueError: An unknown key, an out-of-range index, or a name invalid for the array ndim
+            (see :func:`_resolve_chunk_axis`).
     """
     resolved = list(default)
     for key, value in chunks.items():

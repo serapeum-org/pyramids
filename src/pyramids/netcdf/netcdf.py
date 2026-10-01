@@ -9024,6 +9024,15 @@ class NetCDF(Dataset):
         Returns:
             NetCDF: The opened dataset.
 
+        Note:
+            Reopening a file whose earlier lazy read still has a GDAL handle parked in the
+            process-global `pyramids.base._file_manager.FILE_CACHE` would leave two live GDAL
+            handles to one NetCDF, which can crash GDAL on Windows. `read_file` releases any such
+            parked handle for `path` first and warns (#1224); a lazy array still referencing the
+            file re-opens transparently on its next chunk read. Drop the lazy array(s) or
+            `close()` the `NetCDF` before reopening to avoid the warning. See :meth:`read_array`'s
+            Note for the full open-handle lifetime.
+
         Examples:
             - Open a plain ``.nc`` from disk and list its variables:
                 ```python
