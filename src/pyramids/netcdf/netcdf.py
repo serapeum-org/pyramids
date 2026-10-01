@@ -25,6 +25,7 @@ from osgeo import gdal, osr
 
 from pyramids import _io
 from pyramids.base._axes import AXIS_NAMES
+from pyramids.base._file_manager import discard_path_handles
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
     _is_identity_packing,
@@ -5596,10 +5597,13 @@ class NetCDF(Dataset):
               pressure or at interpreter exit. A lazy array stays usable after `close()` — its manager
               re-opens the handle on the next chunk read.
 
-              Opening the **same file again in the same process while a handle is still parked** leaves
-              two live GDAL handles to one NetCDF, which can crash GDAL on Windows. So before reopening
-              a file in-process, either **drop the lazy array(s)** or **`close()` the `NetCDF`** — both
-              now release the parked handle.
+              Opening the **same file again in the same process while a handle is still parked** would
+              leave two live GDAL handles to one NetCDF, which can crash GDAL on Windows. `read_file`
+              now guards against this (#1224): it releases any parked handle for the path before
+              reopening and warns, and a lazy array still referencing the file re-opens transparently
+              on its next chunk read. To avoid the warning (and re-parking a second handle during
+              continued concurrent use), **drop the lazy array(s)** or **`close()` the `NetCDF`**
+              before reopening.
             * **Axis plane and shape.** The lazy path resolves the raster plane the same way the
               eager path does — explicit `x_dim` / `y_dim` (carried on the `get_variable` subset) or
               CF detection, falling back to the trailing two dimensions — and moves it to the
@@ -9062,6 +9066,21 @@ class NetCDF(Dataset):
             - :meth:`pyramids.dataset.Dataset.read_file`: the same
               ``vsi=`` / ``file_i=`` surface for GeoTIFFs.
         """
+        # Guard against two live GDAL handles to one file (#1224): a prior lazy read may have parked
+        # a handle for this path in the process-global FILE_CACHE, and opening a second handle while
+        # it is parked can crash GDAL on Windows. Release the parked handle(s) first -- a lazy array
+        # still referencing this file re-opens transparently on its next chunk read -- and warn so
+        # the caller knows to drop that array before continued concurrent use.
+        released = discard_path_handles(path)
+        if released:
+            warnings.warn(
+                f"Reopening {os.fspath(path)!r} while {released} lazy-read handle(s) for it were "
+                "still parked; the parked handle(s) were released to avoid two live GDAL handles to "
+                "one file (which can crash GDAL on Windows). A lazy array still referencing this file "
+                "will re-open on its next chunk read -- drop it or call close() before reopening to "
+                "avoid re-parking a second handle.",
+                stacklevel=2,
+            )
         # Normalize once here so the captured form on the Container is the
         # KEY=VALUE list; _io.read_file re-normalizes idempotently (see the note
         # in Dataset.read_file).

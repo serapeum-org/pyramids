@@ -635,6 +635,42 @@ def _make_cache_key(
     return _HashedSequence([opener, path, access, kwargs_key, manager_id])
 
 
+def discard_path_handles(path: Any, cache: _LRUCache | None = None) -> int:
+    """Discard any cached file handles for `path`, returning how many entries were discarded.
+
+    Used before an in-process reopen of a file so a lazy read's parked GDAL handle does not coexist
+    with a freshly opened one — two live GDAL handles to one NetCDF can crash GDAL on Windows
+    (#1224). The cache key stores the path at index 1 (see :func:`_make_cache_key`); each matching
+    entry is :meth:`_LRUCache.discard`-ed, which closes the handle once no in-flight read is pinning
+    it. A lazy array that outlives this call transparently re-opens on its next chunk read, so the
+    eviction is safe for correctness.
+
+    Args:
+        path: The file path to evict handles for (anything `os.fspath` accepts).
+        cache: The cache to scan; defaults to the process-global :data:`FILE_CACHE`.
+
+    Returns:
+        int: The number of cache entries discarded (0 when none were parked for `path`).
+    """
+    cache = cache if cache is not None else FILE_CACHE
+
+    def _norm(value: Any) -> str | None:
+        try:
+            return str(os.path.normcase(os.path.abspath(os.fspath(value))))
+        except (TypeError, ValueError):
+            return None
+
+    target = _norm(path)
+    matches = [
+        key
+        for key in list(cache)
+        if len(key) > 1 and target is not None and _norm(key[1]) == target
+    ]
+    for key in matches:
+        cache.discard(key)
+    return len(matches)
+
+
 class FileManager(ABC):
     """Abstract base class for pickle-safe GDAL/OGR file-handle managers.
 
