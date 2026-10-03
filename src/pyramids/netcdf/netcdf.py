@@ -7606,6 +7606,20 @@ class NetCDF(Dataset):
         """
         return self.interop.to_dataframe(variables=variables, dropna=dropna)
 
+    def to_dask_dataframe(
+        self, *, variables: Any = None, dropna: bool = False, chunks: Any = "auto"
+    ):
+        """Facade — :meth:`Interop.to_dask_dataframe <pyramids.netcdf.engines.interop.Interop.to_dask_dataframe>`.
+
+        The lazy sibling of :meth:`to_dataframe`: a tidy :class:`dask.dataframe.DataFrame`
+        (dimension coordinates as columns beside the value columns) read lazily through
+        :meth:`read_array`. `to_dask_dataframe(...).compute().set_index([*dims])` reproduces
+        `to_dataframe()`.
+        """
+        return self.interop.to_dask_dataframe(
+            variables=variables, dropna=dropna, chunks=chunks
+        )
+
     @_joins_cubes
     def concat(self, objs: Any, dim: str) -> NetCDF:
         """Join cubes end to end along one of their dimensions.

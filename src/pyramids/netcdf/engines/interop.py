@@ -29,7 +29,7 @@ import pandas as pd
 from osgeo import gdal, osr
 
 from pyramids.base._errors import TimeDecodingWarning
-from pyramids.base._utils import import_xarray, numpy_to_gdal_dtype
+from pyramids.base._utils import import_dask, import_xarray, numpy_to_gdal_dtype
 from pyramids.base.remote import is_remote
 from pyramids.dataset.engines._base import _Engine
 from pyramids.netcdf._lazy import build_lazy_array
@@ -506,6 +506,128 @@ class Interop(_Engine["NetCDF"]):
         index = _frame_index(first)
         frame = pd.DataFrame(columns, index=index)
         return frame.dropna(how="all") if dropna else frame
+
+    def to_dask_dataframe(
+        self, *, variables: Any = None, dropna: bool = False, chunks: Any = "auto"
+    ):
+        """Hand the cube to dask in tidy form — the lazy sibling of :meth:`to_dataframe`.
+
+        Where `to_dataframe` returns an eager :class:`pandas.DataFrame` on a dimension
+        `MultiIndex`, this returns a :class:`dask.dataframe.DataFrame` in **tidy** form — the
+        dimension coordinates as plain columns beside the value columns, on a flat index —
+        because a dask dataframe has no `MultiIndex`. That is the shape
+        `xarray.Dataset.to_dask_dataframe(set_index=False)` returns, and
+        `to_dask_dataframe(...).compute().set_index([*dimension_names])` reproduces
+        `to_dataframe()` (take a `sort_index()` on both on a y-ascending store, exactly as
+        :meth:`to_dataframe` documents).
+
+        The values are read lazily through :meth:`NetCDF.read_array` with `chunks`, so no
+        cell is materialised until the frame is computed; the dimension columns are the cheap
+        coordinate metadata (geotransform-derived centres and band stamps), tiled to match
+        the value chunking. A cube with no on-disk store (one built in memory) has nothing to
+        stream, so its values are wrapped eagerly in a dask array instead — the frame is still
+        a deferred dask graph.
+
+        Args:
+            variables: Which data variables become value columns, as a name or a sequence of
+                names. `None` (default) takes every gridded variable that shares the band
+                dimensions. Same selection and validation as :meth:`to_dataframe`.
+            dropna: Drop the rows that are missing in **every** value column. `False` by
+                default, matching :meth:`to_dataframe`.
+            chunks: Chunking spec forwarded to :meth:`NetCDF.read_array` for the lazy read.
+                `"auto"` (default) targets dask's byte budget; any form `read_array` accepts
+                works.
+
+        Returns:
+            dask.dataframe.DataFrame: columns `[*dimension_names, *variable_names]`, one row
+            per cell in the same `(*bands, y, x)` order as :meth:`to_dataframe`, every value
+            column `float64` with gaps as NaN.
+
+        Raises:
+            ValueError: The container has no gridded variables; a name is not one of them; a
+                name was given more than once; an empty selection was given; or the chosen
+                variables do not share the same band dimensions.
+            OptionalPackageDoesNotExist: dask is not installed — install the `lazy` extra.
+
+        Examples:
+            - The lazy frame computes to the same rows as `to_dataframe`, once its tidy
+              dimension columns are promoted back to the index:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> nc = NetCDF.from_array(
+              ...     np.arange(8.0).reshape(2, 2, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... )
+              >>> ddf = nc.to_dask_dataframe()
+              >>> sorted(ddf.columns)
+              ['t', 'time', 'x', 'y']
+              >>> computed = ddf.compute().set_index(["time", "y", "x"]).sort_index()
+              >>> bool(computed["t"].equals(nc.to_dataframe().sort_index()["t"]))
+              True
+
+              ```
+        """
+        import_dask("to_dask_dataframe() needs dask; install the `lazy` extra.")
+        import dask.array as da
+        import dask.dataframe as dd
+
+        nc = self._ds
+        names = self._frame_variables(variables)
+        first = nc._require_raster_variable(names[0]) if _is_container(nc) else nc
+        # An in-memory store (no on-disk / VSI path) has nothing to stream, so its values are
+        # wrapped eagerly in a dask array; a file-backed store is read lazily through the
+        # MDArray chunk reader. The driver check mirrors `_store_label`.
+        source = getattr(nc, "file_name", "") or ""
+        in_memory = (
+            not source
+            or source.startswith("/vsimem/")
+            or getattr(nc, "driver_type", None) == "memory"
+        )
+        value_arrays: dict[str, Any] = {}
+        for name in names:
+            var = nc._require_raster_variable(name) if _is_container(nc) else nc
+            if tuple(var._band_dim_names) != tuple(first._band_dim_names):
+                raise ValueError(
+                    f"to_dask_dataframe() needs the variables to share their band "
+                    f"dimensions, so their cells line up on one index: {names[0]!r} has "
+                    f"{tuple(first._band_dim_names)} and {name!r} has "
+                    f"{tuple(var._band_dim_names)}. Pass `variables=` to choose a set that "
+                    f"agrees."
+                )
+            if in_memory:
+                eager = np.asarray(_frame_values(nc, var), dtype="float64").reshape(-1)
+                arr = da.from_array(eager, chunks="auto")
+            else:
+                arr = (
+                    nc.read_array(name, chunks=chunks)
+                    if _is_container(nc)
+                    else nc.read_array(chunks=chunks)
+                )
+                arr = arr.astype("float64").reshape(-1)
+                sentinel = _read_no_data(var)
+                if sentinel is not None and not np.isnan(sentinel):
+                    arr = da.where(arr == sentinel, np.nan, arr)
+            value_arrays[name] = arr
+        ref_chunks = next(iter(value_arrays.values())).chunks
+        index = _frame_index(first)
+        columns: dict[str, Any] = {}
+        for level, dim in enumerate(index.names):
+            level_values = np.asarray(index.get_level_values(level))
+            columns[dim] = da.from_array(level_values, chunks=ref_chunks)
+        for name, arr in value_arrays.items():
+            columns[name] = arr.rechunk(ref_chunks)
+        frame = dd.concat(
+            [
+                dd.from_dask_array(col, columns=[label])
+                for label, col in columns.items()
+            ],
+            axis=1,
+        )
+        return frame.dropna(subset=list(names), how="all") if dropna else frame
 
     def _frame_variables(self, variables: Any) -> list[str]:
         """The data variables that become columns, in order.
