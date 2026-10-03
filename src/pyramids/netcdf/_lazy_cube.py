@@ -33,6 +33,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from pyramids.netcdf.netcdf import NetCDF
 
 _DASK_MISSING = "The lazy NetCDF cube needs dask; install the `lazy` extra."
+_MISSING = object()  # sentinel so __getattr__ fetches a forwarded attribute exactly once
 
 
 class LazyNetCDF:
@@ -168,30 +169,37 @@ class LazyNetCDF:
         return LazyNetCDF(self._source, arrays, self._dim_names)
 
     def __getattr__(self, name: str) -> Any:
-        """Delegate any eager operation to the materialised cube, warning once.
+        """Delegate any eager operation to the **source** cube, warning once.
 
         Reached only for names this wrapper does not define. A leading-underscore name is refused
         outright (it is internal, not an operation). A public name absent from the eager cube also
-        raises :class:`AttributeError` **without** warning, so an existence probe (`hasattr`,
-        feature detection) does not warn spuriously or burn the once-flag (L2). A public name that
-        does exist forwards to the eager source — the v1 lazy/eager boundary (array-native ops do not
-        yet compose lazily) — emitting a one-time :class:`UserWarning`. The once-flag is set only
-        **after** `warn` returns, so a first access under warnings-as-error does not silence every
-        later boundary warning (L1).
+        raises :class:`AttributeError` **without** warning, so an existence probe (`hasattr`, feature
+        detection) neither warns spuriously nor burns the once-flag. The attribute is fetched exactly
+        once (a sentinel default on a single `getattr`, not a `hasattr`-then-`getattr`), so a property
+        getter on the source is not run twice.
+
+        A public name that exists forwards to :data:`self._source` **directly**, aliasing the source
+        (the `load` contract) rather than returning an independent :meth:`compute` copy: a functional
+        op returns a new cube and leaves the source intact, but an in-place mutator reached this way
+        would touch the source, so call :meth:`compute` first when you need an isolated eager cube.
+        This is the v1 lazy/eager boundary (array-native ops do not yet compose lazily); it emits a
+        one-time :class:`UserWarning`, and the once-flag is set only after `warn` returns, so a first
+        access under warnings-as-error does not silence later boundary warnings.
         """
         if name.startswith("_"):
             raise AttributeError(name)
-        if not hasattr(self._source, name):
+        attr = getattr(self._source, name, _MISSING)
+        if attr is _MISSING:
             raise AttributeError(name)
         if not self._materialize_warned:
             warnings.warn(
-                f"Accessing {name!r} on a lazy NetCDF cube materialises it to an eager cube; "
-                f"call .compute() explicitly to make the boundary clear.",
+                f"Accessing {name!r} on a lazy NetCDF cube materialises it onto the eager source "
+                f"cube (aliasing it, like .load()); call .compute() for an independent eager cube.",
                 UserWarning,
                 stacklevel=2,
             )
             self._materialize_warned = True
-        return getattr(self._source, name)
+        return attr
 
     def __repr__(self) -> str:
         """A short, dask-aware summary naming the variables and their chunking."""

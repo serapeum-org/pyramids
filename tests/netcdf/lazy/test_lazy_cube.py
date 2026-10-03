@@ -187,6 +187,26 @@ class TestBoundary:
         with pytest.raises(AttributeError):
             _ = lazy._not_a_real_private_attribute
 
+    def test_forwarded_attribute_is_fetched_exactly_once(self):
+        """A boundary access fetches the source attribute once, not twice (no double getter) — L1."""
+
+        class _CountingSource:
+            def __init__(self) -> None:
+                self.reads = 0
+
+            @property
+            def epsg(self) -> int:
+                self.reads += 1
+                return 4326
+
+        source = _CountingSource()
+        lazy = LazyNetCDF(source, {}, {})
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            value = lazy.epsg
+        assert value == 4326, f"forwarded value wrong: {value}"
+        assert source.reads == 1, f"property getter must run once, ran {source.reads}"
+
     @requires_dask
     def test_repr_names_the_variables_and_chunks(self):
         """`repr` summarises the view with its class name, variables and chunking."""
