@@ -51,6 +51,23 @@ class TestChunkEntryPoint:
         with pytest.raises(ValueError):
             nc.chunk("auto")
 
+    @requires_dask
+    def test_chunk_and_to_dask_dataframe_share_the_in_memory_predicate(self):
+        """`chunk` and `to_dask_dataframe` classify in-memory via one shared predicate — L3."""
+        from pyramids.netcdf.engines.interop import _is_in_memory
+
+        mem = NetCDF.from_array(
+            np.ones((2, 2)),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+        )
+        assert _is_in_memory(mem) is True, "a from_array cube is in-memory"
+        with pytest.raises(ValueError):
+            mem.chunk("auto")
+        file_backed = NetCDF.read_file(str(FIX))
+        assert _is_in_memory(file_backed) is False, "a file-backed cube is not in-memory"
+        assert isinstance(file_backed.chunk("auto"), LazyNetCDF)
+
 
 class TestChunksProperty:
     """`chunks` / `chunksizes` read the chunking off the dask arrays without materialising."""

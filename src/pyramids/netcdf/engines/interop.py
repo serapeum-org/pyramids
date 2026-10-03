@@ -579,14 +579,9 @@ class Interop(_Engine["NetCDF"]):
         names = self._frame_variables(variables)
         first = nc._require_raster_variable(names[0]) if _is_container(nc) else nc
         # An in-memory store (no on-disk / VSI path) has nothing to stream, so its values are
-        # wrapped eagerly in a dask array; a file-backed store is read lazily through the
-        # MDArray chunk reader. The driver check mirrors `_store_label`.
-        source = getattr(nc, "file_name", "") or ""
-        in_memory = (
-            not source
-            or source.startswith("/vsimem/")
-            or getattr(nc, "driver_type", None) == "memory"
-        )
+        # wrapped eagerly in a dask array; a file-backed store is read lazily through the MDArray
+        # chunk reader. The shared `_is_in_memory` predicate keeps this in step with `NetCDF.chunk`.
+        in_memory = _is_in_memory(nc)
         value_arrays: dict[str, Any] = {}
         for name in names:
             var = nc._require_raster_variable(name) if _is_container(nc) else nc
@@ -703,6 +698,25 @@ def _is_container(nc: NetCDF) -> bool:
     """
     return bool(getattr(nc, "variable_names", None)) and not getattr(
         nc, "_band_dim_names", ()
+    )
+
+
+def _is_in_memory(nc: NetCDF) -> bool:
+    """Whether `nc` has no on-disk / VSI store that could be read lazily.
+
+    A lazy read reopens the store per block, so a cube built in memory (`driver_type == "memory"`)
+    or rebuilt in place by an eager op (`_rebuilt_in_memory`) has no path to stream from and must be
+    served eagerly. Shared by :meth:`NetCDF.chunk` and :meth:`Interop.to_dask_dataframe` so the two
+    entry points classify a cube the same way and cannot drift.
+
+    Args:
+        nc: The container or variable to classify.
+
+    Returns:
+        bool: `True` when `nc` has no lazily-readable store.
+    """
+    return bool(getattr(nc, "_rebuilt_in_memory", False)) or (
+        getattr(nc, "driver_type", None) == "memory"
     )
 
 

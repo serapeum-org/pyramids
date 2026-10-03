@@ -7678,10 +7678,7 @@ class NetCDF(Dataset):
             ValueError: This cube has no on-disk store to read lazily (see :meth:`read_array`).
             OptionalPackageDoesNotExist: dask is not installed — install the `lazy` extra.
         """
-        if (
-            getattr(self, "_rebuilt_in_memory", False)
-            or getattr(self, "driver_type", None) == "memory"
-        ):
+        if _interop._is_in_memory(self):
             raise ValueError(
                 "chunk() needs a file-backed cube: the lazy read reopens the store per block, and "
                 "this cube has no on-disk path. Write it with to_file() first, or operate eagerly."
