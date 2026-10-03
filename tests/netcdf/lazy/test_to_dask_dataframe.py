@@ -101,8 +101,9 @@ class TestToDaskDataframe:
     @requires_dask
     def test_empty_selection_is_refused(self):
         """An empty `variables` sequence is refused, exactly as `to_dataframe` refuses it."""
+        nc = _cube()
         with pytest.raises(ValueError):
-            _cube().to_dask_dataframe(variables=[])
+            nc.to_dask_dataframe(variables=[])
 
     @requires_dask
     def test_variables_with_mismatched_band_dimensions_are_refused(self):
