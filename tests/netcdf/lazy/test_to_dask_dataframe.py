@@ -125,7 +125,9 @@ class TestToDaskDataframe:
         from pyramids.netcdf.engines import interop
 
         def _boom(_var):
-            raise AssertionError("to_dask_dataframe must not expand the full MultiIndex eagerly")
+            raise AssertionError(
+                "to_dask_dataframe must not expand the full MultiIndex eagerly"
+            )
 
         monkeypatch.setattr(interop, "_frame_index", _boom)
         ddf = NetCDF.read_file(str(MULTIVAR)).to_dask_dataframe(variables=["pr"])

@@ -65,7 +65,9 @@ class TestChunkEntryPoint:
         with pytest.raises(ValueError):
             mem.chunk("auto")
         file_backed = NetCDF.read_file(str(FIX))
-        assert _is_in_memory(file_backed) is False, "a file-backed cube is not in-memory"
+        assert _is_in_memory(file_backed) is False, (
+            "a file-backed cube is not in-memory"
+        )
         assert isinstance(file_backed.chunk("auto"), LazyNetCDF)
 
 
@@ -123,7 +125,9 @@ class TestComputeLoad:
         """`load()` is the in-place form and returns the source cube itself — M1."""
         nc = NetCDF.read_file(str(FIX))
         loaded = nc.chunk("auto").load()
-        assert loaded is nc, "load() returns the source cube (xarray in-place semantics)"
+        assert loaded is nc, (
+            "load() returns the source cube (xarray in-place semantics)"
+        )
 
 
 class TestBoundary:
@@ -242,7 +246,9 @@ class TestLazyCubeDimNames:
         from pyramids.netcdf.netcdf import _lazy_cube_dim_names
 
         area = NetCDF.read_file(str(MULTIVAR)).get_variable("area")
-        assert len(_lazy_cube_dim_names(area, 2)) == 2, "a 2-D variable has two axis names"
+        assert len(_lazy_cube_dim_names(area, 2)) == 2, (
+            "a 2-D variable has two axis names"
+        )
 
     def test_collapsed_band_axis_joins_the_names(self):
         """A single leading axis for several band dims joins their names, dropping none — L4."""
