@@ -91,6 +91,10 @@ jobs:
           # that each extra activates.
           - { name: netcdf_lazy,  env: lazy,         dir: tests/netcdf/lazy }
           - { name: parquet_lazy, env: parquet,      dir: tests/feature/lazy }
+          # to_dask_dataframe needs dask.dataframe (pyarrow), which ships in the parquet
+          # extra rather than lazy; run its tests under the parquet env so they execute
+          # instead of skipping (the lazy env has no pyarrow).
+          - { name: netcdf_parquet, env: parquet,    dir: tests/netcdf/lazy/test_to_dask_dataframe.py }
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
