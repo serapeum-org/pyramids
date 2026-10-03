@@ -33,7 +33,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from pyramids.netcdf.netcdf import NetCDF
 
 _DASK_MISSING = "The lazy NetCDF cube needs dask; install the `lazy` extra."
-_MISSING = object()  # sentinel so __getattr__ fetches a forwarded attribute exactly once
+_MISSING = (
+    object()
+)  # sentinel so __getattr__ fetches a forwarded attribute exactly once
 
 
 class LazyNetCDF:
