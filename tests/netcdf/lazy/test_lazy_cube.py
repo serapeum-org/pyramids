@@ -92,9 +92,21 @@ class TestComputeLoad:
         np.testing.assert_array_equal(eager.read_array(name), nc.read_array(name))
 
     @requires_dask
-    def test_load_returns_an_eager_netcdf(self):
-        """`load()` is the in-place form and also returns an eager cube."""
-        assert isinstance(NetCDF.read_file(str(FIX)).chunk("auto").load(), NetCDF)
+    def test_compute_returns_an_independent_cube_not_the_source(self):
+        """`compute()` returns a fresh cube, not the source object (no mutation aliasing) — M1."""
+        nc = NetCDF.read_file(str(FIX))
+        lazy = nc.chunk("auto")
+        first = lazy.compute()
+        second = lazy.compute()
+        assert first is not nc, "compute() must not alias the source cube"
+        assert first is not second, "each compute() must return an independent cube"
+
+    @requires_dask
+    def test_load_returns_the_source_in_place(self):
+        """`load()` is the in-place form and returns the source cube itself — M1."""
+        nc = NetCDF.read_file(str(FIX))
+        loaded = nc.chunk("auto").load()
+        assert loaded is nc, "load() returns the source cube (xarray in-place semantics)"
 
 
 class TestBoundary:

@@ -102,24 +102,31 @@ class LazyNetCDF:
         return self.chunks
 
     def compute(self, **kwargs: Any) -> NetCDF:
-        """Materialise the lazy view and return its eager :class:`~pyramids.netcdf.NetCDF` twin.
+        """Materialise the lazy view and return an **independent** eager NetCDF cube.
 
-        The lazy arrays are chunked reads of the unchanged source cube, so its eager twin is that
-        source; the `**kwargs` are accepted for API symmetry with xarray / dask and ignored when
-        nothing has to be scheduled.
+        The lazy arrays are chunked reads of the source cube, so the result holds the same data; it is
+        returned as an independent copy (`compute() is not` the source), matching xarray's `compute()`,
+        so mutating the result never touches the original or any other `compute()` result. The
+        `**kwargs` are accepted for API symmetry with xarray / dask and ignored — in this v1 the data is
+        a view of the already-eager source, so nothing has to be scheduled.
 
         Returns:
-            NetCDF: The eager cube.
+            NetCDF: A fresh eager cube, independent of the source.
         """
-        return self._source
+        return self._source.copy()
 
     def load(self, **kwargs: Any) -> NetCDF:
         """Materialise in place and return the eager cube — the in-place form of :meth:`compute`.
 
-        A wrapper cannot turn itself into a cube, so `load` returns the eager twin like
-        :meth:`compute`; the name matches xarray's `load` for porting callers.
+        Matches xarray's `load`, which realises in place and returns the same object: this returns the
+        **source cube itself** (not a copy), so it aliases the cube `.chunk()` was called on. Use
+        :meth:`compute` when you need an independent result. The `**kwargs` are accepted for symmetry
+        and ignored.
+
+        Returns:
+            NetCDF: The source cube (the eager twin), realised in place.
         """
-        return self.compute(**kwargs)
+        return self._source
 
     def persist(self, **kwargs: Any):
         """Realise the dask graph in worker memory, staying lazy.
