@@ -171,21 +171,27 @@ class LazyNetCDF:
         """Delegate any eager operation to the materialised cube, warning once.
 
         Reached only for names this wrapper does not define. A leading-underscore name is refused
-        outright (it is internal, not an operation); anything else materialises the cube via
-        :meth:`compute`, emits a one-time :class:`UserWarning`, and forwards the attribute to the
-        eager twin — the v1 lazy/eager boundary (array-native ops do not yet compose lazily).
+        outright (it is internal, not an operation). A public name absent from the eager cube also
+        raises :class:`AttributeError` **without** warning, so an existence probe (`hasattr`,
+        feature detection) does not warn spuriously or burn the once-flag (L2). A public name that
+        does exist forwards to the eager source — the v1 lazy/eager boundary (array-native ops do not
+        yet compose lazily) — emitting a one-time :class:`UserWarning`. The once-flag is set only
+        **after** `warn` returns, so a first access under warnings-as-error does not silence every
+        later boundary warning (L1).
         """
         if name.startswith("_"):
             raise AttributeError(name)
+        if not hasattr(self._source, name):
+            raise AttributeError(name)
         if not self._materialize_warned:
-            self._materialize_warned = True
             warnings.warn(
                 f"Accessing {name!r} on a lazy NetCDF cube materialises it to an eager cube; "
                 f"call .compute() explicitly to make the boundary clear.",
                 UserWarning,
                 stacklevel=2,
             )
-        return getattr(self.compute(), name)
+            self._materialize_warned = True
+        return getattr(self._source, name)
 
     def __repr__(self) -> str:
         """A short, dask-aware summary naming the variables and their chunking."""

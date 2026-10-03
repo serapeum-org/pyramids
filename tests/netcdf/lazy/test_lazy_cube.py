@@ -122,8 +122,19 @@ class TestBoundary:
         assert epsg == nc.epsg
 
     @requires_dask
-    def test_boundary_warns_only_once(self):
-        """The materialise warning fires once per lazy view, not on every access."""
+    def test_boundary_warns_only_once_on_successful_access(self):
+        """The materialise warning fires once across repeated successful accesses."""
+        lazy = NetCDF.read_file(str(FIX)).chunk("auto")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _ = lazy.epsg
+            _ = lazy.epsg
+        hits = [w for w in caught if "materialis" in str(w.message)]
+        assert len(hits) == 1, f"expected exactly one boundary warning, got {len(hits)}"
+
+    @requires_dask
+    def test_boundary_warning_survives_a_raised_first_access(self):
+        """A first access under warnings-as-error does not silence later boundary warnings — L1."""
         lazy = NetCDF.read_file(str(FIX)).chunk("auto")
         with warnings.catch_warnings():
             warnings.simplefilter("error")
@@ -132,7 +143,21 @@ class TestBoundary:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             _ = lazy.epsg
-        assert not [w for w in caught if "materialis" in str(w.message)]
+        assert [w for w in caught if "materialis" in str(w.message)], (
+            "the once-flag must not be consumed by a raised first access"
+        )
+
+    @requires_dask
+    def test_hasattr_for_a_missing_attribute_does_not_warn(self):
+        """Probing for a missing attribute raises cleanly without warning or burning the flag — L2."""
+        lazy = NetCDF.read_file(str(FIX)).chunk("auto")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            present = hasattr(lazy, "definitely_not_a_real_attribute_xyz")
+        assert present is False, "a missing attribute must not resolve"
+        assert not [w for w in caught if "materialis" in str(w.message)], (
+            "an existence probe for a missing attribute must not warn"
+        )
 
     @requires_dask
     def test_private_name_is_not_forwarded(self):
