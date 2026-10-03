@@ -29,6 +29,7 @@ from __future__ import annotations
 import atexit
 import logging
 import os
+import re
 import threading
 import uuid
 import weakref
@@ -633,6 +634,70 @@ def _make_cache_key(
     """
     kwargs_key = tuple(sorted(kwargs.items())) if kwargs else ()
     return _HashedSequence([opener, path, access, kwargs_key, manager_id])
+
+
+def discard_path_handles(path: Any, cache: _LRUCache | None = None) -> int:
+    """Discard and close any cached file handles for `path`, returning how many were discarded.
+
+    Used before an in-process reopen of a file so a lazy read's parked GDAL handle does not coexist
+    with a freshly opened one — two live GDAL handles to one NetCDF can crash GDAL on Windows
+    (#1224). The cache key stores the path at index 1 (see :func:`_make_cache_key`); each matching
+    entry is removed via :meth:`_LRUCache.discard` and the handle it returns is closed through
+    :func:`_close_handle` — mirroring :meth:`CachingFileManager.close`, so the release is
+    deterministic rather than left to GC. An entry pinned by an in-flight read returns `None` and is
+    closed later when it unpins. A lazy array that outlives this call transparently re-opens on its
+    next chunk read, so the eviction is safe for correctness.
+
+    The scope is the **whole path**: every cached handle for `path` is discarded regardless of
+    opener, access mode, open-options or `manager_id` — not only lazy MDArray slots. A remote / VSI
+    path (a `scheme://` URL or a `/vsi…` prefix) is matched verbatim (case-sensitive); a local path
+    is reconciled across relative/absolute spellings and Windows case. Matching uses the path as
+    given, so a remote file reopened under a different spelling than the lazy read parked under (a
+    raw URL vs its VSI-rewritten form) will not match — the guard is aimed at **local** files, where
+    the two-handle crash actually occurs (remote NetCDF is not openable on that platform anyway).
+
+    Args:
+        path: The file path to evict handles for (anything `os.fspath` accepts).
+        cache: The cache to scan; defaults to the process-global :data:`FILE_CACHE`.
+
+    Returns:
+        int: The number of cache entries discarded (0 when none were parked for `path`).
+    """
+    cache = cache if cache is not None else FILE_CACHE
+
+    def _norm(value: Any) -> str | None:
+        try:
+            text = os.fsdecode(
+                value
+            )  # str for str / bytes / PathLike; TypeError otherwise
+        except (TypeError, ValueError):
+            result: str | None = None
+        else:
+            # A remote / VSI path must not go through abspath (prepends the CWD, rewrites the
+            # separators) or normcase (case-folds a case-sensitive key); compare it verbatim. The
+            # scheme needs >= 2 chars so a Windows drive path ("C://x") stays local, not remote.
+            if re.match(r"[A-Za-z][A-Za-z0-9+.-]+://", text) or text.startswith("/vsi"):
+                result = text
+            else:
+                result = os.path.normcase(os.path.abspath(text))
+        return result
+
+    target = _norm(path)
+    # Iterating the cache is already a safe snapshot: _LRUCache.__iter__ returns
+    # iter(list(...)) built under its lock, so no extra list() wrapper is needed here.
+    matches = [
+        key
+        for key in cache
+        if target is not None
+        and isinstance(key, _HashedSequence)
+        and len(key) > 1
+        and _norm(key[1]) == target
+    ]
+    for key in matches:
+        handle = cache.discard(key)
+        if handle is not None:
+            _close_handle(key, handle)
+    return len(matches)
 
 
 class FileManager(ABC):

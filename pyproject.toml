@@ -97,8 +97,14 @@ dev = [
     "build>=1.0.0",
     "twine>=5.0.0",
     "pip",
-    "jupyterlab",
-    "notebook",
+    # Floored for PYSEC-2026-4055/4056/4057 (JupyterLab < 4.6.4): a PyPI-extension-manager
+    # `uninstall` argument-injection, a language-pack `Plural-Forms` header RCE, and a
+    # trusted-output cell-paste XSS. Relax only when a higher floor is otherwise needed.
+    "jupyterlab>=4.6.4",
+    # Floored for PYSEC-2026-4112 (Notebook >= 7.5, < 7.6.3): the same trusted-output paste
+    # XSS, carried via the JupyterLab that Notebook 7 bundles. (The `docs` feature's
+    # `notebook<7.0` is a different, unaffected line — the advisory is Notebook 7.5+.)
+    "notebook>=7.6.3",
     "jupyter",
     # Floored for CVE-2026-86049: before 2.21.0 a 500 response logged the request's
     # `Referer` header verbatim, so a token carried in that URL — which the normal
