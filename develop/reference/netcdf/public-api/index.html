@@ -6393,7 +6393,7 @@
 
 
 <h1 id="netcdf-public-api"><a class="toclink" href="#netcdf-public-api"><code>NetCDF</code> — public API</a><a class="headerlink" href="#netcdf-public-api" title="Permanent link">#</a></h1>
-<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 113 in all: 78 methods, 27 properties,
+<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 115 in all: 80 methods, 27 properties,
 7 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
 <code>__len__</code>). <code>concat</code> and <code>merge</code> are counted among the methods: each is callable on the class
 (<code>NetCDF.concat([a, b], dim)</code>) and on a cube (<code>a.concat([b], dim)</code>, which joins the
@@ -6659,6 +6659,10 @@ A variable with no raster plane is the exception — see each member's docstring
 <td>Reads eagerly, or lazily into dask with <code>chunks=</code>. Needs <code>variable=</code> on a Container.</td>
 </tr>
 <tr>
+<td><code>chunk()</code></td>
+<td>A lazy, dask-backed <code>LazyNetCDF</code> view of the cube — <code>compute</code>/<code>chunks</code>/<code>persist</code>.</td>
+</tr>
+<tr>
 <td><code>subset()</code></td>
 <td>Reads a windowed <code>(variable, time, bbox)</code> slice without materialising the cube.</td>
 </tr>
@@ -6781,6 +6785,10 @@ A variable with no raster plane is the exception — see each member's docstring
 <tr>
 <td><code>to_dataframe()</code></td>
 <td>The cube as a pandas frame, indexed by its dimensions — <code>variables</code>, <code>dropna</code>.</td>
+</tr>
+<tr>
+<td><code>to_dask_dataframe()</code></td>
+<td>The lazy sibling of <code>to_dataframe</code> — a tidy <code>dask.dataframe</code>, read lazily.</td>
 </tr>
 <tr>
 <td><code>concat()</code></td>
