@@ -129,6 +129,14 @@ class TestBoundary:
         with pytest.raises(AttributeError):
             _ = lazy._not_a_real_private_attribute
 
+    @requires_dask
+    def test_repr_names_the_variables_and_chunks(self):
+        """`repr` summarises the view with its class name, variables and chunking."""
+        lazy = NetCDF.read_file(str(FIX)).chunk("auto")
+        text = repr(lazy)
+        assert text.startswith("LazyNetCDF("), f"unexpected repr: {text}"
+        assert lazy.variable_names[0] in text, f"variable missing from repr: {text}"
+
 
 class TestPersistUnify:
     """`persist` keeps the graph in memory lazily; `unify_chunks` reconciles chunkings."""

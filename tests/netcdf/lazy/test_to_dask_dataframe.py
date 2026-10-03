@@ -25,6 +25,12 @@ FIX = (
     / "netcdf"
     / "cf__5v__1d4-4d1__y-asc.nc"
 )
+MULTIVAR = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "netcdf"
+    / "cf__12v__1d4-2d5-3d2-4d1__y-asc.nc"
+)
 
 
 def _cube() -> NetCDF:
@@ -97,3 +103,18 @@ class TestToDaskDataframe:
         """An empty `variables` sequence is refused, exactly as `to_dataframe` refuses it."""
         with pytest.raises(ValueError):
             _cube().to_dask_dataframe(variables=[])
+
+    @requires_dask
+    def test_variables_with_mismatched_band_dimensions_are_refused(self):
+        """Two variables that do not share band dimensions cannot line up on one index."""
+        nc = NetCDF.read_file(str(MULTIVAR))
+        with pytest.raises(ValueError, match="share their band"):
+            nc.to_dask_dataframe(variables=["area", "pr"])
+
+    @requires_dask
+    def test_file_backed_read_masks_the_no_data_sentinel(self):
+        """A file-backed variable with a non-NaN fill value reads lazily with its gaps as NaN."""
+        nc = NetCDF.read_file(str(MULTIVAR))
+        eager = nc.to_dataframe(variables=["pr"]).sort_index()
+        lazy = _as_eager(nc.to_dask_dataframe(variables=["pr"]), eager)
+        assert_frame_equal(lazy[eager.columns], eager, check_dtype=False)
