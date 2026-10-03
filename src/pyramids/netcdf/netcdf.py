@@ -951,10 +951,12 @@ def _lazy_cube_dim_names(var: NetCDF, ndim: int) -> tuple[str, ...]:
     band_names = list(var._band_dim_names)
     if leading == len(band_names):
         bands = band_names
-    elif leading == 1:
-        bands = [band_names[0]] if band_names else ["band"]
     elif leading == 0:
         bands = []
+    elif leading == 1:
+        # Every band dimension collapsed into one axis (#1226): join the names so none is
+        # silently dropped, rather than keeping only the first.
+        bands = ["+".join(band_names)] if band_names else ["band"]
     else:
         bands = [
             band_names[i] if i < len(band_names) else f"band{i}" for i in range(leading)
