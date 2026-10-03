@@ -688,7 +688,10 @@ def discard_path_handles(path: Any, cache: _LRUCache | None = None) -> int:
     matches = [
         key
         for key in cache
-        if target is not None and len(key) > 1 and _norm(key[1]) == target
+        if target is not None
+        and isinstance(key, _HashedSequence)
+        and len(key) > 1
+        and _norm(key[1]) == target
     ]
     for key in matches:
         handle = cache.discard(key)
