@@ -14,7 +14,7 @@ import pytest
 from pandas.testing import assert_frame_equal
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
-from tests._marks import requires_dask
+from tests._marks import requires_dask_dataframe
 
 pytestmark = pytest.mark.netcdf_lazy
 
@@ -51,19 +51,19 @@ def _as_eager(ddf, eager):
 class TestToDaskDataframe:
     """A tidy dask frame whose computed, re-indexed form equals `to_dataframe`."""
 
-    @requires_dask
+    @requires_dask_dataframe
     def test_returns_a_dask_dataframe(self):
         """The return type is a `dask.dataframe.DataFrame`, not an eager pandas frame."""
         import dask.dataframe as dd
 
         assert isinstance(_cube().to_dask_dataframe(), dd.DataFrame)
 
-    @requires_dask
+    @requires_dask_dataframe
     def test_tidy_columns_are_the_dimensions_plus_the_variable(self):
         """The columns are the dimension coordinates beside the value column."""
         assert sorted(_cube().to_dask_dataframe().columns) == ["t", "time", "x", "y"]
 
-    @requires_dask
+    @requires_dask_dataframe
     def test_compute_reindexed_equals_to_dataframe_in_memory(self):
         """On an in-memory cube the computed, re-indexed frame equals `to_dataframe()`."""
         nc = _cube()
@@ -71,7 +71,7 @@ class TestToDaskDataframe:
         lazy = _as_eager(nc.to_dask_dataframe(), eager)
         assert_frame_equal(lazy, eager, check_dtype=False)
 
-    @requires_dask
+    @requires_dask_dataframe
     def test_compute_reindexed_equals_to_dataframe_multidim_fixture(self):
         """On a multi-variable, multi-dimension store the two agree row for row."""
         nc = NetCDF.read_file(str(FIX))
@@ -79,7 +79,7 @@ class TestToDaskDataframe:
         lazy = _as_eager(nc.to_dask_dataframe(), eager)
         assert_frame_equal(lazy[eager.columns], eager, check_dtype=False)
 
-    @requires_dask
+    @requires_dask_dataframe
     def test_dropna_matches_to_dataframe(self):
         """`dropna=True` drops the same all-missing rows the eager frame drops."""
         arr = np.where(
@@ -98,21 +98,21 @@ class TestToDaskDataframe:
         lazy = _as_eager(nc.to_dask_dataframe(dropna=True), eager)
         assert_frame_equal(lazy, eager, check_dtype=False)
 
-    @requires_dask
+    @requires_dask_dataframe
     def test_empty_selection_is_refused(self):
         """An empty `variables` sequence is refused, exactly as `to_dataframe` refuses it."""
         nc = _cube()
         with pytest.raises(ValueError):
             nc.to_dask_dataframe(variables=[])
 
-    @requires_dask
+    @requires_dask_dataframe
     def test_variables_with_mismatched_band_dimensions_are_refused(self):
         """Two variables that do not share band dimensions cannot line up on one index."""
         nc = NetCDF.read_file(str(MULTIVAR))
         with pytest.raises(ValueError, match="share their band"):
             nc.to_dask_dataframe(variables=["area", "pr"])
 
-    @requires_dask
+    @requires_dask_dataframe
     def test_file_backed_read_masks_the_no_data_sentinel(self):
         """A file-backed variable with a non-NaN fill value reads lazily with its gaps as NaN."""
         nc = NetCDF.read_file(str(MULTIVAR))
@@ -120,7 +120,7 @@ class TestToDaskDataframe:
         lazy = _as_eager(nc.to_dask_dataframe(variables=["pr"]), eager)
         assert_frame_equal(lazy[eager.columns], eager, check_dtype=False)
 
-    @requires_dask
+    @requires_dask_dataframe
     def test_dimension_columns_do_not_materialise_the_full_index(self, monkeypatch):
         """The dimension columns are built lazily from per-dim axes, never the full MultiIndex — M2."""
         from pyramids.netcdf.engines import interop
@@ -134,7 +134,7 @@ class TestToDaskDataframe:
         ddf = NetCDF.read_file(str(MULTIVAR)).to_dask_dataframe(variables=["pr"])
         assert "pr" in ddf.columns, "the value column must still be present"
 
-    @requires_dask
+    @requires_dask_dataframe
     def test_file_backed_dropna_matches_to_dataframe(self):
         """File-backed `dropna=True` (lazy sentinel masking + dropna) equals `to_dataframe` — N2."""
         nc = NetCDF.read_file(str(MULTIVAR))

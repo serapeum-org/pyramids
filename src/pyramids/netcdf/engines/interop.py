@@ -29,7 +29,12 @@ import pandas as pd
 from osgeo import gdal, osr
 
 from pyramids.base._errors import TimeDecodingWarning
-from pyramids.base._utils import import_dask, import_xarray, numpy_to_gdal_dtype
+from pyramids.base._utils import (
+    import_dask,
+    import_xarray,
+    numpy_to_gdal_dtype,
+    require_optional,
+)
 from pyramids.base.remote import is_remote
 from pyramids.dataset.engines._base import _Engine
 from pyramids.netcdf._lazy import build_lazy_array
@@ -547,7 +552,8 @@ class Interop(_Engine["NetCDF"]):
             ValueError: The container has no gridded variables; a name is not one of them; a
                 name was given more than once; an empty selection was given; or the chosen
                 variables do not share the same band dimensions.
-            OptionalPackageDoesNotExist: dask is not installed — install the `lazy` extra.
+            OptionalPackageDoesNotExist: dask is not installed (the `lazy` extra), or
+                `dask.dataframe` is unavailable because pyarrow is missing (the `parquet` extra).
 
         Examples:
             - The lazy frame computes to the same rows as `to_dataframe`, once its tidy
@@ -572,6 +578,13 @@ class Interop(_Engine["NetCDF"]):
               ```
         """
         import_dask("to_dask_dataframe() needs dask; install the `lazy` extra.")
+        # dask.dataframe (dask-expr) imports pyarrow, which ships in the `parquet` extra rather than
+        # `lazy`; guard it so a lazy-only install gets a clear hint instead of a raw ModuleNotFound.
+        require_optional(
+            "dask.dataframe",
+            "to_dask_dataframe() needs dask.dataframe, which requires pyarrow — install the "
+            "`parquet` extra (e.g. `pip install pyramids-gis[parquet]`).",
+        )
         import dask.array as da
         import dask.dataframe as dd
 
