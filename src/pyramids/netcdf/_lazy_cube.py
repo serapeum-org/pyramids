@@ -2,9 +2,9 @@
 
 Mirrors the vector-side :class:`~pyramids.feature.LazyFeatureCollection` for the raster cube
 (issue #1229). A :class:`LazyNetCDF` holds one :class:`dask.array.Array` per gridded variable —
-read lazily from the store through :func:`pyramids.netcdf._lazy.build_lazy_array` — alongside the
-eager cube it was built from, which is both the source of its geo / band metadata and the eager
-twin its lifecycle materialises back to.
+read lazily through :meth:`NetCDF.read_array` (which builds the array with
+:func:`pyramids.netcdf._lazy.build_lazy_array`) — alongside the eager cube it was built from, which
+is both the source of its geo / band metadata and the eager twin its lifecycle materialises back to.
 
 A cube cannot subclass a dask type the way ``LazyFeatureCollection`` subclasses
 ``dask_geopandas.GeoDataFrame`` (a cube is many arrays, not one frame), so this is a wrapper rather
@@ -19,7 +19,7 @@ through attribute access materialises the cube — it warns once and delegates t
 because this v1 does not yet compose array-native ops lazily across a chain; the per-operation dask
 streaming inside :meth:`NetCDF._materialize_variable_array` already gives most of the memory
 benefit for a single reduction. Keeping a chain of array-native ops lazy at the cube level is the
-documented next step (see ``planning/xarray/lazy-cube-design.md`` §4).
+documented next step for issue #1229.
 """
 
 from __future__ import annotations
