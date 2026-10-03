@@ -683,9 +683,11 @@ def discard_path_handles(path: Any, cache: _LRUCache | None = None) -> int:
         return result
 
     target = _norm(path)
+    # Iterating the cache is already a safe snapshot: _LRUCache.__iter__ returns
+    # iter(list(...)) built under its lock, so no extra list() wrapper is needed here.
     matches = [
         key
-        for key in list(cache)
+        for key in cache
         if target is not None and len(key) > 1 and _norm(key[1]) == target
     ]
     for key in matches:
