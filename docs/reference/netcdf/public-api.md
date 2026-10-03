@@ -1,6 +1,6 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 113 in all: 78 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 115 in all: 80 methods, 27 properties,
 7 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). `concat` and `merge` are counted among the methods: each is callable on the class
 (`NetCDF.concat([a, b], dim)`) and on a cube (`a.concat([b], dim)`, which joins the
@@ -103,6 +103,7 @@ A variable with no raster plane is the exception — see each member's docstring
 | Member             | What it does                                                                         |
 |--------------------|--------------------------------------------------------------------------------------|
 | `read_array()`     | Reads eagerly, or lazily into dask with `chunks=`. Needs `variable=` on a Container. |
+| `chunk()`          | A lazy, dask-backed `LazyNetCDF` view of the cube — `compute`/`chunks`/`persist`.    |
 | `subset()`         | Reads a windowed `(variable, time, bbox)` slice without materialising the cube.      |
 | `sel()`            | Selects bands by coordinate value, date label, or `method="nearest"`.                |
 | `isel()`           | Selects bands by position along one or more band dims; works without coordinates.    |
@@ -134,6 +135,7 @@ A variable with no raster plane is the exception — see each member's docstring
 | `dropna()`         | Removes the steps of `dim` whose cells are missing — `how`, `thresh`.                |
 | `interpolate_na()` | Fills the interior gaps along `dim` from both sides — `method`, `limit`.             |
 | `to_dataframe()`   | The cube as a pandas frame, indexed by its dimensions — `variables`, `dropna`.       |
+| `to_dask_dataframe()` | The lazy sibling of `to_dataframe` — a tidy `dask.dataframe`, read lazily.         |
 | `concat()`         | Joins cubes end to end along `dim` (classmethod).                                    |
 | `merge()`          | Puts several cubes' variables on one grid (classmethod) — `compat`.                  |
 | `argmin()`         | The position along `dim` of the smallest value; `-1` where there is none.            |
