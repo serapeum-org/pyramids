@@ -53,7 +53,9 @@ class TestAutoChunks:
         """A 50x10000x10000 variable no longer reads one full 0.8 GB plane per task."""
         sizes = _auto_chunks((50, 10000, 10000), np.dtype("float64"), None)
         assert sizes[-1] < 10000, f"the last spatial axis must be tiled, got {sizes}"
-        assert sizes[-2] < 10000, f"the penultimate spatial axis must be tiled, got {sizes}"
+        assert sizes[-2] < 10000, (
+            f"the penultimate spatial axis must be tiled, got {sizes}"
+        )
 
     @requires_dask
     def test_normalize_chunks_routes_auto_through_dask(self):
@@ -76,8 +78,12 @@ class TestAutoChunks:
     def test_auto_snaps_to_the_native_block_size(self):
         """A valid block_size is forwarded as previous_chunks, so the chunks are block multiples."""
         sizes = _auto_chunks((20000, 20000), np.dtype("float64"), [1024, 2048])
-        assert sizes[0] % 1024 == 0, f"axis 0 should snap to its native block size, got {sizes}"
-        assert sizes[1] % 2048 == 0, f"axis 1 should snap to its native block size, got {sizes}"
+        assert sizes[0] % 1024 == 0, (
+            f"axis 0 should snap to its native block size, got {sizes}"
+        )
+        assert sizes[1] % 2048 == 0, (
+            f"axis 1 should snap to its native block size, got {sizes}"
+        )
         assert all(s < 20000 for s in sizes), (
             f"a large variable must still be tiled, got {sizes}"
         )
