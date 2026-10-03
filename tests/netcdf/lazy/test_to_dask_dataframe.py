@@ -132,3 +132,11 @@ class TestToDaskDataframe:
         monkeypatch.setattr(interop, "_frame_index", _boom)
         ddf = NetCDF.read_file(str(MULTIVAR)).to_dask_dataframe(variables=["pr"])
         assert "pr" in ddf.columns, "the value column must still be present"
+
+    @requires_dask
+    def test_file_backed_dropna_matches_to_dataframe(self):
+        """File-backed `dropna=True` (lazy sentinel masking + dropna) equals `to_dataframe` — N2."""
+        nc = NetCDF.read_file(str(MULTIVAR))
+        eager = nc.to_dataframe(variables=["pr"], dropna=True).sort_index()
+        lazy = _as_eager(nc.to_dask_dataframe(variables=["pr"], dropna=True), eager)
+        assert_frame_equal(lazy[eager.columns], eager, check_dtype=False)

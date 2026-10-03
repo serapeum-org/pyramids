@@ -954,8 +954,10 @@ def _lazy_cube_dim_names(var: NetCDF, ndim: int) -> tuple[str, ...]:
     elif leading == 0:
         bands = []
     elif leading == 1:
-        # Every band dimension collapsed into one axis (#1226): join the names so none is
-        # silently dropped, rather than keeping only the first.
+        # Every band dimension collapsed into one axis (#1226, unreached in v1 — lazy reads keep one
+        # axis per band dim): join the names into a single display-only label so none is silently
+        # dropped. The joined label is not a canonical dimension name; when #1226 lands, carry the
+        # component names structurally and guarantee uniqueness of the chunks keys.
         bands = ["+".join(band_names)] if band_names else ["band"]
     else:
         bands = [
