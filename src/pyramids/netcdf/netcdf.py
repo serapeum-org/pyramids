@@ -61,6 +61,7 @@ from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
+from pyramids.netcdf._lazy_cube import LazyNetCDF
 from pyramids.netcdf._mdim import (
     GEOSTATIONARY_PROJECTION,
     axis_flips,
@@ -927,6 +928,39 @@ def _store_label(nc: NetCDF) -> tuple[str, bool]:
     if group:
         label = f"{label}:/{group}"
     return label, in_memory
+
+
+def _lazy_cube_dim_names(var: NetCDF, ndim: int) -> tuple[str, ...]:
+    """Dimension names for a lazily-read variable, sized to the dask array's `ndim`.
+
+    The spatial plane is the trailing two axes; the leading axes are the band dimensions. A lazy
+    read may collapse several band dimensions into one leading axis (#1226), so the band-name list
+    is sized to the actual leading-axis count rather than to `_band_dim_names` — keeping the names
+    aligned with the array's axes so `LazyNetCDF.chunks` zips cleanly.
+
+    Args:
+        var: The gridded variable the array was read from.
+        ndim: The dask array's number of axes.
+
+    Returns:
+        tuple[str, ...]: One name per axis, outermost first — band names then the row and column
+        names (the public row/column names, which hide the y-ascending read's internal rename).
+    """
+    row, col = _interop._public_spatial_names(var)
+    leading = max(ndim - 2, 0)
+    band_names = list(var._band_dim_names)
+    if leading == len(band_names):
+        bands = band_names
+    elif leading == 1:
+        bands = [band_names[0]] if band_names else ["band"]
+    elif leading == 0:
+        bands = []
+    else:
+        bands = [
+            band_names[i] if i < len(band_names) else f"band{i}" for i in range(leading)
+        ]
+    tail = (row, col) if ndim >= 2 else ()
+    return (*bands, *tail)
 
 
 def _same_value(left: Any, right: Any) -> bool:
@@ -7619,6 +7653,56 @@ class NetCDF(Dataset):
         return self.interop.to_dask_dataframe(
             variables=variables, dropna=dropna, chunks=chunks
         )
+
+    def chunk(self, chunks: Any = "auto") -> LazyNetCDF:
+        """Return a lazy, dask-backed view of this cube (issue #1229).
+
+        Every gridded variable is read lazily through :meth:`read_array` with `chunks` and wrapped
+        in a :class:`~pyramids.netcdf._lazy_cube.LazyNetCDF` — the raster-cube analogue of
+        :class:`~pyramids.feature.LazyFeatureCollection`. The view exposes `chunks` / `chunksizes`,
+        materialises back to this eager cube with `compute()` / `load()`, and manages the dask graph
+        with `persist()` / `unify_chunks()`.
+
+        Only a **file-backed** cube can be chunked — the lazy read reopens the store per block, so an
+        in-memory or in-place-rebuilt cube (no on-disk path) is refused by :meth:`read_array` with a
+        clear error.
+
+        Args:
+            chunks: Chunking spec forwarded to :meth:`read_array`; `"auto"` (default) targets dask's
+                byte budget. Any form `read_array` accepts works.
+
+        Returns:
+            LazyNetCDF: A lazy view over this cube's gridded variables.
+
+        Raises:
+            ValueError: This cube has no on-disk store to read lazily (see :meth:`read_array`).
+            OptionalPackageDoesNotExist: dask is not installed — install the `lazy` extra.
+        """
+        if (
+            getattr(self, "_rebuilt_in_memory", False)
+            or getattr(self, "driver_type", None) == "memory"
+        ):
+            raise ValueError(
+                "chunk() needs a file-backed cube: the lazy read reopens the store per block, and "
+                "this cube has no on-disk path. Write it with to_file() first, or operate eagerly."
+            )
+        pinned = self._source_var_name
+        if pinned is None:
+            names = list(self._spatial_variable_names())
+        else:
+            names = [pinned]
+        arrays: dict[str, Any] = {}
+        dim_names: dict[str, tuple[str, ...]] = {}
+        for name in names:
+            var = self if pinned is not None else self._require_raster_variable(name)
+            array = (
+                self.read_array(chunks=chunks)
+                if pinned is not None
+                else self.read_array(name, chunks=chunks)
+            )
+            arrays[name] = array
+            dim_names[name] = _lazy_cube_dim_names(var, array.ndim)
+        return LazyNetCDF(self, arrays, dim_names)
 
     @_joins_cubes
     def concat(self, objs: Any, dim: str) -> NetCDF:
