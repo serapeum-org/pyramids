@@ -118,3 +118,15 @@ class TestToDaskDataframe:
         eager = nc.to_dataframe(variables=["pr"]).sort_index()
         lazy = _as_eager(nc.to_dask_dataframe(variables=["pr"]), eager)
         assert_frame_equal(lazy[eager.columns], eager, check_dtype=False)
+
+    @requires_dask
+    def test_dimension_columns_do_not_materialise_the_full_index(self, monkeypatch):
+        """The dimension columns are built lazily from per-dim axes, never the full MultiIndex — M2."""
+        from pyramids.netcdf.engines import interop
+
+        def _boom(_var):
+            raise AssertionError("to_dask_dataframe must not expand the full MultiIndex eagerly")
+
+        monkeypatch.setattr(interop, "_frame_index", _boom)
+        ddf = NetCDF.read_file(str(MULTIVAR)).to_dask_dataframe(variables=["pr"])
+        assert "pr" in ddf.columns, "the value column must still be present"

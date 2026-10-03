@@ -613,11 +613,18 @@ class Interop(_Engine["NetCDF"]):
                     arr = da.where(arr == sentinel, np.nan, arr)
             value_arrays[name] = arr
         ref_chunks = next(iter(value_arrays.values())).chunks
-        index = _frame_index(first)
+        # Build each dimension column lazily as tile(repeat(values, inner), outer) — the cartesian
+        # product of the per-dimension coordinate values, matching `_frame_index`'s `from_product`
+        # order — so only the small per-dimension value arrays are resident, never the full
+        # length-N product (that stays a dask graph until the frame is computed).
+        axis_names, levels = _frame_axes(first)
+        sizes = [len(values) for values in levels]
         columns: dict[str, Any] = {}
-        for level, dim in enumerate(index.names):
-            level_values = np.asarray(index.get_level_values(level))
-            columns[dim] = da.from_array(level_values, chunks=ref_chunks)
+        for position, (dim, values) in enumerate(zip(axis_names, levels)):
+            inner = int(np.prod(sizes[position + 1 :], dtype="int64"))
+            outer = int(np.prod(sizes[:position], dtype="int64"))
+            base = da.from_array(np.asarray(values), chunks=-1)
+            columns[dim] = da.tile(da.repeat(base, inner), outer).rechunk(ref_chunks)
         for name, arr in value_arrays.items():
             columns[name] = arr.rechunk(ref_chunks)
         frame = dd.concat(
@@ -721,12 +728,35 @@ def _frame_values(nc: NetCDF, var: NetCDF) -> Any:
     return values
 
 
-def _frame_index(var: NetCDF) -> pd.MultiIndex:
-    """The `MultiIndex` over the variable's dimensions, outermost first.
+def _frame_axes(var: NetCDF) -> tuple[list[str], list[list[Any]]]:
+    """The dimension names and their per-dimension coordinate values, outermost first.
 
     The spatial centres come from the geotransform rather than from the store's coordinate
     arrays: the raster is north-up whatever order the file stores its rows in, and the frame
-    has to describe the cells as they are laid out.
+    has to describe the cells as they are laid out. Each returned level is only as long as that
+    one dimension (not their product), so a caller can build the cartesian product lazily.
+
+    Args:
+        var: The variable whose dimensions the axes describe.
+
+    Returns:
+        tuple[list[str], list[list]]: The dimension names, and one coordinate-value list per
+        dimension in the same order.
+    """
+    geo = var.geotransform
+    names = [*var._band_dim_names, *_public_spatial_names(var)]
+    levels: list[list[Any]] = []
+    for dim in var._band_dim_names:
+        stamps = var._band_dim_values_map.get(dim)
+        size = var._band_dim_sizes[list(var._band_dim_names).index(dim)]
+        levels.append(list(stamps) if stamps is not None else list(range(size)))
+    levels.append([geo[3] + (row + 0.5) * geo[5] for row in range(var.rows)])
+    levels.append([geo[0] + (col + 0.5) * geo[1] for col in range(var.columns)])
+    return names, levels
+
+
+def _frame_index(var: NetCDF) -> pd.MultiIndex:
+    """The `MultiIndex` over the variable's dimensions, outermost first.
 
     Args:
         var: The variable whose dimensions the index names.
@@ -734,15 +764,7 @@ def _frame_index(var: NetCDF) -> pd.MultiIndex:
     Returns:
         pandas.MultiIndex: The index, `prod(sizes)` long.
     """
-    geo = var.geotransform
-    names = [*var._band_dim_names, *_public_spatial_names(var)]
-    levels: list[Any] = []
-    for dim in var._band_dim_names:
-        stamps = var._band_dim_values_map.get(dim)
-        size = var._band_dim_sizes[list(var._band_dim_names).index(dim)]
-        levels.append(list(stamps) if stamps is not None else list(range(size)))
-    levels.append([geo[3] + (row + 0.5) * geo[5] for row in range(var.rows)])
-    levels.append([geo[0] + (col + 0.5) * geo[1] for col in range(var.columns)])
+    names, levels = _frame_axes(var)
     return pd.MultiIndex.from_product(levels, names=names)
 
 
