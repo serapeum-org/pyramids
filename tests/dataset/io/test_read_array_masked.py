@@ -758,10 +758,11 @@ class TestNetCDFMaskedReads:
         )
         np.testing.assert_array_equal(eager.compressed(), lazy.compressed())
         np.testing.assert_array_equal(eager.filled(np.nan), lazy.filled(np.nan))
-        # The guaranteed contract is mask + unmasked values, not the raw byte under the mask:
-        # eager keeps the stored sentinel there, lazy the unpacked one.
-        masked_cell = np.ma.getmaskarray(eager)
-        assert np.ma.getdata(eager)[masked_cell] != np.ma.getdata(lazy)[masked_cell]
+        # The guaranteed contract is exactly the three assertions above (mask + unmasked
+        # values + filled). The raw byte left *under* a masked cell is deliberately not
+        # asserted: today eager keeps the stored sentinel there and lazy the unpacked one,
+        # but a masked array exposes neither, so strengthening the lazy path to also keep the
+        # stored sentinel would be a valid improvement this test must not forbid.
 
     def test_unpack_preserves_mask(self, nc_subset):
         """CF unpack scaling preserves the mask built from raw values.
