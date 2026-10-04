@@ -12,6 +12,7 @@ import pyramids.base.geodesy as geodesy_module
 from pyramids.base._errors import CRSError
 from pyramids.base.geodesy import (
     _area_scale,
+    _geodetic_frame,
     _length_scale,
     geodesic_distance,
     geodesic_geometry_area,
@@ -499,3 +500,97 @@ class TestGradUnitGeodeticCRS:
         in_grads = ground_distance_in_crs(100_000.0, crs=4807, at=(0.0, 50.0))
         in_degrees = ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 45.0))
         assert in_grads == pytest.approx(in_degrees / 0.9, rel=1e-3)
+
+
+class TestGeodesicDistanceCoordinateValidation:
+    """Coordinates are validated instead of yielding `nan` (M2).
+
+    `geod.inv` answers out-of-domain input with `nan` rather than raising, so the
+    single most likely misuse -- passing projected coordinates alongside a
+    projected `crs`, which the docstring advertises as supported -- used to
+    produce a plausible-looking `nan` that propagated into a buffer radius or a
+    scale-bar length. Its sibling `ground_distance_in_crs` refuses every
+    non-finite input, so this was also internally inconsistent.
+    """
+
+    def test_projected_coordinates_are_refused(self):
+        """UTM metres passed as degrees are refused, not answered with `nan`."""
+        with pytest.raises(ValueError, match="lat1"):
+            geodesic_distance(500000.0, 3300000.0, 510000.0, 3300000.0, crs=32636)
+
+    def test_web_mercator_coordinates_are_refused(self):
+        """Web-Mercator metres likewise."""
+        with pytest.raises(ValueError, match="lat1"):
+            geodesic_distance(0.0, 8399737.89, 100000.0, 8399737.89, crs=3857)
+
+    @pytest.mark.parametrize("latitude", [90.0001, -90.0001, 100.0, -1000.0])
+    def test_latitude_out_of_range_is_refused(self, latitude: float):
+        """A latitude outside +-90 has no place on the ellipsoid."""
+        with pytest.raises(ValueError, match="between -90 and 90"):
+            geodesic_distance(0.0, latitude, 1.0, 0.0)
+
+    @pytest.mark.parametrize("latitude", [90.0, -90.0, 0.0])
+    def test_the_poles_and_equator_are_in_range(self, latitude: float):
+        """The bounds themselves are valid, not off-by-one rejected."""
+        assert geodesic_distance(0.0, latitude, 1.0, latitude) >= 0.0
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    def test_non_finite_coordinates_are_refused(self, bad: float):
+        """A non-finite coordinate is refused, naming the argument."""
+        with pytest.raises(ValueError, match="lon1"):
+            geodesic_distance(bad, 0.0, 1.0, 0.0)
+
+    def test_non_finite_is_found_inside_an_array(self):
+        """The check is vectorised, so one bad entry in an array is caught."""
+        with pytest.raises(ValueError, match="lat2"):
+            geodesic_distance([0.0, 0.0], [0.0, 0.0], [1.0, 1.0], [0.0, float("nan")])
+
+    def test_longitude_is_not_range_checked(self):
+        """Longitude is left unbounded, because CF uses both conventions.
+
+        A 0..360 grid is as legitimate as a -180..180 one, and `Geod` wraps
+        longitude itself, so bounding it would reject valid data.
+        """
+        wrapped = geodesic_distance(350.0, 0.0, 351.0, 0.0)
+        assert wrapped == pytest.approx(DEGREE_AT_EQUATOR_M)
+
+    def test_non_numeric_input_is_refused(self):
+        """A value that is not numeric at all is refused as a `ValueError`."""
+        with pytest.raises(ValueError, match="numeric degrees"):
+            geodesic_distance("east", 0.0, 1.0, 0.0)
+
+
+class TestGeodeticFrame:
+    """`_geodetic_frame`'s refusals, including one no real CRS reaches."""
+
+    @pytest.mark.parametrize(
+        ("code", "expected"), [(4326, 1.0), (4807, 0.9), (2154, 1.0), (32636, 1.0)]
+    )
+    def test_degrees_per_unit(self, code: int, expected: float):
+        """The factor is 1.0 for a degree axis and 0.9 for a grad one."""
+        _, to_degrees = _geodetic_frame(CRS.from_user_input(code))
+        assert to_degrees == pytest.approx(expected)
+
+    def test_mixed_angular_units_are_refused(self, monkeypatch):
+        """A counterpart whose two axes disagree has no single conversion factor.
+
+        Defensive: no CRS in the EPSG database mixes angular units between its
+        latitude and longitude axes, so the branch is unreachable with real input
+        and the axes are stubbed to reach it. The guard stays because the
+        alternative is silently adopting whichever axis comes first.
+        """
+
+        class _Axis:
+            def __init__(self, factor: float):
+                self.unit_conversion_factor = factor
+
+        class _Mixed:
+            name = "Stubbed geographic CRS"
+            axis_info = [_Axis(0.017453292519943295), _Axis(0.01570796326794895)]
+
+        class _Target:
+            name = "Stubbed projected CRS"
+            geodetic_crs = _Mixed()
+
+        with pytest.raises(CRSError, match="mixes angular units"):
+            _geodetic_frame(_Target())

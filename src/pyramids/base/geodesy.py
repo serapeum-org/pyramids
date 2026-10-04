@@ -195,6 +195,50 @@ def _resolve_geod(crs: Any) -> tuple[Any, Any]:
     return resolved, geod
 
 
+def _as_degrees(name: str, value: Any, *, latitude: bool = False) -> FloatArray:
+    """Coerce a coordinate argument to finite degrees, or refuse it.
+
+    `Geod.inv` answers out-of-domain input with `nan` instead of raising, so a
+    caller who passes projected coordinates -- the likeliest mistake, since a
+    projected `crs` is accepted for its ellipsoid -- would receive a
+    plausible-looking `nan` that propagates into a buffer radius or a bar length.
+    Refusing here keeps the promise the `Raises:` section makes and matches
+    `ground_distance_in_crs`, which has always refused non-finite input.
+
+    Args:
+        name: The argument's name, used in the error message.
+        value: The scalar or array to check.
+        latitude: When `True`, also require the values to lie within +-90.
+            Longitude is deliberately unbounded: CF uses both the -180..180 and
+            0..360 conventions and `Geod` wraps longitude itself.
+
+    Returns:
+        FloatArray: `value` as a float array.
+
+    Raises:
+        ValueError: `value` is not numeric, holds a non-finite entry, or -- for a
+            latitude -- lies outside +-90.
+    """
+    try:
+        array = np.asarray(value, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be numeric degrees, got {value!r}") from exc
+    if not np.all(np.isfinite(array)):
+        raise ValueError(
+            f"{name} must be finite degrees; it holds a nan or an infinity. A "
+            "projected coordinate is a common cause -- these arguments are "
+            "always geographic degrees, whatever `crs` is."
+        )
+    if latitude and np.any(np.abs(array) > 90.0):
+        raise ValueError(
+            f"{name} must be a latitude between -90 and 90 degrees; it holds "
+            f"{float(np.abs(array).max())}. A projected northing is a common "
+            "cause -- these arguments are always geographic degrees, whatever "
+            "`crs` is."
+        )
+    return array
+
+
 def geodesic_distance(
     lon1: Any,
     lat1: Any,
@@ -213,7 +257,9 @@ def geodesic_distance(
     All four coordinate arguments are **geographic degrees**, whatever `crs` is:
     `crs` selects the *ellipsoid* to measure on (through its datum), not the
     frame the inputs are expressed in. Pass projected coordinates through
-    :func:`pyramids.base.crs.reproject_coordinates` first.
+    :func:`pyramids.base.crs.reproject_coordinates` first -- handing them in
+    directly is refused, not answered, because `pyproj.Geod` would return `nan`
+    for an out-of-range latitude and that would propagate silently.
 
     Scalars in, scalar out; arrays in, array out -- the loop runs inside PROJ,
     so a transect of thousands of vertices costs one call.
@@ -234,7 +280,10 @@ def geodesic_distance(
         coordinate argument is scalar, otherwise an array broadcast over them.
 
     Raises:
-        ValueError: `unit` is not recognised.
+        ValueError: `unit` is not recognised, a coordinate is not numeric or not
+            finite, or a latitude lies outside +-90. The message names the
+            offending argument. Longitude is not range-checked: CF uses both the
+            -180..180 and 0..360 conventions and `Geod` wraps it itself.
         CRSError: `crs` cannot be resolved, or its datum names no ellipsoid.
 
     Examples:
@@ -279,9 +328,13 @@ def geodesic_distance(
     """
     scale = _length_scale(unit)
     _, geod = _resolve_geod(crs)
+    x1 = _as_degrees("lon1", lon1)
+    y1 = _as_degrees("lat1", lat1, latitude=True)
+    x2 = _as_degrees("lon2", lon2)
+    y2 = _as_degrees("lat2", lat2, latitude=True)
     # `inv` returns (forward azimuth, back azimuth, distance); only the third is
     # wanted here, and it accepts scalars and arrays alike.
-    _, _, metres = geod.inv(lon1, lat1, lon2, lat2)
+    _, _, metres = geod.inv(x1, y1, x2, y2)
     scaled = np.asarray(metres, dtype=float) / scale
     result: float | FloatArray = float(scaled) if scaled.ndim == 0 else scaled
     return result
