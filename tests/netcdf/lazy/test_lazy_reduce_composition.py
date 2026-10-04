@@ -296,3 +296,43 @@ class TestLazyMapBlocksComposition:
             np.asarray(var.rank("time").reduce("pressure_level", "mean").read_array()),
             equal_nan=True,
         )
+
+    @requires_dask
+    @pytest.mark.parametrize("op", ["argmin", "argmax", "idxmin", "idxmax"])
+    def test_extremum_collapses_the_dim_and_matches_eager(self, op):
+        """`argmin`/`argmax`/`idxmin`/`idxmax` collapse `dim` via map_blocks (drop_axis), lazily."""
+        var = _variable()
+        lazy = getattr(var.chunk("auto"), op)("time")
+        assert isinstance(lazy, LazyNetCDF), f"got {type(lazy).__name__}"
+        assert "time" not in lazy.chunks, "the extremum must collapse the dimension"
+        np.testing.assert_allclose(
+            np.asarray(lazy.compute().read_array()),
+            np.asarray(getattr(var, op)("time").read_array()),
+            equal_nan=True,
+        )
+
+    @requires_dask
+    def test_interpolate_na_computes_to_the_eager_result(self):
+        """`chunk().interpolate_na(...).compute()` equals `NetCDF.interpolate_na(...)`."""
+        var = _variable()
+        lazy = var.chunk("auto").interpolate_na("time")
+        assert isinstance(lazy, LazyNetCDF), f"got {type(lazy).__name__}"
+        assert sum(lazy.chunks["time"]) == 4, "interpolate_na keeps the length"
+        np.testing.assert_allclose(
+            np.asarray(lazy.compute().read_array()),
+            np.asarray(var.interpolate_na("time").read_array()),
+            equal_nan=True,
+        )
+
+    @requires_dask
+    def test_pad_extends_a_band_dim_and_matches_eager(self):
+        """`chunk().pad(time=(1, 2)).compute()` equals `NetCDF.pad(time=(1, 2))`, time 4->7."""
+        var = _variable()
+        lazy = var.chunk("auto").pad(time=(1, 2))
+        assert isinstance(lazy, LazyNetCDF), f"got {type(lazy).__name__}"
+        assert sum(lazy.chunks["time"]) == 7, f"pad extends 4->7, got {lazy.chunks}"
+        np.testing.assert_allclose(
+            np.asarray(lazy.compute().read_array()),
+            np.asarray(var.pad(time=(1, 2)).read_array()),
+            equal_nan=True,
+        )

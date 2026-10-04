@@ -529,6 +529,116 @@ class LazyNetCDF:
             return self.compute().rank(dim, pct=pct)
         return self._compose_mapblocks(_Rank(pct=pct), dim)
 
+    def argmin(self, dim: str, *, skipna: bool = True) -> Any:
+        """Position of the minimum along a band dimension, composing lazily (#1237)."""
+        return self._extremum(dim, "min", False, "argmin", skipna)
+
+    def argmax(self, dim: str, *, skipna: bool = True) -> Any:
+        """Position of the maximum along a band dimension, composing lazily (#1237)."""
+        return self._extremum(dim, "max", False, "argmax", skipna)
+
+    def idxmin(self, dim: str, *, skipna: bool = True) -> Any:
+        """Coordinate of the minimum along a band dimension, composing lazily (#1237)."""
+        return self._extremum(dim, "min", True, "idxmin", skipna)
+
+    def idxmax(self, dim: str, *, skipna: bool = True) -> Any:
+        """Coordinate of the maximum along a band dimension, composing lazily (#1237)."""
+        return self._extremum(dim, "max", True, "idxmax", skipna)
+
+    def interpolate_na(
+        self,
+        dim: str,
+        method: str = "linear",
+        *,
+        limit: int | None = None,
+        use_coordinate: bool = True,
+    ) -> Any:
+        """Fill interior gaps along a band dimension, composing lazily (#1237).
+
+        The lazy twin of :meth:`NetCDF.interpolate_na`; the interpolation (a scipy kernel) runs per
+        spatial block via map_blocks, keeping the dimension's length. A multi-variable container
+        interpolates eagerly at the boundary, warning once.
+
+        Returns:
+            LazyNetCDF | NetCDF: A lazy cube for a pinned variable; an eager result otherwise.
+        """
+        from pyramids.netcdf.engines._along_dim import _Interpolate
+        from pyramids.netcdf.engines.selection import _check_limit
+
+        if len(self._current_records()) != 1:
+            self._warn_materialize("interpolate_na")
+            return self.compute().interpolate_na(
+                dim, method, limit=limit, use_coordinate=use_coordinate
+            )
+        op = _Interpolate(
+            method=method,
+            limit=_check_limit(limit, caller="interpolate_na"),
+            use_coordinate=bool(use_coordinate),
+        )
+        return self._compose_mapblocks(op, dim)
+
+    def pad(
+        self, *, mode: str = "constant", constant_values: Any = None, **pad_width: Any
+    ) -> Any:
+        """Pad band dimensions with a constant fill, composing lazily (#1237).
+
+        The lazy twin of :meth:`NetCDF.pad` for **band** dimensions (extended via map_blocks). A
+        spatial-axis pad moves the geotransform (a GDAL op) and a multi-variable container cannot
+        compose, so either materialises at the boundary, warning once; several band dimensions in
+        one call compose in sequence.
+
+        Returns:
+            LazyNetCDF | NetCDF: A lazy cube when every padded dimension is a band dimension of a
+            single variable; an eager padded cube otherwise.
+        """
+        from pyramids.netcdf.engines._along_dim import _Pad
+        from pyramids.netcdf.engines.selection import _pad_before_after
+
+        records = self._current_records()
+        band_names = next(iter(records.values())).band_names if records else []
+        if (
+            mode != "constant"
+            or not pad_width
+            or len(records) != 1
+            or any(dim not in band_names for dim in pad_width)
+        ):
+            self._warn_materialize("pad")
+            return self.compute().pad(
+                mode=mode, constant_values=constant_values, **pad_width
+            )
+        result: Any = self
+        for dim, width in pad_width.items():
+            before, after = _pad_before_after(width, dim)
+            result = result._compose_mapblocks(
+                _Pad(before=before, after=after, fill_value=constant_values), dim
+            )
+        return result
+
+    def _extremum(
+        self, dim: str, extreme: str, coordinate: bool, caller: str, skipna: bool
+    ) -> Any:
+        """Shared `argmin`/`argmax`/`idxmin`/`idxmax`: collapse `dim` to its extremum, lazily.
+
+        The extremum locators use `np.argmin`/`argmax` (numpy), so they compose via map_blocks like
+        `rank`; collapsing `dim` is handled by `_compose_mapblocks`'s `drop_axis`. A multi-variable
+        container locates eagerly at the boundary, warning once.
+
+        Returns:
+            LazyNetCDF | NetCDF: A lazy cube for a pinned variable; an eager result otherwise.
+        """
+        from pyramids.netcdf.engines._along_dim import _Extremum
+
+        if len(self._current_records()) != 1:
+            self._warn_materialize(caller)
+            return getattr(self.compute(), caller)(dim, skipna=skipna)
+        op = _Extremum(
+            extreme=extreme,
+            coordinate=coordinate,
+            skipna=bool(skipna),
+            caller=caller,
+        )
+        return self._compose_mapblocks(op, dim)
+
     def _compose_mapblocks(self, op: Any, dim: str) -> LazyNetCDF:
         """Run an `_AlongDim` op's eager kernel per spatial block via `dask.array.map_blocks`.
 

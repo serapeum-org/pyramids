@@ -679,7 +679,13 @@ class _Extremum(_AlongDim):
     caller: str
     verb: ClassVar[str] = "search"
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Find the extremum of one variable along `dim`.
 
         Args:
@@ -694,12 +700,13 @@ class _Extremum(_AlongDim):
         Raises:
             ValueError: `idx*` and `dim` has no coordinate values, or they are not all numbers.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        arr, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         axis = band_names.index(dim)
         labels = self._labels(values_map.get(dim), dim) if self.coordinate else None
-        arr = nc._materialize_variable_array(var, lazy=True)
         search = np.argmin if self.extreme == "min" else np.argmax
         if self.skipna:
             data = _gaps_as_nan(arr, ndv)
@@ -900,7 +907,13 @@ class _Interpolate(_AlongDim):
     verb: ClassVar[str] = "interpolate"
     keeps_length: ClassVar[bool] = True
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Interpolate one variable's interior gaps along `dim`.
 
         Args:
@@ -913,11 +926,12 @@ class _Interpolate(_AlongDim):
             declares the variable's no-data value, or NaN when it declares none, since a gap
             the interpolation could not reach is still a gap.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        arr, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         axis = band_names.index(dim)
-        arr = nc._materialize_variable_array(var, lazy=True)
         data = _gaps_as_nan(arr, ndv)
         positions = self._axis_positions(values_map.get(dim), data.shape[axis], dim)
         filled = _interpolated(data, axis, positions, self.method, self.limit)
@@ -1127,7 +1141,13 @@ class _Pad(_AlongDim):
     keeps_length: ClassVar[bool] = False
     change_noun: ClassVar[str] = "padded"
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Pad one variable along `dim`.
 
         Args:
@@ -1141,15 +1161,15 @@ class _Pad(_AlongDim):
             no-data value (NaN when it declares none); the result declares the variable's own
             no-data value regardless.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        raw, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         no_data: Any = np.nan if ndv is None else ndv
         fill = no_data if self.fill_value is None else self.fill_value
         axis = band_names.index(dim)
-        arr = np.asarray(
-            nc._materialize_variable_array(var, lazy=True), dtype="float64"
-        )
+        arr = np.asarray(raw, dtype="float64")
         pad_width = [(0, 0)] * arr.ndim
         pad_width[axis] = (self.before, self.after)
         values = np.pad(arr, pad_width, mode="constant", constant_values=fill)
