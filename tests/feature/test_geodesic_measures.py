@@ -9,11 +9,13 @@ pins the ground answer, and several contrast it with the inherited one.
 from __future__ import annotations
 
 import geopandas as gpd
+import numpy as np
 import pytest
 from shapely.geometry import LineString, Point, Polygon
 
 import pyramids.feature.collection as collection_module
 from pyramids.base._errors import CRSError, InvalidGeometryError
+from pyramids.dataset import Dataset, GeoReference
 from pyramids.feature import FeatureCollection
 
 # One degree at the equator and at 60 N, in kilometres, on WGS 84.
@@ -183,10 +185,6 @@ class TestGeodesicArea:
         is a cross-check on both. They do not agree exactly, and `cell_area`'s
         docstring explains why: a geodesic polygon bows its parallel edges.
         """
-        import numpy as np
-
-        from pyramids.dataset import Dataset, GeoReference
-
         geo_ref = GeoReference(top_left_corner=(0.0, 1.0), cell_size=1.0, epsg=4326)
         raster = Dataset.from_array(np.ones((1, 1), "float32"), geo_ref=geo_ref)
         raster_km2 = float(raster.cell_area(unit="km2")[0, 0])
@@ -415,3 +413,165 @@ class TestDegreeFactorComparison:
         measured = fc.geodesic_length(unit="km").iloc[0]
         assert calls == [0.9]
         assert measured == pytest.approx(DEGREE_AT_EQUATOR_KM * 0.9, rel=1e-3)
+
+
+class TestTargetFrameReconciliation:
+    """Every target is brought into the collection's frame first (R2 M1, M2).
+
+    `Geod.inv` pairs two coordinates; they are only comparable if they are
+    expressed in the same frame. Both halves of this went wrong independently: a
+    bare shapely geometry was taken to be already in degrees, and a target
+    carrying its own CRS was converted to *its* datum's geographic counterpart
+    rather than the collection's.
+    """
+
+    EQUATOR_KM = DEGREE_AT_EQUATOR_KM
+
+    def test_bare_geometry_is_read_in_the_collections_crs(self):
+        """A bare point on a projected collection is in that collection's CRS.
+
+        It used to be read as degrees: an easting of 111319.49 became a longitude,
+        which `Geod` wrapped to 79 degrees and reported as 8848.87 km -- a 79x
+        error with no warning.
+        """
+        geographic = gpd.GeoDataFrame(geometry=[Point(0, 0)], crs=4326)
+        projected = FeatureCollection(geographic.to_crs(3857))
+        target = gpd.GeoSeries([Point(1, 0)], crs=4326).to_crs(3857).iloc[0]
+        assert projected.geodesic_distance(target, unit="km").iloc[0] == (
+            pytest.approx(self.EQUATOR_KM, rel=1e-9)
+        )
+
+    def test_the_three_spellings_of_one_target_agree(self):
+        """A bare geometry, a CRS-less GeoSeries and a CRS-bearing one must match.
+
+        They used to disagree: the first took a branch that skipped conversion
+        entirely while the other two reprojected.
+        """
+        geographic = gpd.GeoDataFrame(geometry=[Point(0, 0)], crs=4326)
+        projected = FeatureCollection(geographic.to_crs(3857))
+        point = gpd.GeoSeries([Point(1, 0)], crs=4326).to_crs(3857).iloc[0]
+        bare = projected.geodesic_distance(point, unit="km").iloc[0]
+        crsless = projected.geodesic_distance(gpd.GeoSeries([point]), unit="km").iloc[0]
+        tagged = projected.geodesic_distance(
+            gpd.GeoSeries([point], crs=3857), unit="km"
+        ).iloc[0]
+        assert bare == pytest.approx(crsless, rel=1e-12)
+        assert bare == pytest.approx(tagged, rel=1e-12)
+
+    def test_cross_crs_target_keeps_the_prime_meridian(self):
+        """One physical point is zero away from itself across two CRSes.
+
+        EPSG:27562's geodetic counterpart is NTF (Paris), which measures longitude
+        from Paris. Converting the target to its own frame instead of the
+        collection's dropped that offset and reported 112.47 km for a zero
+        separation.
+        """
+        fc = _fc([Point(600000.0, 2200000.0)], crs=27562)
+        same_point_elsewhere = gpd.GeoSeries(
+            [Point(600000.0, 2200000.0)], crs=27562
+        ).to_crs(4326)
+        assert fc.geodesic_distance(same_point_elsewhere).iloc[0] == pytest.approx(
+            0.0, abs=1.0
+        )
+
+    def test_cross_crs_target_keeps_the_datum_shift(self):
+        """A NAD27 target is not the same ground point as the WGS 84 one.
+
+        Same nominal degrees, different datum, so the separation is tens of
+        metres -- not the 0.0 a dropped datum shift reports. The point is in
+        Nebraska on purpose: NAD27 is a North American datum, and PROJ has no
+        transformation for it over Europe, so a European coordinate shifts by
+        exactly nothing and would pass this test with the bug present.
+        """
+        fc = _fc([Point(-100.0, 40.0)])
+        nad27 = gpd.GeoSeries([Point(-100.0, 40.0)], crs=4267)
+        separation = fc.geodesic_distance(nad27).iloc[0]
+        assert separation == pytest.approx(34.589, rel=1e-3)
+
+    def test_same_crs_target_is_still_zero(self):
+        """The control: the same point in the same CRS stays zero."""
+        fc = _fc([Point(600000.0, 2200000.0)], crs=27562)
+        same = gpd.GeoSeries([Point(600000.0, 2200000.0)], crs=27562)
+        assert fc.geodesic_distance(same).iloc[0] == pytest.approx(0.0, abs=1e-6)
+
+
+class TestMissingGeometries:
+    """A missing or empty geometry is named, not misdiagnosed (R2 S3)."""
+
+    def test_missing_geometry_names_the_row(self):
+        """`geom_type` is NaN for a missing geometry, so it used to slip through.
+
+        The refusal then came from `_as_degrees` and read "lon1 must be finite
+        degrees ... a projected coordinate is a common cause" -- the wrong cause,
+        naming an internal argument the caller never supplied.
+        """
+        frame = gpd.GeoDataFrame(
+            geometry=[Point(0, 0), None], crs="EPSG:4326", index=["a", "b"]
+        )
+        fc = FeatureCollection(frame)
+        target = Point(1, 0)
+        with pytest.raises(InvalidGeometryError, match="missing or empty geometry"):
+            fc.geodesic_distance(target)
+
+    def test_the_message_names_the_offending_index(self):
+        """The row label is in the message, so it is actionable."""
+        frame = gpd.GeoDataFrame(
+            geometry=[Point(0, 0), None], crs="EPSG:4326", index=["a", "b"]
+        )
+        fc = FeatureCollection(frame)
+        target = Point(1, 0)
+        with pytest.raises(InvalidGeometryError, match=r"\['b'\]"):
+            fc.geodesic_distance(target)
+
+    def test_empty_geometry_is_refused_too(self):
+        """An empty point has no coordinates either."""
+        fc = _fc([Point(0, 0), Point()])
+        target = Point(1, 0)
+        with pytest.raises(InvalidGeometryError, match="missing or empty geometry"):
+            fc.geodesic_distance(target)
+
+
+class TestIndexAlignment:
+    """Targets align on the index, like the inherited `distance` (R2 S6)."""
+
+    def test_differently_ordered_index_is_aligned_not_zipped(self):
+        """A reordered target pairs by label, not by position.
+
+        Positional pairing silently matched Point(0,0) with Point(1,60) and gave
+        [6654.64, 6654.64] km for what should be [111.32, 55.80].
+        """
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                geometry=[Point(0, 0), Point(0, 60)], crs="EPSG:4326", index=[0, 1]
+            )
+        )
+        targets = gpd.GeoSeries(
+            [Point(1, 60), Point(1, 0)], crs="EPSG:4326", index=[1, 0]
+        )
+        result = fc.geodesic_distance(targets, unit="km")
+        assert result.loc[0] == pytest.approx(DEGREE_AT_EQUATOR_KM)
+        assert result.loc[1] == pytest.approx(DEGREE_AT_60N_KM)
+
+    def test_mismatched_index_raises(self):
+        """An index that does not cover the collection's rows cannot be paired."""
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                geometry=[Point(0, 0), Point(0, 60)], crs="EPSG:4326", index=["a", "b"]
+            )
+        )
+        targets = gpd.GeoSeries(
+            [Point(1, 0), Point(1, 60)], crs="EPSG:4326", index=["x", "y"]
+        )
+        with pytest.raises(ValueError, match="index does not match"):
+            fc.geodesic_distance(targets)
+
+    def test_a_plain_list_target_stays_positional(self):
+        """A bare list carries no meaningful index, so it is paired in order."""
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                geometry=[Point(0, 0), Point(0, 60)], crs="EPSG:4326", index=["a", "b"]
+            )
+        )
+        result = fc.geodesic_distance([Point(1, 0), Point(1, 60)], unit="km")
+        assert result.loc["a"] == pytest.approx(DEGREE_AT_EQUATOR_KM)
+        assert result.loc["b"] == pytest.approx(DEGREE_AT_60N_KM)

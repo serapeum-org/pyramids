@@ -3039,6 +3039,11 @@ class FeatureCollection(GeoDataFrame):
             geometries = geometries.scale(
                 xfact=to_degrees, yfact=to_degrees, origin=(0, 0)
             )
+            # The values are degrees now, so the grad CRS label no longer
+            # describes them. Dropping it is honest and harmless: every consumer
+            # of this series takes the ellipsoid from `resolved`, never from the
+            # series' own `crs`.
+            geometries = geometries.set_crs(None, allow_override=True)
         return geometries
 
     def _geodesic_points(self, geometries: gpd.GeoSeries, op: str) -> gpd.GeoSeries:
@@ -3059,6 +3064,17 @@ class FeatureCollection(GeoDataFrame):
         Raises:
             InvalidGeometryError: Any geometry is not a point.
         """
+        missing = geometries.isna() | geometries.is_empty
+        if bool(missing.any()):
+            # `geom_type` is NaN for a missing geometry, so `dropna()` used to let
+            # it through; `geometries.x` then yielded nan and the refusal came
+            # from `_as_degrees`, blaming "projected coordinates" and naming an
+            # internal argument the caller never passed.
+            rows = list(geometries.index[missing])[:5]
+            raise InvalidGeometryError(
+                f"{op}: rows {rows} hold a missing or empty geometry, which has "
+                "no coordinates to measure from; drop or fill them first."
+            )
         kinds = set(geometries.geom_type.dropna().unique())
         if not kinds <= {"Point"}:
             raise InvalidGeometryError(
@@ -3287,10 +3303,14 @@ class FeatureCollection(GeoDataFrame):
             ValueError: `other` is a collection of a different length.
             InvalidGeometryError: `other` holds a non-point geometry.
         """
+        aligns_on_index = isinstance(other, (gpd.GeoSeries, gpd.GeoDataFrame))
         if isinstance(other, BaseGeometry):
-            # Already in this collection's degree frame: the caller passed a bare
-            # geometry alongside it, so it shares its coordinates by construction.
-            series = gpd.GeoSeries([other] * count)
+            # A bare geometry carries no CRS, so it is read in *this* collection's
+            # CRS -- the same assumption geopandas' own `distance` makes, and the
+            # only one the public docstring supports. Tagging it here means it then
+            # takes the identical path as a CRS-bearing series, so the three ways
+            # of spelling one target cannot diverge.
+            series = gpd.GeoSeries([other] * count, crs=resolved)
         else:
             series = gpd.GeoSeries(
                 other.geometry if hasattr(other, "geometry") else other
@@ -3305,9 +3325,28 @@ class FeatureCollection(GeoDataFrame):
                 # No CRS to convert from; assume it already matches this collection,
                 # which is what geopandas' own `distance` does.
                 series = gpd.GeoSeries(series.to_numpy(), crs=resolved)
-            series = self._to_degree_geometries(
-                series, crs_from_user_input(series.crs), "geodesic_distance"
-            )
+        if aligns_on_index:
+            # `GeoDataFrame.distance` -- the method this is the geodesic
+            # counterpart of -- aligns on the index, and pairing positionally
+            # instead silently matched the wrong rows for a differently-ordered
+            # target. Align when `other` is a pandas object; a plain list or
+            # array carries no meaningful index, so those stay positional.
+            if set(series.index) != set(self.index):
+                raise ValueError(
+                    f"geodesic_distance: other's index does not match this "
+                    f"collection's, so the rows cannot be paired. Got "
+                    f"{list(series.index)[:5]} against {list(self.index)[:5]}."
+                )
+            series = series.reindex(self.index)
+        # Into the collection's CRS *before* the degree conversion, never into the
+        # target's own geographic counterpart. `Geod.inv` pairs the two coordinate
+        # sets, so they have to share one frame: a target converted to its own
+        # datum's frame silently drops the prime-meridian offset (NTF (Paris)
+        # measures longitude from Paris) and the datum shift, which reported
+        # 112.47 km for a point zero metres from itself.
+        if not series.crs.equals(resolved):
+            series = series.to_crs(resolved)
+        series = self._to_degree_geometries(series, resolved, "geodesic_distance")
         return self._geodesic_points(series, "geodesic_distance")
 
     def voronoi(
