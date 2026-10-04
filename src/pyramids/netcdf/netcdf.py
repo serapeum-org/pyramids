@@ -5778,27 +5778,51 @@ class NetCDF(Dataset):
             if not squeeze and band is None:
                 result = self._preserve_band_dims(result)
         else:
-            result = self._read_array_lazy(chunks, lock)
-            # The lazy path builds its array straight from the MDArray rather than
-            # through the raster read, so it applies the packing itself -- from
-            # `_effective_packing`, the same resolver the eager arm uses. Reading
-            # only `_scale` / `_offset` here made the two answer in different units
-            # on a classic-opened file, where the variable carries no packing of its
-            # own but the driver's band does: eager 2.5, lazy 100.0.
-            if unpack:
-                result = apply_unpack(result, *self._effective_packing())
-            # Mask after unpack, against the physical sentinel (`_read_no_data`), so the lazy
-            # masked read marks exactly the eager fill cells (#1227): the mask and the unmasked
-            # physical values match the eager read. Only the raw value left under a masked cell
-            # differs (unpacked here vs the stored sentinel eager), which a masked array ignores.
-            if masked:
-                result = mask_no_data(result, _read_no_data(self))
-            # squeeze=True converges the lazy shape on the eager one: flatten the separate band
-            # axes into a single row-major band axis and squeeze a singleton to 2-D, matching the
-            # classic-raster eager read (#1226).
-            if squeeze:
-                result = self._flatten_lazy_band_dims(result)
+            result = self._read_array_lazy_processed(
+                chunks, lock, unpack, masked, squeeze
+            )
         return cast(ArrayLike, result)
+
+    def _read_array_lazy_processed(
+        self, chunks: Any, lock: Any, unpack: bool, masked: bool, squeeze: bool
+    ) -> Any:
+        """The lazy dask read with unpack, masking and `squeeze` applied, in that order.
+
+        Split out of :meth:`read_array` so its eager/lazy dispatch stays within the cognitive
+        complexity budget. Mirrors the eager arm: the same `_effective_packing` pair, the same
+        physical-sentinel mask, and the same classic-flatten `squeeze` convergence (#1226).
+
+        Args:
+            chunks: The dask chunk spec forwarded to :meth:`_read_array_lazy`.
+            lock: The read lock forwarded to :meth:`_read_array_lazy`.
+            unpack: Apply the variable's CF packing to the lazy array.
+            masked: Mask the no-data cells after unpack, against the physical sentinel.
+            squeeze: Flatten the separate band axes into one classic `(bands, rows, cols)` axis.
+
+        Returns:
+            Any: The lazy `dask` array (a masked dask array when `masked`), still uncomputed.
+        """
+        result = self._read_array_lazy(chunks, lock)
+        # The lazy path builds its array straight from the MDArray rather than
+        # through the raster read, so it applies the packing itself -- from
+        # `_effective_packing`, the same resolver the eager arm uses. Reading
+        # only `_scale` / `_offset` here made the two answer in different units
+        # on a classic-opened file, where the variable carries no packing of its
+        # own but the driver's band does: eager 2.5, lazy 100.0.
+        if unpack:
+            result = apply_unpack(result, *self._effective_packing())
+        # Mask after unpack, against the physical sentinel (`_read_no_data`), so the lazy
+        # masked read marks exactly the eager fill cells (#1227): the mask and the unmasked
+        # physical values match the eager read. Only the raw value left under a masked cell
+        # differs (unpacked here vs the stored sentinel eager), which a masked array ignores.
+        if masked:
+            result = mask_no_data(result, _read_no_data(self))
+        # squeeze=True converges the lazy shape on the eager one: flatten the separate band
+        # axes into a single row-major band axis and squeeze a singleton to 2-D, matching the
+        # classic-raster eager read (#1226).
+        if squeeze:
+            result = self._flatten_lazy_band_dims(result)
+        return result
 
     def _preserve_band_dims(self, arr: Any) -> Any:
         """Reshape an eager full read to the dimension-preserving `(*band_sizes, rows, cols)`.
