@@ -390,3 +390,45 @@ class TestLazyCellwiseComposition:
             np.asarray(var.clip(200.0, 300.0).reduce("time", "mean").read_array()),
             equal_nan=True,
         )
+
+
+class TestLazyOperatorComposition:
+    """Scalar operators compose lazily per block, bit-for-bit with the eager operator."""
+
+    @requires_dask
+    @pytest.mark.parametrize(
+        "run_lazy, run_eager",
+        [
+            (lambda v: v.chunk("auto") * 2.0, lambda v: v * 2.0),
+            (lambda v: v.chunk("auto") - 273.15, lambda v: v - 273.15),
+            (lambda v: 300.0 - v.chunk("auto"), lambda v: 300.0 - v),
+            (lambda v: v.chunk("auto") / 2.0, lambda v: v / 2.0),
+            (lambda v: v.chunk("auto") >= 280.0, lambda v: v >= 280.0),
+            (lambda v: v.chunk("auto") < 280.0, lambda v: v < 280.0),
+            (lambda v: -v.chunk("auto"), lambda v: -v),
+            (lambda v: abs(v.chunk("auto")), lambda v: abs(v)),
+        ],
+        ids=["mul", "sub", "rsub", "div", "ge", "lt", "neg", "abs"],
+    )
+    def test_scalar_operator_computes_to_the_eager_result(self, run_lazy, run_eager):
+        """A scalar operator stays lazy and computes bit-for-bit to the eager operator."""
+        var = _variable()
+        lazy = run_lazy(var)
+        assert isinstance(lazy, LazyNetCDF), f"got {type(lazy).__name__}"
+        eager = run_eager(var)
+        got = np.asarray(lazy.compute().read_array())
+        exp = np.asarray(eager.read_array())
+        assert got.dtype == exp.dtype, f"dtype {got.dtype} != {exp.dtype}"
+        np.testing.assert_allclose(got, exp, equal_nan=True)
+
+    @requires_dask
+    def test_a_scalar_operator_chains_lazily_with_a_reduction(self):
+        """`(var - 273.15).reduce('time','mean')` stays lazy and matches the eager chain."""
+        var = _variable()
+        lazy = (var.chunk("auto") - 273.15).reduce("time", "mean")
+        assert isinstance(lazy, LazyNetCDF), "the chain must still be lazy"
+        np.testing.assert_allclose(
+            np.asarray(lazy.compute().read_array()),
+            np.asarray((var - 273.15).reduce("time", "mean").read_array()),
+            equal_nan=True,
+        )

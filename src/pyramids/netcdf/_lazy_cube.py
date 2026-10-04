@@ -704,6 +704,86 @@ class LazyNetCDF:
             return self.compute().round(decimals)
         return self._compose_cellwise("round", decimals)
 
+    def _binary_op(self, other: Any, op_name: str) -> Any:
+        """A cell-wise operator: compose lazily for a real scalar, else materialise (#1237).
+
+        `lazy * 2`, `lazy - 273.15`, `lazy >= threshold` and the like run the eager operator per
+        block (the result dtype/sentinel is value-based, so it is consistent across blocks). A
+        raster/array operand needs grid + band alignment through the combine engine, and a
+        multi-variable container cannot compose, so either materialises at the boundary, warning
+        once.
+        """
+        from numbers import Real
+
+        scalar = isinstance(other, Real) and not isinstance(other, bool)
+        if not scalar or len(self._current_records()) != 1:
+            self._warn_materialize(op_name.strip("_"))
+            return getattr(self.compute(), op_name)(other)
+        return self._compose_cellwise(op_name, other)
+
+    def _unary_op(self, op_name: str) -> Any:
+        """A cell-wise unary operator (`-cube`, `abs(cube)`): compose per block, else materialise."""
+        if len(self._current_records()) != 1:
+            self._warn_materialize(op_name.strip("_"))
+            return getattr(self.compute(), op_name)()
+        return self._compose_cellwise(op_name)
+
+    def __add__(self, other: Any) -> Any:
+        """Add a real scalar cell by cell, lazily (a raster operand materialises)."""
+        return self._binary_op(other, "__add__")
+
+    def __radd__(self, other: Any) -> Any:
+        """Right-hand add of a real scalar, lazily."""
+        return self._binary_op(other, "__radd__")
+
+    def __sub__(self, other: Any) -> Any:
+        """Subtract a real scalar cell by cell, lazily."""
+        return self._binary_op(other, "__sub__")
+
+    def __rsub__(self, other: Any) -> Any:
+        """Right-hand subtract of a real scalar, lazily."""
+        return self._binary_op(other, "__rsub__")
+
+    def __mul__(self, other: Any) -> Any:
+        """Multiply by a real scalar cell by cell, lazily."""
+        return self._binary_op(other, "__mul__")
+
+    def __rmul__(self, other: Any) -> Any:
+        """Right-hand multiply by a real scalar, lazily."""
+        return self._binary_op(other, "__rmul__")
+
+    def __truediv__(self, other: Any) -> Any:
+        """Divide by a real scalar cell by cell, lazily."""
+        return self._binary_op(other, "__truediv__")
+
+    def __pow__(self, other: Any) -> Any:
+        """Raise to a real-scalar power cell by cell, lazily."""
+        return self._binary_op(other, "__pow__")
+
+    def __ge__(self, other: Any) -> Any:
+        """Cell-by-cell `>=` a real scalar, as a Byte mask, lazily."""
+        return self._binary_op(other, "__ge__")
+
+    def __gt__(self, other: Any) -> Any:
+        """Cell-by-cell `>` a real scalar, lazily."""
+        return self._binary_op(other, "__gt__")
+
+    def __le__(self, other: Any) -> Any:
+        """Cell-by-cell `<=` a real scalar, lazily."""
+        return self._binary_op(other, "__le__")
+
+    def __lt__(self, other: Any) -> Any:
+        """Cell-by-cell `<` a real scalar, lazily."""
+        return self._binary_op(other, "__lt__")
+
+    def __neg__(self) -> Any:
+        """Negate the values cell by cell, lazily."""
+        return self._unary_op("__neg__")
+
+    def __abs__(self) -> Any:
+        """Absolute value cell by cell, lazily."""
+        return self._unary_op("__abs__")
+
     def _compose_cellwise(self, method: str, *args: Any, **kwargs: Any) -> LazyNetCDF:
         """Run a cell-wise eager op (`clip`/`fillna`/`round`) per spatial block via map_blocks.
 
