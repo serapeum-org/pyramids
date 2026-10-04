@@ -185,3 +185,27 @@ class TestLazyRollingComposition:
             np.asarray(expected.read_array()),
             equal_nan=True,
         )
+
+
+class TestLazyDiffComposition:
+    """`diff` composes over dask, shortening the dimension, and matches the eager diff."""
+
+    @requires_dask
+    def test_diff_returns_a_lazy_cube_one_step_shorter(self):
+        """A lazy diff stays lazy and shortens `time` from 4 to 3."""
+        lazy = _variable().chunk("auto").diff("time")
+        assert isinstance(lazy, LazyNetCDF), f"got {type(lazy).__name__}"
+        assert sum(lazy.chunks["time"]) == 3, f"diff shortens 4->3, got {lazy.chunks}"
+
+    @requires_dask
+    def test_diff_computes_to_the_eager_result(self):
+        """`chunk().diff(...).compute()` equals `NetCDF.diff(...)`."""
+        var = _variable()
+        got = var.chunk("auto").diff("time").compute()
+        expected = var.diff("time")
+        assert got._band_dim_names == expected._band_dim_names
+        np.testing.assert_allclose(
+            np.asarray(got.read_array()),
+            np.asarray(expected.read_array()),
+            equal_nan=True,
+        )

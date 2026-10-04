@@ -432,6 +432,33 @@ class LazyNetCDF:
             q=q,
         )
 
+    def diff(self, dim: str, n: int = 1, *, label: str = "upper") -> Any:
+        """Difference neighbouring steps along a band dimension, composing lazily (#1237).
+
+        The lazy twin of :meth:`NetCDF.diff`; the difference stays a deferred `dask.array` step.
+        A multi-variable container differences eagerly at the boundary, warning once.
+
+        Args:
+            dim: The band dimension to difference along.
+            n: The order (how many times the difference is taken).
+            label: `"upper"` or `"lower"` — which step each difference is labelled with.
+
+        Returns:
+            LazyNetCDF | NetCDF: A lazy cube for a pinned variable; an eager diffed cube otherwise.
+        """
+        from pyramids.netcdf.engines._along_dim import _diffed_array
+        from pyramids.netcdf.engines.selection import _DIFF_LABELS, _check_order
+
+        order = _check_order(n)
+        if label not in _DIFF_LABELS:
+            raise ValueError(
+                f"label must be one of {list(_DIFF_LABELS)}, got {label!r}."
+            )
+        if len(self._current_records()) != 1:
+            self._warn_materialize("diff")
+            return self.compute().diff(dim, n, label=label)
+        return self._compose_direct(_diffed_array, dim, n=order, label=label)
+
     def _compose_direct(self, kernel: Any, dim: str, **params: Any) -> LazyNetCDF:
         """Run a factored along-dim `kernel` on the single variable's dask array, deferring it.
 

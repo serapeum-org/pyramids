@@ -381,40 +381,70 @@ class _Diff(_AlongDim):
         Raises:
             ValueError: `n` is not below the length of `dim`, which would leave no steps.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
-        axis = band_names.index(dim)
-        arr = nc._materialize_variable_array(var, lazy=True)
-        size = arr.shape[axis]
-        if self.n >= size:
-            raise ValueError(
-                f"diff() of order {self.n} would leave nothing of {dim!r}: its length is "
-                f"{size}. Pass n below {size}."
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        return _Applied(
+            *_diffed_array(
+                nc,
+                arr,
+                band_names,
+                values_map,
+                ndv,
+                dim,
+                n=self.n,
+                label=self.label,
+                materialize=self.materialize,
             )
-        if self.n == 0:
-            # Differencing nothing is the values themselves. The gap handling below exists to
-            # keep a gap from propagating through a subtraction, and no subtraction happens
-            # here, so taking that path would only cost an integer band its own type.
-            values = arr
-            result_ndv = ndv
-        elif ndv is None and not np.issubdtype(arr.dtype, np.floating):
-            values = np.diff(arr, n=self.n, axis=axis)
-            result_ndv = None
-        else:
-            fill = np.nan if ndv is None else ndv
-            differences = np.diff(_gaps_as_nan(arr, ndv), n=self.n, axis=axis)
-            values = np.where(np.isnan(differences), fill, differences)
-            result_ndv = fill
-        coords = values_map.get(dim)
-        if coords is not None and self.n:
-            kept = (
-                list(coords[self.n :])
-                if self.label == "upper"
-                else list(coords[: size - self.n])
-            )
-            values_map[dim] = kept
-        return _Applied(np.asarray(values), band_names, values_map, result_ndv)
+        )
+
+
+def _diffed_array(
+    nc: NetCDF,
+    arr: Any,
+    band_names: list[str],
+    values_map: dict[str, Any],
+    ndv: Any,
+    dim: str,
+    *,
+    n: int,
+    label: str,
+    materialize: bool = True,
+) -> tuple[Any, list[str], dict[str, Any], Any]:
+    """Difference one variable along `dim` on a given array (the per-variable step of `diff`).
+
+    `np.diff` / `np.where` / `_gaps_as_nan` all dispatch on a `dask.array`, so `materialize=False`
+    keeps the result deferred for a lazy cube (#1237). `nc` is unused but kept for the uniform
+    factored-kernel signature `_compose_direct` calls through.
+    """
+    band_names = list(band_names)
+    values_map = dict(values_map)
+    axis = band_names.index(dim)
+    size = arr.shape[axis]
+    if n >= size:
+        raise ValueError(
+            f"diff() of order {n} would leave nothing of {dim!r}: its length is "
+            f"{size}. Pass n below {size}."
+        )
+    if n == 0:
+        # Differencing nothing is the values themselves. The gap handling below exists to keep a
+        # gap from propagating through a subtraction, and none happens here, so taking that path
+        # would only cost an integer band its own type.
+        values = arr
+        result_ndv = ndv
+    elif ndv is None and not np.issubdtype(arr.dtype, np.floating):
+        values = np.diff(arr, n=n, axis=axis)
+        result_ndv = None
+    else:
+        fill = np.nan if ndv is None else ndv
+        differences = np.diff(_gaps_as_nan(arr, ndv), n=n, axis=axis)
+        values = np.where(np.isnan(differences), fill, differences)
+        result_ndv = fill
+    coords = values_map.get(dim)
+    if coords is not None and n:
+        kept = list(coords[n:]) if label == "upper" else list(coords[: size - n])
+        values_map[dim] = kept
+    if materialize:
+        values = np.asarray(values)
+    return values, band_names, values_map, result_ndv
 
 
 @dataclass
