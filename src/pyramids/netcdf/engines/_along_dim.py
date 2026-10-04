@@ -246,42 +246,94 @@ class _Rolling(_AlongDim):
             `int64` and declares `-1`, the value of a window with too few valid cells; `all` /
             `any` are `uint8` and declare `255`.
         """
-        # Local import breaks the netcdf.py <-> engines import cycle.
-        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _FLAG_NO_DATA
-
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
-        axis = band_names.index(dim)
-        arr = nc._materialize_variable_array(var, lazy=True)
-        size = arr.shape[axis]
-        if self.how == "count":
-            short: Any = _COUNT_NO_DATA
-            result_ndv: Any = _COUNT_NO_DATA
-        elif self.how in _COUNTING_REDUCERS:
-            short = result_ndv = _FLAG_NO_DATA
-        else:
-            # A short window is a gap the operation makes, so a variable declaring no no-data value
-            # still has to declare one for the result: NaN, which the float64 statistic can hold.
-            short = result_ndv = np.nan if ndv is None else ndv
-        steps = []
-        for position in range(size):
-            members = _window_members(position, size, self.window, self.center)
-            block = np.take(arr, members, axis=axis)
-            value = nc._reduce_axis(block, axis, self.how, True, ndv, self.q)
-            # `_reduce_axis` sends `count` straight to `_count_axis`, so for that statistic the
-            # window's valid cells are the value itself — counting them again would be the same
-            # pass over the same block.
-            valid = (
-                value
-                if self.how == "count"
-                else nc._count_axis(block, axis, "count", True, ndv)
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        return _Applied(
+            *_rolled_array(
+                nc,
+                arr,
+                band_names,
+                values_map,
+                ndv,
+                dim,
+                window=self.window,
+                center=self.center,
+                min_periods=self.min_periods,
+                how=self.how,
+                q=self.q,
+                materialize=self.materialize,
             )
-            steps.append(np.where(valid >= self.min_periods, value, short))
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            values = np.asarray(np.stack(steps, axis=axis))
-        return _Applied(values, band_names, values_map, result_ndv)
+        )
+
+
+def _materialize_inputs(
+    nc: NetCDF, var: NetCDF
+) -> tuple[Any, list[str], dict[str, Any], Any]:
+    """The eager `(array, band_names, values_map, no_data)` an along-dim kernel reads from `var`.
+
+    Shared by the ops whose kernel is factored out so a lazy cube can run it on a given dask array
+    (#1237): the eager `apply` reads through here, the lazy compose passes the array directly.
+    """
+    return (
+        nc._materialize_variable_array(var, lazy=True),
+        list(var._band_dim_names),
+        dict(var._band_dim_values_map),
+        _read_no_data(var),
+    )
+
+
+def _rolled_array(
+    nc: NetCDF,
+    arr: Any,
+    band_names: list[str],
+    values_map: dict[str, Any],
+    ndv: Any,
+    dim: str,
+    *,
+    window: int,
+    center: bool,
+    min_periods: int,
+    how: str,
+    q: float | None,
+    materialize: bool = True,
+) -> tuple[Any, list[str], dict[str, Any], Any]:
+    """Roll one variable along `dim`: the per-variable step of `rolling`, on a given array.
+
+    Every operation here (`np.take`, `_reduce_axis`, `_count_axis`, `np.where`, `np.stack`)
+    dispatches on a `dask.array`, so with `materialize=False` the result stays a deferred dask
+    array for a lazy cube (#1237); the eager path collapses it with the final `np.asarray`.
+    """
+    from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _FLAG_NO_DATA
+
+    band_names = list(band_names)
+    values_map = dict(values_map)
+    axis = band_names.index(dim)
+    size = arr.shape[axis]
+    if how == "count":
+        short: Any = _COUNT_NO_DATA
+        result_ndv: Any = _COUNT_NO_DATA
+    elif how in _COUNTING_REDUCERS:
+        short = result_ndv = _FLAG_NO_DATA
+    else:
+        # A short window is a gap the operation makes, so a variable declaring no no-data value
+        # still has to declare one for the result: NaN, which the float64 statistic can hold.
+        short = result_ndv = np.nan if ndv is None else ndv
+    steps = []
+    for position in range(size):
+        members = _window_members(position, size, window, center)
+        block = np.take(arr, members, axis=axis)
+        value = nc._reduce_axis(block, axis, how, True, ndv, q)
+        # `_reduce_axis` sends `count` straight to `_count_axis`, so for that statistic the
+        # window's valid cells are the value itself — counting them again would be the same pass.
+        valid = (
+            value if how == "count" else nc._count_axis(block, axis, "count", True, ndv)
+        )
+        steps.append(np.where(valid >= min_periods, value, short))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        values = np.stack(steps, axis=axis)
+        if materialize:
+            values = np.asarray(values)
+    return values, band_names, values_map, result_ndv
 
 
 @dataclass

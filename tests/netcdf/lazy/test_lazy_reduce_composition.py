@@ -146,3 +146,42 @@ class TestLazyCoarsenComposition:
             np.asarray(expected.read_array()),
             equal_nan=True,
         )
+
+
+class TestLazyRollingComposition:
+    """`rolling` composes over dask, keeps the dimension length, and matches the eager rolling."""
+
+    @requires_dask
+    def test_rolling_returns_a_lazy_cube_of_the_same_length(self):
+        """A lazy rolling stays lazy and keeps `time` at its original length."""
+        lazy = _variable().chunk("auto").rolling("time", 2)
+        assert isinstance(lazy, LazyNetCDF), f"got {type(lazy).__name__}"
+        assert sum(lazy.chunks["time"]) == 4, (
+            f"rolling keeps the length, got {lazy.chunks}"
+        )
+
+    @requires_dask
+    def test_rolling_computes_to_the_eager_result(self):
+        """`chunk().rolling(...).compute()` equals `NetCDF.rolling(...)`."""
+        var = _variable()
+        got = var.chunk("auto").rolling("time", 2, how="mean").compute()
+        expected = var.rolling("time", 2, how="mean")
+        np.testing.assert_allclose(
+            np.asarray(got.read_array()),
+            np.asarray(expected.read_array()),
+            equal_nan=True,
+        )
+
+    @requires_dask
+    def test_rolling_then_reduce_chains_lazily(self):
+        """A rolling followed by a reduce stays lazy and matches the eager chain."""
+        var = _variable()
+        lazy = var.chunk("auto").rolling("time", 2).reduce("pressure_level", "mean")
+        assert isinstance(lazy, LazyNetCDF), "the chain must still be lazy"
+        got = lazy.compute()
+        expected = var.rolling("time", 2).reduce("pressure_level", "mean")
+        np.testing.assert_allclose(
+            np.asarray(got.read_array()),
+            np.asarray(expected.read_array()),
+            equal_nan=True,
+        )

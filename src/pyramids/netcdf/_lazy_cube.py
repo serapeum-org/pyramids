@@ -378,6 +378,92 @@ class LazyNetCDF:
             window_mean_coords=True,
         )
 
+    def rolling(
+        self,
+        dim: str,
+        window: int,
+        *,
+        how: str = "mean",
+        center: bool = False,
+        min_periods: int | None = None,
+        q: float | None = None,
+    ) -> Any:
+        """Moving-window reduction along a band dimension, composing lazily for a single variable.
+
+        The lazy twin of :meth:`NetCDF.rolling` — the window reduction stays a deferred
+        `dask.array` step. A multi-variable container materialises at the boundary, warning once.
+
+        Args:
+            dim: The band dimension to roll along.
+            window: The window length in steps.
+            how: The reduction, as :meth:`NetCDF.rolling`.
+            center: Whether the window is centred rather than trailing.
+            min_periods: The minimum valid steps for a non-gap result; defaults to `window`.
+            q: The quantile, for `how="quantile"`.
+
+        Returns:
+            LazyNetCDF | NetCDF: A lazy cube for a pinned variable; an eager rolled cube otherwise.
+        """
+        from pyramids.netcdf.engines._along_dim import _rolled_array
+        from pyramids.netcdf.engines.selection import (
+            _check_how,
+            _check_min_periods,
+            _check_quantile,
+            _check_window,
+        )
+        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS
+
+        _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
+        q = _check_quantile(how, q)
+        length = _check_window(window, caller="rolling")
+        needed = _check_min_periods(min_periods, length)
+        if len(self._current_records()) != 1:
+            self._warn_materialize("rolling")
+            return self.compute().rolling(
+                dim, window, how=how, center=center, min_periods=min_periods, q=q
+            )
+        return self._compose_direct(
+            _rolled_array,
+            dim,
+            window=length,
+            center=bool(center),
+            min_periods=needed,
+            how=how,
+            q=q,
+        )
+
+    def _compose_direct(self, kernel: Any, dim: str, **params: Any) -> LazyNetCDF:
+        """Run a factored along-dim `kernel` on the single variable's dask array, deferring it.
+
+        The kernel has the uniform signature
+        `(nc, arr, band_names, values_map, no_data, dim, *, materialize, **params)` and returns
+        `(array, band_names, values_map, no_data)`; called with `materialize=False` it keeps the
+        result a `dask.array`, so the op composes with later lazy ops until :meth:`compute` (#1237).
+        The caller has checked there is exactly one variable.
+
+        Returns:
+            LazyNetCDF: The cube with the op applied, still lazy.
+        """
+        name, rec = next(iter(self._current_records().items()))
+        arr, band_names, values_map, no_data = kernel(
+            self._source,
+            rec.array,
+            rec.band_names,
+            rec.values_map,
+            rec.no_data,
+            dim,
+            materialize=False,
+            **params,
+        )
+        new = rec._replace(
+            array=arr,
+            band_names=band_names,
+            values_map=values_map,
+            no_data=no_data,
+            dim_names=(*band_names, *rec.dim_names[-2:]),
+        )
+        return LazyNetCDF(self._source, {name: arr}, {name: new.dim_names}, {name: new})
+
     def _compose_reduction(
         self,
         dim: str,
