@@ -24,6 +24,7 @@ internal only; see :mod:`pyramids.feature._ogr`.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterable, Iterator
 from numbers import Number
 from pathlib import Path
@@ -3029,7 +3030,12 @@ class FeatureCollection(GeoDataFrame):
         geodetic, to_degrees = _geodetic_frame(resolved)
         if not resolved.is_geographic:
             geometries = geometries.to_crs(geodetic)
-        if to_degrees != 1.0:
+        # `math.isclose`, not `!= 1.0`: `to_degrees` is a quotient, so a degree
+        # CRS whose stored factor differs from `math.pi / 180` in its last bit
+        # would take the rescale branch and apply a pointless `1 + 1e-16` scale
+        # to every vertex. The tolerance is far tighter than the grad case (0.9)
+        # it needs to distinguish.
+        if not math.isclose(to_degrees, 1.0, rel_tol=1e-12):
             geometries = geometries.scale(
                 xfact=to_degrees, yfact=to_degrees, origin=(0, 0)
             )

@@ -12,6 +12,7 @@ import geopandas as gpd
 import pytest
 from shapely.geometry import LineString, Point, Polygon
 
+import pyramids.feature.collection as collection_module
 from pyramids.base._errors import CRSError, InvalidGeometryError
 from pyramids.feature import FeatureCollection
 
@@ -170,9 +171,9 @@ class TestGeodesicArea:
 
     def test_unknown_unit_raises(self):
         """An unrecognised area unit is refused."""
-        square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        fc = _fc([Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])])
         with pytest.raises(ValueError, match="unknown area unit"):
-            _fc([square]).geodesic_area(unit="acres")
+            fc.geodesic_area(unit="acres")
 
     def test_agrees_with_the_raster_cell_area(self):
         """A degree square's area matches what `Dataset.cell_area` reports for one.
@@ -208,9 +209,10 @@ class TestGeodesicDistance:
     def test_differs_from_the_inherited_planar_distance(self):
         """The inherited `distance` reports 1.0 degree for the equatorial pair."""
         fc = _fc([Point(0, 0)])
+        target = Point(1, 0)
         with pytest.warns(UserWarning, match="geographic CRS"):
-            planar = fc.distance(Point(1, 0)).iloc[0]
-        assert planar == pytest.approx(1.0)
+            planar_series = fc.distance(target)
+        assert planar_series.iloc[0] == pytest.approx(1.0)
         assert fc.geodesic_distance(Point(1, 0), unit="km").iloc[0] == pytest.approx(
             DEGREE_AT_EQUATOR_KM
         )
@@ -251,20 +253,23 @@ class TestGeodesicDistance:
     def test_non_point_source_raises(self):
         """A line has no single point to measure from."""
         fc = _fc([LineString([(0, 0), (1, 0)])])
+        origin = Point(0, 0)
         with pytest.raises(InvalidGeometryError, match="only point geometries"):
-            fc.geodesic_distance(Point(0, 0))
+            fc.geodesic_distance(origin)
 
     def test_non_point_target_raises(self):
         """Nor does a line target."""
         fc = _fc([Point(0, 0)])
+        line = LineString([(0, 0), (1, 0)])
         with pytest.raises(InvalidGeometryError, match="only point geometries"):
-            fc.geodesic_distance(LineString([(0, 0), (1, 0)]))
+            fc.geodesic_distance(line)
 
     def test_error_names_the_alternative(self):
         """The refusal points at `geodesic_length`, so it is actionable."""
         fc = _fc([LineString([(0, 0), (1, 0)])])
+        origin = Point(0, 0)
         with pytest.raises(InvalidGeometryError, match="geodesic_length"):
-            fc.geodesic_distance(Point(0, 0))
+            fc.geodesic_distance(origin)
 
     def test_index_is_preserved(self):
         """The result is indexed like the collection."""
@@ -278,14 +283,16 @@ class TestGeodesicDistance:
     def test_unknown_unit_raises(self):
         """An unrecognised length unit is refused."""
         fc = _fc([Point(0, 0)])
+        target = Point(1, 0)
         with pytest.raises(ValueError, match="unknown length unit"):
-            fc.geodesic_distance(Point(1, 0), unit="furlong")
+            fc.geodesic_distance(target, unit="furlong")
 
     def test_no_crs_raises_crs_error(self):
         """Without a CRS nothing says what the coordinates measure."""
         fc = FeatureCollection(gpd.GeoDataFrame(geometry=[Point(0, 0)]))
+        target = Point(1, 0)
         with pytest.raises(CRSError, match="has no CRS"):
-            fc.geodesic_distance(Point(1, 0))
+            fc.geodesic_distance(target)
 
 
 class TestGradUnitGeodeticCRS:
@@ -352,3 +359,59 @@ class TestGradUnitGeodeticCRS:
         assert fc.geodesic_distance(target).iloc[0] == pytest.approx(
             expected_m, rel=1e-3
         )
+
+
+class TestDegreeFactorComparison:
+    """The degrees-per-unit factor is compared with a tolerance, not `==`.
+
+    `to_degrees` is a quotient, so a degree CRS whose stored
+    `unit_conversion_factor` differs from `math.pi / 180` in its last bit would
+    fail an exact `!= 1.0` test and have every vertex pushed through `scale`.
+    No CRS in the EPSG database does that today, so the factor is injected.
+
+    The assertion is on the *branch*, not the number: rescaling by `1 + 2e-16`
+    is invisible at float precision, so comparing measurements cannot tell the
+    two implementations apart. Recording whether `GeoSeries.scale` is called
+    can, and does -- these tests fail against an exact `!=` comparison.
+    """
+
+    @staticmethod
+    def _spy_on_scale(monkeypatch) -> list:
+        """Record every `GeoSeries.scale` call, forwarding to the real one."""
+        calls: list = []
+        real_scale = gpd.GeoSeries.scale
+
+        def _recording(self, *args, **kwargs):
+            calls.append(kwargs.get("xfact"))
+            return real_scale(self, *args, **kwargs)
+
+        monkeypatch.setattr(gpd.GeoSeries, "scale", _recording)
+        return calls
+
+    @staticmethod
+    def _force_factor(monkeypatch, factor: float) -> None:
+        """Make `_geodetic_frame` report `factor` degrees per unit."""
+        real_frame = collection_module._geodetic_frame
+
+        def _forced(crs):
+            geodetic, _ = real_frame(crs)
+            return geodetic, factor
+
+        monkeypatch.setattr(collection_module, "_geodetic_frame", _forced)
+
+    def test_a_factor_one_ulp_from_one_does_not_rescale(self, monkeypatch):
+        """`1 + 2e-16` is degrees, so no rescale happens at all."""
+        fc = _fc([LineString([(0, 0), (1, 0)])])
+        calls = self._spy_on_scale(monkeypatch)
+        self._force_factor(monkeypatch, 1.0 + 2e-16)
+        fc.geodesic_length(unit="km")
+        assert calls == []
+
+    def test_the_grad_factor_still_rescales(self, monkeypatch):
+        """The control: 0.9 is far outside the tolerance and must rescale."""
+        fc = _fc([LineString([(0, 0), (1, 0)])])
+        calls = self._spy_on_scale(monkeypatch)
+        self._force_factor(monkeypatch, 0.9)
+        measured = fc.geodesic_length(unit="km").iloc[0]
+        assert calls == [0.9]
+        assert measured == pytest.approx(DEGREE_AT_EQUATOR_KM * 0.9, rel=1e-3)

@@ -367,8 +367,9 @@ class TestGeodesicGeometryLength:
 
     def test_unknown_unit_raises(self):
         """An unrecognised length unit is refused."""
+        line = LineString([(0, 0), (1, 0)])
         with pytest.raises(ValueError, match="unknown length unit"):
-            geodesic_geometry_length(LineString([(0, 0), (1, 0)]), unit="furlong")
+            geodesic_geometry_length(line, unit="furlong")
 
     def test_ellipsoid_comes_from_the_crs(self):
         """Measuring on a sphere gives a different answer than on WGS 84."""
@@ -592,8 +593,9 @@ class TestGeodeticFrame:
             name = "Stubbed projected CRS"
             geodetic_crs = _Mixed()
 
+        target = _Target()
         with pytest.raises(CRSError, match="mixes angular units"):
-            _geodetic_frame(_Target())
+            _geodetic_frame(target)
 
 
 class TestGroundDistanceArgumentValidation:
@@ -616,8 +618,9 @@ class TestGroundDistanceArgumentValidation:
 
     def test_single_element_array_is_refused(self):
         """A 1-element array is refused; the result is a scalar, so the input is."""
+        boxed = np.array([100000.0])
         with pytest.raises(ValueError, match="distance_m must be a finite"):
-            ground_distance_in_crs(np.array([100000.0]), crs=4326, at=(0.0, 0.0))
+            ground_distance_in_crs(boxed, crs=4326, at=(0.0, 0.0))
 
     def test_mapping_at_is_refused(self):
         """A 2-key mapping is not a point.
