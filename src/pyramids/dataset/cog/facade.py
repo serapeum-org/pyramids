@@ -177,7 +177,7 @@ def _array_to_dataset(
     return dataset
 
 
-def _first_1d_coord(da: Any, names: tuple[str, ...]) -> str | None:
+def _first_1d_coord(data_array: Any, names: tuple[str, ...]) -> str | None:
     """The DataArray's most preferred 1-D coordinate from `names`.
 
     `names` is ordered, and the order is load-bearing: a projected grid with
@@ -200,7 +200,7 @@ def _first_1d_coord(da: Any, names: tuple[str, ...]) -> str | None:
     shared list preserves.
 
     Args:
-        da: The labeled `DataArray` being converted.
+        data_array: The labeled `DataArray` being converted.
         names: Candidate coordinate names in preference order.
 
     Returns:
@@ -213,7 +213,7 @@ def _first_1d_coord(da: Any, names: tuple[str, ...]) -> str | None:
     """
     matched = None
     for name in names:
-        coord = da.coords.get(name)
+        coord = data_array.coords.get(name)
         if coord is None:
             continue
         # `.values` rather than the coordinate itself: this reader accepts
@@ -225,7 +225,7 @@ def _first_1d_coord(da: Any, names: tuple[str, ...]) -> str | None:
     return matched
 
 
-def _first_1d_coord_pair(da: Any) -> tuple[str | None, str | None]:
+def _first_1d_coord_pair(data_array: Any) -> tuple[str | None, str | None]:
     """The array's spatial axes, both taken from the same naming family.
 
     Choosing each axis independently is not enough. A projected grid whose row
@@ -238,7 +238,7 @@ def _first_1d_coord_pair(da: Any) -> tuple[str | None, str | None]:
     own `x` / `y` and auxiliary `lon` / `lat` still resolves to the former.
 
     Args:
-        da: The labeled `DataArray` being converted.
+        data_array: The labeled `DataArray` being converted.
 
     Returns:
         tuple[str | None, str | None]: The `(x, y)` coordinate names, or
@@ -246,8 +246,8 @@ def _first_1d_coord_pair(da: Any) -> tuple[str | None, str | None]:
     """
     pair: tuple[str | None, str | None] = (None, None)
     for x_names, y_names in AXIS_NAME_FAMILIES:
-        x_name = _first_1d_coord(da, x_names)
-        y_name = _first_1d_coord(da, y_names)
+        x_name = _first_1d_coord(data_array, x_names)
+        y_name = _first_1d_coord(data_array, y_names)
         if x_name is not None and y_name is not None:
             pair = (x_name, y_name)
             break
@@ -255,7 +255,7 @@ def _first_1d_coord_pair(da: Any) -> tuple[str | None, str | None]:
 
 
 def _dataarray_to_dataset(
-    da: Any,
+    data_array: Any,
     crs: Any | None,
     nodata: float | int | None,
 ) -> Dataset:
@@ -263,13 +263,13 @@ def _dataarray_to_dataset(
 
     The geotransform is derived from the spatial coordinates (cell size from
     the first coordinate step, top-left from the first cell edge). The CRS is
-    taken from the explicit ``crs`` argument, then from ``da.attrs['crs']``,
+    taken from the explicit ``crs`` argument, then from ``data_array.attrs['crs']``,
     then from a ``.rio`` accessor's ``crs`` if one is present on the object,
     otherwise an error is raised. The accessor is only consulted
     opportunistically — no extra dependency is required.
 
     Args:
-        da: A 2-D or 3-D labeled ``DataArray`` with longitude/latitude
+        data_array: A 2-D or 3-D labeled ``DataArray`` with longitude/latitude
             (or x/y) coordinates.
         crs: Optional CRS override; wins over any embedded CRS.
         nodata: Optional NoData scalar.
@@ -280,14 +280,14 @@ def _dataarray_to_dataset(
     Raises:
         ValueError: When spatial coordinates or a CRS cannot be determined.
     """
-    x_name, y_name = _first_1d_coord_pair(da)
+    x_name, y_name = _first_1d_coord_pair(data_array)
     if x_name is None or y_name is None:
         raise ValueError(
             "Could not find 1-D longitude/latitude (or x/y) coordinates on the "
             "DataArray; build a Dataset explicitly and pass that instead."
         )
-    x = np.asarray(da[x_name].values, dtype="float64")
-    y = np.asarray(da[y_name].values, dtype="float64")
+    x = np.asarray(data_array[x_name].values, dtype="float64")
+    y = np.asarray(data_array[y_name].values, dtype="float64")
     if x.size < 2 or y.size < 2:
         raise ValueError("DataArray spatial coordinates need at least 2 cells.")
     # The array's last two axes are its rows and columns, and the coordinates
@@ -295,10 +295,10 @@ def _dataarray_to_dataset(
     # `(y, x, time)` DataArray built a raster of its last two axes -- 6x3 for a
     # 4x6x3 array, with 4 bands -- and georeferenced it from the 4- and 6-long
     # coordinates it is not shaped by, which is silently wrong rather than
-    # refused. Compared by length rather than against `da.dims` so a
+    # refused. Compared by length rather than against `data_array.dims` so a
     # duck-typed labeled array is checked too; a square grid handed over
     # transposed is the one case lengths cannot separate.
-    shape = np.shape(da.values)
+    shape = np.shape(data_array.values)
     if len(shape) < 2 or (shape[-1], shape[-2]) != (x.size, y.size):
         raise ValueError(
             f"The DataArray's spatial coordinates {y_name!r} ({y.size}) / "
@@ -318,9 +318,9 @@ def _dataarray_to_dataset(
         cell_y,
     )
 
-    resolved_crs = crs if crs is not None else da.attrs.get("crs")
+    resolved_crs = crs if crs is not None else data_array.attrs.get("crs")
     if resolved_crs is None:
-        rio = getattr(da, "rio", None)
+        rio = getattr(data_array, "rio", None)
         resolved_crs = getattr(rio, "crs", None) if rio is not None else None
     if resolved_crs is None:
         raise ValueError(
@@ -328,7 +328,7 @@ def _dataarray_to_dataset(
             "explicitly (e.g. crs=4326)."
         )
 
-    return _array_to_dataset(np.asarray(da.values), resolved_crs, transform, nodata)
+    return _array_to_dataset(np.asarray(data_array.values), resolved_crs, transform, nodata)
 
 
 def _normalize_to_dataset(
