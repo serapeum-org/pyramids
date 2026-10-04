@@ -2000,7 +2000,10 @@ class Analysis(_Engine["Dataset"]):
         """
         # `band=` as a keyword, never positional: NetCDF.read_array puts
         # `variable` first, so read_array(band) mis-binds on a variable view.
-        raw = np.asarray(ds.read_array(band=band, unpack=False))
+        # `squeeze=True` keeps the classic flattened `(bands, rows, cols)` raster view this
+        # band-wise pipeline (and the GDAL write it feeds) relies on, rather than the
+        # dimension-preserving default a NetCDF variable now returns (#1241).
+        raw = np.asarray(ds.read_array(band=band, unpack=False, squeeze=True))
         sentinels = (
             [ds.no_data_value[band]] if band is not None else list(ds.no_data_value)
         )
@@ -3476,7 +3479,9 @@ class Analysis(_Engine["Dataset"]):
             )
         top, bottom = int(rows[0]), int(rows[-1]) + 1
         left, right = int(columns[0]), int(columns[-1]) + 1
-        cells = np.asarray(result.read_array(unpack=False))
+        # `squeeze=True` keeps the classic flattened `(bands, rows, cols)` this band-wise
+        # crop-and-rebuild expects, not the dimension-preserving default (#1241).
+        cells = np.asarray(result.read_array(unpack=False, squeeze=True))
         bands = self._surviving_bands(selected, cells)
         block = np.ascontiguousarray(
             cells[top:bottom, left:right]

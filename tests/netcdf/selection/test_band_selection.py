@@ -76,7 +76,9 @@ def _first_column(variable: NetCDF) -> list[float]:
     Returns:
         list[float]: One value per band.
     """
-    values = np.asarray(variable.read_array(), dtype="float64")
+    # #1241: read in the classic flattened `(bands, rows, cols)` layout so a result with
+    # several band dimensions (e.g. after `expand_dims`) still yields one value per band.
+    values = np.asarray(variable.read_array(squeeze=True), dtype="float64")
     if values.ndim == 2:
         values = values[np.newaxis]
     return values[:, 0, 0].tolist()
@@ -561,8 +563,11 @@ class TestSqueeze:
     def test_the_cells_are_unchanged(self):
         """Squeezing is metadata only; the plane is the same plane."""
         one = _variable().isel(time=[2])
+        # #1241: the default read keeps the length-one band axis, which `squeeze()` has
+        # already dropped on the left; read the right in the classic layout to match.
         assert_allclose(
-            np.asarray(one.squeeze().read_array()), np.asarray(one.read_array())
+            np.asarray(one.squeeze().read_array()),
+            np.asarray(one.read_array(squeeze=True)),
         )
 
     def test_a_longer_dimension_stays(self):

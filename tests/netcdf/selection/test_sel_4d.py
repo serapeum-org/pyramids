@@ -106,17 +106,23 @@ class TestSelByPressureLevel:
     """``sel(pressure_level=...)`` on a 4-D file."""
 
     def test_select_single_level_returns_one_per_time(self, synth_var):
-        """Pinning one level keeps every time step → shape (NT, NY, NX)."""
+        """Pinning one level keeps every time step → shape (NT, 1, NY, NX).
+
+        #1241: the pinned level axis is now preserved as a size-1 band dim
+        instead of being squeezed away.
+        """
         result = synth_var.sel(pressure_level=500)
         assert result.read_array().shape == (
             NT,
+            1,
             NY,
             NX,
-        ), f"Expected ({NT}, {NY}, {NX}), got {result.read_array().shape}"
+        ), f"Expected ({NT}, 1, {NY}, {NX}), got {result.read_array().shape}"
 
     def test_select_single_level_pixel_values_match_encoding(self, synth_var):
         """Each band's top-left pixel matches ``encode(t, l=2, y=NY-1, x=0)``."""
-        arr = synth_var.sel(pressure_level=500).read_array()
+        # #1241: squeeze to the classic (bands, y, x) layout for corner-pixel indexing.
+        arr = synth_var.sel(pressure_level=500).read_array(squeeze=True)
         for t in range(NT):
             assert arr[t, 0, 0] == _expect(t, 2), (
                 f"Band {t}: expected {_expect(t, 2)}, got {arr[t, 0, 0]}"
@@ -131,12 +137,13 @@ class TestSelByPressureLevel:
     def test_select_multiple_levels(self, synth_var):
         """Selecting two levels keeps NT*2 bands."""
         result = synth_var.sel(pressure_level=[1000, 500])
-        # Two pinned levels × NT times = NT*2 bands.
+        # #1241: the two levels are kept as their own band axis → (NT, 2, NY, NX).
         assert result.read_array().shape == (
-            NT * 2,
+            NT,
+            2,
             NY,
             NX,
-        ), f"Expected ({NT * 2}, {NY}, {NX}), got {result.read_array().shape}"
+        ), f"Expected ({NT}, 2, {NY}, {NX}), got {result.read_array().shape}"
 
     def test_sel_updates_band_dim_sizes(self, synth_var):
         """``_band_dim_sizes`` reflects the pinned axis after sel()."""
@@ -151,17 +158,22 @@ class TestSelByTime:
     """``sel(time=...)`` on a 4-D file (the legacy primary dim)."""
 
     def test_select_single_time_collapses_to_levels(self, synth_var):
-        """Pinning one time leaves NL levels → shape (NL, NY, NX)."""
+        """Pinning one time leaves NL levels → shape (1, NL, NY, NX).
+
+        #1241: the pinned time axis is preserved as a size-1 band dim.
+        """
         result = synth_var.sel(time=12)
         assert result.read_array().shape == (
+            1,
             NL,
             NY,
             NX,
-        ), f"Expected ({NL}, {NY}, {NX}), got {result.read_array().shape}"
+        ), f"Expected (1, {NL}, {NY}, {NX}), got {result.read_array().shape}"
 
     def test_select_single_time_pixel_values(self, synth_var):
         """Each level-band's top-left matches ``encode(t=2, l, y=NY-1, x=0)``."""
-        arr = synth_var.sel(time=12).read_array()
+        # #1241: squeeze to the classic (bands, y, x) layout for corner-pixel indexing.
+        arr = synth_var.sel(time=12).read_array(squeeze=True)
         for l_idx in range(NL):
             assert arr[l_idx, 0, 0] == _expect(2, l_idx), (
                 f"Level {l_idx}: expected {_expect(2, l_idx)}, got {arr[l_idx, 0, 0]}"
@@ -172,13 +184,15 @@ class TestSelChained:
     """Chained sel() pins multiple band dims."""
 
     def test_pin_time_then_level(self, synth_var):
-        """``sel(time=…).sel(pressure_level=…)`` flattens to a single 2-D map."""
+        """``sel(time=…).sel(pressure_level=…)`` keeps both pinned axes as size-1 dims."""
         result = synth_var.sel(time=12).sel(pressure_level=500)
-        # 1 time × 1 level → squeezed to 2-D.
+        # #1241: 1 time × 1 level is preserved as (1, 1, NY, NX), no longer squeezed to 2-D.
         assert result.read_array().shape == (
+            1,
+            1,
             NY,
             NX,
-        ), f"Expected ({NY}, {NX}), got {result.read_array().shape}"
+        ), f"Expected (1, 1, {NY}, {NX}), got {result.read_array().shape}"
 
     def test_pin_level_then_time_same_result(self, synth_var):
         """sel commutes over different dims (assert byte-identical arrays)."""
@@ -188,7 +202,8 @@ class TestSelChained:
 
     def test_chained_pixel_value(self, synth_var):
         """The single pinned cell is exactly ``encode(2, 2, NY-1, 0)``."""
-        arr = synth_var.sel(time=12).sel(pressure_level=500).read_array()
+        # #1241: squeeze to the classic 2-D plane so the top-left cell indexes as [0, 0].
+        arr = synth_var.sel(time=12).sel(pressure_level=500).read_array(squeeze=True)
         assert arr[0, 0] == _expect(2, 2), f"Expected {_expect(2, 2)}, got {arr[0, 0]}"
 
 
@@ -230,8 +245,10 @@ class TestSelErrorMessages:
             "time": [12.0],
             "pressure_level": [500.0],
         }
-        assert np.asarray(together.read_array()).shape == (NY, NX)
-        assert np.asarray(together.read_array())[0, 0] == _expect(2, 2)
+        # #1241: both pinned dims are preserved as size-1 band axes → (1, 1, NY, NX);
+        # squeeze to the classic 2-D plane for the corner-pixel check.
+        assert np.asarray(together.read_array()).shape == (1, 1, NY, NX)
+        assert np.asarray(together.read_array(squeeze=True))[0, 0] == _expect(2, 2)
 
         assert np.array_equal(together.read_array(), chained.read_array())
         assert np.array_equal(together.read_array(), reversed_order.read_array())
@@ -266,14 +283,18 @@ class TestEra5RealFixture:
     def test_sel_pressure_level_passes_through_time_bands(self, era5_var):
         """sel(pressure_level=500) keeps every time step (NL is already 1)."""
         result = era5_var.sel(pressure_level=500)
-        expected = (self.ERA5_NT, self.ERA5_NY, self.ERA5_NX)
+        # #1241: the pinned level is preserved as a size-1 band axis.
+        expected = (self.ERA5_NT, self.ERA5_NL, self.ERA5_NY, self.ERA5_NX)
         assert result.read_array().shape == expected, f"got {result.read_array().shape}"
 
     def test_sel_valid_time_collapses_to_2d(self, era5_var):
-        """A single valid_time pin collapses to 2-D (1 time × 1 level)."""
+        """A single valid_time pin keeps both band axes (1 time × 1 level).
+
+        #1241: the pinned axes are preserved as size-1 band dims → (1, 1, NY, NX).
+        """
         first_t = era5_var._band_dim_values_map["valid_time"][0]
         result = era5_var.sel(valid_time=first_t)
-        expected = (self.ERA5_NY, self.ERA5_NX)
+        expected = (1, self.ERA5_NL, self.ERA5_NY, self.ERA5_NX)
         assert result.read_array().shape == expected, f"got {result.read_array().shape}"
 
 

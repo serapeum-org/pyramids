@@ -513,6 +513,7 @@ class IO(_Engine["Dataset"]):
         unpack: bool = True,
         threadsafe: bool = False,
         bbox_rounding: str = "cover",
+        squeeze: bool = True,
     ) -> ArrayLike:
         """Read the values of a given band (eager or lazy), unpacked to physical units.
 
@@ -734,6 +735,13 @@ class IO(_Engine["Dataset"]):
                 `OutOfBoundsError`. Ignored when `window` is already a pixel
                 window (`Window` or the x-first list) or absent. Any other
                 value raises `ValueError`. Default `"cover"`.
+            squeeze (bool, keyword-only): Accepted for signature
+                compatibility with :meth:`pyramids.netcdf.NetCDF.read_array`,
+                where it chooses between the classic flattened
+                `(bands, rows, cols)` layout and the dimension-preserving
+                `(*band_sizes, rows, cols)` one (#1226, #1241). A plain
+                raster has no band-dimension metadata, so the classic layout
+                is its only layout and this flag has no effect here.
 
         Returns:
             ArrayLike:

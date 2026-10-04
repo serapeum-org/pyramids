@@ -112,10 +112,12 @@ class TestIselMatchesXarray:
             normalisations and its latitude flip, and `isel` over the two leading axes commutes
             with both — so the right-hand side really is `xr_ds.isel(time=t, pressure_level=l)`.
         """
+        # #1241: read_array now keeps one axis per band dim; squeeze=True reads the classic
+        # 2-D plane so it matches the 2-D (lat, lon) reference assembled below.
         plane = np.asarray(
             container.get_variable(VARIABLE)
             .isel(time=time_index, pressure_level=level_index)
-            .read_array()
+            .read_array(squeeze=True)
         )
 
         pyramids_side = from_pyramids(
@@ -146,8 +148,11 @@ class TestIselMatchesXarray:
         raw_export = np.asarray(
             container.to_xarray()[VARIABLE].isel(time=0, pressure_level=0).values
         )
+        # #1241: squeeze=True reads the classic 2-D plane so it matches the 2-D raw_export.
         raw_read = np.asarray(
-            container.get_variable(VARIABLE).isel(time=0, pressure_level=0).read_array()
+            container.get_variable(VARIABLE)
+            .isel(time=0, pressure_level=0)
+            .read_array(squeeze=True)
         )
 
         assert not np.array_equal(raw_export, raw_read), (

@@ -1083,7 +1083,7 @@ class Selection(_Engine["NetCDF"]):
                         >>> var.sel(pressure_level=500, time=12)._band_dim_values_map
                         {'time': [12.0], 'pressure_level': [500.0]}
                         >>> var.sel(time=12).sel(pressure_level=500).read_array().shape
-                        (5, 6)
+                        (1, 1, 5, 6)
 
                         ```
                     - Use a list selector to keep only two of the levels:

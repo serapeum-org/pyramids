@@ -479,7 +479,9 @@ class Vectorize(_Engine["Dataset"]):
         Returns:
             pd.DataFrame: DataFrame with one column per band, no-data rows removed.
         """
-        arr = self._ds.read_array()
+        # `squeeze=True` keeps the classic flattened `(bands, rows, cols)` this one-column-per-band
+        # reshape expects, not the dimension-preserving default (#1241).
+        arr = self._ds.read_array(squeeze=True)
 
         if self._ds.band_count == 1:
             pixels = arr.flatten()
@@ -1026,7 +1028,9 @@ class Vectorize(_Engine["Dataset"]):
               ```
 
         """
-        data = self._ds.read_array()
+        # `squeeze=True` collapses a single-band read to the 2-D `(rows, cols)` this
+        # pixel-walk indexes, not the dimension-preserving default (#1241).
+        data = self._ds.read_array(squeeze=True)
         position: list[list[int]] = []
         values: list[Any] = []
         count = 1

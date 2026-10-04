@@ -260,7 +260,7 @@ class TestEveryOperatorKeepsTheBandDimensions:
         )
         with np.errstate(divide="ignore", invalid="ignore"):
             computed = np.asarray(apply(operand.view(_ArrayOperand)))
-        expected = computed[:, [0, 2]].reshape(NT * 2, NY, NX)
+        expected = computed[:, [0, 2]]
         selected = apply(cube).isel(pressure_level=[0, 2])
         assert tuple(selected._band_dim_sizes) == (NT, 2)
         assert_array_equal(selected.read_array(), expected)
@@ -907,7 +907,7 @@ class TestStepArithmeticOnOneVariable:
         result = cube.sel(time=6.0) - cube.sel(time=0.0)
         assert tuple(result._band_dim_sizes) == (1, NL)
         assert result._band_dim_values_map == {"time": None, "pressure_level": LEVELS}
-        assert_array_equal(result.read_array(), planes[1] - planes[0])
+        assert_array_equal(result.read_array(), (planes[1] - planes[0])[np.newaxis])
 
     def test_a_tendency_between_consecutive_steps(self, cube):
         """`isel(time=slice(1, None)) - isel(time=slice(None, -1))` is each step's change."""
@@ -915,7 +915,7 @@ class TestStepArithmeticOnOneVariable:
         result = cube.isel(time=slice(1, None)) - cube.isel(time=slice(None, -1))
         assert tuple(result._band_dim_sizes) == (NT - 1, NL)
         assert result._band_dim_values_map["time"] is None
-        expected = (planes[1:] - planes[:-1]).reshape((NT - 1) * NL, NY, NX)
+        expected = (planes[1:] - planes[:-1]).reshape(NT - 1, NL, NY, NX)
         assert_array_equal(result.read_array(), expected)
 
     def test_a_comparison_between_two_steps(self, cube):
@@ -924,7 +924,7 @@ class TestStepArithmeticOnOneVariable:
         result = cube.sel(time=6.0) > cube.sel(time=0.0)
         assert result._band_dim_values_map["time"] is None
         assert_array_equal(
-            result.read_array(), (planes[1] > planes[0]).astype(np.uint8)
+            result.read_array(), (planes[1] > planes[0])[np.newaxis].astype(np.uint8)
         )
 
     def test_the_unlabelled_dimension_still_selects_by_position(self, cube):
@@ -1785,7 +1785,11 @@ class TestCombineLayoutSource:
         result = plain + labelled
         assert plain._label_combined(result, None) is None
         assert type(result) is Dataset, type(result).__name__
-        assert_array_equal(result.read_array(), np.asarray(labelled.read_array()) + 1)
+        # `result` is a plain Dataset, whose read is the classic flattened `(bands, rows, cols)`;
+        # compare against the labelled operand in the same flattened layout (`squeeze=True`, #1241).
+        assert_array_equal(
+            result.read_array(), np.asarray(labelled.read_array(squeeze=True)) + 1
+        )
 
 
 class TestBandLayoutSource:

@@ -1046,7 +1046,8 @@ class TestReduceOnADerivedVariable:
             .warped_view(3857, cell_size=50000.0)
         )
         result = view.coarsen("valid_time", 12)
-        values = np.asarray(result.read_array(), dtype=np.float64)
+        # #1241: the single coarsen window is kept as a size-1 axis; squeeze to the eager-mean layout.
+        values = np.asarray(result.read_array(squeeze=True), dtype=np.float64)
         expected = _eager_mean(view, "valid_time")
         assert values.shape == expected.shape, (values.shape, expected.shape)
         assert_allclose(values, expected)

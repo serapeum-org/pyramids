@@ -88,7 +88,7 @@ class TestSelSeveralDimensions:
         chained = cube.sel(time=time_value).sel(pressure_level=level_value)
 
         assert_array_equal(
-            together.read_array(),
+            together.read_array(squeeze=True),  # #1241: squeeze to the classic 2-D plane
             _plane(time_index, level_index),
             err_msg=f"sel(time={time_value}, pressure_level={level_value}) read the wrong plane",
         )
@@ -151,7 +151,7 @@ class TestSelSeveralDimensions:
             "pressure_level": [850.0],
         }, f"unexpected coordinate map: {result._band_dim_values_map}"
         assert_array_equal(
-            result.read_array(),
+            result.read_array(squeeze=True),  # #1241: classic flattened (bands, y, x)
             np.stack([_plane(0, 1), _plane(2, 1)]),
             err_msg="the two kept steps must be read at level 850, in axis order",
         )
@@ -171,7 +171,7 @@ class TestSelSeveralDimensions:
             "pressure_level": [1000.0, 850.0],
         }, f"unexpected coordinate map: {result._band_dim_values_map}"
         assert_array_equal(
-            result.read_array(),
+            result.read_array(squeeze=True),  # #1241: classic flattened (bands, y, x)
             np.stack([_plane(3, 0), _plane(3, 1)]),
             err_msg="the last time step must be read at both levels inside the slice",
         )
@@ -225,7 +225,7 @@ class TestSelSeveralDimensions:
             f"after both cuts, expected (2, 1), got {after_both._band_dim_sizes}"
         )
         assert_array_equal(
-            after_both.read_array(),
+            after_both.read_array(squeeze=True),  # #1241: classic flattened (bands, y, x)
             np.stack([_plane(1, 2), _plane(3, 2)]),
             err_msg="the two kept steps must be read at level 500",
         )
@@ -299,7 +299,7 @@ class TestSelTolerance:
             f"{result._band_dim_values_map['pressure_level']}"
         )
         assert_array_equal(
-            result.read_array(),
+            result.read_array(squeeze=True),  # #1241: classic flattened (bands, y, x)
             np.stack([_plane(t, 1) for t in range(NT)]),
             err_msg="the snapped level must read the 850 hPa planes of every time step",
         )

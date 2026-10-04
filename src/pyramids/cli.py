@@ -386,7 +386,8 @@ def _cmd_georeference(args: argparse.Namespace) -> int:
     working = Dataset.from_array(
         # `unpack=False`: this rebuild exists only to attach GCPs, so it copies the
         # store -- and it carries the source's no-data, which is a stored value.
-        source.read_array(unpack=False),
+        # `squeeze=True` keeps the classic `(bands, rows, cols)` `from_array` expects (#1241).
+        source.read_array(unpack=False, squeeze=True),
         # The epsg here is a scratch placeholder, not a claim about the data, and
         # deliberately unlike `calc` (which refuses a CRS-less input): set_gcps
         # replaces the georeference wholesale with the GCPs and --gcp-crs below,
@@ -608,7 +609,12 @@ def _cmd_calc(args: argparse.Namespace) -> int:
                 "first (`pyramids warp`) and re-run"
             )
     names = [chr(ord("A") + index) for index in range(len(datasets))]
-    variables = {name: np.asarray(ds.read_array()) for name, ds in zip(names, datasets)}
+    # `squeeze=True` keeps the classic `(bands, rows, cols)` raster layout the cell-wise
+    # expression eval expects, not the dimension-preserving default (#1241).
+    variables = {
+        name: np.asarray(ds.read_array(squeeze=True))
+        for name, ds in zip(names, datasets)
+    }
     result = np.asarray(_safe_calc_eval(ast.parse(args.expr, mode="eval"), variables))
     if args.dtype:
         result = result.astype(args.dtype)

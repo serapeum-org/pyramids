@@ -1,10 +1,11 @@
-"""`read_array(squeeze=)` — eager/lazy shape convergence (#1226).
+"""`read_array(squeeze=)` — eager/lazy shape convergence (#1226, #1241).
 
-The eager path has historically flattened every non-spatial dimension into one band axis and
+The eager path historically flattened every non-spatial dimension into one band axis and
 squeezed a singleton to 2-D, while the lazy path kept `(*band_sizes, rows, cols)`. The `squeeze`
-knob makes the two interchangeable: `squeeze=False` returns the dimension-preserving layout on both
-paths, `squeeze=True` the classic flattened layout on both, and `squeeze=None` (default) preserves
-each path's historical behaviour.
+knob makes the two interchangeable and, since #1241, defaults to the dimension-preserving layout:
+`squeeze=False` (the default) returns `(*band_sizes, rows, cols)` on both paths, keeping a size-1
+axis; `squeeze=True` returns the classic flattened `(bands, rows, cols)` (a singleton squeezed to
+2-D) on both paths.
 """
 
 from __future__ import annotations
@@ -40,11 +41,13 @@ class TestReadArraySqueeze:
         assert preserved.shape[0] == 1, f"size-1 time axis dropped: {preserved.shape}"
         assert preserved.ndim == len(tas._band_dim_names) + 2
 
-    def test_squeeze_none_is_the_legacy_eager_shape(self):
-        """The default (`None`) still flattens + squeezes the eager read, unchanged."""
+    def test_the_default_is_dimension_preserving_eager(self):
+        """Since #1241 the default eager read keeps one axis per band dimension (not 2-D)."""
         tas = NetCDF.read_file(str(MULTIVAR)).get_variable("tas")
-        assert tas.read_array().ndim == 2, (
-            "default eager read should stay 2-D for a size-1 cube"
+        preserved = tas.read_array()
+        assert preserved.ndim == len(tas._band_dim_names) + 2
+        assert preserved.shape[0] == 1, (
+            f"size-1 time axis must be kept by default now: {preserved.shape}"
         )
 
     @requires_dask
@@ -72,14 +75,12 @@ class TestReadArraySqueeze:
         np.testing.assert_array_equal(np.asarray(eager), np.asarray(lazy))
 
     @requires_dask
-    def test_squeeze_none_keeps_the_historical_divergence(self):
-        """With the default the eager read flattens while the lazy read keeps separate axes."""
+    def test_the_default_converges_eager_and_lazy(self):
+        """Since #1241 the default returns the identical dimension-preserving shape both ways."""
         ua = NetCDF.read_file(str(MULTIVAR)).get_variable("ua")
         eager = ua.read_array()
         lazy = ua.read_array(chunks="auto")
-        assert eager.shape != tuple(lazy.shape), (
-            "default shapes are documented to differ"
+        assert eager.shape == tuple(lazy.shape), (
+            f"default shapes now converge: {eager.shape} != {tuple(lazy.shape)}"
         )
-        np.testing.assert_array_equal(
-            np.asarray(eager).ravel(), np.asarray(lazy).ravel()
-        )
+        np.testing.assert_array_equal(np.asarray(eager), np.asarray(lazy))

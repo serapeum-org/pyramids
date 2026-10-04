@@ -1169,8 +1169,10 @@ def from_pyramids(
     handle = nc.get_variable(variable)
     # `masked=True` is the supported way to read physical values and keep the gaps
     # identifiable: it unpacks and masks in one read, so the mask cannot drift from the
-    # packing the way a hand-rolled comparison against `no_data_value` would.
-    masked = nc.read_array(variable=variable, masked=True)
+    # packing the way a hand-rolled comparison against `no_data_value` would. `squeeze=True`
+    # keeps the flat `(bands, rows, cols)` GDAL layout `_with_band_axes` rebuilds from, rather
+    # than the dimension-preserving default a variable now returns (#1241).
+    masked = nc.read_array(variable=variable, masked=True, squeeze=True)
     source_gaps = np.ma.getmaskarray(np.ma.asarray(masked))
     source_values = np.ma.filled(np.ma.asarray(masked).astype("float64"), np.nan)
 

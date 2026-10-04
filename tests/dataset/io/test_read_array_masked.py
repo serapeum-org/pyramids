@@ -715,7 +715,9 @@ class TestNetCDFMaskedReads:
         """
         nc_subset._scale = 2.0
         nc_subset._offset = 1.0
-        result = nc_subset.read_array(masked=True, unpack=True)
+        # `squeeze=True` keeps the classic 2-D single-band layout this `result[0, 0]` cell
+        # check assumes, not the dimension-preserving default (#1241).
+        result = nc_subset.read_array(masked=True, unpack=True, squeeze=True)
         assert isinstance(result, np.ma.MaskedArray), "unpack dropped the mask wrapper"
         assert result.mask.sum() == 1, f"mask lost through unpack: {result.mask}"
         assert result[0, 0] == pytest.approx(1.0 * 2.0 + 1.0), (

@@ -334,7 +334,8 @@ def test_roms_curvilinear_crop_lazy_matches_eager(sample):
     nc = NetCDF.read_file(sample(ROMS))
     try:
         aoi = [(-91, 28), (-88, 28), (-88, 30.5), (-91, 30.5)]
-        eager = np.asarray(nc.get_variable("salt").crop(_fc(aoi)).read_array())
+        # #1241: squeeze the eager read to the classic flattened layout the lazy crop still returns.
+        eager = np.asarray(nc.get_variable("salt").crop(_fc(aoi)).read_array(squeeze=True))
         lazy = np.asarray(
             nc.get_variable("salt").crop(_fc(aoi), chunks="auto").read_array()
         )
@@ -422,7 +423,8 @@ def test_crop_multipolygon_mask(sample):
         )
         mask = FeatureCollection(gpd.GeoDataFrame(geometry=[mp], crs=4326))
         cropped = nc.get_variable("salt").crop(mask)
-        arr = np.asarray(cropped.read_array())
+        # #1241: squeeze to the classic flattened (bands, y, x) view this 3-D check expects.
+        arr = np.asarray(cropped.read_array(squeeze=True))
         assert arr.ndim == 3 and arr.shape[-1] > 0, (
             f"multipolygon crop produced no data: {arr.shape}"
         )
