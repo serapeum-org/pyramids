@@ -14358,8 +14358,10 @@ class Variable(NetCDF):
             >>> from pyramids.netcdf import NetCDF  # doctest: +SKIP
             >>> nc = NetCDF.read_file("cube.nc")  # doctest: +SKIP
             >>> var = nc.get_variable("temperature")  # doctest: +SKIP
-            >>> var.read_array().shape  # doctest: +SKIP
+            >>> var.read_array().shape  # (time, lat, lon) -- one band dim kept  # doctest: +SKIP
             (12, 180, 360)
+            >>> # since #1241 the default keeps every band dimension, so a
+            >>> # (time, level, lat, lon) variable reads 4-D, not a flattened 3-D
 
             ```
         - Select along a band dimension — the result is another Variable:

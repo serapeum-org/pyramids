@@ -741,7 +741,11 @@ class IO(_Engine["Dataset"]):
                 `(bands, rows, cols)` layout and the dimension-preserving
                 `(*band_sizes, rows, cols)` one (#1226, #1241). A plain
                 raster has no band-dimension metadata, so the classic layout
-                is its only layout and this flag has no effect here.
+                is its only layout and this flag has no effect here — hence
+                the default `True` (classic), deliberately the opposite of the
+                `NetCDF` override's `False` (dimension-preserving). The value
+                is never consulted on this base path; only the override reads
+                it.
 
         Returns:
             ArrayLike:
