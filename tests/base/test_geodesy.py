@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from pyproj import Geod
+from pyproj.exceptions import ProjError
 
 import pyramids.base.geodesy as geodesy_module
 from pyramids.base._errors import CRSError
@@ -262,3 +264,44 @@ class TestGroundDistanceInCRS:
         ortho = "+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
         span = ground_distance_in_crs(500_000.0, crs=ortho, at=(6_000_000.0, 0.0))
         assert span == pytest.approx(151000.48218178842)
+
+    def test_crs_without_geographic_counterpart_raises_crs_error(self, monkeypatch):
+        """A CRS with an ellipsoid but no geodetic counterpart is refused.
+
+        Defensive: every CRS in the EPSG database that names an ellipsoid also
+        exposes a `geodetic_crs`, so this branch is unreachable with real input
+        and the resolved CRS is stubbed to reach it. The guard stays because the
+        alternative is handing `None` to `Transformer.from_crs` and surfacing a
+        pyproj error that names neither the CRS nor the cause.
+        """
+
+        class _NoGeodeticCRS:
+            name = "Stubbed CRS"
+            geodetic_crs = None
+
+            @staticmethod
+            def get_geod():
+                return Geod(ellps="WGS84")
+
+        monkeypatch.setattr(
+            geodesy_module, "crs_from_user_input", lambda _crs: _NoGeodeticCRS()
+        )
+        with pytest.raises(CRSError, match="no geographic counterpart"):
+            ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 0.0))
+
+    def test_proj_error_becomes_value_error(self, monkeypatch):
+        """A `ProjError` from the transform is reported as a `ValueError`.
+
+        PROJ raises rather than returning `inf` for some malformed transforms, so
+        both failure shapes have to reach the caller as the `ValueError` the
+        docstring promises. `Transformer.from_crs` is made to raise to exercise
+        the handler without needing a CRS pair that happens to trigger it.
+        """
+
+        def _raise(*_args, **_kwargs):
+            raise ProjError("stubbed transform failure")
+
+        monkeypatch.setattr(geodesy_module.Transformer, "from_crs", _raise)
+        with pytest.raises(ValueError, match="could not measure") as excinfo:
+            ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 0.0))
+        assert isinstance(excinfo.value.__cause__, ProjError)
