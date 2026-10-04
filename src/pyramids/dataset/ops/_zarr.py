@@ -53,6 +53,7 @@ from pyramids.base._utils import (
 )
 from pyramids.base.crs import sr_from_epsg
 from pyramids.base.georeference import GeoReference
+from pyramids.base.protocols import as_numpy, is_lazy
 from pyramids.dataset.ops._geobox_zarr import (
     ZARR_SCHEMA_VERSION,
     detect_data_var,
@@ -489,7 +490,7 @@ def _build_dask_array(ds: Dataset, chunks: Any) -> Any:
         )
 
     arr = ds.read_array(chunks=read_chunks)
-    if not hasattr(arr, "dask"):
+    if not is_lazy(arr):
         arr = da.from_array(np.asarray(arr), chunks="auto")
     if arr.ndim == 2:
         arr = arr.reshape((1, *arr.shape))
@@ -803,7 +804,7 @@ def _read_data_array(
     lazy = da.from_zarr(resolved_store, component=component)
     if isinstance(chunks, tuple):
         lazy = lazy.rechunk(chunks)
-    return np.asarray(lazy.compute())
+    return as_numpy(lazy)
 
 
 def _resolve_data_array_name(root: Any, level: int, data_name: str | None) -> str:

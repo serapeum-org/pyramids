@@ -44,6 +44,7 @@ from scipy import ndimage
 
 from pyramids.base._domain import is_no_data
 from pyramids.base._utils import extra_hint
+from pyramids.base.protocols import is_lazy
 
 if TYPE_CHECKING:
     import dask.array as da
@@ -201,7 +202,7 @@ def _apply_eager_or_lazy(
         except ImportError as exc:
             raise ImportError(_LAZY_IMPORT_ERROR) from exc
         lazy = ds.read_array(band=band, chunks=chunks)
-        if not hasattr(lazy, "dask"):
+        if not is_lazy(lazy):
             lazy = da.from_array(np.asarray(lazy), chunks="auto")
         lazy = lazy.astype(dtype)
         # `_guarded` runs per block, inside the overlap, so each block sees the

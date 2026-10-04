@@ -43,6 +43,7 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
     require_cleopatra,
 )
+from pyramids.base.protocols import as_numpy, is_lazy
 from pyramids.dataset._mask import MaskFlags
 from pyramids.dataset._plot_helpers import (
     ModeSpec,
@@ -5713,13 +5714,13 @@ class Analysis(_Engine["Dataset"]):
         before ``band`` indexes it; only that band's chunks are computed.
         """
         lazy = self._ds.read_array(chunks=chunks)
-        if not hasattr(lazy, "compute"):
+        if not is_lazy(lazy):
             result = lazy if band is None else lazy[band]
         elif lazy.ndim > 2:
             lazy = lazy.reshape(-1, *lazy.shape[-2:])
-            result = np.asarray(lazy[band].compute())
+            result = as_numpy(lazy[band])
         else:
-            result = np.asarray(lazy.compute())
+            result = as_numpy(lazy)
         return cast(np.ndarray, result)
 
     @staticmethod
