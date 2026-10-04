@@ -723,6 +723,11 @@ class Selection(_Engine["NetCDF"]):
         # from_array returns a root container; hand back the variable subset, carrying the
         # windowed 2-D coordinates so the result stays curvilinear (plots on its real geometry).
         result = container._require_raster_variable(var_name)
+        # A spatial window leaves the band dimensions untouched, so restore the source variable's
+        # band-dim names, coordinate values and sizes onto the rebuild. from_array infers only
+        # generic (dim_0, dim_1) axes from the array shape, which would drop ocean_time / s_rho
+        # and break sel() by coordinate after the crop (#1241).
+        result = nc._preserve_netcdf_metadata(result)
         # The window holds stored counts (`_read_curvilinear_window` asks for them),
         # so the rebuilt variable has to declare what turns them back into
         # measurements, exactly as the affine crop path does.

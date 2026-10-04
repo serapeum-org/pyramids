@@ -57,6 +57,34 @@ def test_curvilinear_window_eager_matches_lazy_layout(sample):
         nc.close()
 
 
+def test_curvilinear_crop_keeps_band_dimension_names_and_coords(sample):
+    """A curvilinear crop keeps the real band-dim names/coords so `sel` by value still works (M1).
+
+    A spatial window leaves the band dimensions untouched, so ROMS `salt`'s `ocean_time` / `s_rho`
+    names and coordinate values must survive the crop — `from_array` alone would infer generic
+    `dim_0` / `dim_1` axes and drop the labels, breaking `sel(ocean_time=...)` on the result.
+    """
+    nc = NetCDF.read_file(sample(ROMS))
+    try:
+        salt = nc.get_variable("salt")
+        assert salt._band_dim_names == ("ocean_time", "s_rho"), "fixture precondition"
+        first_time = salt._band_dim_values_map["ocean_time"][0]
+        cropped = salt.crop(_fc([(-91, 28), (-88, 28), (-88, 30.5), (-91, 30.5)]))
+        assert cropped._band_dim_names == ("ocean_time", "s_rho"), (
+            f"band-dim names lost by crop: {cropped._band_dim_names}"
+        )
+        assert cropped._band_dim_values_map["ocean_time"] == (
+            salt._band_dim_values_map["ocean_time"]
+        ), "ocean_time coordinate values lost by crop"
+        # `sel` by the real coordinate must still resolve after the crop.
+        picked = cropped.sel(ocean_time=first_time)
+        assert picked.band_count == salt._band_dim_sizes[1], (
+            f"sel(ocean_time=) did not narrow to one time step: {picked.band_count}"
+        )
+    finally:
+        nc.close()
+
+
 def test_roms_curvilinear_crop_masks_and_windows(sample):
     """ROMS salt crop trims to the polygon window and keeps its 2-D coordinates."""
     nc = NetCDF.read_file(sample(ROMS))
