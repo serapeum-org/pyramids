@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pyramids.netcdf._lazy_cube import LazyNetCDF
 from pyramids.netcdf.array_options import (
     CFAttributes,
     Encoding,
@@ -30,6 +31,7 @@ __all__ = [
     "NetCDF",
     "Container",
     "Variable",
+    "LazyNetCDF",
     "UgridDataset",
     "GeoReference",
     "ExtraDimensions",

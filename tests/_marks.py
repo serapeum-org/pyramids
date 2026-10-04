@@ -100,6 +100,12 @@ requires_stac = pytest.mark.skipif(
 requires_dask_array = pytest.mark.skipif(
     not HAS_DASK_ARRAY, reason="dask.array not installed"
 )
+# dask.dataframe (dask-expr) imports pyarrow, which ships in the `parquet` extra, not `lazy`;
+# gate on both so `to_dask_dataframe` tests skip in a lazy-only env rather than erroring on import.
+requires_dask_dataframe = pytest.mark.skipif(
+    not (HAS_DASK_ARRAY and HAS_PYARROW),
+    reason="dask.dataframe needs dask + pyarrow (pyramids-gis[parquet])",
+)
 
 # Legacy aliases for existing callsites that import the older names.
 # Remove in a follow-up once the open call-sites migrate.
