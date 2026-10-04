@@ -988,7 +988,13 @@ class _InterpTo(_AlongDim):
     verb: ClassVar[str] = "interpolate"
     keeps_length: ClassVar[bool] = False
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Interpolate one variable's series along `dim` onto `target`.
 
         Args:
@@ -1005,9 +1011,11 @@ class _InterpTo(_AlongDim):
             single gap anywhere makes the entire axis a gap — the same as `scipy.interpolate.interp1d`
             and `xarray.DataArray.interp`. Use a local kind on gappy data.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        arr, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         axis = band_names.index(dim)
         coords = values_map[dim]
         if coords is None:
@@ -1018,7 +1026,6 @@ class _InterpTo(_AlongDim):
                 f"interp() has no coordinates for {dim!r} to interpolate from."
             )
         source = np.asarray([float(value) for value in coords], dtype="float64")
-        arr = nc._materialize_variable_array(var, lazy=True)
         data = _gaps_as_nan(arr, ndv)
         interpolated = _interp_onto(data, axis, source, self.target, self.kind)
         fill: Any = np.nan if ndv is None else ndv

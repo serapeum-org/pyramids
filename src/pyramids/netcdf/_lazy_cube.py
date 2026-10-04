@@ -577,6 +577,50 @@ class LazyNetCDF:
         )
         return self._compose_mapblocks(op, dim)
 
+    def interp(self, method: str = "linear", **coords: Any) -> Any:
+        """Interpolate band dimensions onto new coordinate values, composing lazily (#1237).
+
+        The lazy twin of :meth:`NetCDF.interp`; each `dim=targets` interpolation (a scipy kernel)
+        runs per spatial block via map_blocks, resizing the dimension to the target length. Several
+        `dim=targets` pairs compose in sequence. A multi-variable container interpolates eagerly at
+        the boundary, warning once.
+
+        Returns:
+            LazyNetCDF | NetCDF: A lazy cube for a pinned variable; an eager result otherwise.
+        """
+        from pyramids.netcdf.engines._along_dim import _InterpTo
+        from pyramids.netcdf.engines.selection import (
+            _INTERP_MIN_POINTS,
+            _interp_targets,
+            _refuse_spatial_interp,
+            _resolve_interp_kind,
+        )
+
+        kind = _resolve_interp_kind(method)
+        if not coords or len(self._current_records()) != 1:
+            self._warn_materialize("interp")
+            return self.compute().interp(method, **coords)
+        result: Any = self
+        for dim, target in coords.items():
+            _refuse_spatial_interp(self._source, dim, caller="interp")
+            rec = next(iter(result._current_records().values()))
+            if dim not in rec.band_names:
+                raise ValueError(
+                    f"interp(): {dim!r} is not a band dimension of this variable."
+                )
+            size = rec.array.shape[rec.band_names.index(dim)]
+            minimum = _INTERP_MIN_POINTS[kind]
+            if size < minimum:
+                raise ValueError(
+                    f"interp() method {kind!r} needs at least {minimum} source steps along "
+                    f"{dim!r}, got {size}."
+                )
+            targets = _interp_targets(target, dim, caller="interp")
+            result = result._compose_mapblocks(
+                _InterpTo(target=targets, kind=kind, caller="interp"), dim
+            )
+        return result
+
     def pad(
         self, *, mode: str = "constant", constant_values: Any = None, **pad_width: Any
     ) -> Any:

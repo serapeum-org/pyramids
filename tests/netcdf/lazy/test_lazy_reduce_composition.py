@@ -336,3 +336,16 @@ class TestLazyMapBlocksComposition:
             np.asarray(var.pad(time=(1, 2)).read_array()),
             equal_nan=True,
         )
+
+    @requires_dask
+    def test_interp_onto_new_coords_resizes_and_matches_eager(self):
+        """`chunk().interp(time=[...]).compute()` equals `NetCDF.interp(time=[...])`, resized."""
+        var = _variable()
+        lazy = var.chunk("auto").interp(time=[4.0, 16.0])
+        assert isinstance(lazy, LazyNetCDF), f"got {type(lazy).__name__}"
+        assert sum(lazy.chunks["time"]) == 2, f"interp resizes 4->2, got {lazy.chunks}"
+        np.testing.assert_allclose(
+            np.asarray(lazy.compute().read_array()),
+            np.asarray(var.interp(time=[4.0, 16.0]).read_array()),
+            equal_nan=True,
+        )
