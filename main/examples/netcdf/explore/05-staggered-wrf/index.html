@@ -7428,8 +7428,8 @@ print('variables after remove:', nc.variable_names)</div>
 <span class="n">cropped</span> <span class="o">=</span> <span class="n">t2</span><span class="o">.</span><span class="n">crop</span><span class="p">(</span><span class="n">aoi</span><span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="s1">'cropped shape:'</span><span class="p">,</span> <span class="n">cropped</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 <span class="c1"># T2 is zero at the initialization step (see above) -- plot the first real one.</span>
-<span class="c1"># crop returns a plain variable whose band dim is normalized to lowercase 'time'.</span>
-<span class="n">glyph</span> <span class="o">=</span> <span class="n">cropped</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">selectors</span><span class="o">=</span><span class="n">Selectors</span><span class="p">(</span><span class="n">isel</span><span class="o">=</span><span class="p">{</span><span class="s1">'time'</span><span class="p">:</span> <span class="mi">1</span><span class="p">}))</span>
+<span class="c1"># crop preserves the variable's real band dimension name ('Time'), so select on it by that name.</span>
+<span class="n">glyph</span> <span class="o">=</span> <span class="n">cropped</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">selectors</span><span class="o">=</span><span class="n">Selectors</span><span class="p">(</span><span class="n">isel</span><span class="o">=</span><span class="p">{</span><span class="s1">'Time'</span><span class="p">:</span> <span class="mi">1</span><span class="p">}))</span>
 <span class="c1"># overlay the coastline so the cropped WRF patch is easy to place</span>
 <span class="n">glyph</span><span class="o">.</span><span class="n">add_features</span><span class="p">(</span><span class="s2">"coastline"</span><span class="p">,</span> <span class="s2">"50m"</span><span class="p">,</span> <span class="n">zorder</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
 </pre></div>
@@ -7443,8 +7443,8 @@ t2 = nc.get_variable('T2')
 cropped = t2.crop(aoi)
 print('cropped shape:', cropped.shape)
 # T2 is zero at the initialization step (see above) -- plot the first real one.
-# crop returns a plain variable whose band dim is normalized to lowercase 'time'.
-glyph = cropped.plot(selectors=Selectors(isel={'time': 1}))
+# crop preserves the variable's real band dimension name ('Time'), so select on it by that name.
+glyph = cropped.plot(selectors=Selectors(isel={'Time': 1}))
 # overlay the coastline so the cropped WRF patch is easy to place
 glyph.add_features("coastline", "50m", zorder=5)</div>
 </div>
