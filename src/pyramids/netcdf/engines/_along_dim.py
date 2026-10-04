@@ -106,6 +106,10 @@ class _AlongDim(ABC):
     verb: ClassVar[str] = ""
     keeps_length: ClassVar[bool] = False
     change_noun: ClassVar[str] = "reduced"
+    # Set False by the lazy cube (#1237) so `apply` returns a dask array that stays deferred until
+    # the cube's `compute()`. A plain class attribute, not a dataclass field: instances flip it in
+    # place. The eager path (default True) materialises each op's result as before.
+    materialize: bool = True
 
     def start(self) -> None:
         """Work out what waits for the receiver to pass its own checks. Nothing, by default."""
@@ -187,6 +191,7 @@ class _Reduction(_AlongDim):
                 resize=self.resize,
                 window_mean_coords=self.window_mean_coords,
                 group_coords=self.group_coords,
+                materialize=self.materialize,
             )
         )
 
@@ -1282,7 +1287,7 @@ def _window_members(position: int, size: int, window: int, center: bool) -> list
 
 def _reduced_array(
     nc: NetCDF,
-    var: NetCDF,
+    var: NetCDF | None,
     dim: str,
     how: str,
     *,
@@ -1292,7 +1297,9 @@ def _reduced_array(
     resize: int | None = None,
     window_mean_coords: bool = False,
     group_coords: list | None = None,
-) -> tuple[np.ndarray, list[str], dict[str, Any], Any]:
+    materialize: bool = True,
+    override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+) -> tuple[Any, list[str], dict[str, Any], Any]:
     """Reduce one raster variable along `dim`: the per-variable step of `reduce` and `coarsen`.
 
     A file-backed variable that still reads as its store (`NetCDF._reads_as_its_store`) is read
@@ -1328,12 +1335,21 @@ def _reduced_array(
     # Local import breaks the netcdf.py <-> engines.selection import cycle.
     from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _FLAG_NO_DATA
 
-    band_names = list(var._band_dim_names)
-    values_map = dict(var._band_dim_values_map)
-    ndv = _read_no_data(var)
+    if override is not None:
+        # A lazy cube composing ops (#1237): reduce the cube's CURRENT (possibly already
+        # transformed) dask array and its carried band layout, rather than re-reading from `var`.
+        arr, band_names, values_map, ndv = override
+        band_names = list(band_names)
+        values_map = dict(values_map)
+    else:
+        # `var` is required when no `override` is given — the eager callers always pass it.
+        assert var is not None, "_reduced_array needs `var` unless `override` is given"
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        arr = nc._materialize_variable_array(var, lazy=True)
     axis = band_names.index(dim)
     coords = values_map.get(dim)
-    arr = nc._materialize_variable_array(var, lazy=True)
     size = arr.shape[axis]
     if resize is not None and resize != size:
         arr = _resize_axis(arr, axis, resize)
@@ -1354,9 +1370,12 @@ def _reduced_array(
         values_map[dim] = _window_coordinates(coords, group_positions, size)
     elif group_coords is not None:
         values_map[dim] = list(group_coords)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        arr = np.asarray(arr)
+    if materialize:
+        # `materialize=False` (a lazy cube composing ops, #1237) keeps the reduced dask array so
+        # the reduction stays deferred until the cube's `compute()`; the eager path collapses it here.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            arr = np.asarray(arr)
     result_ndv = ndv
     if how == "count":
         result_ndv = None

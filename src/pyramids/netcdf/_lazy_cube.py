@@ -25,7 +25,7 @@ documented next step for issue #1229.
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pyramids.base._utils import import_dask
 
@@ -36,6 +36,37 @@ _DASK_MISSING = "The lazy NetCDF cube needs dask; install the `lazy` extra."
 _MISSING = (
     object()
 )  # sentinel so __getattr__ fetches a forwarded attribute exactly once
+
+
+class _LazyVar(NamedTuple):
+    """One variable's deferred state: its dask array and the band layout describing it.
+
+    Carried by a :class:`LazyNetCDF` that has composed one or more array-native ops (#1237), so
+    :meth:`LazyNetCDF.compute` can rebuild the eager variable from the *transformed* array through
+    the same `_stack_reduced_variable` path the eager ops use.
+
+    Attributes:
+        array: The dask array, laid out `(*band_dim_sizes, rows, cols)`.
+        band_names: The result's band dimensions, outermost first.
+        values_map: Each band dimension's coordinates, or `None` for one without.
+        no_data: The no-data value the result declares, or `None`.
+        geotransform: The variable's geotransform (a band op never moves the spatial plane).
+        epsg: The CRS spec (`crs_spec(epsg, crs)`) carried onto the rebuilt variable.
+        dim_names: The dimension names outermost first, `(*band_names, row_name, col_name)`.
+        time_attrs: Resolved CF time units per band dimension, for the stamps that survive.
+        source_var: The original eager variable, passed as `source=` to the rebuild so its
+            attributes and CRS carry onto the result.
+    """
+
+    array: Any
+    band_names: list[str]
+    values_map: dict[str, Any]
+    no_data: Any
+    geotransform: tuple[float, float, float, float, float, float]
+    epsg: Any
+    dim_names: tuple[str, ...]
+    time_attrs: dict[str, Any]
+    source_var: Any
 
 
 class LazyNetCDF:
@@ -66,19 +97,26 @@ class LazyNetCDF:
         source: NetCDF,
         arrays: dict[str, Any],
         dim_names: dict[str, tuple[str, ...]],
+        records: dict[str, _LazyVar] | None = None,
     ) -> None:
         """Wrap per-variable dask arrays alongside the eager cube they came from.
 
         Args:
             source: The eager cube this view was built from — the source of its metadata and the
-                twin :meth:`compute` returns.
+                twin :meth:`compute` returns when no op has transformed the arrays.
             arrays: One dask array per gridded variable, laid out `(*band_sizes, rows, cols)`.
             dim_names: The dimension names per variable, outermost first, i.e.
                 `(*band_dim_names, row_name, col_name)` — the keys :attr:`chunks` reports.
+            records: Per-variable deferred state, set once an array-native op has composed over the
+                cube (#1237). When present the cube is **transformed**: :meth:`compute` rebuilds the
+                eager cube from these arrays rather than returning the source. `None` (the default,
+                from :meth:`NetCDF.chunk`) is an untransformed view whose arrays are chunked reads of
+                the source.
         """
         self._source = source
         self._arrays = dict(arrays)
         self._dim_names = dict(dim_names)
+        self._records = records
         self._materialize_warned = False
 
     @property
@@ -116,6 +154,10 @@ class LazyNetCDF:
         Returns:
             NetCDF: A fresh eager cube, independent of the source.
         """
+        if self._records is not None:
+            # A cube transformed by a composed op (#1237): materialise the deferred dask arrays
+            # through the eager rebuild rather than returning the (untransformed) source.
+            return self._rebuild()
         return self._source.copy()
 
     def load(self, **kwargs: Any) -> NetCDF:
@@ -127,8 +169,12 @@ class LazyNetCDF:
         and ignored.
 
         Returns:
-            NetCDF: The source cube (the eager twin), realised in place.
+            NetCDF: The source cube (the eager twin), realised in place. A transformed cube
+            (a composed op) has no untransformed source to alias, so it returns the rebuilt eager
+            result, as :meth:`compute` does.
         """
+        if self._records is not None:
+            return self._rebuild()
         return self._source
 
     def persist(self, **kwargs: Any):
@@ -168,7 +214,131 @@ class LazyNetCDF:
             pairs.extend((self._arrays[name], self._dim_names[name]))
         _, unified = da.core.unify_chunks(*pairs)
         arrays = dict(zip(names, unified))
-        return LazyNetCDF(self._source, arrays, self._dim_names)
+        return LazyNetCDF(self._source, arrays, self._dim_names, self._records)
+
+    def _current_records(self) -> dict[str, _LazyVar]:
+        """The per-variable deferred records, derived from the source for an untransformed view.
+
+        An untransformed cube (`_records is None`, straight from :meth:`NetCDF.chunk`) carries only
+        chunked reads; its records are read off the source variables so a first op has a uniform
+        record to transform. A transformed cube returns its carried records.
+
+        Returns:
+            dict[str, _LazyVar]: One record per gridded variable.
+        """
+        if self._records is not None:
+            return self._records
+        from pyramids.base.crs import crs_spec
+        from pyramids.netcdf.engines._along_dim import _read_no_data
+
+        source = self._source
+        pinned = source._source_var_name
+        records: dict[str, _LazyVar] = {}
+        for name in self._arrays:
+            var = (
+                source if pinned is not None else source._require_raster_variable(name)
+            )
+            records[name] = _LazyVar(
+                array=self._arrays[name],
+                band_names=list(var._band_dim_names),
+                values_map=dict(var._band_dim_values_map),
+                no_data=_read_no_data(var),
+                geotransform=var.geotransform,
+                epsg=crs_spec(var.epsg, var.crs),
+                dim_names=self._dim_names[name],
+                time_attrs=var._resolved_band_dim_time_attrs(),
+                source_var=var,
+            )
+        return records
+
+    def _rebuild(self) -> NetCDF:
+        """Materialise the transformed records into an eager cube through the eager rebuild path.
+
+        One record (a pinned variable, the composition path this version supports) rebuilds through
+        :func:`_variable_from_applied`, the same helper the eager ops use, so the result's band
+        coordinates, unlabelled-dimension gaps and CF time units match the eager reduce exactly.
+
+        Returns:
+            NetCDF: The eager variable the deferred ops computed to.
+        """
+        from pyramids.base.protocols import as_numpy
+        from pyramids.netcdf.engines._along_dim import _Applied, _variable_from_applied
+
+        records = self._current_records()
+        (rec,) = records.values()
+        applied = _Applied(
+            as_numpy(rec.array), rec.band_names, rec.values_map, rec.no_data
+        )
+        return _variable_from_applied(rec.source_var, applied)
+
+    def reduce(
+        self,
+        dim: str,
+        how: str = "mean",
+        *,
+        skipna: bool = True,
+        q: float | None = None,
+    ) -> Any:
+        """Reduce a band dimension, composing lazily when the cube is a single variable (#1237).
+
+        Collapses `dim` with `how`, keeping the result a lazy cube: the reduction is a `dask.array`
+        step deferred until :meth:`compute`, so a chain of reductions stays lazy and reads the store
+        only once per block. Mirrors :meth:`NetCDF.reduce`.
+
+        A single pinned variable composes lazily and returns a :class:`LazyNetCDF`. A multi-variable
+        container cannot yet compose at the cube level, so it auto-materialises to the eager cube and
+        reduces there, warning once — the v1 lazy/eager boundary (the same shape as the GDAL-op
+        boundary). Pin a variable with `get_variable(...)` first to keep a container reduce lazy.
+
+        Args:
+            dim: The band dimension to collapse.
+            how: The reduction (`"mean"`, `"sum"`, `"max"`, a quantile, …), as :meth:`NetCDF.reduce`.
+            skipna: Whether gaps are skipped.
+            q: The quantile, for `how="quantile"`.
+
+        Returns:
+            LazyNetCDF | NetCDF: A lazy cube for a pinned variable; an eager reduced cube for a
+            multi-variable container (materialised at the boundary).
+        """
+        from pyramids.netcdf.engines._along_dim import _reduced_array
+
+        records = self._current_records()
+        if len(records) != 1:
+            # Container composition is not built yet: materialise at the boundary and reduce
+            # eagerly, warning once, rather than silently reading the whole cube without notice.
+            self._warn_materialize("reduce")
+            return self.compute().reduce(dim, how, skipna=skipna, q=q)
+        name, rec = next(iter(records.items()))
+        arr, band_names, values_map, no_data = _reduced_array(
+            self._source,
+            None,
+            dim,
+            how,
+            group_positions=None,
+            skipna=skipna,
+            q=q,
+            materialize=False,
+            override=(rec.array, rec.band_names, rec.values_map, rec.no_data),
+        )
+        new = rec._replace(
+            array=arr,
+            band_names=band_names,
+            values_map=values_map,
+            no_data=no_data,
+            dim_names=(*band_names, *rec.dim_names[-2:]),
+        )
+        return LazyNetCDF(self._source, {name: arr}, {name: new.dim_names}, {name: new})
+
+    def _warn_materialize(self, name: str) -> None:
+        """Emit the one-time boundary warning when an op falls back to the eager cube."""
+        if not self._materialize_warned:
+            warnings.warn(
+                f"{name!r} on a lazy NetCDF cube is not composed lazily yet; it materialises the "
+                f"cube and runs eagerly. Call .compute() for an explicit eager cube.",
+                UserWarning,
+                stacklevel=3,
+            )
+            self._materialize_warned = True
 
     def __getattr__(self, name: str) -> Any:
         """Delegate any eager operation to the **source** cube, warning once.
@@ -190,7 +360,10 @@ class LazyNetCDF:
         """
         if name.startswith("_"):
             raise AttributeError(name)
-        attr = getattr(self._source, name, _MISSING)
+        # A transformed cube materialises its deferred arrays (the rebuilt eager result); an
+        # untransformed view aliases its source, as before.
+        target = self._rebuild() if self._records is not None else self._source
+        attr = getattr(target, name, _MISSING)
         if attr is _MISSING:
             raise AttributeError(name)
         if not self._materialize_warned:
