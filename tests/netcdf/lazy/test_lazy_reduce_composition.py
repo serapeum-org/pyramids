@@ -349,3 +349,44 @@ class TestLazyMapBlocksComposition:
             np.asarray(var.interp(time=[4.0, 16.0]).read_array()),
             equal_nan=True,
         )
+
+
+class TestLazyCellwiseComposition:
+    """Cell-wise ops compose lazily per block, bit-for-bit with the eager op."""
+
+    @requires_dask
+    @pytest.mark.parametrize(
+        "run_lazy, run_eager",
+        [
+            (
+                lambda v: v.chunk("auto").clip(200.0, 300.0),
+                lambda v: v.clip(200.0, 300.0),
+            ),
+            (lambda v: v.chunk("auto").fillna(0.0), lambda v: v.fillna(0.0)),
+            (lambda v: v.chunk("auto").round(1), lambda v: v.round(1)),
+        ],
+        ids=["clip", "fillna", "round"],
+    )
+    def test_cellwise_computes_to_the_eager_result(self, run_lazy, run_eager):
+        """`clip`/`fillna`/`round` stay lazy and compute bit-for-bit to the eager op."""
+        var = _variable()
+        lazy = run_lazy(var)
+        assert isinstance(lazy, LazyNetCDF), f"got {type(lazy).__name__}"
+        assert lazy.chunks, "a cell-wise op must stay lazy"
+        np.testing.assert_allclose(
+            np.asarray(lazy.compute().read_array()),
+            np.asarray(run_eager(var).read_array()),
+            equal_nan=True,
+        )
+
+    @requires_dask
+    def test_cellwise_chains_with_an_along_dim_op(self):
+        """A cell-wise op composes in a chain with an along-dim op, staying lazy."""
+        var = _variable()
+        lazy = var.chunk("auto").clip(200.0, 300.0).reduce("time", "mean")
+        assert isinstance(lazy, LazyNetCDF), "the chain must still be lazy"
+        np.testing.assert_allclose(
+            np.asarray(lazy.compute().read_array()),
+            np.asarray(var.clip(200.0, 300.0).reduce("time", "mean").read_array()),
+            equal_nan=True,
+        )

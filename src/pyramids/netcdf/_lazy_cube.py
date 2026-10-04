@@ -658,6 +658,98 @@ class LazyNetCDF:
             )
         return result
 
+    def clip(self, min: Any = None, max: Any = None) -> Any:
+        """Bound the values to `[min, max]`, composing lazily (#1237); a gap stays a gap.
+
+        Cell-wise and shape-preserving, so it runs the eager :meth:`NetCDF.clip` per spatial block
+        via map_blocks (bit-for-bit; the dtype widening is bound-based, so it is the same for every
+        block). A multi-variable container clips eagerly at the boundary, warning once.
+        """
+        if len(self._current_records()) != 1:
+            self._warn_materialize("clip")
+            return self.compute().clip(min=min, max=max)
+        return self._compose_cellwise("clip", min, max)
+
+    def fillna(self, value: float | int) -> Any:
+        """Fill the gaps with `value`, composing lazily (#1237).
+
+        Cell-wise and shape-preserving; runs the eager :meth:`NetCDF.fillna` per block via
+        map_blocks. A multi-variable container fills eagerly at the boundary, warning once.
+        """
+        if len(self._current_records()) != 1:
+            self._warn_materialize("fillna")
+            return self.compute().fillna(value)
+        return self._compose_cellwise("fillna", value)
+
+    def round(self, decimals: int = 0) -> Any:
+        """Round the values, composing lazily (#1237); a gap stays a gap.
+
+        Cell-wise and shape-preserving; runs the eager :meth:`NetCDF.round` per block via
+        map_blocks. An integer band rounded to tens (`decimals < 0`) may widen based on the data,
+        which is not consistent across blocks, so that case materialises at the boundary, as does a
+        multi-variable container — both warn once.
+        """
+        if isinstance(decimals, bool) or not isinstance(decimals, (int, np.integer)):
+            raise TypeError(
+                f"round() needs an integer number of decimals, got {decimals!r}."
+            )
+        records = self._current_records()
+        integer_widen = (
+            len(records) == 1
+            and next(iter(records.values())).array.dtype.kind in "iu"
+            and int(decimals) < 0
+        )
+        if len(records) != 1 or integer_widen:
+            self._warn_materialize("round")
+            return self.compute().round(decimals)
+        return self._compose_cellwise("round", decimals)
+
+    def _compose_cellwise(self, method: str, *args: Any, **kwargs: Any) -> LazyNetCDF:
+        """Run a cell-wise eager op (`clip`/`fillna`/`round`) per spatial block via map_blocks.
+
+        These ops are element-wise and band-agnostic, and their shared gap/dtype machinery is not
+        dask-safe (it mutates in place and calls `.all()`), so each numpy block is wrapped in a
+        throwaway eager `Dataset` and run through the real method — bit-for-bit, shape-preserving.
+        The output dtype and no-data value (data-independent for these ops) come from a 1x1 spatial
+        probe. The caller has checked there is exactly one variable.
+
+        Returns:
+            LazyNetCDF: The cube with the cell-wise op applied, still lazy.
+        """
+        import dask.array as da
+
+        from pyramids.base.georeference import GeoReference
+        from pyramids.dataset import Dataset
+
+        name, rec = next(iter(self._current_records().items()))
+        ndv = rec.no_data
+
+        def _block(block: Any) -> tuple[Any, Any]:
+            flat = np.asarray(block)
+            shape = flat.shape
+            ds = Dataset.from_array(
+                flat.reshape(-1, shape[-2], shape[-1]),
+                geo_ref=GeoReference(
+                    top_left_corner=(0.0, float(shape[-2])), cell_size=1.0, epsg=4326
+                ),
+                no_data_value=ndv,
+            )
+            out = getattr(ds, method)(*args, **kwargs)
+            values = np.asarray(out.read_array(squeeze=True)).reshape(shape)
+            return values, out.no_data_value[0]
+
+        probe, out_ndv = _block(np.asarray(rec.array[..., :1, :1].compute()))
+        new_arr = da.map_blocks(
+            lambda block: _block(block)[0],
+            rec.array,
+            dtype=probe.dtype,
+            meta=np.empty((0,) * rec.array.ndim, dtype=probe.dtype),
+        )
+        new = rec._replace(array=new_arr, no_data=out_ndv)
+        return LazyNetCDF(
+            self._source, {name: new_arr}, {name: new.dim_names}, {name: new}
+        )
+
     def _extremum(
         self, dim: str, extreme: str, coordinate: bool, caller: str, skipna: bool
     ) -> Any:
