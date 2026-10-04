@@ -10,8 +10,10 @@ Design summary:
   :meth:`NetCDF.read_array` when `chunks` is provided. It
   constructs a :class:`pyramids.base._file_manager.CachingFileManager`
   around :func:`pyramids.base._openers.gdal_mdarray_open`, builds a
-  :class:`dask.array.Array` via `dask.array.map_blocks` over a
-  grid of block slices, and returns the resulting lazy array.
+  :class:`dask.array.Array` from a low-level task graph (one pickle-safe
+  :class:`_MDArrayChunkReader` task per block, assembled with
+  `dask.array.Array(graph, …)` — not `map_blocks`) over a grid of block
+  slices, and returns the resulting lazy array.
 * :func:`_read_mdarray_chunk` is the per-chunk reader invoked by
   dask's task graph. It opens the MDIM handle through the manager,
   looks up the MDArray, and calls
