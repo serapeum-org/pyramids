@@ -912,7 +912,9 @@ class TestAnOperationsResult:
     def test_the_flat_read_shape_is_accepted(self):
         """A caller holding a plain `read_array` result does not have to reshape it first."""
         nc = _read("cf__5v__1d4-4d1__y-asc.nc")
-        flat = np.asarray(nc.read_array(variable="temperature"))
+        # #1241: read_array now preserves band axes; squeeze=True gives the classic flat
+        # (bands, rows, cols) read this test is about the harness accepting without a reshape.
+        flat = np.asarray(nc.read_array(variable="temperature", squeeze=True))
         assert flat.shape == (12, 5, 6)
         view = from_pyramids(nc, "temperature", values=flat)
         assert view.values.shape == (4, 3, 5, 6)

@@ -617,7 +617,8 @@ class TestTheSpatialPairIsDecidedTogether:
         """
         store = NetCDF.read_file(str(self.Y_ASCENDING))
         variable = store.get_variable("temperature")
-        plane = np.asarray(variable.read_array())[0]
+        # #1241: squeeze to the classic flattened layout so [0] yields a 2-D plane, not a 3-D slab.
+        plane = np.asarray(variable.read_array(squeeze=True))[0]
         store.set_variable(
             "added",
             Dataset.from_array(

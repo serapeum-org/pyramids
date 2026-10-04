@@ -12,7 +12,8 @@ def test_reduce_mean_collapses_named_dimension(sample):
     """``reduce('time', how='mean')`` removes the time dimension, leaving the 4 levels (48 -> 4 bands)."""
     nc = NetCDF.read_file(sample(RHUM))
     try:
-        assert nc.get_variable("rhum").read_array().shape[0] == 48
+        # #1241: squeeze restores the classic flattened band axis (12 time x 4 level = 48).
+        assert nc.get_variable("rhum").read_array(squeeze=True).shape[0] == 48
         reduced = nc.reduce("time", how="mean")
         assert isinstance(reduced, NetCDF)
         assert reduced.get_variable("rhum").read_array().shape[0] == 4

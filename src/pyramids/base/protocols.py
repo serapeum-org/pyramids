@@ -440,11 +440,21 @@ def as_numpy(x: ArrayLike) -> NDArray:
     `WriteArray` call), so every lazy-vs-eager branch in the
     codebase funnels through one helper.
 
+    Note:
+        The masked-ness of the result is **not** normalised across the two
+        branches. A lazy input is materialized with `x.compute()`, which
+        keeps a `numpy.ma.MaskedArray` when the dask array carries a mask
+        (`dask.array.ma`); an eager input goes through `numpy.asarray`,
+        which returns the base `ndarray` and drops any mask. A caller that
+        must have a plain `ndarray` (or, conversely, must keep the mask)
+        should coerce the result itself rather than rely on this helper.
+
     Args:
         x: The input array. Must satisfy :class:`_ArrayLikeProto`.
 
     Returns:
-        np.ndarray: The materialized numpy array.
+        np.ndarray: The materialized numpy array — a `numpy.ma.MaskedArray`
+        when `x` is a lazy masked dask array (see the note above).
 
     Examples:
         >>> import numpy as np

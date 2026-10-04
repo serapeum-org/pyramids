@@ -470,7 +470,8 @@ class TestWindowViaMdArrayMultiBand:
             them, or band `k` of the window holds a different slice than band `k` of a full read.
         """
         var = NetCDF.read_file(hypercube_path).get_variable("v")
-        full = _as_bands(var.read_array())
+        # #1241: squeeze folds (time, level) into the classic band axis the windowed read uses.
+        full = _as_bands(var.read_array(squeeze=True))
         window = var._window_via_mdarray(x_off, y_off, x_size, y_size)
         assert window is not None, "the window read must be served"
         got = _as_bands(window.ReadAsArray())

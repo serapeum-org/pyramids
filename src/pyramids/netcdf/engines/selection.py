@@ -723,6 +723,11 @@ class Selection(_Engine["NetCDF"]):
         # from_array returns a root container; hand back the variable subset, carrying the
         # windowed 2-D coordinates so the result stays curvilinear (plots on its real geometry).
         result = container._require_raster_variable(var_name)
+        # A spatial window leaves the band dimensions untouched, so restore the source variable's
+        # band-dim names, coordinate values and sizes onto the rebuild. from_array infers only
+        # generic (dim_0, dim_1) axes from the array shape, which would drop ocean_time / s_rho
+        # and break sel() by coordinate after the crop (#1241).
+        result = nc._preserve_netcdf_metadata(result)
         # The window holds stored counts (`_read_curvilinear_window` asks for them),
         # so the rebuilt variable has to declare what turns them back into
         # measurements, exactly as the affine crop path does.
@@ -1083,7 +1088,7 @@ class Selection(_Engine["NetCDF"]):
                         >>> var.sel(pressure_level=500, time=12)._band_dim_values_map
                         {'time': [12.0], 'pressure_level': [500.0]}
                         >>> var.sel(time=12).sel(pressure_level=500).read_array().shape
-                        (5, 6)
+                        (1, 1, 5, 6)
 
                         ```
                     - Use a list selector to keep only two of the levels:
@@ -5157,9 +5162,12 @@ def _read_curvilinear_window(
     """Read just the ``(r0:r1, c0:c1)`` bounding window of a curvilinear variable.
 
     With ``chunks`` the read goes through the dask-backed lazy path (only the
-    overlapping chunks materialise) and the native ``(d0, …, rows, cols)`` shape
-    is flattened to ``(bands, rows, cols)``; otherwise GDAL reads just the
-    ``(c0, r0)``–``(c1, r1)`` block eagerly. Helper of
+    overlapping chunks materialise); otherwise GDAL reads just the ``(c0, r0)``–
+    ``(c1, r1)`` block eagerly. Both paths return the variable's native
+    dimension-preserving ``(*band_sizes, rows, cols)`` shape (a size-1 band axis kept,
+    a 2-D plane for a variable with no band dimensions), so the crop keeps the band
+    structure the caller's :meth:`from_array` rebuild reconstructs from that shape — the
+    eager and lazy crops produce the identical layout (#1241). Helper of
     :meth:`Selection._crop_curvilinear`.
 
     Reads with ``unpack=False``. The caller stamps the variable's **stored** no-data
@@ -5169,9 +5177,9 @@ def _read_curvilinear_window(
     declare the recipe over both.
     """
     if chunks is not None:
+        # Keep the native ``(*band_sizes, rows, cols)`` shape (no flatten) so the lazy crop
+        # rebuilds the same band structure the eager crop does (#1241).
         lazy = nc.read_array(chunks=chunks, unpack=False)
-        if lazy.ndim > 2:
-            lazy = lazy.reshape(-1, *lazy.shape[-2:])
         return np.array(cast("Any", lazy[..., r0:r1, c0:c1]).compute(), copy=True)
     return np.array(
         nc.read_array(window=[c0, r0, c1 - c0, r1 - r0], unpack=False), copy=True

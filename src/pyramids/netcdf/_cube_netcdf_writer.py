@@ -388,7 +388,9 @@ class CubeNetCDFWriter:
 
                 ```
         """
-        raw = np.asarray(dataset.read_array(unpack=False))
+        # `squeeze=True` keeps the classic flattened `(bands, rows, cols)` block the cube
+        # stores and this band-wise loop expects, not the dimension-preserving default (#1241).
+        raw = np.asarray(dataset.read_array(unpack=False, squeeze=True))
         if raw.ndim == 2:
             raw = raw[np.newaxis, :, :]
         declared = dataset.no_data_value
@@ -426,7 +428,9 @@ class CubeNetCDFWriter:
         raw = (
             self._physical_block(dataset)
             if getattr(self, "_materialise", False)
-            else np.asarray(dataset.read_array(unpack=False))
+            # `squeeze=True` keeps the classic flattened `(bands, rows, cols)` block the cube
+            # stores, not the dimension-preserving default (#1241).
+            else np.asarray(dataset.read_array(unpack=False, squeeze=True))
         )
         block = raw.astype(dtype, copy=False)
         if block.ndim == 2:

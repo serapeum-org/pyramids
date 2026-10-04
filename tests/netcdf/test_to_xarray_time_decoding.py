@@ -90,7 +90,8 @@ class TestXarrayTimeOperationsNowWork:
         through_pyramids = np.asarray(
             nc.reduce("time", "mean", groupby="1D")
             .get_variable("temperature")
-            .read_array()
+            # #1241: squeeze the kept size-1 day axis to match xarray's [0]-indexed daily mean.
+            .read_array(squeeze=True)
         )
         np.testing.assert_allclose(
             through_pyramids,

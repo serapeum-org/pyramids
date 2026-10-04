@@ -157,8 +157,9 @@ class TestIselMatchesSelByPosition:
             pins `isel` and `sel` to each other, which is the claim the feature rests on and
             which two identically-wrong implementations would still satisfy on its own.
         """
-        by_index = cube.isel(time=position).read_array()
-        by_value = cube.sel(time=TIME_VALUES[position]).read_array()
+        # #1241: read in the classic flattened layout `_cube` is built in.
+        by_index = cube.isel(time=position).read_array(squeeze=True)
+        by_value = cube.sel(time=TIME_VALUES[position]).read_array(squeeze=True)
 
         assert_array_equal(
             by_index,
@@ -249,7 +250,8 @@ class TestIselSeveralDimensions:
         result = cube.isel(time=1, pressure_level=2)
 
         assert_array_equal(
-            result.read_array(),
+            # #1241: squeeze back to the classic 2-D plane `_plane` is built in.
+            result.read_array(squeeze=True),
             _plane(1, 2),
             err_msg="pinning t=1, l=2 must read the plane encoded at (1, 2)",
         )
@@ -308,7 +310,8 @@ class TestIselSeveralDimensions:
             err_msg="the chained form must equal the single multi-dimension call",
         )
         assert_array_equal(
-            together.read_array(),
+            # #1241: squeeze back to the classic 2-D plane `_plane` is built in.
+            together.read_array(squeeze=True),
             _plane(3, 0),
             err_msg="both must read the (3, 0) plane",
         )
@@ -328,13 +331,14 @@ class TestIselSeveralDimensions:
         label_first = cube.sel(pressure_level=500).isel(time=1)
 
         assert_array_equal(
-            index_first.read_array(),
+            # #1241: squeeze back to the classic 2-D plane `_plane` is built in.
+            index_first.read_array(squeeze=True),
             _plane(1, 2),
             err_msg="isel then sel must land on the (1, 2) plane",
         )
         assert_array_equal(
-            label_first.read_array(),
-            index_first.read_array(),
+            label_first.read_array(squeeze=True),
+            index_first.read_array(squeeze=True),
             err_msg="sel then isel must land on the same plane",
         )
 
@@ -414,7 +418,8 @@ class TestIselSelectorForms:
             f"{selector!r} left sizes {result._band_dim_sizes}"
         )
         assert_array_equal(
-            result.read_array(),
+            # #1241: squeeze back to the flattened layout `_cube` is built in.
+            result.read_array(squeeze=True),
             _cube(*expected),
             err_msg=f"{selector!r} read the wrong bands",
         )
@@ -461,7 +466,8 @@ class TestIselSelectorForms:
             f"expected axis order [0.0, 12.0], got {result._band_dim_values_map['time']}"
         )
         assert_array_equal(
-            result.read_array(),
+            # #1241: squeeze back to the flattened layout `_cube` is built in.
+            result.read_array(squeeze=True),
             _cube(0, 2),
             err_msg="the duplicate must be dropped and the pair read in axis order",
         )
@@ -498,13 +504,14 @@ class TestIselOnAnAxisWithNoCoordinates:
             rather than recomputed, so a change to the stride arithmetic has to be restated.
         """
         result = wrf_t.isel(bottom_top=5)
-        every_band = np.asarray(wrf_t.read_array())
+        # #1241: read in the classic flattened band order the flat-index math assumes.
+        every_band = np.asarray(wrf_t.read_array(squeeze=True))
 
         assert result.band_count == WRF_TIME_SIZE, (
             f"one plane per time step expected, got {result.band_count}"
         )
         assert_array_equal(
-            result.read_array(),
+            result.read_array(squeeze=True),
             every_band[[5, 32, 59]],
             err_msg="level 5 must come from flat bands 5, 32 and 59",
         )
@@ -555,13 +562,14 @@ class TestIselOnAnAxisWithNoCoordinates:
             coordinate-less variable as a whole.
         """
         result = wrf_t.isel(Time=1)
-        every_band = np.asarray(wrf_t.read_array())
+        # #1241: read in the classic flattened band order the flat-index math assumes.
+        every_band = np.asarray(wrf_t.read_array(squeeze=True))
 
         assert result._band_dim_sizes == (1, WRF_LEVEL_SIZE), (
             f"expected (1, {WRF_LEVEL_SIZE}), got {result._band_dim_sizes}"
         )
         assert_array_equal(
-            result.read_array(),
+            result.read_array(squeeze=True),
             every_band[27:54],
             err_msg="time step 1 occupies flat bands 27..53",
         )
@@ -575,10 +583,11 @@ class TestIselOnAnAxisWithNoCoordinates:
             time step instead of raising.
         """
         result = wrf_t.isel(Time=0, bottom_top=26)
-        every_band = np.asarray(wrf_t.read_array())
+        # #1241: read in the classic flattened band order the flat-index math assumes.
+        every_band = np.asarray(wrf_t.read_array(squeeze=True))
 
         assert_array_equal(
-            result.read_array(),
+            result.read_array(squeeze=True),
             every_band[26],
             err_msg="(Time=0, bottom_top=26) must be flat band 26",
         )
@@ -596,7 +605,8 @@ class TestIselOnASingleBandDimension:
             error.
         """
         result = wrf_t2.isel(Time=1)
-        every_band = np.asarray(wrf_t2.read_array())
+        # #1241: squeeze the pinned length-one axis back to the classic plane layout.
+        every_band = np.asarray(wrf_t2.read_array(squeeze=True))
 
         assert wrf_t2._band_dim_names == ("Time",), (
             f"T2 must have one band dim, got {wrf_t2._band_dim_names!r}"
@@ -605,7 +615,7 @@ class TestIselOnASingleBandDimension:
             f"the one-tuple must survive, got {result._band_dim_sizes}"
         )
         assert_array_equal(
-            result.read_array(),
+            result.read_array(squeeze=True),
             every_band[1],
             err_msg="a single-band-dim isel is the identity on the band index",
         )
@@ -844,9 +854,11 @@ class TestIselDrop:
 
     def test_the_cells_are_unchanged_by_drop(self, cube):
         """`drop=` changes only the metadata; the values are the same as without it."""
+        # #1241: `drop` removes the length-one axis the default now keeps, so compare the
+        # two reads in the classic flattened layout where that axis is absent either way.
         assert_array_equal(
-            cube.isel(time=0, drop=True).read_array(),
-            cube.isel(time=0).read_array(),
+            cube.isel(time=0, drop=True).read_array(squeeze=True),
+            cube.isel(time=0).read_array(squeeze=True),
         )
 
     def test_the_axis_stays_by_default(self, cube):
@@ -1314,7 +1326,8 @@ class TestTheIndexGateAdmitsWhatOperatorIndexAdmits:
 
         assert result._band_dim_values_map["time"] == [18.0]
         assert_array_equal(
-            result.read_array(),
+            # #1241: squeeze back to the flattened layout `_cube` is built in.
+            result.read_array(squeeze=True),
             _cube(NT - 1),
             err_msg="a negative numpy index must read the last time step's planes",
         )

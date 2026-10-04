@@ -60,7 +60,7 @@ from pyramids.dataset.engines.io import _caller_stacklevel
 from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
-from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
+from pyramids.netcdf._lazy import apply_unpack, build_lazy_array, mask_no_data
 from pyramids.netcdf._lazy_cube import LazyNetCDF
 from pyramids.netcdf._mdim import (
     GEOSTATIONARY_PROJECTION,
@@ -91,6 +91,7 @@ from pyramids.netcdf.cf import (
 )
 from pyramids.netcdf.engines import interop as _interop
 from pyramids.netcdf.engines import variables as _variables
+from pyramids.netcdf.engines._along_dim import _read_no_data
 from pyramids.netcdf.engines.combine import concat as _concat
 from pyramids.netcdf.engines.combine import merge as _merge
 from pyramids.netcdf.engines.interop import Interop
@@ -4497,7 +4498,7 @@ class NetCDF(Dataset):
               >>> from pyramids.netcdf import NetCDF
               >>> nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
               >>> nc["temperature"].read_array().shape
-              (12, 5, 6)
+              (4, 3, 5, 6)
 
               ```
             - Iterating and indexing are untouched — only the value coercion is refused:
@@ -5520,6 +5521,7 @@ class NetCDF(Dataset):
         lock: Any = None,
         masked: bool = False,
         bbox_rounding: str = "cover",
+        squeeze: bool = False,
     ) -> ArrayLike:
         """Read array from the dataset (eager by default, lazy with `chunks`).
 
@@ -5585,12 +5587,19 @@ class NetCDF(Dataset):
                 `False` → :class:`pyramids.base._locks.DummyLock`.
                 Only meaningful when `chunks` is not `None`.
             masked: When `True`, return a :class:`numpy.ma.MaskedArray`
-                with the variable's no-data / fill cells masked (eager
-                path only; combining with `chunks` raises
-                :class:`NotImplementedError`). The mask is built from the
-                raw stored values before any `unpack` scaling, matching CF
-                `_FillValue` semantics; the scale/offset arithmetic
-                preserves the mask. Default is `False`.
+                with the variable's no-data / fill cells masked. On the
+                eager path the mask is built from the raw stored values
+                before any `unpack` scaling; on the lazy path (`chunks=`)
+                the same cells are masked after unpack, against the
+                physical sentinel. The lazy result (a lazy `dask` masked
+                array until computed) carries the **identical mask** and the
+                **identical unmasked physical values** as the eager read, and
+                `filled(...)` agrees cell for cell. Only the raw data stored
+                *under* a masked cell may differ between the two — the eager
+                path keeps the stored sentinel there, the lazy path the
+                unpacked one — which is immaterial to a masked array (every
+                reduction, comparison and `filled()` ignores masked
+                positions). Default is `False`.
             bbox_rounding (keyword-only): How a `bbox` (or geometry
                 `window`) is snapped to whole pixels — `"cover"`
                 (default; floor/ceil so every overlapping pixel is kept)
@@ -5598,6 +5607,20 @@ class NetCDF(Dataset):
                 boundary, the tightest window). Forwarded verbatim to
                 `Dataset.read_array`; ignored on the lazy path and for
                 pixel windows. Any other value raises `ValueError`.
+            squeeze (keyword-only): How the non-spatial (band) dimensions
+                shape the result, making the eager and lazy paths
+                interchangeable (#1226, #1241). `False` (default) returns
+                the **dimension-preserving** `(*band_sizes, rows, cols)` on
+                **both** paths (the faithful, xarray-like layout) — a size-1
+                band axis is kept, not squeezed. `True` returns the classic
+                raster `(bands, rows, cols)` flatten (every band dimension
+                collapsed into one row-major axis, a singleton squeezed to
+                2-D) on **both** paths. Either way the eager and lazy reads
+                return the identical shape. The default flipped to
+                dimension-preserving in #1241 (previously the eager path
+                flattened + squeezed); pass `squeeze=True` for the legacy
+                classic-raster layout. On a `band=` read (a single plane)
+                it has no effect.
 
         Returns:
             np.ndarray or dask.array.Array: The array data, eager
@@ -5618,8 +5641,6 @@ class NetCDF(Dataset):
                 `chunks=` + `window=` rule).
             ImportError: If `chunks` is given but `dask` is not
                 installed. Install the `[lazy]` extra.
-            NotImplementedError: If `masked=True` is combined with
-                `chunks` (lazy masked reads are not supported yet).
 
         Note:
             Two limitations are specific to the lazy (`chunks`) path:
@@ -5650,11 +5671,10 @@ class NetCDF(Dataset):
               order and does **not** apply a prior `sel` / `crop` / `window` carried on the subset
               (those materialize the eager raster only): slice the returned dask array yourself, or
               read a selected / cropped subset eagerly. For a subset with no active selection the
-              eager and lazy reads then differ only in *packaging* for arrays with more than one
-              non-spatial dimension — the eager path flattens every non-spatial dimension into a
-              single band axis (and squeezes a singleton), whereas the lazy array keeps them as
-              separate leading axes in storage order. Reshape the lazy result with
-              `(-1, rows, cols)` to line the two up. Chunking is computed in *storage* order
+              eager and lazy reads return the identical dimension-preserving shape by default
+              (`squeeze=False`, #1241): both keep one leading axis per non-spatial dimension in
+              storage order. Pass `squeeze=True` for the classic flattened `(bands, rows, cols)`
+              layout (a singleton squeezed to 2-D) on both paths. Chunking is computed in *storage* order
               (before the plane is moved to the trailing axes), so for a non-trailing plane the
               default `chunks="auto"` may split the resolved plane finely and the named `chunks=`
               aliases (`rows` / `cols`) map to storage axes, not the resolved plane — pass explicit
@@ -5738,6 +5758,7 @@ class NetCDF(Dataset):
                 lock=lock,
                 masked=masked,
                 bbox_rounding=bbox_rounding,
+                squeeze=squeeze,
             )
         if variable is not None and variable != self._source_var_name:
             raise ValueError(
@@ -5750,17 +5771,86 @@ class NetCDF(Dataset):
             result = self._read_array_eager(
                 band, read_window, masked, bbox_rounding, unpack
             )
+            # squeeze=False (the default, #1241) converges the eager shape on the lazy one: undo
+            # GDAL's row-major band flatten and the singleton squeeze so a full read returns the
+            # dimension-preserving (*band_sizes, rows, cols) (#1226). Only for a full read; a
+            # band= read already selects a single plane.
+            if not squeeze and band is None:
+                result = self._preserve_band_dims(result)
         else:
-            result = self._read_array_lazy(chunks, lock, masked)
-            # The lazy path builds its array straight from the MDArray rather than
-            # through the raster read, so it applies the packing itself -- from
-            # `_effective_packing`, the same resolver the eager arm uses. Reading
-            # only `_scale` / `_offset` here made the two answer in different units
-            # on a classic-opened file, where the variable carries no packing of its
-            # own but the driver's band does: eager 2.5, lazy 100.0.
-            if unpack:
-                result = apply_unpack(result, *self._effective_packing())
+            result = self._read_array_lazy_processed(
+                chunks, lock, unpack, masked, squeeze
+            )
         return cast(ArrayLike, result)
+
+    def _read_array_lazy_processed(
+        self, chunks: Any, lock: Any, unpack: bool, masked: bool, squeeze: bool
+    ) -> Any:
+        """The lazy dask read with unpack, masking and `squeeze` applied, in that order.
+
+        Split out of :meth:`read_array` so its eager/lazy dispatch stays within the cognitive
+        complexity budget. Mirrors the eager arm: the same `_effective_packing` pair, the same
+        physical-sentinel mask, and the same classic-flatten `squeeze` convergence (#1226).
+
+        Args:
+            chunks: The dask chunk spec forwarded to :meth:`_read_array_lazy`.
+            lock: The read lock forwarded to :meth:`_read_array_lazy`.
+            unpack: Apply the variable's CF packing to the lazy array.
+            masked: Mask the no-data cells after unpack, against the physical sentinel.
+            squeeze: Flatten the separate band axes into one classic `(bands, rows, cols)` axis.
+
+        Returns:
+            Any: The lazy `dask` array (a masked dask array when `masked`), still uncomputed.
+        """
+        result = self._read_array_lazy(chunks, lock)
+        # The lazy path builds its array straight from the MDArray rather than
+        # through the raster read, so it applies the packing itself -- from
+        # `_effective_packing`, the same resolver the eager arm uses. Reading
+        # only `_scale` / `_offset` here made the two answer in different units
+        # on a classic-opened file, where the variable carries no packing of its
+        # own but the driver's band does: eager 2.5, lazy 100.0.
+        if unpack:
+            result = apply_unpack(result, *self._effective_packing())
+        # Mask after unpack, against the physical sentinel (`_read_no_data`), so the lazy
+        # masked read marks exactly the eager fill cells (#1227): the mask and the unmasked
+        # physical values match the eager read. Only the raw value left under a masked cell
+        # differs (unpacked here vs the stored sentinel eager), which a masked array ignores.
+        if masked:
+            result = mask_no_data(result, _read_no_data(self))
+        # squeeze=True converges the lazy shape on the eager one: flatten the separate band
+        # axes into a single row-major band axis and squeeze a singleton to 2-D, matching the
+        # classic-raster eager read (#1226).
+        if squeeze:
+            result = self._flatten_lazy_band_dims(result)
+        return result
+
+    def _preserve_band_dims(self, arr: Any) -> Any:
+        """Reshape an eager full read to the dimension-preserving `(*band_sizes, rows, cols)`.
+
+        Undoes GDAL's row-major band flatten and `read_array`'s singleton squeeze, using the
+        variable's tracked `_band_dim_names` / `_band_dim_sizes` — the same reshape
+        :meth:`_materialize_variable_array` relies on, so the eager `squeeze=False` read and the
+        lazy read return one shape. A variable with no band dimensions is returned unchanged.
+        """
+        if self._band_dim_names:
+            if getattr(arr, "ndim", 0) == 2:
+                arr = np.expand_dims(arr, axis=0)
+            arr = unflatten_band_axes(arr, self._band_dim_names, self._band_dim_sizes)
+        return arr
+
+    def _flatten_lazy_band_dims(self, arr: Any) -> Any:
+        """Flatten a lazy `(*band_sizes, rows, cols)` read to the classic `(bands, rows, cols)`.
+
+        The row-major reshape matches GDAL's classic-raster band flatten, and a single resulting
+        band axis is squeezed to 2-D, so the lazy `squeeze=True` read matches the eager read's
+        shape. Arrays already 2-D (no band axis) are returned unchanged.
+        """
+        if getattr(arr, "ndim", 0) > 2:
+            rows, cols = arr.shape[-2], arr.shape[-1]
+            arr = arr.reshape(-1, rows, cols)
+            if arr.shape[0] == 1:
+                arr = arr.reshape(rows, cols)
+        return arr
 
     def _read_non_raster_variable(
         self,
@@ -6066,7 +6156,7 @@ class NetCDF(Dataset):
             ),
         )
 
-    def _read_array_lazy(self, chunks: Any, lock: Any, masked: bool) -> ArrayLike:
+    def _read_array_lazy(self, chunks: Any, lock: Any) -> ArrayLike:
         """The dask read, through `build_lazy_array`, once the request can be served.
 
         A lazy read reopens the variable from its store, so it needs a path and a name to
@@ -6074,28 +6164,21 @@ class NetCDF(Dataset):
         rebuilt in memory by `where`, `fillna`, `isnull` or `notnull` keeps the name it is
         called by, for labelling, but its values are its own; without the flag it carries
         that read reached for `file::name` and failed inside GDAL with a bare
-        `No such file or directory`.
+        `No such file or directory`. Masking (`masked=True`) is applied by the caller
+        (`read_array`) after unpack, via :func:`mask_no_data`.
 
         Args:
             chunks: The dask chunk specification.
             lock: The read lock handed to `build_lazy_array`.
-            masked: Whether the caller asked for a masked array, which this read has no
-                answer for.
 
         Returns:
             ArrayLike: The dask array.
 
         Raises:
-            NotImplementedError: `masked=True` was combined with `chunks=`.
             ValueError: There is no variable name to reopen — the receiver is a container
                 rather than a variable — or the variable was rebuilt in memory, so the
                 store no longer holds these cells. Read it eagerly instead.
         """
-        if masked:
-            raise NotImplementedError(
-                "read_array(masked=True) is not supported together with "
-                "chunks=; read eagerly, or mask the dask array yourself."
-            )
         parent = self._parent_nc if self._parent_nc is not None else self
         # Prefer the real /vsimem backing path over a cosmetic from_bytes `name=` that shadows
         # _file_name, so a named in-memory lazy read reopens the true source (#1058; same family as
@@ -7293,7 +7376,11 @@ class NetCDF(Dataset):
             # onto it below, so the array written here has to be the counts
             # that recipe describes. Reading physical values and then
             # declaring the packing over them applies it twice.
-            var_arr = var_result.read_array(unpack=False)
+            # `squeeze=True` keeps the classic flattened `(bands, rows, cols)` this rebuild's
+            # `unflatten_band_axes` expects, rather than the dimension-preserving default a
+            # variable now returns (#1241); the compensation below then stays the inverse of
+            # GDAL's flatten exactly as before.
+            var_arr = var_result.read_array(unpack=False, squeeze=True)
             if var_arr.ndim == 2 and var._band_dim_name is not None:
                 var_arr = np.expand_dims(var_arr, axis=0)
             # For 4-D+ variables, GDAL classic raster flattened the
@@ -7697,9 +7784,9 @@ class NetCDF(Dataset):
         for name in names:
             var = self if pinned is not None else self._require_raster_variable(name)
             array = (
-                self.read_array(chunks=chunks)
+                self.read_array(chunks=chunks, squeeze=False)
                 if pinned is not None
-                else self.read_array(name, chunks=chunks)
+                else self.read_array(name, chunks=chunks, squeeze=False)
             )
             arrays[name] = array
             dim_names[name] = _lazy_cube_dim_names(var, array.ndim)
@@ -7916,9 +8003,9 @@ class NetCDF(Dataset):
         only the (small) result is ever held. `rolling`, `cumsum` and `shift` answer a result the
         size of the input, and `diff` one step shorter, so the chunks are still read a chunk at a
         time but the answer itself is as large as the variable. The chunked read already keeps each
-        non-spatial dim as its own leading axis, so no reshape is needed. Otherwise it
-        reads eagerly, undoing `read_array`'s singleton-band squeeze and GDAL's row-major band
-        flatten.
+        non-spatial dim as its own leading axis, so no reshape is needed. Otherwise it reads eagerly
+        with `read_array(squeeze=False)`, which returns that same dimension-preserving layout
+        (undoing GDAL's row-major band flatten and `read_array`'s singleton squeeze).
 
         Because the streamed reduce tree-reduces per chunk via dask while the eager path reduces in a
         single pass, a file-backed `mean`/`sum`/`std`/`var` can differ from the same in-memory reduce
@@ -7947,11 +8034,7 @@ class NetCDF(Dataset):
                 return var.read_array(chunks="auto")
             except ImportError:
                 pass  # dask (the [lazy] extra) not installed -> eager fallback below
-        arr = var.read_array()
-        if var._band_dim_names:
-            if arr.ndim == 2:
-                arr = np.expand_dims(arr, axis=0)
-            arr = unflatten_band_axes(arr, var._band_dim_names, var._band_dim_sizes)
+        arr = var.read_array(squeeze=False)
         return cast("np.typing.NDArray", arr)
 
     @staticmethod
@@ -13625,8 +13708,10 @@ class NetCDF(Dataset):
         #
         # `unpack=False`: the materialize is a copy of the warped store, and the
         # packing is carried onto it below, so `set_variable` writes the counts that
-        # recipe describes rather than a `float64` widening of them.
-        arr = reprojected.read_array(unpack=False)
+        # recipe describes rather than a `float64` widening of them. `squeeze=True` keeps the
+        # classic flattened `(bands, rows, cols)` `from_array` and the `set_variable` below
+        # expect, not the dimension-preserving default (#1241).
+        arr = reprojected.read_array(unpack=False, squeeze=True)
         no_data_value = reprojected.no_data_value
         ndv_scalar = (
             no_data_value[0]
@@ -14297,8 +14382,10 @@ class Variable(NetCDF):
             >>> from pyramids.netcdf import NetCDF  # doctest: +SKIP
             >>> nc = NetCDF.read_file("cube.nc")  # doctest: +SKIP
             >>> var = nc.get_variable("temperature")  # doctest: +SKIP
-            >>> var.read_array().shape  # doctest: +SKIP
+            >>> var.read_array().shape  # (time, lat, lon) -- one band dim kept  # doctest: +SKIP
             (12, 180, 360)
+            >>> # since #1241 the default keeps every band dimension, so a
+            >>> # (time, level, lat, lon) variable reads 4-D, not a flattened 3-D
 
             ```
         - Select along a band dimension — the result is another Variable:

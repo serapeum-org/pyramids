@@ -3505,12 +3505,14 @@ class Dataset(RasterBase):
         source_units = list(self.band_units)
         new_units = list(self.band_units)
 
-        full = self.read_array()
+        # `squeeze=True` keeps the classic flattened `(bands, rows, cols)` this per-band unit
+        # conversion expects, not the dimension-preserving default (#1241).
+        full = self.read_array(squeeze=True)
         # The gaps are found in the stored counts, where the sentinel lives; the values
         # converted are the physical ones. Comparing the physical read against the
         # stored `-9999` matched nothing, so a packed band's gap was converted as if it
         # were a temperature (-98.49 K came out -371.64 degC) under a declared -9999.
-        stored = np.asarray(self.read_array(unpack=False))
+        stored = np.asarray(self.read_array(unpack=False, squeeze=True))
         single_band = self.band_count == 1
         stack = full[np.newaxis, ...] if single_band else full
         stored_stack = stored[np.newaxis, ...] if single_band else stored
@@ -6202,7 +6204,9 @@ class Dataset(RasterBase):
                 f"Dataset.to_dataframe() got band index/indices {out_of_range} out of range "
                 f"for a {count}-band raster (valid 0..{count - 1})."
             )
-        array = np.asarray(self.read_array(), dtype="float64")
+        # `squeeze=True` keeps the classic flattened `(bands, rows, cols)` this band-indexed
+        # dataframe build expects, not the dimension-preserving default (#1241).
+        array = np.asarray(self.read_array(squeeze=True), dtype="float64")
         if array.ndim == 2:
             array = array[np.newaxis, ...]
         array = array[selected]

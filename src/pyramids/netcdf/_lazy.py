@@ -10,8 +10,10 @@ Design summary:
   :meth:`NetCDF.read_array` when `chunks` is provided. It
   constructs a :class:`pyramids.base._file_manager.CachingFileManager`
   around :func:`pyramids.base._openers.gdal_mdarray_open`, builds a
-  :class:`dask.array.Array` via `dask.array.map_blocks` over a
-  grid of block slices, and returns the resulting lazy array.
+  :class:`dask.array.Array` from a low-level task graph (one pickle-safe
+  :class:`_MDArrayChunkReader` task per block, assembled with
+  `dask.array.Array(graph, …)` — not `map_blocks`) over a grid of block
+  slices, and returns the resulting lazy array.
 * :func:`_read_mdarray_chunk` is the per-chunk reader invoked by
   dask's task graph. It opens the MDIM handle through the manager,
   looks up the MDArray, and calls
@@ -48,6 +50,35 @@ _DASK_MISSING_MESSAGE = extra_hint(
     "dask is required for lazy NetCDF reads.",
     "lazy",
 )
+
+
+def mask_no_data(arr: Any, fill: Any) -> Any:
+    """Return a lazy dask masked array with `arr`'s no-data cells masked.
+
+    The lazy counterpart of the eager `read_array(masked=True)`: cells equal to the (physical)
+    `fill` — or NaN cells when `fill` is NaN — are masked, so computing the result yields a
+    :class:`numpy.ma.MaskedArray`. `fill=None` (a variable with no declared no-data) yields an
+    all-unmasked masked array, matching the eager path. `fill` is the sentinel **in read units**
+    (physical, post-unpack); applied after `apply_unpack`, so it compares equal to the unpacked
+    fill cells exactly, the same way the eager path's `_read_no_data` does.
+
+    Args:
+        arr: A :class:`dask.array.Array` of (already unpacked) values.
+        fill: The physical no-data sentinel, or `None`.
+
+    Returns:
+        dask.array.Array: A dask masked array over `arr`.
+    """
+    import_dask(_DASK_MISSING_MESSAGE)
+    import dask.array as da
+
+    if fill is None:
+        result = da.ma.masked_array(arr)
+    elif np.isnan(fill):
+        result = da.ma.masked_invalid(arr)
+    else:
+        result = da.ma.masked_equal(arr, fill)
+    return result
 
 
 def _resolve_lock(lock: Any) -> Any:

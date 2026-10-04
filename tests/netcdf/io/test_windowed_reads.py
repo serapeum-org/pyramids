@@ -373,7 +373,8 @@ class TestSelChaining:
         second = first.sel(time=12)
         expected = var.read_array(band=2)
         assert_array_equal(
-            second.read_array(),
+            # #1241: squeeze drops the kept size-1 band axis to match the single-band expected.
+            second.read_array(squeeze=True),
             expected,
             err_msg="Chained sel should isolate band index 2",
         )

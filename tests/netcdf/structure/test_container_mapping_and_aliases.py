@@ -1536,7 +1536,8 @@ class TestWhatTheDundersChangedAboutProtocolDispatch:
         with pytest.raises(TypeError, match="cannot be converted to an array"):
             np.mean(variable)
 
-        assert variable.read_array().shape == (17, 128, 256)
+        # #1241: squeeze restores the classic flattened band axis (band_count = 17).
+        assert variable.read_array(squeeze=True).shape == (17, 128, 256)
 
     def test_boxing_in_an_object_array_still_works(self):
         """The one coercion that is honoured, because it invents nothing.

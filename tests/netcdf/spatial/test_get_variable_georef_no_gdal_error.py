@@ -70,7 +70,8 @@ class TestGetVariableNonTrailingPlaneGeoref:
             band axis over the 64×128 lat/lon grid; the values stay finite and in
             the physically plausible temperature range seen in the fixture.
         """
-        data = self._read().read_array()
+        # #1241: squeeze folds the two non-spatial axes onto the band axis (the documented view).
+        data = self._read().read_array(squeeze=True)
         assert data.shape == (6, 64, 128), f"unexpected shape {data.shape}"
         assert np.isfinite(data).all(), "array contains non-finite values"
         assert 150.0 < float(np.nanmin(data)) < float(np.nanmax(data)) < 350.0, (

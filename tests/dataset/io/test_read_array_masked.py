@@ -665,6 +665,32 @@ class TestNetCDFMaskedReads:
         )
         return nc.get_variable("t")
 
+    def test_masked_default_squeeze_preserves_shape_and_mask(self):
+        """A masked full read at the default (preserve) keeps the band axes and the mask (L2, #1241).
+
+        Test scenario:
+            A multi-band-dim variable read with `masked=True` and the default `squeeze=False`
+            routes a MaskedArray through `_preserve_band_dims` (`expand_dims` + reshape). Both
+            the dimension-preserving shape and the mask must survive that reshape.
+        """
+        arr = np.arange(2 * 3 * 4 * 5, dtype="float32").reshape(2, 3, 4, 5)
+        arr[1, 2, 3, 4] = -9999.0
+        nc = NetCDF.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
+            variable_name="t",
+            no_data_value=-9999.0,
+        )
+        var = nc.get_variable("t")
+        assert tuple(var._band_dim_sizes) == (2, 3), "fixture must be multi-band-dim"
+        result = var.read_array(masked=True)
+        assert isinstance(result, np.ma.MaskedArray), f"got {type(result).__name__}"
+        assert result.shape == (2, 3, 4, 5), f"band axes dropped: {result.shape}"
+        assert result.mask.sum() == 1, (
+            f"expected 1 masked cell, got {result.mask.sum()}"
+        )
+        assert bool(result.mask[1, 2, 3, 4]), "the fill cell must be the masked one"
+
     def test_subset_masked_read(self, nc_subset):
         """A variable subset honours masked=True through the super() path.
 
@@ -677,14 +703,70 @@ class TestNetCDFMaskedReads:
             f"expected 1 masked cell, got {result.mask.sum()}"
         )
 
-    def test_lazy_masked_raises(self, nc_subset):
-        """The NetCDF lazy path rejects masked=True explicitly.
+    def test_lazy_masked_matches_eager(self, tmp_path):
+        """The NetCDF lazy path masks the same cells as the eager read (#1227).
 
         Test scenario:
-            chunks= + masked= raises before any dask graph is built.
+            chunks= + masked= on a file-backed variable returns a dask masked array whose
+            computed mask, unmasked values and `filled()` match the eager read's (lazy
+            masking used to raise NotImplementedError). The raw value under a masked cell is
+            not compared — a masked array leaves it unspecified (see the packed variant).
         """
-        with pytest.raises(NotImplementedError, match="masked=True"):
-            nc_subset.read_array(chunks=2, masked=True)
+        arr = np.array([[[1.0, -9999.0], [3.0, 4.0]]], dtype="float32")
+        nc = NetCDF.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+            variable_name="t",
+            no_data_value=-9999.0,
+        )
+        path = tmp_path / "masked_subset.nc"
+        nc.to_file(str(path))
+        var = NetCDF.read_file(str(path)).get_variable("t")
+        eager = var.read_array(masked=True)
+        lazy = var.read_array(chunks=2, masked=True).compute()
+        assert isinstance(lazy, np.ma.MaskedArray), f"got {type(lazy).__name__}"
+        assert eager.shape == lazy.shape, (
+            f"shape differs: {eager.shape} vs {lazy.shape}"
+        )
+        np.testing.assert_array_equal(
+            np.ma.getmaskarray(eager), np.ma.getmaskarray(lazy)
+        )
+        np.testing.assert_array_equal(eager.filled(np.nan), lazy.filled(np.nan))
+
+    def test_lazy_masked_matches_eager_when_packed(self, tmp_path):
+        """Under CF packing the lazy masked read keeps the eager mask and physical values (#1227).
+
+        Test scenario:
+            With a non-identity `scale`/`offset`, the lazy and eager masked reads agree on the
+            mask, on every unmasked physical value, and on `filled(nan)`. The raw value stored
+            *under* a masked cell legitimately differs — eager keeps the stored sentinel, lazy
+            the unpacked one — which is immaterial to a masked array; this test pins that
+            boundary so the contract is not silently over-tightened to "same getdata".
+        """
+        arr = np.array([[[1.0, -9999.0], [3.0, 4.0]]], dtype="float32")
+        nc = NetCDF.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+            variable_name="t",
+            no_data_value=-9999.0,
+        )
+        path = tmp_path / "masked_packed.nc"
+        nc.to_file(str(path))
+        var = NetCDF.read_file(str(path)).get_variable("t")
+        var._scale = 2.0
+        var._offset = 1.0
+        eager = var.read_array(masked=True, unpack=True)
+        lazy = var.read_array(chunks=2, masked=True, unpack=True).compute()
+        np.testing.assert_array_equal(
+            np.ma.getmaskarray(eager), np.ma.getmaskarray(lazy)
+        )
+        np.testing.assert_array_equal(eager.compressed(), lazy.compressed())
+        np.testing.assert_array_equal(eager.filled(np.nan), lazy.filled(np.nan))
+        # The guaranteed contract is exactly the three assertions above (mask + unmasked
+        # values + filled). The raw byte left *under* a masked cell is deliberately not
+        # asserted: today eager keeps the stored sentinel there and lazy the unpacked one,
+        # but a masked array exposes neither, so strengthening the lazy path to also keep the
+        # stored sentinel would be a valid improvement this test must not forbid.
 
     def test_unpack_preserves_mask(self, nc_subset):
         """CF unpack scaling preserves the mask built from raw values.
@@ -696,7 +778,9 @@ class TestNetCDFMaskedReads:
         """
         nc_subset._scale = 2.0
         nc_subset._offset = 1.0
-        result = nc_subset.read_array(masked=True, unpack=True)
+        # `squeeze=True` keeps the classic 2-D single-band layout this `result[0, 0]` cell
+        # check assumes, not the dimension-preserving default (#1241).
+        result = nc_subset.read_array(masked=True, unpack=True, squeeze=True)
         assert isinstance(result, np.ma.MaskedArray), "unpack dropped the mask wrapper"
         assert result.mask.sum() == 1, f"mask lost through unpack: {result.mask}"
         assert result[0, 0] == pytest.approx(1.0 * 2.0 + 1.0), (

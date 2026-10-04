@@ -490,7 +490,10 @@ class TestLazyOrientationMatchesEager:
         fixture closes the lazy path's parked GDAL handle at teardown.
         """
         path = self._NON_TRAILING_FIXTURE
-        eager = np.asarray(NetCDF.read_file(path).get_variable("T").read_array())
+        # #1241: eager now preserves band dims; squeeze to the classic flattening the lazy fold matches.
+        eager = np.asarray(
+            NetCDF.read_file(path).get_variable("T").read_array(squeeze=True)
+        )
         lazy = np.asarray(
             NetCDF.read_file(path).get_variable("T").read_array(chunks="auto")
         )
@@ -564,7 +567,8 @@ class TestLazyOrientationMatchesEager:
         assert var._md_y_flipped is True, (
             "the fixture's ascending latitude must flip to north-up"
         )
-        eager = np.asarray(var.read_array())
+        # #1241: eager now preserves band dims; squeeze to the classic flattening the lazy fold matches.
+        eager = np.asarray(var.read_array(squeeze=True))
         rows, cols = eager.shape[-2:]
         assert (rows, cols) == (64, 128), "eager plane must be (lat=64, lon=128)"
 

@@ -185,7 +185,8 @@ class TestTheReceivers:
         result = variable.where(variable > 10)
         assert tuple(result._band_dim_names) == ("time",)
         assert result._band_dim_values_map["time"] == [0.0, 6.0]
-        assert np.asarray(result.sel(time=6.0).read_array()).shape == (3, 4)
+        # #1241: read_array keeps the (size-1) selected band axis, so sel(time=6.0) is (1, 3, 4).
+        assert np.asarray(result.sel(time=6.0).read_array()).shape == (1, 3, 4)
 
     def test_a_variable_masks_the_right_cells(self):
         """Only the values above the threshold survive, across both steps."""
@@ -265,7 +266,8 @@ class TestAVariableTakesEveryConditionForm:
         variable = self._variable()
         result = variable.where(np.arange(8.0).reshape(2, 2, 2) > 3)
         assert result._band_dim_values_map["time"] == [0.0, 6.0]
-        assert np.asarray(result.sel(time=6.0).read_array()).shape == (2, 2)
+        # #1241: read_array keeps the (size-1) selected band axis, so sel(time=6.0) is (1, 2, 2).
+        assert np.asarray(result.sel(time=6.0).read_array()).shape == (1, 2, 2)
 
 
 class TestTheCellWiseMembersKeepAVariablesLayout:
@@ -317,7 +319,8 @@ class TestTheCellWiseMembersKeepAVariablesLayout:
         variable = self._variable()
         call = getattr(variable, member)
         result = call(0.0) if member == "fillna" else call()
-        assert np.asarray(result.sel(time=6.0).read_array()).shape == (2, 2)
+        # #1241: read_array keeps the (size-1) selected band axis, so sel(time=6.0) is (1, 2, 2).
+        assert np.asarray(result.sel(time=6.0).read_array()).shape == (1, 2, 2)
 
     def test_the_operator_path_is_the_reference(self):
         """Whatever `v + 1` keeps, these keep."""

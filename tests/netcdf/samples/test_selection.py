@@ -15,7 +15,8 @@ def test_sel_level_pins_band_dimension(sample):
     nc = NetCDF.read_file(sample(RHUM))
     try:
         var = nc.get_variable("rhum")
-        assert var.read_array().shape[0] == 48
+        # #1241: squeeze restores the classic flattened band axis (12 time x 4 level = 48).
+        assert var.read_array(squeeze=True).shape[0] == 48
         selected = var.sel(level=1000.0)
         assert isinstance(selected, NetCDF)
         assert selected.read_array().shape[0] == 12, (

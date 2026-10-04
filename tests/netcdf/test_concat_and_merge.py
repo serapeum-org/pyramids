@@ -117,7 +117,7 @@ def _read_variable(variable: NetCDF) -> np.ndarray:
     Returns:
         np.ndarray: The values.
     """
-    values = np.asarray(variable.read_array(), dtype="float64")
+    values = np.asarray(variable.read_array(squeeze=True), dtype="float64")
     sentinel = variable.no_data_value[0]
     if sentinel is not None and not np.isnan(sentinel):
         values = np.where(values == sentinel, np.nan, values)
@@ -135,7 +135,7 @@ def _read(cube: NetCDF, name: str = "t") -> np.ndarray:
         np.ndarray: The values.
     """
     variable = cube.get_variable(name)
-    values = np.asarray(variable.read_array(), dtype="float64")
+    values = np.asarray(variable.read_array(squeeze=True), dtype="float64")
     sentinel = variable.no_data_value[0]
     if sentinel is not None and not np.isnan(sentinel):
         values = np.where(values == sentinel, np.nan, values)

@@ -165,7 +165,7 @@ class TestNetCDFPlotDefaultRender:
         """
         nc = _make_4d_nc()
         var = nc.get_variable("temperature")
-        expected = var.sel(time=12).sel(pressure_level=500).read_array()
+        expected = var.sel(time=12).sel(pressure_level=500).read_array(squeeze=True)
         result = nc.plot(
             variable="temperature",
             selectors=Selectors(time=12, level=500),

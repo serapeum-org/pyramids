@@ -45,7 +45,9 @@ class TestSelSingleValue:
         var = nc.get_variable("temp")
         result = var.sel(time=6)
         assert result.shape == (1, 3, 4), f"Expected (1, 3, 4), got {result.shape}"
-        read = result.read_array()
+        # #1241: the default read now keeps the length-one band axis; squeeze=True
+        # restores the classic single-band 2-D read this asserts.
+        read = result.read_array(squeeze=True)
         assert read.shape == (
             3,
             4,
@@ -62,7 +64,8 @@ class TestSelSingleValue:
         result = var.sel(time=12)
         expected = var.read_array()[2]
         assert_array_equal(
-            result.read_array(),
+            # #1241: squeeze the length-one band axis back to the 2-D band `expected` holds.
+            result.read_array(squeeze=True),
             expected,
             err_msg="sel data should match original band",
         )
@@ -377,7 +380,8 @@ class TestSelBoundary:
         result = var.sel(time=0)
         expected = var.read_array()[0]
         assert_array_equal(
-            result.read_array(),
+            # #1241: squeeze the length-one band axis back to the 2-D band `expected` holds.
+            result.read_array(squeeze=True),
             expected,
             err_msg="sel(first) data mismatch",
         )
@@ -393,7 +397,8 @@ class TestSelBoundary:
         result = var.sel(time=24)
         expected = var.read_array()[4]
         assert_array_equal(
-            result.read_array(),
+            # #1241: squeeze the length-one band axis back to the 2-D band `expected` holds.
+            result.read_array(squeeze=True),
             expected,
             err_msg="sel(last) data mismatch",
         )
@@ -441,7 +446,8 @@ class TestSelBoundary:
         )
         expected = var.read_array()[1]
         assert_array_equal(
-            result.read_array(),
+            # #1241: squeeze the length-one band axis back to the 2-D band `expected` holds.
+            result.read_array(squeeze=True),
             expected,
             err_msg="Float coord sel data mismatch",
         )

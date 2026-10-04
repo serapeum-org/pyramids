@@ -153,7 +153,10 @@ class TestBoundaries:
     def test_trim_drops_the_steps_that_do_not_fill_a_window(self):
         """Window 3, trimmed: one mean over the first three steps, labelled 6."""
         result = _container().coarsen("time", 3, boundary="trim").get_variable("v")
-        assert_allclose(result.read_array(), _block_nanmean(_masked(), 0, 3))
+        # #1241: the single coarsen window is kept as a size-1 axis; squeeze to the classic 2-D view.
+        assert_allclose(
+            result.read_array(squeeze=True), _block_nanmean(_masked(), 0, 3)
+        )
         assert result._band_dim_values_map["time"] == [6.0]
 
     def test_trim_refuses_a_window_longer_than_the_axis(self):
@@ -175,7 +178,10 @@ class TestBoundaries:
     def test_pad_with_a_window_longer_than_the_axis_is_one_window(self):
         """Window 5 over four steps is one window over all of them, labelled 9."""
         result = _container().coarsen("time", 5, boundary="pad").get_variable("v")
-        assert_allclose(result.read_array(), _block_nanmean(_masked(), 0, 4))
+        # #1241: the single coarsen window is kept as a size-1 axis; squeeze to the classic 2-D view.
+        assert_allclose(
+            result.read_array(squeeze=True), _block_nanmean(_masked(), 0, 4)
+        )
         assert result._band_dim_values_map["time"] == [9.0]
 
     def test_pad_without_skipna_leaves_the_partial_window_empty(self):
