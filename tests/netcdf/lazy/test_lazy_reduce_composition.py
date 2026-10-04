@@ -267,3 +267,32 @@ class TestLazyShiftComposition:
             ),
             equal_nan=True,
         )
+
+
+class TestLazyMapBlocksComposition:
+    """scipy/numpy along-dim ops compose lazily via map_blocks, bit-for-bit with the eager op."""
+
+    @requires_dask
+    def test_rank_computes_to_the_eager_result(self):
+        """`chunk().rank(...).compute()` equals `NetCDF.rank(...)` (scipy kernel via map_blocks)."""
+        var = _variable()
+        lazy = var.chunk("auto").rank("time")
+        assert isinstance(lazy, LazyNetCDF), f"got {type(lazy).__name__}"
+        assert sum(lazy.chunks["time"]) == 4, "rank keeps the length"
+        np.testing.assert_allclose(
+            np.asarray(lazy.compute().read_array()),
+            np.asarray(var.rank("time").read_array()),
+            equal_nan=True,
+        )
+
+    @requires_dask
+    def test_rank_then_reduce_chains_lazily(self):
+        """A rank followed by a reduce stays lazy and matches the eager chain."""
+        var = _variable()
+        lazy = var.chunk("auto").rank("time").reduce("pressure_level", "mean")
+        assert isinstance(lazy, LazyNetCDF), "the chain must still be lazy"
+        np.testing.assert_allclose(
+            np.asarray(lazy.compute().read_array()),
+            np.asarray(var.rank("time").reduce("pressure_level", "mean").read_array()),
+            equal_nan=True,
+        )

@@ -27,6 +27,8 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+import numpy as np
+
 from pyramids.base._utils import import_dask
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -504,6 +506,81 @@ class LazyNetCDF:
             self._warn_materialize("shift")
             return self.compute().shift(dim, periods, fill_value=fill_value)
         return self._compose_op(_Shift(periods=steps, fill_value=fill_value), dim)
+
+    def rank(self, dim: str, *, pct: bool = False) -> Any:
+        """Rank each pixel's values along a band dimension, composing lazily (#1237).
+
+        The lazy twin of :meth:`NetCDF.rank`. `rank` uses `scipy.stats.rankdata`, which needs a
+        numpy array, so it cannot stay a pure dask graph; instead the eager kernel runs per spatial
+        block (the band axis whole) through `dask.array.map_blocks`, which is lazy and bit-for-bit
+        with the eager rank. A multi-variable container ranks eagerly at the boundary, warning once.
+
+        Args:
+            dim: The band dimension to rank along.
+            pct: Whether to return ranks as a fraction of the valid count.
+
+        Returns:
+            LazyNetCDF | NetCDF: A lazy cube for a pinned variable; an eager ranked cube otherwise.
+        """
+        from pyramids.netcdf.engines._along_dim import _Rank
+
+        if len(self._current_records()) != 1:
+            self._warn_materialize("rank")
+            return self.compute().rank(dim, pct=pct)
+        return self._compose_mapblocks(_Rank(pct=pct), dim)
+
+    def _compose_mapblocks(self, op: Any, dim: str) -> LazyNetCDF:
+        """Run an `_AlongDim` op's eager kernel per spatial block via `dask.array.map_blocks`.
+
+        For ops whose kernel is numpy/scipy and does not dispatch on dask (`rank`, `interp`, `pad`,
+        the extremum locators), the band axis is rechunked whole so each block holds the full band
+        axis, and the op's `apply` runs on each `(whole bands, y-chunk, x-chunk)` numpy block
+        through `override`. The result is lazy and bit-for-bit with the eager op. The output band
+        layout (names, coords, no-data, and any dimension the op drops or resizes) is read from a
+        1x1 spatial probe, which is data-independent for these ops. The caller has checked there is
+        exactly one variable.
+
+        Returns:
+            LazyNetCDF: The cube with the op applied, still lazy.
+        """
+        import dask.array as da
+
+        op.start()
+        name, rec = next(iter(self._current_records().items()))
+        nbd = len(rec.band_names)
+        arr = rec.array.rechunk({i: -1 for i in range(nbd)})
+        meta_in = (list(rec.band_names), dict(rec.values_map), rec.no_data)
+
+        def _run(block: Any) -> Any:
+            return op.apply(self._source, None, dim, override=(block, *meta_in)).values
+
+        probe = op.apply(
+            self._source,
+            None,
+            dim,
+            override=(np.asarray(arr[..., :1, :1].compute()), *meta_in),
+        )
+        out_names = list(probe.band_names)
+        dropped = [i for i, band in enumerate(rec.band_names) if band not in out_names]
+        band_chunks = tuple((int(size),) for size in probe.values.shape[:-2])
+        new_arr = da.map_blocks(
+            _run,
+            arr,
+            dtype=probe.values.dtype,
+            drop_axis=dropped or None,
+            chunks=(*band_chunks, arr.chunks[-2], arr.chunks[-1]),
+            meta=np.empty((0,) * (len(band_chunks) + 2), dtype=probe.values.dtype),
+        )
+        new = rec._replace(
+            array=new_arr,
+            band_names=out_names,
+            values_map=dict(probe.values_map),
+            no_data=probe.no_data,
+            dim_names=(*out_names, *rec.dim_names[-2:]),
+        )
+        return LazyNetCDF(
+            self._source, {name: new_arr}, {name: new.dim_names}, {name: new}
+        )
 
     def _compose_op(self, op: Any, dim: str) -> LazyNetCDF:
         """Run an `_AlongDim` op (one supporting `override`) on the single variable's dask array.

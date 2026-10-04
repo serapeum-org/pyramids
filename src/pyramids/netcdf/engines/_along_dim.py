@@ -1065,7 +1065,13 @@ class _Rank(_AlongDim):
     verb: ClassVar[str] = "rank"
     keeps_length: ClassVar[bool] = True
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Rank one variable's values along `dim`.
 
         Args:
@@ -1078,11 +1084,12 @@ class _Rank(_AlongDim):
             value or NaN) is excluded from the ranking and comes back as the no-data value, or NaN
             when the variable declares none.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        arr, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         axis = band_names.index(dim)
-        arr = nc._materialize_variable_array(var, lazy=True)
         data = np.asarray(_gaps_as_nan(arr, ndv), dtype="float64")
         ranks = np.asarray(
             rankdata(data, method="average", axis=axis, nan_policy="omit"),
