@@ -166,6 +166,15 @@ def geodesic_distance(
             [111.3, 55.8]
 
             ```
+        - An unrecognised unit is refused, and the message lists the valid ones:
+            ```python
+            >>> from pyramids.base.geodesy import geodesic_distance
+            >>> geodesic_distance(0.0, 0.0, 1.0, 0.0, unit="furlong")
+            Traceback (most recent call last):
+                ...
+            ValueError: unknown length unit 'furlong'; expected one of km, m, mi, nmi
+
+            ```
 
     See Also:
         ground_distance_in_crs: The inverse -- a ground distance expressed in a
@@ -246,6 +255,15 @@ def ground_distance_in_crs(
             >>> y60 = 8399737.89
             >>> round(ground_distance_in_crs(100_000.0, crs=3857, at=(0.0, y60)) / 1000)
             199
+
+            ```
+        - A non-positive ground distance is refused rather than returning zero:
+            ```python
+            >>> from pyramids.base.geodesy import ground_distance_in_crs
+            >>> ground_distance_in_crs(-1.0, crs=4326, at=(0.0, 0.0))
+            Traceback (most recent call last):
+                ...
+            ValueError: distance_m must be finite and positive, got -1.0.
 
             ```
 
