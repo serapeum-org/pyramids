@@ -18,7 +18,7 @@ from shapely.geometry import MultiPolygon, Polygon
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import GeoReference, NetCDF, _coord_match
 from pyramids.netcdf._plot import NetCDFPlot
-from pyramids.netcdf.engines.selection import _lon_cell_size
+from pyramids.netcdf.engines.selection import _lon_cell_size, _read_curvilinear_window
 from tests.netcdf.samples.conftest import TOS as RECTILINEAR
 
 pytestmark = pytest.mark.core
@@ -30,6 +30,31 @@ NONE5V = "none__5v__1d2-2d2-3d1__curv.nc"
 
 def _fc(coords):
     return FeatureCollection(gpd.GeoDataFrame(geometry=[Polygon(coords)], crs=4326))
+
+
+def test_curvilinear_window_eager_matches_lazy_layout(sample):
+    """`_read_curvilinear_window` keeps the native `(*band_sizes, rows, cols)` on both paths (M2, #1241).
+
+    A multi-band-dim curvilinear variable (ROMS `salt`, band dims `(2, 6)`) must feed the identical
+    dimension-preserving layout to `from_array` whether its window is read eagerly or lazily, so the
+    crop reconstructs the same band structure both ways. The lazy branch used to flatten to
+    `(bands, rows, cols)` while the eager branch preserved the axes, collapsing the lazy crop's band
+    dimensions to a single axis.
+    """
+    nc = NetCDF.read_file(sample(ROMS))
+    try:
+        salt = nc.get_variable("salt")
+        assert tuple(salt._band_dim_sizes) == (2, 6), "fixture must be multi-band-dim"
+        r1, c1 = min(4, salt.rows), min(6, salt.columns)
+        eager = _read_curvilinear_window(salt, 0, r1, 0, c1, None)
+        lazy = _read_curvilinear_window(salt, 0, r1, 0, c1, "auto")
+        assert eager.shape == (2, 6, r1, c1), (
+            f"eager window must keep the band axes, got {eager.shape}"
+        )
+        assert eager.shape == lazy.shape, f"eager {eager.shape} != lazy {lazy.shape}"
+        np.testing.assert_array_equal(eager, lazy)
+    finally:
+        nc.close()
 
 
 def test_roms_curvilinear_crop_masks_and_windows(sample):
@@ -334,10 +359,14 @@ def test_roms_curvilinear_crop_lazy_matches_eager(sample):
     nc = NetCDF.read_file(sample(ROMS))
     try:
         aoi = [(-91, 28), (-88, 28), (-88, 30.5), (-91, 30.5)]
-        # #1241: squeeze the eager read to the classic flattened layout the lazy crop still returns.
-        eager = np.asarray(nc.get_variable("salt").crop(_fc(aoi)).read_array(squeeze=True))
-        lazy = np.asarray(
-            nc.get_variable("salt").crop(_fc(aoi), chunks="auto").read_array()
+        # #1241: both crops keep the native dimension-preserving layout, so the eager and lazy
+        # results match in shape and band structure without squeezing either side.
+        eager_var = nc.get_variable("salt").crop(_fc(aoi))
+        lazy_var = nc.get_variable("salt").crop(_fc(aoi), chunks="auto")
+        eager = np.asarray(eager_var.read_array())
+        lazy = np.asarray(lazy_var.read_array())
+        assert tuple(eager_var._band_dim_sizes) == tuple(lazy_var._band_dim_sizes), (
+            f"band structure differs: {eager_var._band_dim_sizes} vs {lazy_var._band_dim_sizes}"
         )
         assert lazy.shape == eager.shape
         assert np.allclose(lazy, eager, equal_nan=True)

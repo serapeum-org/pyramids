@@ -5157,9 +5157,12 @@ def _read_curvilinear_window(
     """Read just the ``(r0:r1, c0:c1)`` bounding window of a curvilinear variable.
 
     With ``chunks`` the read goes through the dask-backed lazy path (only the
-    overlapping chunks materialise) and the native ``(d0, …, rows, cols)`` shape
-    is flattened to ``(bands, rows, cols)``; otherwise GDAL reads just the
-    ``(c0, r0)``–``(c1, r1)`` block eagerly. Helper of
+    overlapping chunks materialise); otherwise GDAL reads just the ``(c0, r0)``–
+    ``(c1, r1)`` block eagerly. Both paths return the variable's native
+    dimension-preserving ``(*band_sizes, rows, cols)`` shape (a size-1 band axis kept,
+    a 2-D plane for a variable with no band dimensions), so the crop keeps the band
+    structure the caller's :meth:`from_array` rebuild reconstructs from that shape — the
+    eager and lazy crops produce the identical layout (#1241). Helper of
     :meth:`Selection._crop_curvilinear`.
 
     Reads with ``unpack=False``. The caller stamps the variable's **stored** no-data
@@ -5169,9 +5172,9 @@ def _read_curvilinear_window(
     declare the recipe over both.
     """
     if chunks is not None:
+        # Keep the native ``(*band_sizes, rows, cols)`` shape (no flatten) so the lazy crop
+        # rebuilds the same band structure the eager crop does (#1241).
         lazy = nc.read_array(chunks=chunks, unpack=False)
-        if lazy.ndim > 2:
-            lazy = lazy.reshape(-1, *lazy.shape[-2:])
         return np.array(cast("Any", lazy[..., r0:r1, c0:c1]).compute(), copy=True)
     return np.array(
         nc.read_array(window=[c0, r0, c1 - c0, r1 - r0], unpack=False), copy=True
