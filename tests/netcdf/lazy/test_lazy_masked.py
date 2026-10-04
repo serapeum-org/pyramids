@@ -40,7 +40,9 @@ class TestLazyMasked:
         assert isinstance(lazy, np.ma.MaskedArray), (
             f"expected MaskedArray, got {type(lazy)}"
         )
-        assert eager.shape == lazy.shape, f"shape differs: {eager.shape} vs {lazy.shape}"
+        assert eager.shape == lazy.shape, (
+            f"shape differs: {eager.shape} vs {lazy.shape}"
+        )
         np.testing.assert_array_equal(
             np.ma.getmaskarray(eager), np.ma.getmaskarray(lazy)
         )

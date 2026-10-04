@@ -73,8 +73,9 @@ def test_curvilinear_crop_keeps_band_dimension_names_and_coords(sample):
         assert cropped._band_dim_names == ("ocean_time", "s_rho"), (
             f"band-dim names lost by crop: {cropped._band_dim_names}"
         )
-        assert cropped._band_dim_values_map["ocean_time"] == (
-            salt._band_dim_values_map["ocean_time"]
+        assert (
+            cropped._band_dim_values_map["ocean_time"]
+            == (salt._band_dim_values_map["ocean_time"])
         ), "ocean_time coordinate values lost by crop"
         # `sel` by the real coordinate must still resolve after the crop.
         picked = cropped.sel(ocean_time=first_time)

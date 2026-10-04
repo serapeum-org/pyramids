@@ -88,7 +88,9 @@ class TestSelSeveralDimensions:
         chained = cube.sel(time=time_value).sel(pressure_level=level_value)
 
         assert_array_equal(
-            together.read_array(squeeze=True),  # #1241: squeeze to the classic 2-D plane
+            together.read_array(
+                squeeze=True
+            ),  # #1241: squeeze to the classic 2-D plane
             _plane(time_index, level_index),
             err_msg=f"sel(time={time_value}, pressure_level={level_value}) read the wrong plane",
         )
@@ -225,7 +227,9 @@ class TestSelSeveralDimensions:
             f"after both cuts, expected (2, 1), got {after_both._band_dim_sizes}"
         )
         assert_array_equal(
-            after_both.read_array(squeeze=True),  # #1241: classic flattened (bands, y, x)
+            after_both.read_array(
+                squeeze=True
+            ),  # #1241: classic flattened (bands, y, x)
             np.stack([_plane(1, 2), _plane(3, 2)]),
             err_msg="the two kept steps must be read at level 500",
         )

@@ -491,7 +491,9 @@ class TestLazyOrientationMatchesEager:
         """
         path = self._NON_TRAILING_FIXTURE
         # #1241: eager now preserves band dims; squeeze to the classic flattening the lazy fold matches.
-        eager = np.asarray(NetCDF.read_file(path).get_variable("T").read_array(squeeze=True))
+        eager = np.asarray(
+            NetCDF.read_file(path).get_variable("T").read_array(squeeze=True)
+        )
         lazy = np.asarray(
             NetCDF.read_file(path).get_variable("T").read_array(chunks="auto")
         )

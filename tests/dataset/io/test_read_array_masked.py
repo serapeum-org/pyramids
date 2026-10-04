@@ -686,7 +686,9 @@ class TestNetCDFMaskedReads:
         result = var.read_array(masked=True)
         assert isinstance(result, np.ma.MaskedArray), f"got {type(result).__name__}"
         assert result.shape == (2, 3, 4, 5), f"band axes dropped: {result.shape}"
-        assert result.mask.sum() == 1, f"expected 1 masked cell, got {result.mask.sum()}"
+        assert result.mask.sum() == 1, (
+            f"expected 1 masked cell, got {result.mask.sum()}"
+        )
         assert bool(result.mask[1, 2, 3, 4]), "the fill cell must be the masked one"
 
     def test_subset_masked_read(self, nc_subset):
@@ -723,7 +725,9 @@ class TestNetCDFMaskedReads:
         eager = var.read_array(masked=True)
         lazy = var.read_array(chunks=2, masked=True).compute()
         assert isinstance(lazy, np.ma.MaskedArray), f"got {type(lazy).__name__}"
-        assert eager.shape == lazy.shape, f"shape differs: {eager.shape} vs {lazy.shape}"
+        assert eager.shape == lazy.shape, (
+            f"shape differs: {eager.shape} vs {lazy.shape}"
+        )
         np.testing.assert_array_equal(
             np.ma.getmaskarray(eager), np.ma.getmaskarray(lazy)
         )
