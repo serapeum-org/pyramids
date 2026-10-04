@@ -60,7 +60,7 @@ from pyramids.dataset.engines.io import _caller_stacklevel
 from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
-from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
+from pyramids.netcdf._lazy import apply_unpack, build_lazy_array, mask_no_data
 from pyramids.netcdf._lazy_cube import LazyNetCDF
 from pyramids.netcdf._mdim import (
     GEOSTATIONARY_PROJECTION,
@@ -91,6 +91,7 @@ from pyramids.netcdf.cf import (
 )
 from pyramids.netcdf.engines import interop as _interop
 from pyramids.netcdf.engines import variables as _variables
+from pyramids.netcdf.engines._along_dim import _read_no_data
 from pyramids.netcdf.engines.combine import concat as _concat
 from pyramids.netcdf.engines.combine import merge as _merge
 from pyramids.netcdf.engines.interop import Interop
@@ -5585,12 +5586,13 @@ class NetCDF(Dataset):
                 `False` → :class:`pyramids.base._locks.DummyLock`.
                 Only meaningful when `chunks` is not `None`.
             masked: When `True`, return a :class:`numpy.ma.MaskedArray`
-                with the variable's no-data / fill cells masked (eager
-                path only; combining with `chunks` raises
-                :class:`NotImplementedError`). The mask is built from the
-                raw stored values before any `unpack` scaling, matching CF
-                `_FillValue` semantics; the scale/offset arithmetic
-                preserves the mask. Default is `False`.
+                with the variable's no-data / fill cells masked. On the
+                eager path the mask is built from the raw stored values
+                before any `unpack` scaling; on the lazy path (`chunks=`)
+                the same cells are masked after unpack, against the
+                physical sentinel, so the lazy result computes to the same
+                masked array (a lazy `dask` masked array until computed).
+                Default is `False`.
             bbox_rounding (keyword-only): How a `bbox` (or geometry
                 `window`) is snapped to whole pixels — `"cover"`
                 (default; floor/ceil so every overlapping pixel is kept)
@@ -5618,8 +5620,6 @@ class NetCDF(Dataset):
                 `chunks=` + `window=` rule).
             ImportError: If `chunks` is given but `dask` is not
                 installed. Install the `[lazy]` extra.
-            NotImplementedError: If `masked=True` is combined with
-                `chunks` (lazy masked reads are not supported yet).
 
         Note:
             Two limitations are specific to the lazy (`chunks`) path:
@@ -5751,7 +5751,7 @@ class NetCDF(Dataset):
                 band, read_window, masked, bbox_rounding, unpack
             )
         else:
-            result = self._read_array_lazy(chunks, lock, masked)
+            result = self._read_array_lazy(chunks, lock)
             # The lazy path builds its array straight from the MDArray rather than
             # through the raster read, so it applies the packing itself -- from
             # `_effective_packing`, the same resolver the eager arm uses. Reading
@@ -5760,6 +5760,11 @@ class NetCDF(Dataset):
             # own but the driver's band does: eager 2.5, lazy 100.0.
             if unpack:
                 result = apply_unpack(result, *self._effective_packing())
+            # Mask after unpack, against the physical sentinel (`_read_no_data`), so the lazy
+            # masked read yields the same np.ma.MaskedArray the eager path does (#1227). Masking
+            # the unpacked result with the unpacked fill marks exactly the eager fill cells.
+            if masked:
+                result = mask_no_data(result, _read_no_data(self))
         return cast(ArrayLike, result)
 
     def _read_non_raster_variable(
@@ -6066,7 +6071,7 @@ class NetCDF(Dataset):
             ),
         )
 
-    def _read_array_lazy(self, chunks: Any, lock: Any, masked: bool) -> ArrayLike:
+    def _read_array_lazy(self, chunks: Any, lock: Any) -> ArrayLike:
         """The dask read, through `build_lazy_array`, once the request can be served.
 
         A lazy read reopens the variable from its store, so it needs a path and a name to
@@ -6074,28 +6079,21 @@ class NetCDF(Dataset):
         rebuilt in memory by `where`, `fillna`, `isnull` or `notnull` keeps the name it is
         called by, for labelling, but its values are its own; without the flag it carries
         that read reached for `file::name` and failed inside GDAL with a bare
-        `No such file or directory`.
+        `No such file or directory`. Masking (`masked=True`) is applied by the caller
+        (`read_array`) after unpack, via :func:`mask_no_data`.
 
         Args:
             chunks: The dask chunk specification.
             lock: The read lock handed to `build_lazy_array`.
-            masked: Whether the caller asked for a masked array, which this read has no
-                answer for.
 
         Returns:
             ArrayLike: The dask array.
 
         Raises:
-            NotImplementedError: `masked=True` was combined with `chunks=`.
             ValueError: There is no variable name to reopen — the receiver is a container
                 rather than a variable — or the variable was rebuilt in memory, so the
                 store no longer holds these cells. Read it eagerly instead.
         """
-        if masked:
-            raise NotImplementedError(
-                "read_array(masked=True) is not supported together with "
-                "chunks=; read eagerly, or mask the dask array yourself."
-            )
         parent = self._parent_nc if self._parent_nc is not None else self
         # Prefer the real /vsimem backing path over a cosmetic from_bytes `name=` that shadows
         # _file_name, so a named in-memory lazy read reopens the true source (#1058; same family as

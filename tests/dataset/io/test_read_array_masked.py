@@ -677,14 +677,33 @@ class TestNetCDFMaskedReads:
             f"expected 1 masked cell, got {result.mask.sum()}"
         )
 
-    def test_lazy_masked_raises(self, nc_subset):
-        """The NetCDF lazy path rejects masked=True explicitly.
+    def test_lazy_masked_matches_eager(self, tmp_path):
+        """The NetCDF lazy path masks the same cells as the eager read (#1227).
 
         Test scenario:
-            chunks= + masked= raises before any dask graph is built.
+            chunks= + masked= on a file-backed variable returns a dask masked array that
+            computes to the same MaskedArray the eager read returns (lazy masking used to
+            raise NotImplementedError).
         """
-        with pytest.raises(NotImplementedError, match="masked=True"):
-            nc_subset.read_array(chunks=2, masked=True)
+        arr = np.array([[[1.0, -9999.0], [3.0, 4.0]]], dtype="float32")
+        nc = NetCDF.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+            variable_name="t",
+            no_data_value=-9999.0,
+        )
+        path = tmp_path / "masked_subset.nc"
+        nc.to_file(str(path))
+        var = NetCDF.read_file(str(path)).get_variable("t")
+        eager = var.read_array(masked=True)
+        lazy = var.read_array(chunks=2, masked=True).compute()
+        assert isinstance(lazy, np.ma.MaskedArray), f"got {type(lazy).__name__}"
+        np.testing.assert_array_equal(
+            np.ma.getmaskarray(eager).ravel(), np.ma.getmaskarray(lazy).ravel()
+        )
+        np.testing.assert_array_equal(
+            np.ma.getdata(eager).ravel(), np.ma.getdata(lazy).ravel()
+        )
 
     def test_unpack_preserves_mask(self, nc_subset):
         """CF unpack scaling preserves the mask built from raw values.
