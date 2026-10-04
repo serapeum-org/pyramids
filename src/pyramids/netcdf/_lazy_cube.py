@@ -459,6 +459,81 @@ class LazyNetCDF:
             return self.compute().diff(dim, n, label=label)
         return self._compose_direct(_diffed_array, dim, n=order, label=label)
 
+    def cumsum(self, dim: str, *, skipna: bool = True) -> Any:
+        """Running total along a band dimension, composing lazily (#1237).
+
+        The lazy twin of :meth:`NetCDF.cumsum`; the cumulative sum stays a deferred `dask.array`
+        step, keeping the dimension's length. A multi-variable container totals eagerly at the
+        boundary, warning once.
+
+        Args:
+            dim: The band dimension to total along.
+            skipna: Whether gaps are skipped.
+
+        Returns:
+            LazyNetCDF | NetCDF: A lazy cube for a pinned variable; an eager totalled cube otherwise.
+        """
+        from pyramids.netcdf.engines._along_dim import _CumSum
+
+        if len(self._current_records()) != 1:
+            self._warn_materialize("cumsum")
+            return self.compute().cumsum(dim, skipna=skipna)
+        return self._compose_op(_CumSum(skipna=bool(skipna)), dim)
+
+    def shift(self, dim: str, periods: int = 1, *, fill_value: Any = None) -> Any:
+        """Shift values along a band dimension, composing lazily (#1237).
+
+        The lazy twin of :meth:`NetCDF.shift`; the shift stays a deferred `dask.array` step,
+        keeping the dimension's length. A multi-variable container shifts eagerly at the boundary,
+        warning once.
+
+        Args:
+            dim: The band dimension to shift along.
+            periods: How many steps to move (positive towards the end, negative the other way).
+            fill_value: The value for the vacated steps; the variable's no-data (or NaN) by default.
+
+        Returns:
+            LazyNetCDF | NetCDF: A lazy cube for a pinned variable; an eager shifted cube otherwise.
+        """
+        from pyramids.netcdf.engines._along_dim import _Shift
+        from pyramids.netcdf.engines.selection import _check_fill_value, _check_periods
+
+        steps = _check_periods(periods)
+        _check_fill_value(fill_value)
+        if len(self._current_records()) != 1:
+            self._warn_materialize("shift")
+            return self.compute().shift(dim, periods, fill_value=fill_value)
+        return self._compose_op(_Shift(periods=steps, fill_value=fill_value), dim)
+
+    def _compose_op(self, op: Any, dim: str) -> LazyNetCDF:
+        """Run an `_AlongDim` op (one supporting `override`) on the single variable's dask array.
+
+        Sets `op.materialize = False` so the op's `apply` returns a deferred dask array, and runs
+        it on the cube's current array via `override`, for ops whose kernel keeps instance state
+        (so a factored free function would be awkward). The caller has checked one variable.
+
+        Returns:
+            LazyNetCDF: The cube with the op applied, still lazy.
+        """
+        op.materialize = False
+        name, rec = next(iter(self._current_records().items()))
+        applied = op.apply(
+            self._source,
+            None,
+            dim,
+            override=(rec.array, rec.band_names, rec.values_map, rec.no_data),
+        )
+        new = rec._replace(
+            array=applied.values,
+            band_names=applied.band_names,
+            values_map=applied.values_map,
+            no_data=applied.no_data,
+            dim_names=(*applied.band_names, *rec.dim_names[-2:]),
+        )
+        return LazyNetCDF(
+            self._source, {name: applied.values}, {name: new.dim_names}, {name: new}
+        )
+
     def _compose_direct(self, kernel: Any, dim: str, **params: Any) -> LazyNetCDF:
         """Run a factored along-dim `kernel` on the single variable's dask array, deferring it.
 

@@ -463,7 +463,13 @@ class _CumSum(_AlongDim):
     verb: ClassVar[str] = "accumulate"
     keeps_length: ClassVar[bool] = True
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Total one variable along `dim`.
 
         Args:
@@ -478,11 +484,12 @@ class _CumSum(_AlongDim):
             no-data value: the sentinel went into the running total, so no cell holds it any
             more and declaring it would mask whatever total happened to land on it.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        arr, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         axis = band_names.index(dim)
-        arr = nc._materialize_variable_array(var, lazy=True)
         if self.skipna:
             data = _gaps_as_nan(arr, ndv)
             fill = np.nan if ndv is None else ndv
@@ -495,7 +502,10 @@ class _CumSum(_AlongDim):
         else:
             values = self._raw(arr, axis)
             result_ndv = None
-        return _Applied(np.asarray(values), band_names, values_map, result_ndv)
+        # `materialize=False` (a lazy cube, #1237) keeps the running total a deferred dask array.
+        if self.materialize:
+            values = np.asarray(values)
+        return _Applied(values, band_names, values_map, result_ndv)
 
     @staticmethod
     def _skipping(data: Any, axis: int) -> Any:
@@ -586,7 +596,13 @@ class _Shift(_AlongDim):
     verb: ClassVar[str] = "shift"
     keeps_length: ClassVar[bool] = True
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Shift one variable along `dim`.
 
         Args:
@@ -604,11 +620,12 @@ class _Shift(_AlongDim):
         Raises:
             ValueError: The band cannot hold `fill_value`.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        data, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         axis = band_names.index(dim)
-        data = nc._materialize_variable_array(var, lazy=True)
         if self.fill_value is None:
             if ndv is None:
                 data = (
@@ -633,7 +650,10 @@ class _Shift(_AlongDim):
             fill = self.fill_value
             result_ndv = ndv
         values = _shifted(data, axis, self.periods, fill)
-        return _Applied(np.asarray(values), band_names, values_map, result_ndv)
+        # `materialize=False` (a lazy cube, #1237) keeps the shifted dask array deferred.
+        if self.materialize:
+            values = np.asarray(values)
+        return _Applied(values, band_names, values_map, result_ndv)
 
 
 @dataclass

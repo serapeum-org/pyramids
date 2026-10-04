@@ -209,3 +209,61 @@ class TestLazyDiffComposition:
             np.asarray(expected.read_array()),
             equal_nan=True,
         )
+
+
+class TestLazyCumsumComposition:
+    """`cumsum` composes over dask, keeps the length, and matches the eager cumsum."""
+
+    @requires_dask
+    def test_cumsum_returns_a_lazy_cube(self):
+        """A lazy cumsum stays lazy and keeps `time` at length 4."""
+        lazy = _variable().chunk("auto").cumsum("time")
+        assert isinstance(lazy, LazyNetCDF), f"got {type(lazy).__name__}"
+        assert sum(lazy.chunks["time"]) == 4, (
+            f"cumsum keeps the length, got {lazy.chunks}"
+        )
+
+    @requires_dask
+    def test_cumsum_computes_to_the_eager_result(self):
+        """`chunk().cumsum(...).compute()` equals `NetCDF.cumsum(...)`."""
+        var = _variable()
+        got = var.chunk("auto").cumsum("time").compute()
+        expected = var.cumsum("time")
+        np.testing.assert_allclose(
+            np.asarray(got.read_array()),
+            np.asarray(expected.read_array()),
+            equal_nan=True,
+        )
+
+
+class TestLazyShiftComposition:
+    """`shift` composes over dask, keeps the length, and matches the eager shift."""
+
+    @requires_dask
+    def test_shift_computes_to_the_eager_result(self):
+        """`chunk().shift(...).compute()` equals `NetCDF.shift(...)`, keeping the length."""
+        var = _variable()
+        lazy = var.chunk("auto").shift("time", 1)
+        assert isinstance(lazy, LazyNetCDF), f"got {type(lazy).__name__}"
+        assert sum(lazy.chunks["time"]) == 4, (
+            f"shift keeps the length, got {lazy.chunks}"
+        )
+        np.testing.assert_allclose(
+            np.asarray(lazy.compute().read_array()),
+            np.asarray(var.shift("time", 1).read_array()),
+            equal_nan=True,
+        )
+
+    @requires_dask
+    def test_shift_minus_eager_diff_chains_lazily(self):
+        """A shift stays lazy and, as the docs note, `var - var.shift(1)` tracks `diff`."""
+        var = _variable()
+        lazy = var.chunk("auto").shift("time", 1).reduce("pressure_level", "mean")
+        assert isinstance(lazy, LazyNetCDF), "the chain must still be lazy"
+        np.testing.assert_allclose(
+            np.asarray(lazy.compute().read_array()),
+            np.asarray(
+                var.shift("time", 1).reduce("pressure_level", "mean").read_array()
+            ),
+            equal_nan=True,
+        )
