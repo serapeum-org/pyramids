@@ -14,6 +14,7 @@ from osgeo import gdal, osr
 from pyramids.dataset import Dataset
 from pyramids.dataset.window import Window
 from pyramids.netcdf import GeoReference, NetCDF
+from tests._marks import requires_dask
 
 pytestmark = pytest.mark.core
 
@@ -703,6 +704,7 @@ class TestNetCDFMaskedReads:
             f"expected 1 masked cell, got {result.mask.sum()}"
         )
 
+    @requires_dask
     def test_lazy_masked_matches_eager(self, tmp_path):
         """The NetCDF lazy path masks the same cells as the eager read (#1227).
 
@@ -733,6 +735,7 @@ class TestNetCDFMaskedReads:
         )
         np.testing.assert_array_equal(eager.filled(np.nan), lazy.filled(np.nan))
 
+    @requires_dask
     def test_lazy_masked_matches_eager_when_packed(self, tmp_path):
         """Under CF packing the lazy masked read keeps the eager mask and physical values (#1227).
 
