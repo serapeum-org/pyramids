@@ -665,6 +665,30 @@ class TestNetCDFMaskedReads:
         )
         return nc.get_variable("t")
 
+    def test_masked_default_squeeze_preserves_shape_and_mask(self):
+        """A masked full read at the default (preserve) keeps the band axes and the mask (L2, #1241).
+
+        Test scenario:
+            A multi-band-dim variable read with `masked=True` and the default `squeeze=False`
+            routes a MaskedArray through `_preserve_band_dims` (`expand_dims` + reshape). Both
+            the dimension-preserving shape and the mask must survive that reshape.
+        """
+        arr = np.arange(2 * 3 * 4 * 5, dtype="float32").reshape(2, 3, 4, 5)
+        arr[1, 2, 3, 4] = -9999.0
+        nc = NetCDF.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 4), cell_size=1.0, epsg=4326),
+            variable_name="t",
+            no_data_value=-9999.0,
+        )
+        var = nc.get_variable("t")
+        assert tuple(var._band_dim_sizes) == (2, 3), "fixture must be multi-band-dim"
+        result = var.read_array(masked=True)
+        assert isinstance(result, np.ma.MaskedArray), f"got {type(result).__name__}"
+        assert result.shape == (2, 3, 4, 5), f"band axes dropped: {result.shape}"
+        assert result.mask.sum() == 1, f"expected 1 masked cell, got {result.mask.sum()}"
+        assert bool(result.mask[1, 2, 3, 4]), "the fill cell must be the masked one"
+
     def test_subset_masked_read(self, nc_subset):
         """A variable subset honours masked=True through the super() path.
 
