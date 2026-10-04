@@ -5591,9 +5591,15 @@ class NetCDF(Dataset):
                 eager path the mask is built from the raw stored values
                 before any `unpack` scaling; on the lazy path (`chunks=`)
                 the same cells are masked after unpack, against the
-                physical sentinel, so the lazy result computes to the same
-                masked array (a lazy `dask` masked array until computed).
-                Default is `False`.
+                physical sentinel. The lazy result (a lazy `dask` masked
+                array until computed) carries the **identical mask** and the
+                **identical unmasked physical values** as the eager read, and
+                `filled(...)` agrees cell for cell. Only the raw data stored
+                *under* a masked cell may differ between the two — the eager
+                path keeps the stored sentinel there, the lazy path the
+                unpacked one — which is immaterial to a masked array (every
+                reduction, comparison and `filled()` ignores masked
+                positions). Default is `False`.
             bbox_rounding (keyword-only): How a `bbox` (or geometry
                 `window`) is snapped to whole pixels — `"cover"`
                 (default; floor/ceil so every overlapping pixel is kept)
@@ -5782,8 +5788,9 @@ class NetCDF(Dataset):
             if unpack:
                 result = apply_unpack(result, *self._effective_packing())
             # Mask after unpack, against the physical sentinel (`_read_no_data`), so the lazy
-            # masked read yields the same np.ma.MaskedArray the eager path does (#1227). Masking
-            # the unpacked result with the unpacked fill marks exactly the eager fill cells.
+            # masked read marks exactly the eager fill cells (#1227): the mask and the unmasked
+            # physical values match the eager read. Only the raw value left under a masked cell
+            # differs (unpacked here vs the stored sentinel eager), which a masked array ignores.
             if masked:
                 result = mask_no_data(result, _read_no_data(self))
             # squeeze=True converges the lazy shape on the eager one: flatten the separate band

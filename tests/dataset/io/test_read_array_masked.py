@@ -681,9 +681,10 @@ class TestNetCDFMaskedReads:
         """The NetCDF lazy path masks the same cells as the eager read (#1227).
 
         Test scenario:
-            chunks= + masked= on a file-backed variable returns a dask masked array that
-            computes to the same MaskedArray the eager read returns (lazy masking used to
-            raise NotImplementedError).
+            chunks= + masked= on a file-backed variable returns a dask masked array whose
+            computed mask, unmasked values and `filled()` match the eager read's (lazy
+            masking used to raise NotImplementedError). The raw value under a masked cell is
+            not compared — a masked array leaves it unspecified (see the packed variant).
         """
         arr = np.array([[[1.0, -9999.0], [3.0, 4.0]]], dtype="float32")
         nc = NetCDF.from_array(
@@ -698,12 +699,45 @@ class TestNetCDFMaskedReads:
         eager = var.read_array(masked=True)
         lazy = var.read_array(chunks=2, masked=True).compute()
         assert isinstance(lazy, np.ma.MaskedArray), f"got {type(lazy).__name__}"
+        assert eager.shape == lazy.shape, f"shape differs: {eager.shape} vs {lazy.shape}"
         np.testing.assert_array_equal(
-            np.ma.getmaskarray(eager).ravel(), np.ma.getmaskarray(lazy).ravel()
+            np.ma.getmaskarray(eager), np.ma.getmaskarray(lazy)
         )
+        np.testing.assert_array_equal(eager.filled(np.nan), lazy.filled(np.nan))
+
+    def test_lazy_masked_matches_eager_when_packed(self, tmp_path):
+        """Under CF packing the lazy masked read keeps the eager mask and physical values (#1227).
+
+        Test scenario:
+            With a non-identity `scale`/`offset`, the lazy and eager masked reads agree on the
+            mask, on every unmasked physical value, and on `filled(nan)`. The raw value stored
+            *under* a masked cell legitimately differs — eager keeps the stored sentinel, lazy
+            the unpacked one — which is immaterial to a masked array; this test pins that
+            boundary so the contract is not silently over-tightened to "same getdata".
+        """
+        arr = np.array([[[1.0, -9999.0], [3.0, 4.0]]], dtype="float32")
+        nc = NetCDF.from_array(
+            arr,
+            geo_ref=GeoReference(top_left_corner=(0, 2), cell_size=1.0, epsg=4326),
+            variable_name="t",
+            no_data_value=-9999.0,
+        )
+        path = tmp_path / "masked_packed.nc"
+        nc.to_file(str(path))
+        var = NetCDF.read_file(str(path)).get_variable("t")
+        var._scale = 2.0
+        var._offset = 1.0
+        eager = var.read_array(masked=True, unpack=True)
+        lazy = var.read_array(chunks=2, masked=True, unpack=True).compute()
         np.testing.assert_array_equal(
-            np.ma.getdata(eager).ravel(), np.ma.getdata(lazy).ravel()
+            np.ma.getmaskarray(eager), np.ma.getmaskarray(lazy)
         )
+        np.testing.assert_array_equal(eager.compressed(), lazy.compressed())
+        np.testing.assert_array_equal(eager.filled(np.nan), lazy.filled(np.nan))
+        # The guaranteed contract is mask + unmasked values, not the raw byte under the mask:
+        # eager keeps the stored sentinel there, lazy the unpacked one.
+        masked_cell = np.ma.getmaskarray(eager)
+        assert np.ma.getdata(eager)[masked_cell] != np.ma.getdata(lazy)[masked_cell]
 
     def test_unpack_preserves_mask(self, nc_subset):
         """CF unpack scaling preserves the mask built from raw values.
