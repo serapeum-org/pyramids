@@ -100,7 +100,7 @@ class TestNetCDFPlotSelectors:
             numeric coords).
         """
         _nc, _times, var = _make_3d_nc_with_dates()
-        expected = var.sel(time="2024-01-15").read_array()
+        expected = var.sel(time="2024-01-15").read_array(squeeze=True)
         captured: dict = {}
 
         with patch.object(
@@ -119,7 +119,7 @@ class TestNetCDFPlotSelectors:
     def test_sel_dict_pins_correct_slice(self):
         """`sel={"time": value}` is forwarded verbatim to `self.sel(...)`."""
         _nc, _times, var = _make_3d_nc_with_dates()
-        expected = var.sel(time="2024-01-14").read_array()
+        expected = var.sel(time="2024-01-14").read_array(squeeze=True)
         captured: dict = {}
 
         with patch.object(
@@ -164,7 +164,7 @@ class TestNetCDFPlotSelectors:
         """
         nc = _make_4d_nc()
         var = nc.get_variable("temperature")
-        expected = var.sel(time=12).sel(pressure_level=500).read_array()
+        expected = var.sel(time=12).sel(pressure_level=500).read_array(squeeze=True)
         captured: dict = {}
 
         with patch.object(
@@ -621,7 +621,7 @@ class TestNetCDFPlotSelectorMethod:
         """
         nc = _make_4d_nc()
         var = nc.get_variable("temperature")
-        expected = var.sel(time=0).sel(pressure_level=500).read_array()
+        expected = var.sel(time=0).sel(pressure_level=500).read_array(squeeze=True)
         captured: dict = {}
 
         with patch.object(
@@ -668,7 +668,9 @@ class TestNetCDFPlotSelectorMethodPerDim:
         stamps = ["2024-01-13", "2024-01-14", "2024-01-15"]
         var._band_dim_values_map = dict(var._band_dim_values_map)
         var._band_dim_values_map["time"] = list(stamps)
-        expected = var.sel(time="2024-01-14").sel(pressure_level=500).read_array()
+        expected = (
+            var.sel(time="2024-01-14").sel(pressure_level=500).read_array(squeeze=True)
+        )
         captured: dict = {}
 
         with patch.object(
@@ -689,7 +691,7 @@ class TestNetCDFPlotSelectorMethodPerDim:
     def test_string_label_dim_is_not_snapped(self):
         """A dim selected by label renders exactly even when ``method='nearest'`` is set."""
         _nc, _times, var = _make_3d_nc_with_dates()
-        expected = var.sel(time="2024-01-15").read_array()
+        expected = var.sel(time="2024-01-15").read_array(squeeze=True)
         captured: dict = {}
 
         with patch.object(
@@ -745,7 +747,7 @@ class TestNetCDFPlotSelectorMethodOnARealCFAxis:
         """
         nc = NetCDF.read_file(self.CF_PATH)
         var = nc.get_variable("temperature")
-        expected = var.sel(time=6.0).sel(pressure_level=850.0).read_array()
+        expected = var.sel(time=6.0).sel(pressure_level=850.0).read_array(squeeze=True)
         captured: dict = {}
 
         with patch.object(
