@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from pyproj import Geod
+from pyproj import CRS, Geod, Transformer
 from pyproj.exceptions import ProjError
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
 
@@ -433,3 +433,69 @@ class TestGeodesicGeometryArea:
         )
         assert at_60 == pytest.approx(6122.943163071411)
         assert at_60 < at_equator / 2
+
+
+class TestGradUnitGeodeticCRS:
+    """A geodetic counterpart in grads must not be read as degrees (M1).
+
+    `always_xy=True` normalises axis *order*, not *units*, so a CRS whose
+    geodetic counterpart is `NTF (Paris)` (EPSG:4807, axis unit `grad`) hands
+    `Geod` grads. Read as degrees that is wrong by the grad/degree ratio, twice
+    over -- 11% to 45% on the legacy French Lambert zones, with nothing raised.
+    """
+
+    @staticmethod
+    def _reference(code: int, at: tuple[float, float], distance_m: float) -> float:
+        """The same algorithm routed explicitly through EPSG:4326, as a control.
+
+        Not an exact oracle: going via WGS 84 applies an NTF-to-WGS84 datum
+        shift that the implementation avoids by staying on the CRS's own datum,
+        and NTF (Paris) measures longitude from Paris rather than Greenwich.
+        Those leave a ~5e-5 relative difference, which is why the assertions
+        below use `rel=1e-3` -- loose enough to absorb the datum shift, three
+        orders of magnitude tighter than the 11-45% unit bug it pins.
+        """
+        crs = CRS.from_user_input(code)
+        to_degrees = Transformer.from_crs(crs, 4326, always_xy=True)
+        to_native = Transformer.from_crs(4326, crs, always_xy=True)
+        lon, lat = to_degrees.transform(*at)
+        lon_end, lat_end, _ = crs.get_geod().fwd(lon, lat, 90.0, distance_m)
+        x_end, y_end = to_native.transform(lon_end, lat_end)
+        return float(np.hypot(x_end - at[0], y_end - at[1]))
+
+    @pytest.mark.parametrize(
+        ("code", "at"),
+        [
+            (27561, (600000.0, 1200000.0)),
+            (27562, (600000.0, 2200000.0)),
+            (27563, (600000.0, 3200000.0)),
+        ],
+    )
+    def test_french_lambert_matches_the_degree_route(self, code: int, at: tuple):
+        """A grad-geodetic CRS agrees with the explicit degree route."""
+        expected = self._reference(code, at, 100_000.0)
+        assert ground_distance_in_crs(100_000.0, crs=code, at=at) == pytest.approx(
+            expected, rel=1e-3
+        )
+
+    def test_degree_geodetic_crs_is_unaffected(self):
+        """Lambert-93, whose geodetic counterpart is in degrees, is the control."""
+        at = (700000.0, 6600000.0)
+        expected = self._reference(2154, at, 100_000.0)
+        # Exact here: a degree-axis geodetic CRS on the same datum as WGS 84
+        # means the control and the implementation take the identical route.
+        assert ground_distance_in_crs(100_000.0, crs=2154, at=at) == pytest.approx(
+            expected, rel=1e-12
+        )
+
+    def test_ntf_paris_itself(self):
+        """Measuring in EPSG:4807 answers in grads, its own unit.
+
+        400 grads span the circle where 360 degrees do, so a grad is the smaller
+        unit and a given ground distance occupies `1 / 0.9` times as many of
+        them. Latitude 50 grads is latitude 45 degrees, so the two calls measure
+        at the same place.
+        """
+        in_grads = ground_distance_in_crs(100_000.0, crs=4807, at=(0.0, 50.0))
+        in_degrees = ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 45.0))
+        assert in_grads == pytest.approx(in_degrees / 0.9, rel=1e-3)

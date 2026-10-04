@@ -286,3 +286,69 @@ class TestGeodesicDistance:
         fc = FeatureCollection(gpd.GeoDataFrame(geometry=[Point(0, 0)]))
         with pytest.raises(CRSError, match="has no CRS"):
             fc.geodesic_distance(Point(1, 0))
+
+
+class TestGradUnitGeodeticCRS:
+    """A grad-axis geodetic counterpart must not be read as degrees (M1 sibling).
+
+    `_geodesic_geometries` reprojects a projected collection into its datum's
+    geographic CRS, which for the legacy French Lambert zones is `NTF (Paris)`
+    with **grad** axes. Handing those to `pyproj.Geod` as degrees inflates every
+    measurement, exactly as it did in `ground_distance_in_crs`.
+    """
+
+    @staticmethod
+    def _reference_km(line: LineString, code: int) -> float:
+        """Ground length of `line` routed explicitly through EPSG:4326."""
+        native = gpd.GeoSeries([line], crs=code)
+        in_degrees = native.to_crs(4326).iloc[0]
+        geod = gpd.GeoSeries([line], crs=code).crs.get_geod()
+        return geod.geometry_length(in_degrees) / 1000.0
+
+    def test_geodesic_length_on_a_grad_datum_collection(self):
+        """A Lambert-zone collection measures the same ground length as via WGS 84.
+
+        The ~5e-5 tolerance absorbs the NTF-to-WGS84 datum shift the reference
+        route introduces and this path avoids; the bug it pins was 11-45%.
+        """
+        line = LineString([(600000.0, 2200000.0), (700000.0, 2200000.0)])
+        fc = _fc([line], crs=27562)
+        assert fc.geodesic_length(unit="km").iloc[0] == pytest.approx(
+            self._reference_km(line, 27562), rel=1e-3
+        )
+
+    def test_geodesic_area_on_a_grad_datum_collection(self):
+        """Same for area, which goes through the same reprojection."""
+        square = Polygon(
+            [
+                (600000.0, 2200000.0),
+                (700000.0, 2200000.0),
+                (700000.0, 2300000.0),
+                (600000.0, 2300000.0),
+            ]
+        )
+        fc = _fc([square], crs=27562)
+        reference = gpd.GeoSeries([square], crs=27562).to_crs(4326).iloc[0]
+        geod = gpd.GeoSeries([square], crs=27562).crs.get_geod()
+        expected_km2 = abs(geod.geometry_area_perimeter(reference)[0]) / 1e6
+        assert fc.geodesic_area(unit="km2").iloc[0] == pytest.approx(
+            expected_km2, rel=1e-3
+        )
+
+    def test_geodesic_distance_on_a_grad_datum_collection(self):
+        """And for distance, whose targets take the same reprojection path."""
+        fc = _fc([Point(600000.0, 2200000.0)], crs=27562)
+        target = gpd.GeoSeries([Point(700000.0, 2200000.0)], crs=27562)
+        reference = gpd.GeoSeries(
+            [Point(600000.0, 2200000.0), Point(700000.0, 2200000.0)], crs=27562
+        ).to_crs(4326)
+        geod = gpd.GeoSeries([Point(0, 0)], crs=27562).crs.get_geod()
+        _, _, expected_m = geod.inv(
+            reference.iloc[0].x,
+            reference.iloc[0].y,
+            reference.iloc[1].x,
+            reference.iloc[1].y,
+        )
+        assert fc.geodesic_distance(target).iloc[0] == pytest.approx(
+            expected_m, rel=1e-3
+        )

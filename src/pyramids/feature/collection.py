@@ -53,6 +53,7 @@ from pyramids.base._errors import (
     InvalidGeometryError,
 )
 from pyramids.base.crs import _pyproj_crs_via_gdal, crs_from_user_input
+from pyramids.base.geodesy import _geodetic_frame
 from pyramids.base.geodesy import geodesic_distance as _geodesic_distance
 from pyramids.base.geodesy import geodesic_geometry_area as _geodesic_geometry_area
 from pyramids.base.geodesy import geodesic_geometry_length as _geodesic_geometry_length
@@ -2997,16 +2998,42 @@ class FeatureCollection(GeoDataFrame):
                 "coordinates measure; set one first (e.g. `fc.crs = 4326`)"
             )
         resolved = crs_from_user_input(self.crs)
-        geodetic = resolved.geodetic_crs
-        if geodetic is None:
-            raise CRSError(
-                f"{op}: the CRS {resolved.name!r} has no geographic counterpart, so "
-                "its geometries cannot be measured on an ellipsoid"
+        return self._to_degree_geometries(self.geometry, resolved, op), resolved
+
+    @staticmethod
+    def _to_degree_geometries(
+        geometries: gpd.GeoSeries, resolved: Any, op: str
+    ) -> gpd.GeoSeries:
+        """Put `geometries` into geographic **degrees** on `resolved`'s datum.
+
+        Two steps, each conditional. A projected collection is reprojected into its
+        datum's geographic counterpart. That counterpart is then rescaled to degrees
+        when it does not already use them -- `NTF (Paris)` (EPSG:4807) and every
+        legacy French Lambert zone built on it carry **grad** axes, and handing
+        grads to `pyproj.Geod` as degrees inflates the answer by `1 / 0.9` per
+        coordinate. The scaling is exact: grads and degrees differ by a constant
+        factor about the equator and the prime meridian, which is the origin used.
+
+        Args:
+            geometries: The geometries to convert.
+            resolved: The collection's resolved CRS.
+            op: Name of the calling method, used in the error message.
+
+        Returns:
+            gpd.GeoSeries: The geometries in geographic degrees.
+
+        Raises:
+            CRSError: `resolved` has no geographic counterpart, or that counterpart
+                mixes angular units between its axes.
+        """
+        geodetic, to_degrees = _geodetic_frame(resolved)
+        if not resolved.is_geographic:
+            geometries = geometries.to_crs(geodetic)
+        if to_degrees != 1.0:
+            geometries = geometries.scale(
+                xfact=to_degrees, yfact=to_degrees, origin=(0, 0)
             )
-        geometries = (
-            self.geometry if resolved.is_geographic else self.geometry.to_crs(geodetic)
-        )
-        return geometries, resolved
+        return geometries
 
     def _geodesic_points(self, geometries: gpd.GeoSeries, op: str) -> gpd.GeoSeries:
         """Check that every geometry is a point, since only points have a distance.
@@ -3254,9 +3281,10 @@ class FeatureCollection(GeoDataFrame):
             ValueError: `other` is a collection of a different length.
             InvalidGeometryError: `other` holds a non-point geometry.
         """
-        geodetic = resolved.geodetic_crs
         if isinstance(other, BaseGeometry):
-            series = gpd.GeoSeries([other] * count, crs=geodetic)
+            # Already in this collection's degree frame: the caller passed a bare
+            # geometry alongside it, so it shares its coordinates by construction.
+            series = gpd.GeoSeries([other] * count)
         else:
             series = gpd.GeoSeries(
                 other.geometry if hasattr(other, "geometry") else other
@@ -3267,8 +3295,13 @@ class FeatureCollection(GeoDataFrame):
                     f"collection has {count}; they are compared elementwise, so the "
                     "lengths must match"
                 )
-            if series.crs is not None and not series.crs.equals(geodetic):
-                series = series.to_crs(geodetic)
+            if series.crs is None:
+                # No CRS to convert from; assume it already matches this collection,
+                # which is what geopandas' own `distance` does.
+                series = gpd.GeoSeries(series.to_numpy(), crs=resolved)
+            series = self._to_degree_geometries(
+                series, crs_from_user_input(series.crs), "geodesic_distance"
+            )
         return self._geodesic_points(series, "geodesic_distance")
 
     def voronoi(

@@ -31,6 +31,7 @@ of shapely and geopandas -- `base/` sits below `feature/`, which
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
@@ -60,6 +61,12 @@ _AREA_UNITS: dict[str, float] = {
     "km2": 1e6,
     "ha": 1e4,
 }
+
+# `Geod` speaks degrees, but a geographic CRS need not: `NTF (Paris)`
+# (EPSG:4807) and the legacy French Lambert zones built on it carry **grad**
+# axes. `always_xy=True` normalises axis order and says nothing about units, so
+# the angular unit has to be converted explicitly -- see `_geodetic_frame`.
+_RADIANS_PER_DEGREE = math.pi / 180.0
 
 # Due east. A horizontal scale bar spans the x axis, so east is the azimuth it
 # wants; `ground_distance_in_crs` takes it as an argument so a vertical bar or a
@@ -123,6 +130,45 @@ def _area_scale(unit: str) -> float:
             f"{', '.join(sorted(_AREA_UNITS))}"
         ) from None
     return scale
+
+
+def _geodetic_frame(crs: Any) -> tuple[Any, float]:
+    """A CRS's geographic counterpart, and the factor turning its unit into degrees.
+
+    `pyproj.Geod` interprets its arguments as **degrees**, but a geographic CRS is
+    not obliged to use them: `NTF (Paris)` (EPSG:4807) has `grad` axes, and every
+    legacy French Lambert zone (EPSG:27561-27563) names it as its geodetic
+    counterpart. Transforming into such a CRS and handing the result straight to
+    `Geod` overstates the distance by the grad-to-degree ratio -- 11% at Lambert
+    Nord and 45% at Lambert Sud, with nothing raised.
+
+    Args:
+        crs: A resolved `pyproj.CRS`.
+
+    Returns:
+        tuple: The geographic counterpart, and the multiplier that converts one of
+        its angular units into degrees (`1.0` for a degree CRS, `0.9` for grads).
+
+    Raises:
+        CRSError: `crs` has no geographic counterpart, or that counterpart mixes
+            angular units between its two axes, so no single factor describes it.
+    """
+    geodetic = crs.geodetic_crs
+    if geodetic is None:
+        raise CRSError(
+            f"the CRS {crs.name!r} has no geographic counterpart, so a "
+            "ground distance cannot be walked out on it"
+        )
+    factors = {axis.unit_conversion_factor for axis in geodetic.axis_info[:2]}
+    if len(factors) != 1:
+        raise CRSError(
+            f"the geographic CRS {geodetic.name!r} mixes angular units between "
+            f"its axes ({sorted(factors)} radians per unit), so no single "
+            "conversion to degrees describes it"
+        )
+    # `unit_conversion_factor` is radians per unit, so dividing by radians per
+    # degree gives degrees per unit: 1.0 for a degree axis, 0.9 for a grad one.
+    return geodetic, factors.pop() / _RADIANS_PER_DEGREE
 
 
 def _resolve_geod(crs: Any) -> tuple[Any, Any]:
@@ -327,21 +373,20 @@ def ground_distance_in_crs(
     if len(at) != 2:
         raise ValueError(f"at must be an (x, y) pair, got {at!r}.")
     target, geod = _resolve_geod(crs)
-    geodetic = target.geodetic_crs
-    if geodetic is None:
-        raise CRSError(
-            f"the CRS {target.name!r} has no geographic counterpart, so a "
-            "ground distance cannot be walked out on it"
-        )
+    geodetic, to_degrees = _geodetic_frame(target)
     x, y = float(at[0]), float(at[1])
     try:
         to_lonlat = Transformer.from_crs(target, geodetic, always_xy=True)
-        lon, lat = to_lonlat.transform(x, y)
+        native_lon, native_lat = to_lonlat.transform(x, y)
+        # Into degrees before `Geod` sees them, and back out afterwards: the
+        # transform answers in the geodetic CRS's own angular unit, which is
+        # grads for the NTF (Paris) family. See `_geodetic_frame`.
+        lon, lat = native_lon * to_degrees, native_lat * to_degrees
         # The geodesic is walked in lon/lat and the endpoint brought back, so the
         # answer is measured in `crs` rather than assumed proportional to it.
         lon_end, lat_end, _ = geod.fwd(lon, lat, azimuth, distance_m)
         to_target = Transformer.from_crs(geodetic, target, always_xy=True)
-        x_end, y_end = to_target.transform(lon_end, lat_end)
+        x_end, y_end = to_target.transform(lon_end / to_degrees, lat_end / to_degrees)
     except ProjError as exc:
         raise ValueError(
             f"could not measure {distance_m} m at {at!r} in {target.name!r}: {exc}"
