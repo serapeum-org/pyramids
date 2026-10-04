@@ -106,3 +106,43 @@ class TestLazyReduceComposition:
         assert isinstance(result, NetCDF), (
             "a container reduce materialises to an eager cube"
         )
+
+
+class TestLazyCoarsenComposition:
+    """`coarsen` composes over dask like `reduce` and computes to the eager coarsen."""
+
+    @requires_dask
+    def test_coarsen_returns_a_lazy_cube(self):
+        """A lazy coarsen stays lazy and keeps the coarsened dimension at its new length."""
+        lazy = _variable().chunk("auto").coarsen("time", 2)
+        assert isinstance(lazy, LazyNetCDF), f"got {type(lazy).__name__}"
+        assert sum(lazy.chunks["time"]) == 2, (
+            f"time should coarsen 4->2, got {lazy.chunks}"
+        )
+
+    @requires_dask
+    def test_coarsen_computes_to_the_eager_result(self):
+        """`chunk().coarsen(...).compute()` equals `NetCDF.coarsen(...)`."""
+        var = _variable()
+        got = var.chunk("auto").coarsen("time", 2).compute()
+        expected = var.coarsen("time", 2)
+        assert got._band_dim_names == expected._band_dim_names
+        np.testing.assert_allclose(
+            np.asarray(got.read_array()),
+            np.asarray(expected.read_array()),
+            equal_nan=True,
+        )
+
+    @requires_dask
+    def test_reduce_then_coarsen_chains_lazily(self):
+        """A coarsen followed by a reduce on another dim stays lazy and matches the eager chain."""
+        var = _variable()
+        lazy = var.chunk("auto").coarsen("pressure_level", 3).reduce("time", "mean")
+        assert isinstance(lazy, LazyNetCDF), "the chain must still be lazy"
+        got = lazy.compute()
+        expected = var.coarsen("pressure_level", 3).reduce("time", "mean")
+        np.testing.assert_allclose(
+            np.asarray(got.read_array()),
+            np.asarray(expected.read_array()),
+            equal_nan=True,
+        )

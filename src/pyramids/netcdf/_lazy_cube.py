@@ -300,23 +300,117 @@ class LazyNetCDF:
             LazyNetCDF | NetCDF: A lazy cube for a pinned variable; an eager reduced cube for a
             multi-variable container (materialised at the boundary).
         """
-        from pyramids.netcdf.engines._along_dim import _reduced_array
-
-        records = self._current_records()
-        if len(records) != 1:
+        if len(self._current_records()) != 1:
             # Container composition is not built yet: materialise at the boundary and reduce
             # eagerly, warning once, rather than silently reading the whole cube without notice.
             self._warn_materialize("reduce")
             return self.compute().reduce(dim, how, skipna=skipna, q=q)
-        name, rec = next(iter(records.items()))
+        return self._compose_reduction(
+            dim,
+            how,
+            skipna=skipna,
+            q=q,
+            group_positions=None,
+            resize=None,
+            window_mean_coords=False,
+        )
+
+    def coarsen(
+        self,
+        dim: str,
+        window: int,
+        *,
+        how: str = "mean",
+        boundary: str = "exact",
+        skipna: bool = True,
+        q: float | None = None,
+    ) -> Any:
+        """Block-aggregate a band dimension into windows, composing lazily for a single variable.
+
+        The lazy twin of :meth:`NetCDF.coarsen` — the same grouped reduction, kept as a deferred
+        `dask.array` step so it composes with other lazy ops. A multi-variable container
+        materialises at the boundary and coarsens eagerly, warning once (as :meth:`reduce` does).
+
+        Args:
+            dim: The band dimension to block-aggregate.
+            window: The number of steps per window.
+            how: The reduction, as :meth:`NetCDF.coarsen`.
+            boundary: How a trailing partial window is handled (`"exact"`, `"trim"`, `"pad"`).
+            skipna: Whether gaps are skipped.
+            q: The quantile, for `how="quantile"`.
+
+        Returns:
+            LazyNetCDF | NetCDF: A lazy cube for a pinned variable; an eager coarsened cube for a
+            multi-variable container.
+        """
+        from pyramids.netcdf.engines.selection import (
+            _BOUNDARIES,
+            _check_how,
+            _check_quantile,
+            _check_window,
+            _coarsen_windows,
+        )
+        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS
+
+        _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
+        q = _check_quantile(how, q)
+        length = _check_window(window, caller="coarsen")
+        if boundary not in _BOUNDARIES:
+            raise ValueError(
+                f"boundary must be one of {list(_BOUNDARIES)}, got {boundary!r}."
+            )
+        records = self._current_records()
+        if len(records) != 1:
+            self._warn_materialize("coarsen")
+            return self.compute().coarsen(
+                dim, window, how=how, boundary=boundary, skipna=skipna, q=q
+            )
+        (rec,) = records.values()
+        size = rec.array.shape[rec.band_names.index(dim)]
+        resized, positions = _coarsen_windows(dim, size, length, boundary)
+        return self._compose_reduction(
+            dim,
+            how,
+            skipna=skipna,
+            q=q,
+            group_positions=positions,
+            resize=resized,
+            window_mean_coords=True,
+        )
+
+    def _compose_reduction(
+        self,
+        dim: str,
+        how: str,
+        *,
+        skipna: bool,
+        q: float | None,
+        group_positions: list | None,
+        resize: int | None,
+        window_mean_coords: bool,
+    ) -> LazyNetCDF:
+        """Run a `_Reduction` kernel on the single variable's dask array, deferring it (#1237).
+
+        Shared by :meth:`reduce` and :meth:`coarsen`; the caller has checked there is exactly one
+        variable. The reduced array stays a `dask.array` (`materialize=False`), so the step composes
+        with later lazy ops until :meth:`compute`.
+
+        Returns:
+            LazyNetCDF: The cube with the dimension reduced, still lazy.
+        """
+        from pyramids.netcdf.engines._along_dim import _reduced_array
+
+        name, rec = next(iter(self._current_records().items()))
         arr, band_names, values_map, no_data = _reduced_array(
             self._source,
             None,
             dim,
             how,
-            group_positions=None,
+            group_positions=group_positions,
             skipna=skipna,
             q=q,
+            resize=resize,
+            window_mean_coords=window_mean_coords,
             materialize=False,
             override=(rec.array, rec.band_names, rec.values_map, rec.no_data),
         )
