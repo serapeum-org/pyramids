@@ -18,6 +18,15 @@ Public surface:
   geodesic problem, scalar or vectorised.
 * :func:`ground_distance_in_crs` -- how many of a CRS's units span a ground
   distance at a location.
+* :func:`geodesic_geometry_length` / :func:`geodesic_geometry_area` -- the same
+  measurement for a whole shapely geometry, which is what
+  `FeatureCollection.geodesic_length` / `geodesic_area` are built on.
+
+Every function here takes **geographic** coordinates and uses `crs` only to pick
+the ellipsoid. Reprojecting a projected geometry before measuring is the
+caller's job, because that is geometry-library work and this module stays free
+of shapely and geopandas -- `base/` sits below `feature/`, which
+`tests/base/test_base_does_not_import_feature.py` enforces.
 """
 
 from __future__ import annotations
@@ -32,13 +41,24 @@ from pyramids.base._errors import CRSError
 from pyramids.base.crs import crs_from_user_input
 from pyramids.base.protocols import FloatArray
 
-# Metres in one unit, so a metre result is *divided* by the entry -- the same
-# direction as `_area_scale` in the cell engine, so the two read alike.
+# Metres in one unit, so a metre result is *divided* by the entry. The names are
+# the ones a caller writes, not PROJ's spellings, because this is the surface a
+# user types.
 _LENGTH_UNITS: dict[str, float] = {
     "m": 1.0,
     "km": 1000.0,
     "mi": 1609.344,
     "nmi": 1852.0,
+}
+
+# Square metres per unit of area, same direction and naming rule as the lengths
+# above. This table and `_area_scale` used to live in `dataset/engines/cell.py`;
+# they moved here when the geodesic geometry measurements needed them too, so
+# there is one spelling of `km2` in the package rather than two.
+_AREA_UNITS: dict[str, float] = {
+    "m2": 1.0,
+    "km2": 1e6,
+    "ha": 1e4,
 }
 
 # Due east. A horizontal scale bar spans the x axis, so east is the azimuth it
@@ -70,6 +90,37 @@ def _length_scale(unit: str) -> float:
         raise ValueError(
             f"unknown length unit {unit!r}; expected one of "
             f"{', '.join(sorted(_LENGTH_UNITS))}"
+        ) from None
+    return scale
+
+
+def _area_scale(unit: str) -> float:
+    """Square metres in one `unit`.
+
+    Args:
+        unit: One of `m2`, `km2`, `ha`. Matched after `strip().lower()`, so
+            `KM2` and `" km2 "` name the same unit as `km2`.
+
+    Returns:
+        float: The divisor that turns square metres into `unit`.
+
+    Raises:
+        ValueError: `unit` is not one this package converts to, or is not a
+            string at all -- `None` and `2` are refused the same way.
+    """
+    try:
+        # Normalised first: `KM2` and `" km2"` are the same request as `km2`,
+        # and refusing them buys nothing. `strip`/`lower` are attributes, so a
+        # non-string argument still falls through to the refusal below.
+        scale = _AREA_UNITS[unit.strip().lower()]
+    except (KeyError, AttributeError):
+        # `AttributeError` as well as `KeyError`: anything that is not a string
+        # -- `None`, `2`, a list -- fails on `strip` before the lookup can miss
+        # it, and leaking that would contradict the `ValueError` documented
+        # above.
+        raise ValueError(
+            f"unknown area unit {unit!r}; expected one of "
+            f"{', '.join(sorted(_AREA_UNITS))}"
         ) from None
     return scale
 
@@ -307,7 +358,141 @@ def ground_distance_in_crs(
     return span
 
 
+def geodesic_geometry_length(
+    geometry: Any,
+    *,
+    crs: Any = 4326,
+    unit: str = "m",
+) -> float:
+    """Length of a geometry's lines along the ellipsoid.
+
+    The geodesic counterpart of shapely's planar `.length`, which on a
+    geographic CRS measures in degrees and is meaningless as a ground distance.
+
+    `geometry` must already be in **geographic** coordinates; `crs` only selects
+    the ellipsoid. A polygon reports its perimeter, a point reports `0.0`, and a
+    multi-part geometry sums its parts -- all of which is `pyproj.Geod`'s own
+    behaviour, passed through rather than reinterpreted.
+
+    Args:
+        geometry: Any shapely geometry, in geographic coordinates.
+        crs: The CRS whose datum names the ellipsoid. Default `4326`.
+        unit: `m` (default), `km`, `mi` or `nmi`.
+
+    Returns:
+        float: The length in `unit`.
+
+    Raises:
+        ValueError: `unit` is not recognised.
+        CRSError: `crs` cannot be resolved, or its datum names no ellipsoid.
+
+    Examples:
+        - A one-degree line at the equator is ~111 km long:
+            ```python
+            >>> from shapely.geometry import LineString
+            >>> from pyramids.base.geodesy import geodesic_geometry_length
+            >>> round(geodesic_geometry_length(LineString([(0, 0), (1, 0)])))
+            111319
+
+            ```
+        - A polygon reports its perimeter, in kilometres here:
+            ```python
+            >>> from shapely.geometry import Polygon
+            >>> from pyramids.base.geodesy import geodesic_geometry_length
+            >>> square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+            >>> round(geodesic_geometry_length(square, unit="km"), 1)
+            443.8
+
+            ```
+        - A point has no length:
+            ```python
+            >>> from shapely.geometry import Point
+            >>> from pyramids.base.geodesy import geodesic_geometry_length
+            >>> geodesic_geometry_length(Point(12.5, 41.9))
+            0.0
+
+            ```
+
+    See Also:
+        geodesic_geometry_area: The area counterpart.
+    """
+    scale = _length_scale(unit)
+    _, geod = _resolve_geod(crs)
+    return float(geod.geometry_length(geometry)) / scale
+
+
+def geodesic_geometry_area(
+    geometry: Any,
+    *,
+    crs: Any = 4326,
+    unit: str = "m2",
+) -> float:
+    """Area of a geometry on the ellipsoid.
+
+    The geodesic counterpart of shapely's planar `.area`, which on a geographic
+    CRS reports square degrees -- a quantity that varies with latitude and so
+    cannot be compared between rows of a grid.
+
+    `geometry` must already be in **geographic** coordinates; `crs` only selects
+    the ellipsoid. The result is always non-negative: `pyproj.Geod` signs the
+    area by ring orientation (negative for a clockwise ring), which describes
+    winding rather than size, so the magnitude is returned. A line or point
+    reports `0.0`.
+
+    Args:
+        geometry: Any shapely geometry, in geographic coordinates.
+        crs: The CRS whose datum names the ellipsoid. Default `4326`.
+        unit: `m2` (default), `km2` or `ha`.
+
+    Returns:
+        float: The area in `unit`, never negative.
+
+    Raises:
+        ValueError: `unit` is not recognised.
+        CRSError: `crs` cannot be resolved, or its datum names no ellipsoid.
+
+    Examples:
+        - A one-degree square at the equator covers ~12 309 square kilometres:
+            ```python
+            >>> from shapely.geometry import Polygon
+            >>> from pyramids.base.geodesy import geodesic_geometry_area
+            >>> square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+            >>> round(geodesic_geometry_area(square, unit="km2"), 1)
+            12308.8
+
+            ```
+        - Ring orientation does not change the size:
+            ```python
+            >>> from shapely.geometry import Polygon
+            >>> from pyramids.base.geodesy import geodesic_geometry_area
+            >>> clockwise = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+            >>> round(geodesic_geometry_area(clockwise, unit="km2"), 1)
+            12308.8
+
+            ```
+        - A line encloses nothing:
+            ```python
+            >>> from shapely.geometry import LineString
+            >>> from pyramids.base.geodesy import geodesic_geometry_area
+            >>> geodesic_geometry_area(LineString([(0, 0), (1, 0)]))
+            0.0
+
+            ```
+
+    See Also:
+        geodesic_geometry_length: The length counterpart.
+    """
+    scale = _area_scale(unit)
+    _, geod = _resolve_geod(crs)
+    area, _ = geod.geometry_area_perimeter(geometry)
+    # `Geod` signs the area by ring orientation; a clockwise ring is negative.
+    # That encodes winding, not size, and every caller here wants the size.
+    return abs(float(area)) / scale
+
+
 __all__ = [
     "geodesic_distance",
+    "geodesic_geometry_area",
+    "geodesic_geometry_length",
     "ground_distance_in_crs",
 ]

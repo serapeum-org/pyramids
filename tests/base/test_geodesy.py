@@ -6,12 +6,16 @@ import numpy as np
 import pytest
 from pyproj import Geod
 from pyproj.exceptions import ProjError
+from shapely.geometry import LineString, MultiLineString, Point, Polygon
 
 import pyramids.base.geodesy as geodesy_module
 from pyramids.base._errors import CRSError
 from pyramids.base.geodesy import (
+    _area_scale,
     _length_scale,
     geodesic_distance,
+    geodesic_geometry_area,
+    geodesic_geometry_length,
     ground_distance_in_crs,
 )
 
@@ -305,3 +309,127 @@ class TestGroundDistanceInCRS:
         with pytest.raises(ValueError, match="could not measure") as excinfo:
             ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 0.0))
         assert isinstance(excinfo.value.__cause__, ProjError)
+
+
+class TestAreaScale:
+    """The area-unit table, moved here from the cell engine."""
+
+    @pytest.mark.parametrize(
+        ("unit", "expected"), [("m2", 1.0), ("km2", 1e6), ("ha", 1e4)]
+    )
+    def test_known_units(self, unit: str, expected: float):
+        """Each supported unit reports its size in square metres."""
+        assert _area_scale(unit) == expected
+
+    @pytest.mark.parametrize("unit", ["KM2", " km2 ", "HA"])
+    def test_case_and_whitespace_insensitive(self, unit: str):
+        """Case and surrounding whitespace do not change the unit."""
+        assert _area_scale(unit) == _area_scale(unit.strip().lower())
+
+    @pytest.mark.parametrize("unit", ["m", "acres", "", None, 2])
+    def test_unrecognised_unit_raises_value_error(self, unit):
+        """An unknown or non-string unit is refused as a `ValueError`."""
+        with pytest.raises(ValueError, match="unknown area unit"):
+            _area_scale(unit)
+
+
+class TestGeodesicGeometryLength:
+    """Length of a shapely geometry along the ellipsoid."""
+
+    def test_equatorial_degree_line(self):
+        """A one-degree line at the equator is ~111.3 km."""
+        line = LineString([(0, 0), (1, 0)])
+        assert geodesic_geometry_length(line) == pytest.approx(DEGREE_AT_EQUATOR_M)
+
+    def test_polygon_reports_its_perimeter(self):
+        """A polygon's length is its perimeter."""
+        square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        assert geodesic_geometry_length(square) == pytest.approx(443770.917248302)
+
+    def test_point_has_no_length(self):
+        """A point reports zero."""
+        assert geodesic_geometry_length(Point(5.0, 45.0)) == pytest.approx(0.0)
+
+    def test_multipart_sums_its_parts(self):
+        """A multi-line geometry sums its components."""
+        multi = MultiLineString([[(0, 0), (1, 0)], [(0, 60), (1, 60)]])
+        assert geodesic_geometry_length(multi) == pytest.approx(
+            DEGREE_AT_EQUATOR_M + DEGREE_AT_60N_M
+        )
+
+    def test_unit_conversion(self):
+        """Kilometres are the metre answer over a thousand."""
+        line = LineString([(0, 0), (1, 0)])
+        assert geodesic_geometry_length(line, unit="km") == pytest.approx(
+            DEGREE_AT_EQUATOR_M / 1000.0
+        )
+
+    def test_unknown_unit_raises(self):
+        """An unrecognised length unit is refused."""
+        with pytest.raises(ValueError, match="unknown length unit"):
+            geodesic_geometry_length(LineString([(0, 0), (1, 0)]), unit="furlong")
+
+    def test_ellipsoid_comes_from_the_crs(self):
+        """Measuring on a sphere gives a different answer than on WGS 84."""
+        line = LineString([(0, 0), (1, 0)])
+        assert geodesic_geometry_length(line, crs=4047) == pytest.approx(
+            111195.04881760638
+        )
+
+
+class TestGeodesicGeometryArea:
+    """Area of a shapely geometry on the ellipsoid."""
+
+    def test_equatorial_degree_square(self):
+        """A one-degree square at the equator covers ~12 309 km2."""
+        square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        assert geodesic_geometry_area(square, unit="km2") == pytest.approx(
+            12308.778361469452
+        )
+
+    def test_orientation_does_not_change_the_size(self):
+        """A clockwise ring reports the same magnitude as a counter-clockwise one.
+
+        `Geod.geometry_area_perimeter` returns a negative area for a clockwise
+        ring, which encodes winding rather than size.
+        """
+        ccw = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        cw = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+        assert geodesic_geometry_area(cw) == pytest.approx(geodesic_geometry_area(ccw))
+        assert geodesic_geometry_area(cw) > 0.0
+
+    def test_line_encloses_nothing(self):
+        """A line has no area."""
+        assert geodesic_geometry_area(LineString([(0, 0), (1, 0)])) == pytest.approx(
+            0.0
+        )
+
+    @pytest.mark.parametrize(
+        ("unit", "expected"),
+        [
+            ("m2", 12308778361.469452),
+            ("km2", 12308.778361469452),
+            ("ha", 1230877.8361469451),
+        ],
+    )
+    def test_unit_conversion(self, unit: str, expected: float):
+        """Each area unit is the square-metre answer divided by its size."""
+        square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        assert geodesic_geometry_area(square, unit=unit) == pytest.approx(expected)
+
+    def test_unknown_unit_raises(self):
+        """An unrecognised area unit is refused."""
+        square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        with pytest.raises(ValueError, match="unknown area unit"):
+            geodesic_geometry_area(square, unit="acres")
+
+    def test_shrinks_towards_the_pole(self):
+        """A degree square at 60 N covers less than half the equatorial one."""
+        at_equator = geodesic_geometry_area(
+            Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]), unit="km2"
+        )
+        at_60 = geodesic_geometry_area(
+            Polygon([(0, 60), (1, 60), (1, 61), (0, 61)]), unit="km2"
+        )
+        assert at_60 == pytest.approx(6122.943163071411)
+        assert at_60 < at_equator / 2
