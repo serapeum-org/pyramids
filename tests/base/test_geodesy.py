@@ -12,6 +12,7 @@ import pyramids.base.geodesy as geodesy_module
 from pyramids.base._errors import CRSError
 from pyramids.base.geodesy import (
     _area_scale,
+    _geod_of,
     _geodetic_frame,
     _length_scale,
     geodesic_distance,
@@ -738,3 +739,135 @@ class TestAtAxisOrder:
         assert ground_distance_in_crs(
             100_000.0, crs=4326, at=(10.0, 45.0)
         ) == pytest.approx(1.2681977205244332)
+
+
+class TestCoordinateTypeGuards:
+    """`bool` and masked coordinates are refused (R2 S7)."""
+
+    @pytest.mark.parametrize("value", [True, False, np.bool_(True)])
+    def test_bool_coordinate_is_refused(self, value):
+        """A bool passes every numeric test, so it is excluded explicitly.
+
+        `True` was previously read as longitude 1.0, making
+        `geodesic_distance(True, 0.0, 1.0, 0.0)` report 0.0.
+        """
+        with pytest.raises(ValueError, match="must be numeric degrees"):
+            geodesic_distance(value, 0.0, 1.0, 0.0)
+
+    def test_masked_entries_are_refused(self):
+        """`np.asarray(..., dtype=float)` drops a mask, so fill values would be used."""
+        masked = np.ma.masked_array([0.0, 999.0], mask=[False, True])
+        with pytest.raises(ValueError, match="masked entries"):
+            geodesic_distance(masked, [0.0, 0.0], [1.0, 1.0], [0.0, 0.0])
+
+    def test_an_unmasked_masked_array_is_accepted(self):
+        """A masked array with nothing masked carries no fill values to misuse."""
+        clean = np.ma.masked_array([0.0, 0.0], mask=[False, False])
+        result = geodesic_distance(clean, [0.0, 60.0], [1.0, 1.0], [0.0, 60.0])
+        assert result[0] == pytest.approx(DEGREE_AT_EQUATOR_M)
+        assert result[1] == pytest.approx(DEGREE_AT_60N_M)
+
+
+class TestGeometryGuards:
+    """The geometry primitives validate their input (R2 S1, S2)."""
+
+    @pytest.mark.parametrize("bad", [None, (0, 0), "LINESTRING (0 0, 1 0)", 42])
+    def test_non_geometry_is_refused(self, bad):
+        """Anything without `.bounds` is refused by name.
+
+        `Geod` used to answer these with `GeodError: Invalid geometry provided.`,
+        which no docstring mentioned.
+        """
+        with pytest.raises(ValueError, match="must be a shapely geometry"):
+            geodesic_geometry_length(bad)
+
+    @pytest.mark.parametrize("bad", [None, (0, 0)])
+    def test_non_geometry_is_refused_by_area_too(self, bad):
+        """The same guard applies to the area primitive."""
+        with pytest.raises(ValueError, match="must be a shapely geometry"):
+            geodesic_geometry_area(bad)
+
+    def test_projected_line_is_refused(self):
+        """A UTM line is refused rather than answered with `nan`."""
+        line = LineString([(500000, 3300000), (510000, 3300000)])
+        with pytest.raises(ValueError, match="which are not"):
+            geodesic_geometry_length(line, crs=32636)
+
+    def test_projected_polygon_is_refused_by_area(self):
+        """Likewise for a projected polygon through the area primitive."""
+        square = Polygon([(500000, 3300000), (510000, 3300000), (510000, 3310000)])
+        with pytest.raises(ValueError, match="which are not"):
+            geodesic_geometry_area(square, crs=32636)
+
+    def test_non_finite_bounds_are_refused(self):
+        """A point whose coordinates are nan is caught by the bounds check."""
+        nowhere = Point(float("nan"), float("nan"))
+        with pytest.raises(ValueError, match="non-finite coordinates"):
+            geodesic_geometry_length(nowhere)
+
+    def test_a_nan_vertex_inside_a_line_is_caught_by_the_result_check(self):
+        """shapely's `bounds` skips a nan interior vertex, so the result is checked.
+
+        `LineString([(0, 0), (nan, 0)]).bounds` is `(0.0, 0.0, 0.0, 0.0)` -- the
+        nan vertex is invisible to the guard -- and `Geod` then returns nan
+        rather than raising. Without the result check this measured to `nan`.
+        """
+        line = LineString([(0, 0), (float("nan"), 0)])
+        with pytest.raises(ValueError, match="non-finite length"):
+            geodesic_geometry_length(line)
+
+    def test_a_nan_vertex_in_a_ring_is_caught_by_the_area_result_check(self):
+        """The same hole exists for area, and is closed the same way."""
+        ring = Polygon([(0, 0), (1, 0), (float("nan"), 1), (0, 1)])
+        with pytest.raises(ValueError, match="non-finite area"):
+            geodesic_geometry_area(ring)
+
+    @pytest.mark.parametrize("empty", [Point(), LineString(), Polygon()])
+    def test_empty_geometry_measures_to_zero(self, empty):
+        """An empty geometry has nothing to measure, and that is not an error.
+
+        shapely 2 reports all-nan bounds for an empty geometry, so the emptiness
+        has to be checked before the finiteness guard rather than after.
+        """
+        assert geodesic_geometry_length(empty) == pytest.approx(0.0)
+        assert geodesic_geometry_area(empty) == pytest.approx(0.0)
+
+    def test_geod_error_from_length_becomes_value_error(self, monkeypatch):
+        """A `GeodError` from `Geod.geometry_length` is converted."""
+
+        def _raise(*_args, **_kwargs):
+            raise GeodError("stubbed length failure")
+
+        monkeypatch.setattr(Geod, "geometry_length", _raise)
+        line = LineString([(0, 0), (1, 0)])
+        with pytest.raises(ValueError, match="could not measure") as excinfo:
+            geodesic_geometry_length(line)
+        assert isinstance(excinfo.value.__cause__, GeodError)
+
+    def test_geod_error_from_area_becomes_value_error(self, monkeypatch):
+        """And from `Geod.geometry_area_perimeter`."""
+
+        def _raise(*_args, **_kwargs):
+            raise GeodError("stubbed area failure")
+
+        monkeypatch.setattr(Geod, "geometry_area_perimeter", _raise)
+        square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        with pytest.raises(ValueError, match="could not measure") as excinfo:
+            geodesic_geometry_area(square)
+        assert isinstance(excinfo.value.__cause__, GeodError)
+
+
+class TestGeodCaching:
+    """`_geod_of` memoises the ellipsoid lookup (R2 S4)."""
+
+    def test_same_crs_returns_the_same_geod_object(self):
+        """A repeated lookup is served from the cache, not recomputed."""
+        first = _geod_of(CRS.from_user_input(4326))
+        second = _geod_of(CRS.from_user_input(4326))
+        assert first is second
+
+    def test_different_crs_gets_its_own_geod(self):
+        """The cache is keyed on the CRS, so a sphere is not served WGS 84."""
+        wgs84 = _geod_of(CRS.from_user_input(4326))
+        sphere = _geod_of(CRS.from_user_input(4047))
+        assert wgs84.f != sphere.f

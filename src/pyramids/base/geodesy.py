@@ -34,6 +34,7 @@ from __future__ import annotations
 import math
 import numbers
 from collections.abc import Mapping
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -173,6 +174,24 @@ def _geodetic_frame(crs: Any) -> tuple[Any, float]:
     return geodetic, factors.pop() / _RADIANS_PER_DEGREE
 
 
+@lru_cache(maxsize=128)
+def _geod_of(resolved: Any) -> Any:
+    """The `pyproj.Geod` for an already-resolved CRS, memoised.
+
+    `crs_from_user_input` is itself cached, so the remaining per-call cost was
+    `CRS.get_geod()`. The `FeatureCollection` wrappers call the primitives once
+    per feature, which made that cost scale with the row count. A `pyproj.CRS`
+    is hashable and immutable, so caching on it is safe.
+
+    Args:
+        resolved: A resolved `pyproj.CRS`.
+
+    Returns:
+        The CRS's `pyproj.Geod`, or `None` when its datum names no ellipsoid.
+    """
+    return resolved.get_geod()
+
+
 def _resolve_geod(crs: Any) -> tuple[Any, Any]:
     """Resolve `crs` and the ellipsoid its datum names.
 
@@ -187,7 +206,7 @@ def _resolve_geod(crs: Any) -> tuple[Any, Any]:
             there is no figure of the earth to measure on.
     """
     resolved = crs_from_user_input(crs)
-    geod = resolved.get_geod()
+    geod = _geod_of(resolved)
     if geod is None:
         raise CRSError(
             f"the CRS {resolved.name!r} declares no ellipsoid, so there is no "
@@ -221,6 +240,18 @@ def _as_degrees(name: str, value: Any, *, latitude: bool = False) -> FloatArray:
         ValueError: `value` is not numeric, holds a non-finite entry, or -- for a
             latitude -- lies outside +-90.
     """
+    # `bool` is a subclass of `int`, so it passes every numeric test and `True`
+    # was read as longitude 1.0. Excluded here for the same reason
+    # `_as_finite_scalar` excludes it.
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError(f"{name} must be numeric degrees, got {value!r}")
+    if np.ma.isMaskedArray(value) and np.ma.getmaskarray(value).any():
+        # `np.asarray(..., dtype=float)` drops the mask, so a masked entry's fill
+        # value would be measured as if it were data.
+        raise ValueError(
+            f"{name} is a masked array with masked entries; their fill values "
+            "would be measured as data. Drop or fill them first."
+        )
     try:
         array = np.asarray(value, dtype=float)
     except (TypeError, ValueError) as exc:
@@ -344,7 +375,7 @@ def geodesic_distance(
         # `GeodError` is a sibling of `ProjError`, not a subclass, so both have
         # to be named. Mismatched array lengths arrive here.
         raise ValueError(
-            f"could not measure a geodesic distance: {exc}. All four coordinate "
+            f"could not measure a geodesic distance: {exc} All four coordinate "
             "arguments must be scalars or arrays of the same length."
         ) from exc
     scaled = np.asarray(metres, dtype=float) / scale
@@ -553,6 +584,52 @@ def ground_distance_in_crs(
     return span
 
 
+def _geometry_in_degrees(name: str, geometry: Any) -> Any:
+    """Check a geometry is a shapely geometry in geographic degrees.
+
+    The coordinate primitives validate their four arguments, but the geometry
+    ones took whatever `Geod` would accept -- which answered a projected geometry
+    with `nan` and a `None` geometry with `GeodError: Invalid geometry provided.`
+    Neither is in the documented contract, and a `GeoDataFrame` carrying a
+    missing geometry is ordinary rather than misuse.
+
+    Args:
+        name: The argument's name, used in the error message.
+        geometry: The candidate shapely geometry.
+
+    Returns:
+        `geometry` unchanged, when it is usable.
+
+    Raises:
+        ValueError: `geometry` is not a shapely geometry, or its coordinates are
+            not finite geographic degrees.
+    """
+    try:
+        bounds = geometry.bounds
+        empty = bool(geometry.is_empty)
+    except AttributeError as exc:
+        raise ValueError(
+            f"{name} must be a shapely geometry, got {geometry!r}"
+        ) from exc
+    # An empty geometry measures to zero and has all-nan bounds in shapely 2, so
+    # it has to be let through before the finiteness check rather than after.
+    if not empty and len(bounds) == 4:
+        min_x, min_y, max_x, max_y = bounds
+        if not all(math.isfinite(value) for value in bounds):
+            raise ValueError(
+                f"{name} has non-finite coordinates, so it cannot be measured"
+            )
+        if abs(min_y) > 90.0 or abs(max_y) > 90.0:
+            raise ValueError(
+                f"{name} spans latitudes {min_y} to {max_y}, which are not "
+                "geographic degrees. These functions take geographic coordinates "
+                "whatever `crs` is -- reproject first, or use "
+                "FeatureCollection.geodesic_length / geodesic_area, which do it "
+                "for you."
+            )
+    return geometry
+
+
 def geodesic_geometry_length(
     geometry: Any,
     *,
@@ -578,7 +655,9 @@ def geodesic_geometry_length(
         float: The length in `unit`.
 
     Raises:
-        ValueError: `unit` is not recognised.
+        ValueError: `unit` is not recognised, `geometry` is not a shapely
+            geometry, or its coordinates are not finite geographic degrees -- a
+            projected geometry is refused rather than answered with `nan`.
         CRSError: `crs` cannot be resolved, or its datum names no ellipsoid.
 
     Examples:
@@ -613,7 +692,20 @@ def geodesic_geometry_length(
     """
     scale = _length_scale(unit)
     _, geod = _resolve_geod(crs)
-    return float(geod.geometry_length(geometry)) / scale
+    _geometry_in_degrees("geometry", geometry)
+    try:
+        metres = geod.geometry_length(geometry)
+    except (ProjError, GeodError) as exc:
+        raise ValueError(f"could not measure {geometry!r}: {exc}") from exc
+    # The bounds check cannot see a nan vertex in the interior of a line --
+    # shapely's `bounds` skips it -- so the result is checked as well. `Geod`
+    # answers out-of-domain input with nan rather than raising.
+    if not math.isfinite(metres):
+        raise ValueError(
+            f"measuring {geometry!r} produced a non-finite length; its "
+            "coordinates are not usable geographic degrees"
+        )
+    return float(metres) / scale
 
 
 def geodesic_geometry_area(
@@ -643,7 +735,9 @@ def geodesic_geometry_area(
         float: The area in `unit`, never negative.
 
     Raises:
-        ValueError: `unit` is not recognised.
+        ValueError: `unit` is not recognised, `geometry` is not a shapely
+            geometry, or its coordinates are not finite geographic degrees -- a
+            projected geometry is refused rather than answered with `nan`.
         CRSError: `crs` cannot be resolved, or its datum names no ellipsoid.
 
     Examples:
@@ -679,7 +773,18 @@ def geodesic_geometry_area(
     """
     scale = _area_scale(unit)
     _, geod = _resolve_geod(crs)
-    area, _ = geod.geometry_area_perimeter(geometry)
+    _geometry_in_degrees("geometry", geometry)
+    try:
+        area, _ = geod.geometry_area_perimeter(geometry)
+    except (ProjError, GeodError) as exc:
+        raise ValueError(f"could not measure {geometry!r}: {exc}") from exc
+    # As in `geodesic_geometry_length`: a nan vertex inside a ring does not reach
+    # `bounds`, so the result is checked too.
+    if not math.isfinite(area):
+        raise ValueError(
+            f"measuring {geometry!r} produced a non-finite area; its "
+            "coordinates are not usable geographic degrees"
+        )
     # `Geod` signs the area by ring orientation; a clockwise ring is negative.
     # That encodes winding, not size, and every caller here wants the size.
     return abs(float(area)) / scale
