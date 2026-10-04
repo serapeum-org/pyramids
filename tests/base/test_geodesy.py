@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from pyproj import CRS, Geod, Transformer
-from pyproj.exceptions import ProjError
+from pyproj.exceptions import GeodError, ProjError
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
 
 import pyramids.base.geodesy as geodesy_module
@@ -225,13 +225,13 @@ class TestGroundDistanceInCRS:
     @pytest.mark.parametrize("distance", [0.0, -1.0, -100_000.0])
     def test_non_positive_distance_raises(self, distance: float):
         """A zero or negative ground distance is refused."""
-        with pytest.raises(ValueError, match="finite and positive"):
+        with pytest.raises(ValueError, match="distance_m must be positive"):
             ground_distance_in_crs(distance, crs=4326, at=(0.0, 0.0))
 
     @pytest.mark.parametrize("distance", [float("nan"), float("inf")])
     def test_non_finite_distance_raises(self, distance: float):
         """A non-finite ground distance is refused."""
-        with pytest.raises(ValueError, match="finite and positive"):
+        with pytest.raises(ValueError, match="must be a finite real number"):
             ground_distance_in_crs(distance, crs=4326, at=(0.0, 0.0))
 
     @pytest.mark.parametrize("at", [(0.0,), (0.0, 0.0, 0.0), ()])
@@ -594,3 +594,144 @@ class TestGeodeticFrame:
 
         with pytest.raises(CRSError, match="mixes angular units"):
             _geodetic_frame(_Target())
+
+
+class TestGroundDistanceArgumentValidation:
+    """`distance_m`, `at` and `azimuth` are validated as documented (S1-S3)."""
+
+    @pytest.mark.parametrize("value", ["100", None, [100000.0], {"m": 1}])
+    def test_non_numeric_distance_raises_value_error(self, value):
+        """A non-numeric `distance_m` raises the documented `ValueError`.
+
+        It used to escape as `TypeError` from `np.isfinite`, contradicting the
+        `Raises:` section.
+        """
+        with pytest.raises(ValueError, match="distance_m must be a finite"):
+            ground_distance_in_crs(value, crs=4326, at=(0.0, 0.0))
+
+    def test_bool_is_not_a_distance(self):
+        """`True` is not one metre; a bool is refused rather than coerced."""
+        with pytest.raises(ValueError, match="distance_m must be a finite"):
+            ground_distance_in_crs(True, crs=4326, at=(0.0, 0.0))
+
+    def test_single_element_array_is_refused(self):
+        """A 1-element array is refused; the result is a scalar, so the input is."""
+        with pytest.raises(ValueError, match="distance_m must be a finite"):
+            ground_distance_in_crs(np.array([100000.0]), crs=4326, at=(0.0, 0.0))
+
+    def test_mapping_at_is_refused(self):
+        """A 2-key mapping is not a point.
+
+        It used to be silently accepted -- `at[0]` / `at[1]` are key lookups on a
+        mapping, so `{0.0: 1, 1.0: 2}` measured at a different place entirely and
+        returned a plausible number.
+        """
+        with pytest.raises(ValueError, match="at must be an"):
+            ground_distance_in_crs(100_000.0, crs=4326, at={0.0: 1, 1.0: 2})
+
+    def test_string_at_is_refused(self):
+        """A 2-character string has length 2 but is not a coordinate pair."""
+        with pytest.raises(ValueError, match="at must be an"):
+            ground_distance_in_crs(100_000.0, crs=4326, at="ab")
+
+    @pytest.mark.parametrize("at", [(0.0,), (0.0, 0.0, 0.0), (), (0.0, "north")])
+    def test_bad_pair_is_refused(self, at):
+        """Wrong arity or a non-numeric member is refused."""
+        with pytest.raises(ValueError, match="at must be an"):
+            ground_distance_in_crs(100_000.0, crs=4326, at=at)
+
+    def test_numpy_pair_is_accepted(self):
+        """A 2-element array is a legitimate point and still works."""
+        result = ground_distance_in_crs(100_000.0, crs=4326, at=np.array([0.0, 0.0]))
+        assert result == pytest.approx(0.8983152841195214)
+
+    @pytest.mark.parametrize("azimuth", [float("nan"), float("inf")])
+    def test_non_finite_azimuth_raises_naming_azimuth(self, azimuth: float):
+        """A non-finite azimuth names itself.
+
+        It used to surface as "falls outside the usable domain of ...", which
+        blames the CRS for the caller's argument.
+        """
+        with pytest.raises(ValueError, match="azimuth must be a finite"):
+            ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 0.0), azimuth=azimuth)
+
+    def test_azimuth_wraps_rather_than_being_bounded(self):
+        """An out-of-turn azimuth wraps, so 450 degrees is due east.
+
+        Bounding it would reject a legitimate way to express a bearing; PROJ
+        normalises it, and this pins that rather than leaving it unstated.
+        """
+        east = ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 0.0))
+        wrapped = ground_distance_in_crs(
+            100_000.0, crs=4326, at=(0.0, 0.0), azimuth=450.0
+        )
+        assert wrapped == pytest.approx(east)
+
+
+class TestGeodErrorContract:
+    """`GeodError` is converted, not leaked (S4, S5).
+
+    `pyproj.exceptions.GeodError` is a sibling of `ProjError`, not a subclass --
+    its MRO goes straight to `RuntimeError` -- so `except ProjError` never caught
+    it and it escaped the documented `ValueError` contract.
+    """
+
+    def test_geod_error_is_not_a_proj_error(self):
+        """The premise, pinned so a pyproj change that fixes it is visible."""
+        assert not issubclass(GeodError, ProjError)
+
+    def test_unequal_array_lengths_raise_value_error(self):
+        """Unequal coordinate arrays are refused as a `ValueError`.
+
+        `geod.inv` does not broadcast -- it raises `GeodError("Array lengths are
+        not the same.")` -- which the docstring previously described as
+        broadcasting.
+        """
+        with pytest.raises(ValueError, match="same length"):
+            geodesic_distance([0.0, 0.0], [0.0, 0.0], [1.0], [0.0])
+
+    def test_equal_array_lengths_still_work(self):
+        """The control: matched lengths are unaffected."""
+        result = geodesic_distance([0.0, 0.0], [0.0, 60.0], [1.0, 1.0], [0.0, 60.0])
+        assert result[0] == pytest.approx(DEGREE_AT_EQUATOR_M)
+        assert result[1] == pytest.approx(DEGREE_AT_60N_M)
+
+    def test_geod_error_from_fwd_is_converted(self, monkeypatch):
+        """A `GeodError` raised inside `ground_distance_in_crs` becomes `ValueError`."""
+
+        def _raise(*_args, **_kwargs):
+            raise GeodError("stubbed geod failure")
+
+        monkeypatch.setattr(Geod, "fwd", _raise)
+        with pytest.raises(ValueError, match="could not measure") as excinfo:
+            ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 0.0))
+        assert isinstance(excinfo.value.__cause__, GeodError)
+
+
+class TestAtAxisOrder:
+    """`at` is always (x, y), and the detectable half of a swap is caught (S6)."""
+
+    def test_swapped_pair_on_a_geographic_crs_is_caught(self):
+        """A latitude in the x slot pushes the y member out of range."""
+        with pytest.raises(ValueError, match="which is not a latitude"):
+            ground_distance_in_crs(100_000.0, crs=4326, at=(45.0, 200.0))
+
+    def test_projected_northing_into_a_geographic_crs_is_caught(self):
+        """The common mistake: UTM coordinates handed to EPSG:4326."""
+        with pytest.raises(ValueError, match="which is not a latitude"):
+            ground_distance_in_crs(100_000.0, crs=4326, at=(500000.0, 3300000.0))
+
+    def test_grad_crs_bound_is_applied_in_degrees(self):
+        """The 90-degree bound accounts for the CRS's angular unit.
+
+        EPSG:4807 is in grads, where a pole is at 100, so a bound applied to the
+        raw number would reject a valid high latitude. 95 grads is 85.5 degrees
+        and must be accepted.
+        """
+        assert ground_distance_in_crs(100_000.0, crs=4807, at=(0.0, 95.0)) > 0.0
+
+    def test_in_range_pair_is_unaffected(self):
+        """A legitimate lon/lat pair still works."""
+        assert ground_distance_in_crs(
+            100_000.0, crs=4326, at=(10.0, 45.0)
+        ) == pytest.approx(1.2681977205244332)

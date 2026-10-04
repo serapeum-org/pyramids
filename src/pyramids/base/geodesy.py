@@ -32,11 +32,13 @@ of shapely and geopandas -- `base/` sits below `feature/`, which
 from __future__ import annotations
 
 import math
+import numbers
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
 from pyproj import Transformer
-from pyproj.exceptions import ProjError
+from pyproj.exceptions import GeodError, ProjError
 
 from pyramids.base._errors import CRSError
 from pyramids.base.crs import crs_from_user_input
@@ -262,7 +264,9 @@ def geodesic_distance(
     for an out-of-range latitude and that would propagate silently.
 
     Scalars in, scalar out; arrays in, array out -- the loop runs inside PROJ,
-    so a transect of thousands of vertices costs one call.
+    so a transect of thousands of vertices costs one call. The arrays must all be
+    the **same length**: PROJ pairs them elementwise and does not broadcast, so a
+    scalar cannot be mixed with an array.
 
     Args:
         lon1: Longitude(s) of the first point, in degrees.
@@ -334,10 +338,84 @@ def geodesic_distance(
     y2 = _as_degrees("lat2", lat2, latitude=True)
     # `inv` returns (forward azimuth, back azimuth, distance); only the third is
     # wanted here, and it accepts scalars and arrays alike.
-    _, _, metres = geod.inv(x1, y1, x2, y2)
+    try:
+        _, _, metres = geod.inv(x1, y1, x2, y2)
+    except (ProjError, GeodError) as exc:
+        # `GeodError` is a sibling of `ProjError`, not a subclass, so both have
+        # to be named. Mismatched array lengths arrive here.
+        raise ValueError(
+            f"could not measure a geodesic distance: {exc}. All four coordinate "
+            "arguments must be scalars or arrays of the same length."
+        ) from exc
     scaled = np.asarray(metres, dtype=float) / scale
     result: float | FloatArray = float(scaled) if scaled.ndim == 0 else scaled
     return result
+
+
+def _as_finite_scalar(name: str, value: Any) -> float:
+    """Coerce one scalar argument to a finite float, or refuse it.
+
+    `np.isfinite` raises `TypeError` for a string or `None`, which contradicted
+    the documented `ValueError`; a bool satisfied every numeric check and was
+    read as one metre; and a 1-element array passed through although the result
+    is a scalar. All three are refused here, in the documented way.
+
+    Args:
+        name: The argument's name, used in the error message.
+        value: The value to check.
+
+    Returns:
+        float: `value` as a float.
+
+    Raises:
+        ValueError: `value` is not a real number, is a bool, or is not finite.
+    """
+    # `bool` is a subclass of `int`, so it has to be excluded before the numeric
+    # test rather than after it.
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        raise ValueError(f"{name} must be a finite real number, got {value!r}")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{name} must be a finite real number, got {value!r}")
+    return number
+
+
+def _as_point(name: str, value: Any) -> tuple[float, float]:
+    """Coerce `value` to an `(x, y)` pair of finite floats, or refuse it.
+
+    A `len(value) != 2` check is not enough: a 2-key mapping and a 2-character
+    string both have length two, and indexing a mapping by `0` and `1` looks up
+    *keys*, so `{0.0: 1, 1.0: 2}` used to be accepted and measured somewhere
+    else entirely.
+
+    Args:
+        name: The argument's name, used in the error message.
+        value: The value to check.
+
+    Returns:
+        tuple[float, float]: The pair as floats.
+
+    Raises:
+        ValueError: `value` is not a two-member sequence of finite numbers.
+    """
+    if isinstance(value, (Mapping, str, bytes)):
+        raise ValueError(f"{name} must be an (x, y) pair of numbers, got {value!r}")
+    try:
+        first, second = value
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{name} must be an (x, y) pair of numbers, got {value!r}"
+        ) from exc
+    try:
+        pair = (
+            _as_finite_scalar(f"{name}[0]", first),
+            _as_finite_scalar(f"{name}[1]", second),
+        )
+    except ValueError as exc:
+        raise ValueError(
+            f"{name} must be an (x, y) pair of numbers, got {value!r}"
+        ) from exc
+    return pair
 
 
 def ground_distance_in_crs(
@@ -369,17 +447,27 @@ def ground_distance_in_crs(
             :func:`pyramids.base.crs.crs_from_user_input` accepts. The result is
             in *this* CRS's units -- degrees for a geographic CRS, and the CRS's
             own linear unit (not necessarily metres) for a projected one.
-        at: `(x, y)` in `crs`, the place the distance is measured at.
+        at: `(x, y)` in `crs`, the place the distance is measured at. Always in
+            **x, y order** -- easting then northing, or longitude then latitude
+            -- whatever axis order `crs` itself declares, matching
+            `always_xy=True` and :func:`pyramids.base.crs.reproject_coordinates`.
+            Swapping the two is silent for a projected CRS, so it is worth
+            getting right; for a geographic one it is caught when the second
+            member exceeds a latitude.
         azimuth: Direction to measure along, in degrees clockwise from north.
             Default `90.0` (due east), the axis a horizontal scale bar spans.
+            Wraps, so `450.0` is also due east; it must be finite.
 
     Returns:
         float: The span in `crs`'s own units.
 
     Raises:
-        ValueError: `distance_m` is not finite and positive, `at` is not a pair,
-            or `at` (or the point `distance_m` away from it) falls outside the
-            CRS's usable domain.
+        ValueError: `distance_m` is not a finite positive real number, `azimuth`
+            is not a finite real number, `at` is not a two-member sequence of
+            finite numbers, or `at` (or the point `distance_m` away from it along
+            `azimuth`) falls outside the CRS's usable domain. A bool is refused
+            for either number, and a mapping or string is refused for `at`, since
+            both would otherwise pass a length check and measure elsewhere.
         CRSError: `crs` cannot be resolved, its datum names no ellipsoid, or it
             has no geographic counterpart to walk the geodesic in.
 
@@ -413,7 +501,7 @@ def ground_distance_in_crs(
             >>> ground_distance_in_crs(-1.0, crs=4326, at=(0.0, 0.0))
             Traceback (most recent call last):
                 ...
-            ValueError: distance_m must be finite and positive, got -1.0.
+            ValueError: distance_m must be positive, got -1.0
 
             ```
 
@@ -421,13 +509,22 @@ def ground_distance_in_crs(
         geodesic_distance: The forward direction -- ground metres between two
             geographic points.
     """
-    if not np.isfinite(distance_m) or distance_m <= 0.0:
-        raise ValueError(f"distance_m must be finite and positive, got {distance_m!r}.")
-    if len(at) != 2:
-        raise ValueError(f"at must be an (x, y) pair, got {at!r}.")
+    metres = _as_finite_scalar("distance_m", distance_m)
+    if metres <= 0.0:
+        raise ValueError(f"distance_m must be positive, got {distance_m!r}")
+    bearing = _as_finite_scalar("azimuth", azimuth)
+    x, y = _as_point("at", at)
     target, geod = _resolve_geod(crs)
     geodetic, to_degrees = _geodetic_frame(target)
-    x, y = float(at[0]), float(at[1])
+    if target.is_geographic and abs(y * to_degrees) > 90.0:
+        # Only detectable on a geographic CRS, and only for the half of the
+        # mistake that lands out of range -- but that half includes the common
+        # one, a projected northing handed to a geographic CRS.
+        raise ValueError(
+            f"at must be (x, y) -- longitude then latitude -- for the geographic "
+            f"CRS {target.name!r}, but its second member is {y}, which is not a "
+            "latitude. Swap the pair, or pass coordinates in the CRS you named."
+        )
     try:
         to_lonlat = Transformer.from_crs(target, geodetic, always_xy=True)
         native_lon, native_lat = to_lonlat.transform(x, y)
@@ -437,20 +534,20 @@ def ground_distance_in_crs(
         lon, lat = native_lon * to_degrees, native_lat * to_degrees
         # The geodesic is walked in lon/lat and the endpoint brought back, so the
         # answer is measured in `crs` rather than assumed proportional to it.
-        lon_end, lat_end, _ = geod.fwd(lon, lat, azimuth, distance_m)
+        lon_end, lat_end, _ = geod.fwd(lon, lat, bearing, metres)
         to_target = Transformer.from_crs(geodetic, target, always_xy=True)
         x_end, y_end = to_target.transform(lon_end / to_degrees, lat_end / to_degrees)
-    except ProjError as exc:
+    except (ProjError, GeodError) as exc:
         raise ValueError(
-            f"could not measure {distance_m} m at {at!r} in {target.name!r}: {exc}"
+            f"could not measure {metres} m at {(x, y)!r} in {target.name!r}: {exc}"
         ) from exc
     span = float(np.hypot(x_end - x, y_end - y))
     if not np.isfinite(span):
         # PROJ reports an un-invertible point as `inf` rather than raising, so a
         # location outside the CRS's domain arrives here, not in the except.
         raise ValueError(
-            f"the point {at!r} (or the point {distance_m} m from it along "
-            f"azimuth {azimuth}) falls outside the usable domain of "
+            f"the point {(x, y)!r} (or the point {metres} m from it along "
+            f"azimuth {bearing}) falls outside the usable domain of "
             f"{target.name!r}, so the span is undefined"
         )
     return span
