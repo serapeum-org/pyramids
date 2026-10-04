@@ -328,7 +328,9 @@ def _dataarray_to_dataset(
             "explicitly (e.g. crs=4326)."
         )
 
-    return _array_to_dataset(np.asarray(data_array.values), resolved_crs, transform, nodata)
+    return _array_to_dataset(
+        np.asarray(data_array.values), resolved_crs, transform, nodata
+    )
 
 
 def _normalize_to_dataset(
