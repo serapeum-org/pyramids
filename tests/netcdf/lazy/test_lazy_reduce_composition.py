@@ -432,3 +432,100 @@ class TestLazyOperatorComposition:
             np.asarray((var - 273.15).reduce("time", "mean").read_array()),
             equal_nan=True,
         )
+
+
+class TestLazyBookkeepingComposition:
+    """`isel`/`sel`/`squeeze`/`transpose` reindex the band axis lazily, matching the eager cut."""
+
+    @requires_dask
+    @pytest.mark.parametrize(
+        "run_lazy, run_eager",
+        [
+            (
+                lambda v: v.chunk("auto").isel(time=[0, 2]),
+                lambda v: v.isel(time=[0, 2]),
+            ),
+            (lambda v: v.chunk("auto").isel(time=1), lambda v: v.isel(time=1)),
+            (
+                lambda v: v.chunk("auto").isel(time=1, drop=True),
+                lambda v: v.isel(time=1, drop=True),
+            ),
+            (
+                lambda v: v.chunk("auto").isel(time=[0, 1], pressure_level=[2]),
+                lambda v: v.isel(time=[0, 1], pressure_level=[2]),
+            ),
+            (
+                lambda v: v.chunk("auto").sel(pressure_level=850.0),
+                lambda v: v.sel(pressure_level=850.0),
+            ),
+            (
+                lambda v: v.chunk("auto").sel(pressure_level=840.0, method="nearest"),
+                lambda v: v.sel(pressure_level=840.0, method="nearest"),
+            ),
+            (
+                lambda v: v.chunk("auto").transpose("pressure_level", "time"),
+                lambda v: v.transpose("pressure_level", "time"),
+            ),
+        ],
+        ids=[
+            "isel-list",
+            "isel-scalar",
+            "isel-drop",
+            "isel-2d",
+            "sel",
+            "sel-nearest",
+            "transpose",
+        ],
+    )
+    def test_reindex_stays_lazy_and_matches_the_eager_cut(self, run_lazy, run_eager):
+        """Each band-axis reindex stays a LazyNetCDF and computes to the eager result."""
+        var = _variable()
+        lazy = run_lazy(var)
+        assert isinstance(lazy, LazyNetCDF), f"got {type(lazy).__name__}"
+        got = np.asarray(lazy.compute().read_array())
+        exp = np.asarray(run_eager(var).read_array())
+        assert got.shape == exp.shape, f"{got.shape} != {exp.shape}"
+        np.testing.assert_allclose(got, exp, equal_nan=True)
+
+    @requires_dask
+    def test_squeeze_drops_a_length_one_band_dim_lazily(self):
+        """`isel(time=[1]).squeeze()` stays lazy and drops the length-one axis as the eager cube does."""
+        var = _variable()
+        lazy = var.chunk("auto").isel(time=[1]).squeeze()
+        assert isinstance(lazy, LazyNetCDF), "the squeeze chain must stay lazy"
+        got = np.asarray(lazy.compute().read_array())
+        exp = np.asarray(var.isel(time=[1]).squeeze().read_array())
+        assert got.shape == exp.shape, f"{got.shape} != {exp.shape}"
+        np.testing.assert_allclose(got, exp, equal_nan=True)
+
+    @requires_dask
+    def test_squeeze_without_a_length_one_dim_is_a_lazy_no_op(self):
+        """`squeeze()` on a cube with no length-one band dim returns the same lazy cube unchanged."""
+        var = _variable()
+        chunked = var.chunk("auto")
+        assert chunked.squeeze() is chunked, "a no-op squeeze must not materialise"
+
+    @requires_dask
+    def test_a_band_reindex_chains_lazily_with_a_reduction(self):
+        """`isel(time=[0,1,2]).reduce('time','mean')` stays lazy and matches the eager chain."""
+        var = _variable()
+        lazy = var.chunk("auto").isel(time=[0, 1, 2]).reduce("time", "mean")
+        assert isinstance(lazy, LazyNetCDF), "the chain must stay lazy"
+        np.testing.assert_allclose(
+            np.asarray(lazy.compute().read_array()),
+            np.asarray(var.isel(time=[0, 1, 2]).reduce("time", "mean").read_array()),
+            equal_nan=True,
+        )
+
+    @requires_dask
+    def test_a_container_transpose_materialises_at_the_boundary(self):
+        """A multi-variable container cannot compose a reindex, so it warns once and goes eager."""
+        container = NetCDF.read_file(MULTIVAR)
+        if not hasattr(container, "chunk"):
+            pytest.skip("container is not chunkable in this build")
+        lazy = container.chunk("auto")
+        with pytest.warns(UserWarning):
+            result = lazy.transpose()
+        assert isinstance(result, NetCDF), (
+            "a container reindex materialises at the boundary"
+        )

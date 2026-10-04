@@ -784,6 +784,188 @@ class LazyNetCDF:
         """Absolute value cell by cell, lazily."""
         return self._unary_op("__abs__")
 
+    def squeeze(self, dim: str | None = None) -> Any:
+        """Drop length-one band dimensions, composing lazily (#1237).
+
+        Pure band-axis reshape (no data touched), so it stays lazy: the dask array's size-1 band
+        axes are squeezed and the band metadata narrowed to match :meth:`NetCDF.squeeze`. A
+        multi-variable container squeezes eagerly at the boundary, warning once.
+        """
+        from pyramids.netcdf.engines.selection import _assert_band_dimension
+
+        if len(self._current_records()) != 1:
+            self._warn_materialize("squeeze")
+            return self.compute().squeeze(dim)
+        name, rec = next(iter(self._current_records().items()))
+        names = list(rec.band_names)
+        sizes = list(rec.array.shape[: len(names)])
+        if dim is not None:
+            _assert_band_dimension(self._source, dim, caller="squeeze")
+            length = sizes[names.index(dim)]
+            if length != 1:
+                raise ValueError(
+                    f"squeeze() drops a dimension of length one, and {dim!r} has "
+                    f"length {length}. Select one step first with isel({dim}=[0])."
+                )
+            gone = {dim}
+        else:
+            gone = {n for n, size in zip(names, sizes) if size == 1}
+        if not gone:
+            return self
+        axes = tuple(i for i, n in enumerate(names) if n in gone)
+        new_arr = rec.array.squeeze(axis=axes)
+        new_names = [n for n in names if n not in gone]
+        new_vmap = {n: rec.values_map.get(n) for n in new_names}
+        new = rec._replace(
+            array=new_arr,
+            band_names=new_names,
+            values_map=new_vmap,
+            dim_names=(*new_names, *rec.dim_names[-2:]),
+        )
+        return LazyNetCDF(
+            self._source, {name: new_arr}, {name: new.dim_names}, {name: new}
+        )
+
+    def transpose(self, *dims: Any) -> Any:
+        """Reorder the band dimensions (spatial plane stays trailing), composing lazily (#1237).
+
+        Pure band-axis permutation, so it stays lazy: `_transpose_order` resolves and validates the
+        order (as :meth:`NetCDF.transpose`), then the dask array's band axes are permuted. A
+        multi-variable container transposes eagerly at the boundary, warning once.
+        """
+        from pyramids.netcdf.engines.selection import _transpose_order
+
+        if len(self._current_records()) != 1:
+            self._warn_materialize("transpose")
+            return self.compute().transpose(*dims)
+        name, rec = next(iter(self._current_records().items()))
+        order = _transpose_order(list(rec.band_names), dims)
+        perm = [rec.band_names.index(n) for n in order]
+        ndim = rec.array.ndim
+        new_arr = rec.array.transpose([*perm, ndim - 2, ndim - 1])
+        new_vmap = {n: rec.values_map.get(n) for n in order}
+        new = rec._replace(
+            array=new_arr,
+            band_names=list(order),
+            values_map=new_vmap,
+            dim_names=(*order, *rec.dim_names[-2:]),
+        )
+        return LazyNetCDF(
+            self._source, {name: new_arr}, {name: new.dim_names}, {name: new}
+        )
+
+    def isel(self, *, drop: bool = False, **indexers: Any) -> Any:
+        """Select bands by position along band dimensions, composing lazily (#1237).
+
+        Pure band-axis indexing, so it stays lazy: each selector is resolved to positions (the same
+        `_resolve_positional_indices` :meth:`NetCDF.isel` uses) and the dask array is indexed along
+        that axis, the coordinates narrowed to match; `drop=True` squeezes the axes a scalar
+        selector collapsed. A multi-variable container selects eagerly at the boundary, warning once.
+        """
+        from pyramids.netcdf.engines.selection import (
+            _assert_band_dimension,
+            _resolve_positional_indices,
+        )
+
+        if not indexers:
+            raise ValueError(
+                "isel() requires at least one keyword argument, e.g. isel(time=0)."
+            )
+        if len(self._current_records()) != 1:
+            self._warn_materialize("isel")
+            return self.compute().isel(drop=drop, **indexers)
+        rec = next(iter(self._current_records().values()))
+        resolved: list[tuple[str, list[int]]] = []
+        scalar_dims: list[str] = []
+        for dim_name, selector in indexers.items():
+            _assert_band_dimension(self._source, dim_name, caller="isel")
+            axis = rec.band_names.index(dim_name)
+            size = int(rec.array.shape[axis])
+            resolved.append(
+                (dim_name, _resolve_positional_indices(selector, size, dim_name))
+            )
+            if not isinstance(selector, (slice, list, tuple)):
+                scalar_dims.append(dim_name)
+        result: Any = self
+        for dim_name, dim_indices in resolved:
+            result = result._subset_band(dim_name, dim_indices)
+        if drop:
+            for dim_name in scalar_dims:
+                if (
+                    dim_name
+                    in next(iter(result._current_records().values())).band_names
+                ):
+                    result = result.squeeze(dim_name)
+        return result
+
+    def sel(
+        self,
+        *,
+        method: str | None = None,
+        tolerance: float | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Select bands by coordinate value along band dimensions, composing lazily (#1237).
+
+        The value twin of :meth:`isel`: each selector is resolved to positions against the source
+        coordinates (the same `_resolve_one_dim` :meth:`NetCDF.sel` uses, honouring
+        `method="nearest"` / `tolerance`), then the dask array is indexed — staying lazy. A
+        multi-variable container selects eagerly at the boundary, warning once.
+        """
+        from pyramids.netcdf.engines.selection import _resolve_one_dim
+
+        if not kwargs:
+            raise ValueError(
+                "sel() requires at least one keyword argument, e.g. sel(time=6)."
+            )
+        if method not in (None, "nearest"):
+            raise ValueError(
+                f"sel() method must be None (exact) or 'nearest', got {method!r}."
+            )
+        if tolerance is not None and method != "nearest":
+            raise ValueError(
+                "sel() tolerance= is only meaningful with method='nearest' — without it "
+                "a label either matches exactly or does not match at all, and there is no "
+                "distance for a tolerance to bound."
+            )
+        if len(self._current_records()) != 1:
+            self._warn_materialize("sel")
+            return self.compute().sel(method=method, tolerance=tolerance, **kwargs)
+        resolved = [
+            (
+                dim_name,
+                _resolve_one_dim(self._source, dim_name, selector, method, tolerance),
+            )
+            for dim_name, selector in kwargs.items()
+        ]
+        result: Any = self
+        for dim_name, dim_indices in resolved:
+            result = result._subset_band(dim_name, dim_indices)
+        return result
+
+    def _subset_band(self, dim_name: str, dim_indices: list[int]) -> LazyNetCDF:
+        """Index the single variable's dask array along one band axis and narrow its coordinates.
+
+        The lazy, dimension-preserving twin of `_subset_along_dim`: a plain dask index along the
+        band axis (no flatten, no compute), keeping the dimension and relabelling its coordinates.
+        The caller has checked there is exactly one variable.
+
+        Returns:
+            LazyNetCDF: The cube with that band axis narrowed to `dim_indices`, still lazy.
+        """
+        name, rec = next(iter(self._current_records().items()))
+        axis = rec.band_names.index(dim_name)
+        new_arr = rec.array[(slice(None),) * axis + (list(dim_indices),)]
+        coords = rec.values_map.get(dim_name)
+        new_vmap = dict(rec.values_map)
+        new_vmap[dim_name] = (
+            [coords[i] for i in dim_indices] if coords is not None else None
+        )
+        new = rec._replace(array=new_arr, values_map=new_vmap)
+        return LazyNetCDF(
+            self._source, {name: new_arr}, {name: new.dim_names}, {name: new}
+        )
+
     def _compose_cellwise(self, method: str, *args: Any, **kwargs: Any) -> LazyNetCDF:
         """Run a cell-wise eager op (`clip`/`fillna`/`round`) per spatial block via map_blocks.
 
