@@ -15,7 +15,7 @@ import sys
 import threading
 import warnings
 import weakref
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TextIO, Unpack, cast
 
@@ -9179,7 +9179,9 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.assign_coords <pyramids.netcdf.engines.selection.Selection.assign_coords>`."""
         return self.selection.assign_coords(coords, **coords_kwargs)
 
-    def drop_dims(self, drop_dims: str | Sequence[str], *, errors: str = "raise") -> NetCDF:
+    def drop_dims(
+        self, drop_dims: str | Sequence[str], *, errors: str = "raise"
+    ) -> NetCDF:
         """Facade — :meth:`Selection.drop_dims <pyramids.netcdf.engines.selection.Selection.drop_dims>`."""
         return self.selection.drop_dims(drop_dims, errors=errors)
 
@@ -13226,6 +13228,130 @@ class NetCDF(Dataset):
             NetCDF._copy_md_array_packing(src_mdarray, new_md_array)
             NetCDF._copy_md_array_labels(src_mdarray, new_md_array)
             new_md_array.Write(arr)
+
+    @staticmethod
+    def _recreate_md_array(dst_group, var_name, src_mdarray, dst_dims):
+        """Create `var_name` in `dst_group` bound to `dst_dims`, byte-for-byte.
+
+        The store-level sibling of :meth:`_add_md_array_to_group`: the caller supplies the
+        destination dimensions explicitly (already created under their final names), so an
+        array can be re-bound onto a *renamed* axis rather than one resolved by name. The
+        source's exact on-disk dtype is kept — taken from `GetDataType()`, not re-derived from
+        the read-back array — so a packed `int16` survivor stays `int16` with its
+        `scale`/`offset`/fill, and the unit, spatial reference and attributes come across too
+        (:meth:`_copy_md_array_packing` / :meth:`_copy_md_array_labels`). This is what lets
+        `rename_dims` / `drop_dims` rebuild a container without unpacking a survivor the way
+        reading it as a raster would. A string array whose write fails is deleted before the
+        error propagates, as in :meth:`_add_md_array_to_group`.
+
+        Args:
+            dst_group: The destination `gdal.Group`.
+            var_name: The name to create the array under.
+            src_mdarray: The source `gdal.MDArray` to copy.
+            dst_dims: The destination `gdal.Dimension` objects for `src_mdarray`'s axes, in
+                order.
+
+        Returns:
+            gdal.MDArray: The freshly written copy.
+        """
+        if src_mdarray.GetDataType().GetClass() == gdal.GEDTC_STRING:
+            new_md_array = dst_group.CreateMDArray(
+                var_name, dst_dims, gdal.ExtendedDataType.CreateString()
+            )
+            NetCDF._copy_md_array_labels(src_mdarray, new_md_array)
+            try:
+                new_md_array.Write(src_mdarray.Read())
+            except (RuntimeError, TypeError, ValueError):
+                dst_group.DeleteMDArray(var_name)
+                raise
+        else:
+            new_md_array = dst_group.CreateMDArray(
+                var_name, dst_dims, src_mdarray.GetDataType()
+            )
+            NetCDF._copy_md_array_packing(src_mdarray, new_md_array)
+            NetCDF._copy_md_array_labels(src_mdarray, new_md_array)
+            new_md_array.Write(src_mdarray.ReadAsArray())
+        return new_md_array
+
+    def _rebuilt_container(
+        self,
+        *,
+        rename: Mapping[str, str] | None = None,
+        drop: Iterable[str] | None = None,
+    ) -> NetCDF:
+        """Rebuild this container into a fresh root group with its axes renamed or pruned.
+
+        The store-level engine behind the container paths of :meth:`rename_dims` and
+        :meth:`drop_dims`. Every array — data variable, coordinate axis and CF bounds — is
+        recreated in a brand-new in-memory root group by a packing-preserving copy
+        (:meth:`_recreate_md_array`) bound to a transformed dimension set:
+
+        * `rename` re-labels a dimension in place — the old dimension and its coordinate array
+          are gone from the result (no orphan GDAL would otherwise leave behind, M2), the
+          coordinate axis carries its own `units` onto the new name (so a non-time axis is
+          never tagged with CF time units, M3), and the variable inventory is unchanged because
+          every array, bounds included, is carried onto the renamed axis.
+        * `drop` omits the named dimensions, their coordinate arrays and every variable that
+          spans them, keeping each survivor's exact dtype / packing / no-data (a `merge`
+          rebuild would read and unpack them, M1).
+
+        A rename and a drop are not combined in one call; the callers pass one or the other.
+
+        Args:
+            rename: `{old: new}` dimension renames. A dimension not named is carried unchanged.
+            drop: Dimension names to remove, with every array declared along them.
+
+        Returns:
+            NetCDF: A fresh root `Container` with the transformed axes.
+        """
+        rename = dict(rename or {})
+        drop = set(drop or [])
+        mem = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
+        src_rg = mem.GetRootGroup()
+        if self._group_path:
+            for part in self._group_path.split("/"):
+                src_rg = src_rg.OpenGroup(part)
+        dst_ds = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
+        dst_rg = dst_ds.GetRootGroup()
+        src_dims = src_rg.GetDimensions() or []
+        src_dim_names = {dim.GetName() for dim in src_dims}
+        array_names = list(src_rg.GetMDArrayNames() or [])
+        dim_map: dict[str, gdal.Dimension] = {}
+        for dim in src_dims:
+            name = dim.GetName()
+            if name in drop:
+                continue
+            dim_map[name] = dst_rg.CreateDimension(
+                rename.get(name, name), dim.GetType(), dim.GetDirection(), dim.GetSize()
+            )
+        # The coordinate (indexing) array of each surviving dimension, recreated under the
+        # dimension's new name and re-attached, so a renamed axis keeps its own stamps and
+        # units rather than inheriting the recycled name's (M3).
+        for dim in src_dims:
+            name = dim.GetName()
+            if name in drop or name not in array_names:
+                continue
+            src_coord = src_rg.OpenMDArray(name)
+            coord = NetCDF._recreate_md_array(
+                dst_rg,
+                rename.get(name, name),
+                src_coord,
+                [dim_map[axis.GetName()] for axis in src_coord.GetDimensions()],
+            )
+            dim_map[name].SetIndexingVariable(coord)
+        # Every other array (data variables and CF bounds), name unchanged, bound onto the
+        # transformed dimensions. An array spanning a dropped dimension goes with it.
+        for array_name in array_names:
+            if array_name in src_dim_names:
+                continue
+            src_arr = src_rg.OpenMDArray(array_name)
+            axes = [axis.GetName() for axis in src_arr.GetDimensions()]
+            if set(axes) & drop:
+                continue
+            NetCDF._recreate_md_array(
+                dst_rg, array_name, src_arr, [dim_map[axis] for axis in axes]
+            )
+        return Container(dst_ds)
 
     @staticmethod
     def _get_or_create_dimension(
