@@ -2212,7 +2212,11 @@ class _DimensionRemap:
     """
 
     def __init__(
-        self, dst_group: gdal.Group, rename: dict[str, str], drop: set[str]
+        self,
+        dst_group: gdal.Group,
+        rename: dict[str, str],
+        drop: set[str],
+        recreate: Callable[..., gdal.MDArray],
     ) -> None:
         """Bind the remap to one destination group.
 
@@ -2220,10 +2224,14 @@ class _DimensionRemap:
             dst_group: The fresh root group the rebuild creates dimensions in.
             rename: `{old: new}` dimension renames; a name not listed is carried unchanged.
             drop: Dimension names that must not be created.
+            recreate: The packing-preserving array copy to carry a coordinate array across,
+                injected rather than imported so this value object does not depend on the class
+                it serves (:meth:`NetCDF._recreate_md_array` is what the rebuild passes).
         """
         self._dst = dst_group
         self._rename = rename
         self._drop = drop
+        self._recreate = recreate
         self._dims: dict[str, gdal.Dimension] = {}
 
     def _created(self, dim: gdal.Dimension) -> gdal.Dimension:
@@ -2234,8 +2242,18 @@ class _DimensionRemap:
 
         Returns:
             gdal.Dimension: The destination dimension bound to the (possibly renamed) name.
+
+        Raises:
+            ValueError: `dim` is being dropped. A dimension is born here and nowhere else, so
+                the guard belongs here: without it an array reaching `axes` while spanning a
+                dropped axis would resurrect that axis in the destination.
         """
         name = dim.GetName()
+        if name in self._drop:
+            raise ValueError(
+                f"_DimensionRemap: {name!r} is being dropped, so it has no destination "
+                "dimension; the rebuild must skip every array that spans it."
+            )
         if name not in self._dims:
             self._dims[name] = self._dst.CreateDimension(
                 self._rename.get(name, name),
@@ -2290,7 +2308,7 @@ class _DimensionRemap:
             if name in self._drop or name not in array_names:
                 continue
             src_coord = src_group.OpenMDArray(name)
-            coord = NetCDF._recreate_md_array(
+            coord = self._recreate(
                 self._dst,
                 self._rename.get(name, name),
                 src_coord,
@@ -13394,7 +13412,7 @@ class NetCDF(Dataset):
           spans them, keeping each survivor's exact dtype / packing / no-data (a `merge`
           rebuild would read and unpack them, M1).
 
-        A rename and a drop are not combined in one call; the callers pass one or the other.
+        A rename and a drop are not combined in one call; passing both is refused.
 
         Args:
             rename: `{old: new}` dimension renames. A dimension not named is carried unchanged.
@@ -13402,7 +13420,17 @@ class NetCDF(Dataset):
 
         Returns:
             NetCDF: A fresh root `Container` with the transformed axes.
+
+        Raises:
+            ValueError: Both `rename` and `drop` were passed. The two transforms are applied by
+                different callers and their dimension bookkeeping differs, so one rebuild
+                carries one of them.
         """
+        if rename and drop:
+            raise ValueError(
+                "_rebuilt_container(): pass either rename= or drop=, not both; one rebuild "
+                "applies one transform."
+            )
         drop = set(drop or [])
         mem = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
         src_rg = mem.GetRootGroup()
@@ -13414,7 +13442,9 @@ class NetCDF(Dataset):
         src_dims = src_rg.GetDimensions() or []
         src_dim_names = {dim.GetName() for dim in src_dims}
         array_names = list(src_rg.GetMDArrayNames() or [])
-        remap = _DimensionRemap(dst_rg, dict(rename or {}), drop)
+        remap = _DimensionRemap(
+            dst_rg, dict(rename or {}), drop, NetCDF._recreate_md_array
+        )
         remap.declare(src_dims)
         remap.carry_coordinates(src_rg, src_dims, array_names)
         for array_name in array_names:
