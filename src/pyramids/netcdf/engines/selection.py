@@ -3185,6 +3185,8 @@ class Selection(_Engine["NetCDF"]):
                 raise ValueError(
                     f"rename_dims(): target {new!r} already names a band dimension."
                 )
+        if not {old: new for old, new in mapping.items() if old != new}:
+            return _unchanged(nc)
 
         def relabel(var: NetCDF) -> tuple[list[str], dict]:
             names = [mapping.get(name, name) for name in var._band_dim_names]
@@ -3258,6 +3260,8 @@ class Selection(_Engine["NetCDF"]):
                     f"{np.ndim(values)}-D."
                 )
             coerced[dim] = list(values)
+        if not coerced:
+            return _unchanged(nc)
 
         def relabel(var: NetCDF) -> tuple[list[str], dict]:
             names = list(var._band_dim_names)
@@ -6705,6 +6709,24 @@ def _relabelled(nc: NetCDF, names: tuple, sizes: tuple, values_map: dict) -> Net
         result._band_count,
     )
     return result
+
+
+def _unchanged(nc: NetCDF) -> NetCDF:
+    """A cheap, non-mutating copy of the receiver for a no-op relabel.
+
+    A single `Variable` is `_rewrapped` (shares the raster, keeps the lazy read); a `Container` is
+    a `copy` (a single store copy, not the per-variable in-memory rebuild `_apply_per_variable`
+    would do for a guaranteed no-op).
+
+    Args:
+        nc: The receiver.
+
+    Returns:
+        NetCDF: An equivalent, independent cube.
+    """
+    if _reduces_as_a_variable(nc):
+        return _rewrapped(nc)
+    return nc.copy()
 
 
 def _relabel_per_variable(

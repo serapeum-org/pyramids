@@ -135,6 +135,24 @@ class TestRenameDimsHappyPath:
             f"renamed dim must keep its CF time attrs: {carried} != {source}"
         )
 
+    def test_an_empty_rename_is_a_no_op_on_a_container(self):
+        """`rename_dims()` with nothing to change returns an equivalent container (L2)."""
+        cont = _make_multi_nc()
+        out = cont.rename_dims()
+        assert set(out.variable_names) == set(cont.variable_names), (
+            "variables preserved"
+        )
+        assert out.get_variable("temp")._band_dim_names == ("time",), "dims unchanged"
+
+    def test_an_identity_rename_on_a_variable_stays_lazy(self):
+        """An identity rename on a single variable rewraps (stays lazy), not rebuilds (L2)."""
+        var = _make_nc().get_variable("temperature")
+        out = var.rename_dims(time="time")
+        assert out._rebuilt_in_memory is False, (
+            "an identity rename must keep the lazy read"
+        )
+        assert out._band_dim_names == ("time",), f"got {out._band_dim_names}"
+
 
 class TestRenameDimsErrors:
     """Every refusal is a ValueError naming the offending input."""

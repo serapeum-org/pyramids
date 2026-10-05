@@ -100,8 +100,20 @@ class TestAssignCoordsHappyPath:
         )
         cont.set_variable("geoid", level.get_variable("geoid"))
         out = cont.assign_coords(time=[7, 8, 9])
-        assert out.get_variable("temp")._band_dim_values_map["time"] == [7, 8, 9], "temp restamped"
-        assert out.get_variable("geoid")._band_dim_values_map["level"] == [0, 1], "geoid untouched"
+        assert out.get_variable("temp")._band_dim_values_map["time"] == [7, 8, 9], (
+            "temp restamped"
+        )
+        assert out.get_variable("geoid")._band_dim_values_map["level"] == [0, 1], (
+            "geoid untouched"
+        )
+
+    def test_an_empty_assign_is_a_no_op_on_a_container(self):
+        """`assign_coords()` with nothing to change returns an equivalent container (L2)."""
+        cont = _make_multi_nc()
+        out = cont.assign_coords()
+        assert set(out.variable_names) == set(cont.variable_names), (
+            "variables preserved"
+        )
 
 
 class TestAssignCoordsErrors:
