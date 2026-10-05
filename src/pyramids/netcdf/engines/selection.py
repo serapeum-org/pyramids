@@ -3194,7 +3194,7 @@ class Selection(_Engine["NetCDF"]):
             }
             return names, values_map
 
-        return _relabel_per_variable(nc, relabel, caller="rename_dims")
+        return _relabel_per_variable(nc, relabel, caller="rename_dims", rename=mapping)
 
     def assign_coords(
         self, coords: Mapping[str, Any] | None = None, **coords_kwargs: Any
@@ -6679,7 +6679,11 @@ def _relabelled(nc: NetCDF, names: tuple, sizes: tuple, values_map: dict) -> Net
 
 
 def _relabel_per_variable(
-    nc: NetCDF, relabel: Callable[[NetCDF], tuple[list[str], dict]], *, caller: str
+    nc: NetCDF,
+    relabel: Callable[[NetCDF], tuple[list[str], dict]],
+    *,
+    caller: str,
+    rename: dict[str, str] | None = None,
 ) -> NetCDF:
     """Relabel a variable's band dimensions without moving a single cell, or every variable's.
 
@@ -6697,6 +6701,10 @@ def _relabel_per_variable(
         relabel: Given one variable, returns its `(new band names, new values map)`. The band
             count and axis order must be unchanged — this relabels, it does not restructure.
         caller: The member named in any refusal or warning.
+        rename: The `{old: new}` dimension-name map, when the relabel renames dimensions. Used on
+            the container path to re-key the CF time attributes, which `_apply_per_variable`
+            otherwise drops because it filters the source's old-keyed attributes by the new names.
+            `None` (the default) leaves the names unchanged (e.g. `assign_coords`).
 
     Returns:
         NetCDF: The relabelled variable or container; cells and band count unchanged.
@@ -6724,7 +6732,20 @@ def _relabel_per_variable(
         arr = np.asarray(nc._materialize_variable_array(var, lazy=True))
         return arr, list(names), dict(values_map), _read_no_data(var), var.geotransform
 
-    return _apply_per_variable(nc, _fn, caller=caller)
+    result = _apply_per_variable(nc, _fn, caller=caller)
+    if rename:
+        # `_apply_per_variable` keeps each variable's CF time attributes only for dims whose name
+        # is in the NEW band names, but the source's attributes are keyed by the OLD names, so a
+        # rename drops them all (#H1). Re-key them from the source instead.
+        source_attrs: dict[str, tuple[str, str]] = {}
+        for variable_name in nc.variable_names:
+            source_attrs.update(
+                cast("NetCDF", nc.get_variable(variable_name))._resolved_band_dim_time_attrs()
+            )
+        result._band_dim_time_attrs = {
+            rename.get(name, name): attrs for name, attrs in source_attrs.items()
+        }
+    return result
 
 
 def _subset_along_dim(nc: NetCDF, dim_name: str, dim_indices: list[int]) -> NetCDF:

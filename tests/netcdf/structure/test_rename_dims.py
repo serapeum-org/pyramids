@@ -118,6 +118,23 @@ class TestRenameDimsHappyPath:
         out = cont.rename_dims(time="t")
         assert_allclose(np.asarray(out.get_variable("temp").read_array()), before)
 
+    def test_a_container_rename_preserves_cf_time_attrs(self):
+        """A container rename re-keys the renamed dim's CF time attributes (units/calendar) (H1).
+
+        The single-variable path kept them, but the container path dropped them, because
+        `_apply_per_variable` filtered the source's old-keyed attributes by the new names.
+        """
+        nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+        source = nc.get_variable("pr")._resolved_band_dim_time_attrs().get("time")
+        assert source is not None, (
+            "precondition: 'pr' carries CF time attributes on 'time'"
+        )
+        out = nc.rename_dims(time="t")
+        carried = out.get_variable("pr")._band_dim_time_attrs.get("t")
+        assert carried == source, (
+            f"renamed dim must keep its CF time attrs: {carried} != {source}"
+        )
+
 
 class TestRenameDimsErrors:
     """Every refusal is a ValueError naming the offending input."""
@@ -162,4 +179,6 @@ class TestRenameDimsDiskRoundTrip:
         path = tmp_path / "renamed.nc"
         out.to_file(str(path))
         reloaded = NetCDF.read_file(str(path)).get_variable("temp")
-        assert "t" in reloaded._band_dim_names, f"expected 't' in {reloaded._band_dim_names}"
+        assert "t" in reloaded._band_dim_names, (
+            f"expected 't' in {reloaded._band_dim_names}"
+        )
