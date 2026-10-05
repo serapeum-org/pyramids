@@ -3124,10 +3124,12 @@ class Selection(_Engine["NetCDF"]):
 
         xarray's `rename_dims`, restricted to the band (non-spatial) axes: the geotransform pins
         the `(y, x)` plane, so a spatial axis cannot be renamed and a band dimension cannot take a
-        spatial name. A rename moves no cells — on a single variable it is a free re-label that
-        keeps the variable's lazy read; on a container every variable that spans a renamed
-        dimension is rebuilt, as `transpose` rebuilds (a container keeps its dimensions in the
-        store, not in memory).
+        spatial name. A rename moves no cells. On a single variable it is a free re-label that
+        keeps the variable's lazy read. A container keeps its dimensions in the *store*, so there
+        the rename is store-level surgery: the cube is rebuilt into a fresh root group with the
+        dimension re-labelled in place, which leaves no orphan of the old name, keeps the variable
+        inventory (CF bounds and sub-groups included) and carries each coordinate array, its
+        attributes and the store's global attributes across.
 
         Args:
             dims: A `{old: new}` mapping of band dimensions to rename.
@@ -3138,8 +3140,9 @@ class Selection(_Engine["NetCDF"]):
 
         Raises:
             ValueError: An `old` name is not a band dimension, a `new` name is a spatial axis
-                name, two renames target the same name, or a `new` name already names a band
-                dimension that is not itself being renamed.
+                name, two renames target the same name, a `new` name already names a band
+                dimension that is not itself being renamed, or a `new` name already names a
+                variable (the renamed coordinate array would collide with it).
 
         Examples:
             - Rename `time` to `t`:
@@ -3184,6 +3187,11 @@ class Selection(_Engine["NetCDF"]):
             if new in known and new not in mapping:
                 raise ValueError(
                     f"rename_dims(): target {new!r} already names a band dimension."
+                )
+            if new in nc.variable_names:
+                raise ValueError(
+                    f"rename_dims(): target {new!r} already names a variable of this cube; the "
+                    f"renamed coordinate array would collide with it."
                 )
         effective = {old: new for old, new in mapping.items() if old != new}
         if not effective:

@@ -250,6 +250,16 @@ class TestRenameDimsErrors:
         with pytest.raises(ValueError, match="duplicate"):
             var.rename_dims(time="z", level="z")
 
+    def test_a_target_colliding_with_a_variable_name_is_refused(self):
+        """Renaming a dimension onto an existing variable's name raises a ValueError (L1).
+
+        The renamed coordinate array would be created under that name and collide, which used to
+        surface as a bare GDAL `RuntimeError` rather than this family's `ValueError`.
+        """
+        cont = _make_nc("temperature")
+        with pytest.raises(ValueError, match="already names a variable"):
+            cont.rename_dims(time="temperature")
+
     def test_a_target_that_already_exists_is_refused(self):
         """Renaming onto an existing, non-renamed band dimension raises."""
         var = _make_2d_nc().get_variable("v")
