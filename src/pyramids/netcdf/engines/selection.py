@@ -3271,6 +3271,15 @@ class Selection(_Engine["NetCDF"]):
             values_map = dict(var._band_dim_values_map)
             for dim, values in coerced.items():
                 if dim in names:
+                    # Re-checked per variable, not only against the cube's declaration: a
+                    # hierarchical container's sub-groups may declare a same-named dimension at
+                    # a different length, which the working group's view cannot show (L3).
+                    size = var._band_dim_sizes[names.index(dim)]
+                    if len(values) != size:
+                        raise ValueError(
+                            f"assign_coords(): {dim!r} is length {size} on one of this cube's "
+                            f"variables, but {len(values)} coordinate values were given."
+                        )
                     values_map[dim] = list(values)
             return names, values_map
 
@@ -6693,8 +6702,12 @@ def _declared_band_sizes(nc: NetCDF, known: list[str]) -> dict[str, int]:
         dict[str, int]: The declared length of each known band dimension.
     """
     if _reduces_as_a_variable(nc):
-        return dict(zip(nc._band_dim_names, nc._band_dim_sizes))
-    return {name: size for name, size in nc.dimension_sizes.items() if name in known}
+        sizes = dict(zip(nc._band_dim_names, nc._band_dim_sizes))
+    else:
+        sizes = {
+            name: size for name, size in nc.dimension_sizes.items() if name in known
+        }
+    return sizes
 
 
 def _validated_restamp(
@@ -6734,7 +6747,15 @@ def _validated_restamp(
                 f"{np.ndim(values)}-D."
             )
         size = declared.get(dim)
-        if size is not None and len(values) != size:
+        if size is None:
+            # `known` and `declared` are built from the same declaration, so a name in one is in
+            # the other. Failing loudly beats the old `if size is not None` guard, which skipped
+            # the length check instead of reporting that the two had drifted apart (L3).
+            raise ValueError(
+                f"assign_coords(): {dim!r} is a band dimension of this cube but its declared "
+                f"length is unknown, so the restamp cannot be checked."
+            )
+        if len(values) != size:
             raise ValueError(
                 f"assign_coords(): {dim!r} has length {size}, but {len(values)} "
                 f"coordinate values were given."
@@ -6756,16 +6777,18 @@ def _donor_variables(other: Any) -> list[tuple[str, NetCDF]]:
         TypeError: `other` is neither a container nor a `{name: variable}` mapping.
     """
     if isinstance(other, Mapping):
-        return list(other.items())
-    if hasattr(other, "variable_names") and hasattr(other, "get_variable"):
-        return [
+        items = list(other.items())
+    elif hasattr(other, "variable_names") and hasattr(other, "get_variable"):
+        items = [
             (name, cast("NetCDF", other.get_variable(name)))
             for name in other.variable_names
         ]
-    raise TypeError(
-        "update() accepts a NetCDF container or a {name: variable} mapping, got "
-        f"{type(other).__name__}."
-    )
+    else:
+        raise TypeError(
+            "update() accepts a NetCDF container or a {name: variable} mapping, got "
+            f"{type(other).__name__}."
+        )
+    return items
 
 
 def _assert_band_axes_fit(
@@ -6872,6 +6895,15 @@ def _relabel_per_variable(
     `transpose` takes — with each variable's cells carried over unchanged. (A container
     *rename* takes the store-level path instead, `NetCDF._rebuilt_container`, which renames the
     dimension in place; this per-variable rebuild is the `assign_coords` container path.)
+
+    On the single-variable path the CF time attributes are re-keyed from the **resolved** view
+    (`_resolved_band_dim_time_attrs`), as `_rewrapped` and `_copy_band_dim_metadata` already do.
+    That normalises the result's raw dict for *both* callers, not just the renaming one: a
+    non-CF-time `units` (a pressure level's `millibar`, say) is dropped and an entry resolved from
+    a parent cube is added, so `assign_coords` — which renames nothing — can still come back with
+    a different raw dict than it went in with. Every consumer reads these through
+    `_carried_time_attrs`, which applies the same CF-time filter, so the normalisation is not
+    observable in the cube's behaviour; it is called out here because nothing else records it.
 
     Args:
         nc: The receiver, a variable or a container.
