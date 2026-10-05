@@ -106,3 +106,27 @@ class TestUpdateErrors:
         base = _cube("a")
         with pytest.raises(TypeError, match="NetCDF container or a"):
             base.update([1, 2, 3])
+
+    def test_a_band_dimension_length_conflict_is_refused(self):
+        """A donor whose `time` length differs from the container's is refused up front (L2).
+
+        The container's `time` is length 3; a donor carrying a length-5 `time` used to be
+        committed under a silently renamed `time_5` axis. The band axes are now validated in the
+        same pre-write pass as the spatial grid, so the mismatch raises and the receiver — still
+        holding only `a`, with no `time_5` dimension — is left untouched.
+        """
+        base = _cube("a")
+        donor = NetCDF.from_array(
+            arr=np.random.default_rng(5).random((5, 5, 8)).astype(np.float64),
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="b",
+            dims=ExtraDimensions(name="time", values=[0, 6, 12, 18, 24]),
+        )
+        with pytest.raises(AlignmentError, match="band dimension 'time'"):
+            base.update(donor)
+        assert base.variable_names == ["a"], (
+            f"a refused update must not commit 'b': {base.variable_names}"
+        )
+        assert "time_5" not in (base.dimension_names or []), (
+            "the conflicting donor axis must not land on a renamed dimension"
+        )

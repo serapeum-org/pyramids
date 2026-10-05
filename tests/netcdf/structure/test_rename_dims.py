@@ -15,6 +15,7 @@ from tests.netcdf.conftest import SEED
 pytestmark = pytest.mark.core
 
 GEO = (0.0, 1.0, 0, 5.0, 0, -1.0)
+CF_FIXTURE = "tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc"
 
 
 def _make_nc(var_name="temperature"):
@@ -103,7 +104,9 @@ class TestRenameDimsHappyPath:
         var = _make_2d_nc().get_variable("v")
         out = var.rename_dims(time="level", level="time")
         assert out._band_dim_names == ("level", "time"), f"got {out._band_dim_names}"
-        assert out._band_dim_sizes == (2, 3), f"axes keep their order: {out._band_dim_sizes}"
+        assert out._band_dim_sizes == (2, 3), (
+            f"axes keep their order: {out._band_dim_sizes}"
+        )
 
     def test_a_container_renames_every_variable_that_spans_the_dim(self):
         """On a container the renamed dimension changes on every variable that has it."""
@@ -185,6 +188,82 @@ class TestRenameDimsErrors:
         var = _make_2d_nc().get_variable("v")
         with pytest.raises(ValueError, match="already names a band dimension"):
             var.rename_dims(time="level")
+
+
+class TestRenameDimsContainerStoreSurgery:
+    """A container rename is store-level surgery on a real CF file (M2, M3).
+
+    The in-memory `from_array` cubes the other tests use carry no auxiliary/bounds variables
+    and no orphan-prone store structure, so these cases run against the CF fixture — a file with
+    `*_bnds` bounds variables, CF time units on `time`, and pressure units on `plev` — which is
+    where the rebuild has to get the store right.
+    """
+
+    def test_a_container_rename_removes_the_old_dimension(self):
+        """After `rename_dims(time='tt')` the old `time` dimension is gone, not orphaned (M2)."""
+        nc = NetCDF.read_file(CF_FIXTURE)
+        out = nc.rename_dims(time="tt")
+        dims = out.dimension_names or []
+        assert "time" not in dims, f"the old dimension must be gone, got {sorted(dims)}"
+        assert "tt" in dims, f"the new dimension must be present, got {sorted(dims)}"
+
+    def test_a_container_rename_keeps_the_variable_inventory(self):
+        """The rebuild leaves the data-variable inventory unchanged — no bounds surface (M2)."""
+        nc = NetCDF.read_file(CF_FIXTURE)
+        before = sorted(nc.variable_names)
+        out = nc.rename_dims(time="tt")
+        assert sorted(out.variable_names) == before, (
+            f"inventory changed: {sorted(out.variable_names)} != {before}"
+        )
+
+    def test_a_container_rename_carries_bounds_onto_the_new_dim(self):
+        """The CF `time_bnds` bounds array follows `time` onto the renamed axis (M2).
+
+        Read off the result's store rather than the enumeration, because a bounds variable is
+        deliberately not a data variable; what matters is that it spans `tt`, not the orphaned
+        `time`, so the coordinate-bounds relationship is kept.
+        """
+        nc = NetCDF.read_file(CF_FIXTURE)
+        out = nc.rename_dims(time="tt")
+        root = out._raster.GetRootGroup()
+        assert "time_bnds" in (root.GetMDArrayNames() or []), (
+            "bounds array must be kept"
+        )
+        bnds_dims = [d.GetName() for d in root.OpenMDArray("time_bnds").GetDimensions()]
+        assert "tt" in bnds_dims, (
+            f"time_bnds must span the renamed axis, got {bnds_dims}"
+        )
+        assert "time" not in bnds_dims, (
+            f"time_bnds must not span the orphan, got {bnds_dims}"
+        )
+
+    def test_exchanging_two_dims_leaves_the_non_time_axis_untagged(self, tmp_path):
+        """Exchanging `time`<->`plev` must not tag the pressure axis with CF time units (M3).
+
+        The former-`time` axis keeps its `days since ...` units under its new name; the pressure
+        axis (coords ~[100000, 92500, 85000]) must carry none, and this must survive a
+        `to_file` + reload so a standards-compliant reader never decodes pressures as dates.
+        """
+        nc = NetCDF.read_file(CF_FIXTURE)
+        exchanged = nc.rename_dims(time="plev", plev="time")
+        path = tmp_path / "exchanged.nc"
+        exchanged.to_file(str(path))
+        reloaded = NetCDF.read_file(str(path)).get_variable("ua")
+        attrs = reloaded._resolved_band_dim_time_attrs()
+        values = reloaded._band_dim_values_map
+        pressure_axis = next(
+            name
+            for name, vals in values.items()
+            if vals is not None
+            and len(vals)
+            and abs(float(np.ravel(vals)[0]) - 100000.0) < 1.0
+        )
+        assert pressure_axis not in attrs, (
+            f"the pressure axis {pressure_axis!r} must carry no time units, got {attrs}"
+        )
+        assert len(attrs) == 1, (
+            f"only the former-time axis may stay time-tagged, got {attrs}"
+        )
 
 
 class TestRenameDimsDiskRoundTrip:

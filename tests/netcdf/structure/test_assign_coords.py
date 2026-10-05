@@ -137,6 +137,18 @@ class TestAssignCoordsErrors:
         with pytest.raises(ValueError, match="must be a 1-D sequence"):
             var.assign_coords(time=[[1, 2, 3]])
 
+    def test_a_wrong_length_on_an_auxiliary_dimension_raises(self):
+        """A wrong length on an aux-only dimension (CF `bnds`, size 2) is refused up front (L1).
+
+        `bnds` is a declared band dimension no *data* variable spans, so the length check used to
+        be deferred into the per-variable closure and never ran — the bad input was accepted and
+        silently restamped nothing. It is now validated against the container's declared size
+        before the per-variable rebuild.
+        """
+        nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+        with pytest.raises(ValueError, match="has length 2"):
+            nc.assign_coords(bnds=[1, 2, 3, 4, 5])
+
 
 class TestAssignCoordsDiskRoundTrip:
     """The restamp survives a write/read cycle at the container level."""
