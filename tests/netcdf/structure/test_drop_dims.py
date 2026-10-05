@@ -58,6 +58,20 @@ class TestDropDimsHappyPath:
         out = _mixed_container().drop_dims("time")
         assert "geoid" in out.variable_names, "geoid spans level and must survive"
 
+    def test_the_dropped_dimension_is_gone_from_dims(self):
+        """The dimension itself is removed, not just the variables along it (M2).
+
+        Rebuilding from the survivors drops the orphan dimension that in-place removal left
+        declared in the store, matching the method name and xarray's `drop_dims`.
+        """
+        out = _mixed_container().drop_dims("time")
+        assert "time" not in (out.dimension_names or []), (
+            f"'time' orphaned in {out.dimension_names}"
+        )
+        assert "level" in (out.dimension_names or []), (
+            "the surviving variable's dim must remain"
+        )
+
     def test_drop_dims_does_not_mutate_the_receiver(self):
         """The original container keeps its variable; the drop happens on a copy."""
         cont = _mixed_container()

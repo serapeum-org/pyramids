@@ -3333,12 +3333,29 @@ class Selection(_Engine["NetCDF"]):
                         f"dimensions are {sorted(known)}."
                     )
         drop = {dim for dim in targets if dim in known}
-        result = nc.copy()
-        for variable_name in list(result.variable_names):
-            var_dims = set(cast("NetCDF", result.get_variable(variable_name))._band_dim_names)
-            if var_dims & drop:
+        if not drop:
+            return nc.copy()
+        survivors = [
+            variable_name
+            for variable_name in nc.variable_names
+            if not (
+                set(cast("NetCDF", nc.get_variable(variable_name))._band_dim_names) & drop
+            )
+        ]
+        if not survivors:
+            result = nc.copy()
+            for variable_name in list(result.variable_names):
                 result.remove_variable(variable_name)
-        return result
+            return result
+        # Rebuild from the survivors rather than deleting variables in place: `remove_variable`
+        # leaves the dropped dimension declared in the store (an orphan GDAL leaves behind), so
+        # `.dims` would still list it. `merge` builds a fresh container declaring only the
+        # dimensions its variables actually use, so the dropped dimension (and its coordinate) is
+        # gone -- matching the method name and xarray's `drop_dims` (M2).
+        survivor_cubes = [
+            cast("NetCDF", nc.get_variable(variable_name)) for variable_name in survivors
+        ]
+        return cast("NetCDF", survivor_cubes[0].merge(survivor_cubes[1:]))
 
     def update(self, other: Any) -> None:
         """Add or replace variables from another cube, in place — xarray's `Dataset.update`.
