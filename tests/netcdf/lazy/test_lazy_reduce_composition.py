@@ -60,10 +60,10 @@ class TestLazyReduceComposition:
         var = _variable()
         lazy = var.chunk("auto").reduce("time", "mean").reduce("pressure_level", "mean")
         assert isinstance(lazy, LazyNetCDF), "the chain must still be lazy"
-        assert (
-            lazy.chunks
-            and "time" not in lazy.chunks
-            and "pressure_level" not in lazy.chunks
+        assert lazy.chunks, "the chain must still report chunks"
+        assert "time" not in lazy.chunks, "the time dim was reduced away"
+        assert "pressure_level" not in lazy.chunks, (
+            "the pressure_level dim was reduced away"
         )
         got = lazy.compute()
         expected = var.reduce("time", "mean").reduce("pressure_level", "mean")

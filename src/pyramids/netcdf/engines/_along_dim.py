@@ -398,7 +398,7 @@ class _Diff(_AlongDim):
 
 
 def _diffed_array(
-    nc: NetCDF,
+    _nc: NetCDF,
     arr: Any,
     band_names: list[str],
     values_map: dict[str, Any],
@@ -412,8 +412,8 @@ def _diffed_array(
     """Difference one variable along `dim` on a given array (the per-variable step of `diff`).
 
     `np.diff` / `np.where` / `_gaps_as_nan` all dispatch on a `dask.array`, so `materialize=False`
-    keeps the result deferred for a lazy cube (#1237). `nc` is unused but kept for the uniform
-    factored-kernel signature `_compose_direct` calls through.
+    keeps the result deferred for a lazy cube (#1237). `_nc` is unused (diff needs no reducer off the
+    variable), but kept first for the uniform factored-kernel signature `_compose_direct` calls through.
     """
     band_names = list(band_names)
     values_map = dict(values_map)

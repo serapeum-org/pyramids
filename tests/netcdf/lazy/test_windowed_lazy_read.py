@@ -52,7 +52,6 @@ class TestWindowedLazyRead:
     @requires_dask
     def test_bbox_with_chunks_is_still_refused(self):
         """A `bbox` with `chunks=` has no plain-slice form, so it is still refused."""
+        var = _variable()
         with pytest.raises(ValueError, match="not supported"):
-            _variable().read_array(
-                bbox=(0.0, 0.0, 10.0, 10.0), epsg=4326, chunks="auto"
-            )
+            var.read_array(bbox=(0.0, 0.0, 10.0, 10.0), epsg=4326, chunks="auto")
