@@ -1,6 +1,6 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 115 in all: 80 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 119 in all: 84 methods, 27 properties,
 7 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). `concat` and `merge` are counted among the methods: each is callable on the class
 (`NetCDF.concat([a, b], dim)`) and on a cube (`a.concat([b], dim)`, which joins the
@@ -143,6 +143,9 @@ A variable with no raster plane is the exception — see each member's docstring
 | `idxmin()`         | The coordinate along `dim` of the smallest value; NaN where there is none.           |
 | `idxmax()`         | The coordinate along `dim` of the largest value; NaN where there is none.            |
 | `weighted()`       | Weighted statistics over the spatial axes or a band dim — `"area"`, `how`.           |
+| `rename_dims()`    | Renames band dims — `{old: new}` / `old=new`; never a spatial axis.                  |
+| `assign_coords()`  | Restamps an existing band dim's coordinates — `dim=values`.                          |
+| `drop_dims()`      | Drops band dims and the variables along them (container) — `errors`.                 |
 
 ## Spatial operations
 
@@ -161,6 +164,7 @@ A variable with no raster plane is the exception — see each member's docstring
 | `add_variable()`       | Copies MDArray variables in from another `NetCDF`.                          |
 | `remove_variable()`    | Deletes a variable from this container.                                     |
 | `rename_variable()`    | Renames a variable in this container.                                       |
+| `update()`             | Adds or replaces this container's variables from another cube, in place.    |
 | `crop_variable()`      | Crops one variable and stores the result back.                              |
 | `reproject_variable()` | Reprojects one variable and stores the result back.                         |
 | `resample_variable()`  | Resamples one variable and stores the result back.                          |
