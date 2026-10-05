@@ -13432,8 +13432,12 @@ class NetCDF(Dataset):
                 "applies one transform."
             )
         drop = set(drop or [])
-        mem = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
-        src_rg = mem.GetRootGroup()
+        # Read straight from this container's own store. The destination is a brand-new
+        # dataset, so nothing here writes to the source and the defensive full-store MEM
+        # `CreateCopy` this used to take bought nothing -- it only doubled peak memory for an
+        # operation that moves no cells (`rename`) or strictly reduces (`drop`), and made
+        # `drop_dims` materialize the very arrays it was about to discard (M5).
+        src_rg = self._raster.GetRootGroup()
         if self._group_path:
             for part in self._group_path.split("/"):
                 src_rg = src_rg.OpenGroup(part)
