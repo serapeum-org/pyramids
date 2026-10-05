@@ -3195,6 +3195,85 @@ class Selection(_Engine["NetCDF"]):
 
         return _relabel_per_variable(nc, relabel, caller="rename_dims")
 
+    def assign_coords(
+        self, coords: Mapping[str, Any] | None = None, **coords_kwargs: Any
+    ) -> NetCDF:
+        """Replace the coordinate stamps of one or more existing band dimensions.
+
+        The honest subset of xarray's `assign_coords`: pyramids has no index model, so it cannot
+        attach a *new*, non-dimension coordinate, nor a coordinate that becomes an alignment index —
+        those are refused. What it can do is restamp a band dimension that already exists, which is a
+        pure re-label (no cells move): on a single variable it keeps the lazy read, on a container
+        every variable spanning the dimension is restamped.
+
+        Args:
+            coords: A `{dim: values}` mapping; each `dim` must be an existing band dimension and
+                `values` a 1-D sequence as long as that dimension.
+            **coords_kwargs: The same as `dim=values` keywords; merged with `coords`.
+
+        Returns:
+            NetCDF: The cube with those band dimensions restamped.
+
+        Raises:
+            ValueError: A name is not an existing band dimension (a new/non-dimension coordinate
+                needs an index model pyramids does not have), the values are not 1-D, or their
+                length does not match the dimension.
+
+        Examples:
+            - Restamp `time` with hours-since-midnight:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="v",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0, 3.0]),
+              ... ).get_variable("v")
+              >>> var.assign_coords(time=[0, 6, 12, 18])._band_dim_values_map["time"]
+              [0, 6, 12, 18]
+
+              ```
+
+        See Also:
+            NetCDF.rename_dims: Rename a band dimension rather than restamp it.
+        """
+        nc = self._ds
+        mapping = {**(coords or {}), **coords_kwargs}
+        known = _band_dims_of(nc)
+        coerced: dict[str, list] = {}
+        for dim, values in mapping.items():
+            if dim not in known:
+                raise ValueError(
+                    f"assign_coords(): {dim!r} is not an existing band dimension (have "
+                    f"{sorted(known)}). pyramids has no index model, so a new or non-dimension "
+                    f"coordinate cannot be attached — only an existing band dimension can be "
+                    f"restamped."
+                )
+            if np.ndim(values) != 1:
+                raise ValueError(
+                    f"assign_coords(): {dim!r} coordinates must be a 1-D sequence, got "
+                    f"{np.ndim(values)}-D."
+                )
+            coerced[dim] = list(values)
+
+        def relabel(var: NetCDF) -> tuple[list[str], dict]:
+            names = list(var._band_dim_names)
+            values_map = dict(var._band_dim_values_map)
+            for dim, values in coerced.items():
+                if dim in names:
+                    size = var._band_dim_sizes[names.index(dim)]
+                    if len(values) != size:
+                        raise ValueError(
+                            f"assign_coords(): {dim!r} has length {size}, but {len(values)} "
+                            f"coordinate values were given."
+                        )
+                    values_map[dim] = list(values)
+            return names, values_map
+
+        return _relabel_per_variable(nc, relabel, caller="assign_coords")
+
     def interp(self, method: str = "linear", **coords: Any) -> NetCDF:
         """Interpolate a band dimension onto new coordinate values.
 

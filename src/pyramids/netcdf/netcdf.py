@@ -9173,6 +9173,12 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.rename_dims <pyramids.netcdf.engines.selection.Selection.rename_dims>`."""
         return self.selection.rename_dims(dims, **dims_kwargs)
 
+    def assign_coords(
+        self, coords: Mapping[str, Any] | None = None, **coords_kwargs: Any
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.assign_coords <pyramids.netcdf.engines.selection.Selection.assign_coords>`."""
+        return self.selection.assign_coords(coords, **coords_kwargs)
+
     @classmethod
     def read_file(  # type: ignore[override]
         cls,
