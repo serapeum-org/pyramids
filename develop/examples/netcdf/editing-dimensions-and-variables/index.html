@@ -10,7 +10,7 @@
       
       
       
-        <link rel="canonical" href="https://serapeum-org.github.io/pyramids/develop/examples/netcdf/band-dim-bookkeeping/">
+        <link rel="canonical" href="https://serapeum-org.github.io/pyramids/develop/examples/netcdf/editing-dimensions-and-variables/">
       
       
         <link rel="prev" href="../../../tutorials/netcdf-plotting/">
@@ -27,7 +27,7 @@
     
     
       
-        <title>Band-dimension bookkeeping - pyramids</title>
+        <title>Editing a cube's dimensions and variables - pyramids</title>
       
     
     
@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -83,7 +83,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#band-dimension-bookkeeping" class="md-skip">
+        <a href="#editing-a-cubes-dimensions-and-variables" class="md-skip">
           Skip to content
         </a>
       
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Band-dimension bookkeeping
+              Editing a cube's dimensions and variables
             
           </span>
         </div>
@@ -3090,7 +3090,7 @@
   <span class="md-ellipsis">
     
   
-    Band-dimension bookkeeping
+    Editing a cube's dimensions and variables
   
 
     
@@ -3108,7 +3108,7 @@
   <span class="md-ellipsis">
     
   
-    Band-dimension bookkeeping
+    Editing a cube's dimensions and variables
   
 
     
@@ -6366,7 +6366,7 @@
 
 
   
-    <a href="https://github.com/serapeum-org/pyramids/edit/master/docs/examples/netcdf/band-dim-bookkeeping.ipynb" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/serapeum-org/pyramids/edit/master/docs/examples/netcdf/editing-dimensions-and-variables.ipynb" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -6375,7 +6375,7 @@
     
       
     
-    <a href="https://github.com/serapeum-org/pyramids/raw/master/docs/examples/netcdf/band-dim-bookkeeping.ipynb" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/serapeum-org/pyramids/raw/master/docs/examples/netcdf/rawing-dimensions-and-variables.ipynb" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
@@ -7109,10 +7109,8 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="band-dimension-bookkeeping">Band-dimension bookkeeping<a class="anchor-link" href="#band-dimension-bookkeeping">¶</a></h1><p>A cube's <strong>band dimensions</strong> are its non-spatial axes - <code>time</code>, <code>plev</code>, <code>level</code>. The horizontal
-<code>(y, x)</code> plane is pinned by the geotransform and is never one of them, so everything here acts on the
-band axes only.</p>
-<p>Four members do the bookkeeping:</p>
+<h1 id="editing-a-cubes-dimensions-and-variables">Editing a cube's dimensions and variables<a class="anchor-link" href="#editing-a-cubes-dimensions-and-variables">¶</a></h1><p>Four members change a cube's <em>structure</em> rather than its cells - rename an axis, restamp an axis's
+coordinates, remove an axis, or fold in variables from another cube:</p>
 <table>
 <thead>
 <tr>
@@ -7123,15 +7121,15 @@ band axes only.</p>
 <tbody>
 <tr>
 <td><code>rename_dims</code></td>
-<td>relabel a band dimension</td>
+<td>rename a dimension (<code>time</code> -&gt; <code>t</code>)</td>
 </tr>
 <tr>
 <td><code>assign_coords</code></td>
-<td>restamp an existing band dimension's coordinates</td>
+<td>replace an existing dimension's coordinate values</td>
 </tr>
 <tr>
 <td><code>drop_dims</code></td>
-<td>drop a band dimension and the variables defined along it</td>
+<td>remove a dimension, and the variables defined along it</td>
 </tr>
 <tr>
 <td><code>update</code></td>
@@ -7139,7 +7137,9 @@ band axes only.</p>
 </tr>
 </tbody>
 </table>
-<p>They are deliberately faithful to the store: a rename leaves no orphan dimension behind, keeps the
+<p>They act on <strong>band dimensions</strong> - a cube's non-spatial axes, such as <code>time</code>, <code>plev</code> or <code>level</code>. The
+horizontal <code>(y, x)</code> plane is pinned by the geotransform and is never one of them.</p>
+<p>All four are deliberately faithful to the file: a rename leaves no orphan dimension behind, keeps the
 variable inventory (CF bounds and sub-groups included), and carries coordinate and global attributes
 across. The cells below show each of those on real sample files.</p>
 </div>
@@ -7608,9 +7608,17 @@ spans the pressure axis.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="p">[</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span> <span class="k">if</span> <span class="s1">'plev'</span> <span class="ow">in</span> <span class="p">(</span><span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">dimension_names</span> <span class="ow">or</span> <span class="p">[])]</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="p">[</span>
+    <span class="n">name</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span>
+    <span class="k">if</span> <span class="s1">'plev'</span> <span class="ow">in</span> <span class="p">(</span><span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">dimension_names</span> <span class="ow">or</span> <span class="p">[])</span>
+<span class="p">]</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">[name for name in nc.variable_names if 'plev' in (nc.get_variable(name).dimension_names or [])]</div>
+<div class="clipboard-copy-txt" id="cell-9">[
+    name
+    for name in nc.variable_names
+    if 'plev' in (nc.get_variable(name).dimension_names or [])
+]</div>
 </div>
 </div>
 </div>
@@ -7897,13 +7905,13 @@ len(regrouped.variable_names), len(regrouped.group_names), regrouped.dimension_n
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h2 id="recap">Recap<a class="anchor-link" href="#recap">¶</a></h2><ul>
-<li><code>rename_dims(old=new)</code> relabels a band axis; no orphan dimension, inventory and attributes kept.</li>
-<li><code>assign_coords(dim=values)</code> restamps an existing axis; the length is checked up front.</li>
-<li><code>drop_dims(name)</code> removes an axis and the variables along it, returning a new cube.</li>
-<li><code>update(other)</code> folds variables in, in place, validating every donor before it writes.</li>
+<li><code>rename_dims(old=new)</code> renames a dimension; no orphan left behind, inventory and attributes kept.</li>
+<li><code>assign_coords(dim=values)</code> replaces an existing dimension's coordinates; length checked up front.</li>
+<li><code>drop_dims(name)</code> removes a dimension and the variables along it, returning a new cube.</li>
+<li><code>update(other)</code> adds or replaces variables in place, validating every donor before it writes.</li>
 </ul>
-<p>All four act on band dimensions only - the spatial plane stays pinned to the geotransform. For the
-wider tour of the class, see the <code>NetCDF</code> anatomy notebook.</p>
+<p>All four act on the non-spatial (band) axes only - the horizontal plane stays pinned to the
+geotransform. For the wider tour of the class, see the <code>NetCDF</code> anatomy notebook.</p>
 </div>
 </div>
 </div>
