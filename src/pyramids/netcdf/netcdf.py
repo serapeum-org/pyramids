@@ -13478,42 +13478,23 @@ class NetCDF(Dataset):
             ValueError: The source is a compound. `numpy_to_gdal_dtype` has no GDAL
                 type for its structured dtype, so nothing is created.
         """
-        src_dims = NetCDF._resolve_dst_dimensions(
-            dst_group, src_mdarray.GetDimensions()
+        NetCDF._recreate_md_array(
+            dst_group,
+            var_name,
+            src_mdarray,
+            NetCDF._resolve_dst_dimensions(dst_group, src_mdarray.GetDimensions()),
+            derive_dtype_from_values=True,
         )
-        if src_mdarray.GetDataType().GetClass() == gdal.GEDTC_STRING:
-            # String MDArrays can't go through ReadAsArray (numpy) in the GDAL
-            # SWIG bindings, but the Python list Read()/Write() path works. Use it
-            # so non-spatial string aux vars (e.g. ERA5's 'expver') are carried
-            # through container spatial ops instead of being dropped (#565).
-            # No packing: scale, offset and no-data mean nothing for text.
-            new_md_array = dst_group.CreateMDArray(
-                var_name, src_dims, gdal.ExtendedDataType.CreateString()
-            )
-            NetCDF._copy_md_array_labels(src_mdarray, new_md_array)
-            try:
-                new_md_array.Write(src_mdarray.Read())
-            except (RuntimeError, TypeError, ValueError):
-                # The array is created before it is written, and the write can
-                # fail: GDAL's Python bindings refuse a string array of rank
-                # >= 2 (RuntimeError), and a NULL entry reads back as `None`,
-                # which the write rejects (TypeError). Left in place, the
-                # half-built array listed the variable with every value `None`
-                # while the caller's warning said it could not be carried. It is
-                # removed, so the variable is absent and the warning is true.
-                dst_group.DeleteMDArray(var_name)
-                raise
-        else:
-            arr = src_mdarray.ReadAsArray()
-            dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
-            new_md_array = dst_group.CreateMDArray(var_name, src_dims, dtype)
-            # Packing before the data, so the netCDF driver accepts the fill.
-            NetCDF._copy_md_array_packing(src_mdarray, new_md_array)
-            NetCDF._copy_md_array_labels(src_mdarray, new_md_array)
-            new_md_array.Write(arr)
 
     @staticmethod
-    def _recreate_md_array(dst_group, var_name, src_mdarray, dst_dims, dim_rename=None):
+    def _recreate_md_array(
+        dst_group,
+        var_name,
+        src_mdarray,
+        dst_dims,
+        dim_rename=None,
+        derive_dtype_from_values=False,
+    ):
         """Create `var_name` in `dst_group` bound to `dst_dims`, byte-for-byte.
 
         The store-level sibling of :meth:`_add_md_array_to_group`: the caller supplies the
@@ -13536,9 +13517,22 @@ class NetCDF(Dataset):
             dim_rename: `{old: new}` dimension renames this copy is part of, so a CF attribute
                 naming a renamed dimension is rewritten rather than left pointing at a
                 dimension the result no longer has (M4). `None` copies every value verbatim.
+            derive_dtype_from_values: Take the destination's numeric dtype from the read-back
+                array (`numpy_to_gdal_dtype`) instead of the source's `GetDataType()`. This is
+                the one way :meth:`_add_md_array_to_group` differs, and it delegates here with
+                the flag set so the two cannot drift apart: the store rebuild needs the stored
+                dtype preserved, while the raster-level carry re-derives it from the values it
+                read. Both bodies were otherwise identical.
 
         Returns:
             gdal.MDArray: The freshly written copy.
+
+        Raises:
+            RuntimeError: GDAL refuses the string write; its Python `Write` rejects every string
+                array of rank >= 2.
+            TypeError: The string source holds a NULL entry, which `Write` rejects.
+            ValueError: The source is a compound, for which `numpy_to_gdal_dtype` has no GDAL
+                type.
         """
         if src_mdarray.GetDataType().GetClass() == gdal.GEDTC_STRING:
             new_md_array = dst_group.CreateMDArray(
@@ -13548,15 +13542,24 @@ class NetCDF(Dataset):
             try:
                 new_md_array.Write(src_mdarray.Read())
             except (RuntimeError, TypeError, ValueError):
+                # The array is created before it is written, and the write can fail: GDAL's
+                # Python bindings refuse a string array of rank >= 2 (RuntimeError) and a NULL
+                # entry reads back as `None`, which the write rejects (TypeError). Left in place,
+                # the half-built array would list the variable with every value `None`.
                 dst_group.DeleteMDArray(var_name)
                 raise
         else:
-            new_md_array = dst_group.CreateMDArray(
-                var_name, dst_dims, src_mdarray.GetDataType()
+            values = src_mdarray.ReadAsArray()
+            dtype = (
+                gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
+                if derive_dtype_from_values
+                else src_mdarray.GetDataType()
             )
+            new_md_array = dst_group.CreateMDArray(var_name, dst_dims, dtype)
+            # Packing before the data, so the netCDF driver accepts the fill.
             NetCDF._copy_md_array_packing(src_mdarray, new_md_array)
             NetCDF._copy_md_array_labels(src_mdarray, new_md_array, dim_rename)
-            new_md_array.Write(src_mdarray.ReadAsArray())
+            new_md_array.Write(values)
         return new_md_array
 
     @staticmethod
