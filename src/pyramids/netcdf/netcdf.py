@@ -13324,6 +13324,24 @@ class NetCDF(Dataset):
             dim_map[name] = dst_rg.CreateDimension(
                 rename.get(name, name), dim.GetType(), dim.GetDirection(), dim.GetSize()
             )
+        def _dst_axis(axis: gdal.Dimension) -> gdal.Dimension:
+            """The destination dimension for one of an array's axes, created on first sight.
+
+            An array does not have to span a dimension declared in the working group: in a
+            `get_group` view the arrays reference dimensions declared in an ancestor group, which
+            `src_rg.GetDimensions()` does not list. Resolving those from the array's own
+            `Dimension` kept the rebuild from dying with a bare `KeyError` on the axis name.
+            """
+            name = axis.GetName()
+            if name not in dim_map:
+                dim_map[name] = dst_rg.CreateDimension(
+                    rename.get(name, name),
+                    axis.GetType(),
+                    axis.GetDirection(),
+                    axis.GetSize(),
+                )
+            return dim_map[name]
+
         # The coordinate (indexing) array of each surviving dimension, recreated under the
         # dimension's new name and re-attached, so a renamed axis keeps its own stamps and
         # units rather than inheriting the recycled name's (M3).
@@ -13336,7 +13354,7 @@ class NetCDF(Dataset):
                 dst_rg,
                 rename.get(name, name),
                 src_coord,
-                [dim_map[axis.GetName()] for axis in src_coord.GetDimensions()],
+                [_dst_axis(axis) for axis in src_coord.GetDimensions()],
             )
             dim_map[name].SetIndexingVariable(coord)
         # Every other array (data variables and CF bounds), name unchanged, bound onto the
@@ -13345,11 +13363,11 @@ class NetCDF(Dataset):
             if array_name in src_dim_names:
                 continue
             src_arr = src_rg.OpenMDArray(array_name)
-            axes = [axis.GetName() for axis in src_arr.GetDimensions()]
-            if set(axes) & drop:
+            src_axes = src_arr.GetDimensions()
+            if {axis.GetName() for axis in src_axes} & drop:
                 continue
             NetCDF._recreate_md_array(
-                dst_rg, array_name, src_arr, [dim_map[axis] for axis in axes]
+                dst_rg, array_name, src_arr, [_dst_axis(axis) for axis in src_axes]
             )
         return Container(dst_ds)
 

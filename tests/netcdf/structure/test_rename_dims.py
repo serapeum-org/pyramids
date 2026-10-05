@@ -7,6 +7,7 @@ single return statement, descriptive assertion messages.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
+from osgeo import gdal
 
 from pyramids.netcdf import ExtraDimensions, GeoReference
 from pyramids.netcdf.netcdf import NetCDF
@@ -16,6 +17,37 @@ pytestmark = pytest.mark.core
 
 GEO = (0.0, 1.0, 0, 5.0, 0, -1.0)
 CF_FIXTURE = "tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc"
+GROUPS_FIXTURE = "tests/data/netcdf/none__35v__1d35__groups-nc4.nc"
+
+
+def _string_aux_container():
+    """A raw multidimensional store with a string auxiliary variable along `time`.
+
+    `from_array` cannot carry a string auxiliary variable (the kind ERA5 ships as `expver`), and
+    the store rebuild has a separate code path for string MDArrays, so the fixture is built
+    directly against GDAL's multidim API.
+    """
+    store = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
+    rg = store.GetRootGroup()
+    f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    dim_time = rg.CreateDimension("time", gdal.DIM_TYPE_TEMPORAL, "", 2)
+    dim_y = rg.CreateDimension("y", gdal.DIM_TYPE_HORIZONTAL_Y, "NORTH", 2)
+    dim_x = rg.CreateDimension("x", gdal.DIM_TYPE_HORIZONTAL_X, "EAST", 2)
+    for dim, values in (
+        (dim_time, [0.0, 1.0]),
+        (dim_y, [1.0, 0.0]),
+        (dim_x, [0.0, 1.0]),
+    ):
+        coord = rg.CreateMDArray(dim.GetName(), [dim], f64)
+        coord.Write(np.array(values))
+        dim.SetIndexingVariable(coord)
+    data = rg.CreateMDArray("t2m", [dim_time, dim_y, dim_x], f64)
+    data.Write(np.arange(8.0).reshape(2, 2, 2))
+    expver = rg.CreateMDArray(
+        "expver", [dim_time], gdal.ExtendedDataType.CreateString()
+    )
+    expver.Write(["0001", "0005"])
+    return NetCDF(store, open_as_multi_dimensional=True)
 
 
 def _make_nc(var_name="temperature"):
@@ -160,6 +192,41 @@ class TestRenameDimsHappyPath:
             "an identity rename must keep the lazy read"
         )
         assert out._band_dim_names == ("time",), f"got {out._band_dim_names}"
+
+    def test_a_string_auxiliary_variable_survives_a_rename(self):
+        """A string auxiliary variable (e.g. ERA5's `expver`) is carried through, values intact.
+
+        The store rebuild copies string MDArrays by a separate path from numeric ones; without
+        coverage it was unverified that a rename kept them at all.
+        """
+        out = _string_aux_container().rename_dims(time="tt")
+        assert "tt" in (out.dimension_names or []), (
+            f"renamed dim missing: {out.dimension_names}"
+        )
+        assert "time" not in (out.dimension_names or []), "the old dim must be gone"
+        carried = out._raster.GetRootGroup().OpenMDArray("expver")
+        assert carried is not None, "the string auxiliary variable must survive"
+        assert carried.Read() == ["0001", "0005"], (
+            f"values must be intact, got {carried.Read()}"
+        )
+
+    def test_a_group_view_renames_its_own_dimension(self):
+        """`get_group(...).rename_dims(...)` renames the dim the group's arrays span.
+
+        A group view's arrays span a dimension declared in an ancestor group, which the working
+        group does not list, so the rebuild has to resolve the axis from the array itself — it
+        used to die with a bare `KeyError` on the dimension name.
+        """
+        group = NetCDF.read_file(GROUPS_FIXTURE).get_group(
+            NetCDF.read_file(GROUPS_FIXTURE).group_names[0]
+        )
+        before = sorted(group.variable_names)
+        out = group.rename_dims({"recNum": "rec"})
+        assert "rec" in (out.dimension_names or []), f"got {out.dimension_names}"
+        assert "recNum" not in (out.dimension_names or []), "the old dim must be gone"
+        assert sorted(out.variable_names) == before, (
+            "the group's inventory must be unchanged"
+        )
 
 
 class TestRenameDimsErrors:
