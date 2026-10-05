@@ -88,6 +88,21 @@ class TestAssignCoordsHappyPath:
         assert out.get_variable("temp")._band_dim_values_map["time"] == [7, 8, 9]
         assert out.get_variable("pressure")._band_dim_values_map["time"] == [7, 8, 9]
 
+    def test_a_variable_without_the_dim_is_left_untouched(self):
+        """On a container, a variable that does not span the restamped dim is unchanged."""
+        cont = _make_nc("temp")
+        arr = np.random.default_rng(5).random((2, 5, 8)).astype(np.float64)
+        level = NetCDF.from_array(
+            arr=arr,
+            geo_ref=GeoReference(geo=GEO),
+            variable_name="geoid",
+            dims=ExtraDimensions(name="level", values=[0, 1]),
+        )
+        cont.set_variable("geoid", level.get_variable("geoid"))
+        out = cont.assign_coords(time=[7, 8, 9])
+        assert out.get_variable("temp")._band_dim_values_map["time"] == [7, 8, 9], "temp restamped"
+        assert out.get_variable("geoid")._band_dim_values_map["level"] == [0, 1], "geoid untouched"
+
 
 class TestAssignCoordsErrors:
     """Every refusal is a ValueError naming the offending input."""

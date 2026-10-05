@@ -61,6 +61,14 @@ class TestUpdateHappyPath:
         base.update({"b": donor.get_variable("b")})
         assert "b" in base.variable_names, "a mapping donor must be accepted"
 
+    def test_update_into_an_empty_container_adopts_the_donor_grid(self):
+        """An empty container has no reference grid, so the first donor variable sets it."""
+        base = _cube("a")
+        base.remove_variable("a")
+        assert base.variable_names == [], "precondition: the container is empty"
+        base.update(_cube("b", seed=1))
+        assert "b" in base.variable_names, "the donor variable must be adopted"
+
 
 class TestUpdateErrors:
     """Refusals: a grid mismatch, a single-variable receiver."""
