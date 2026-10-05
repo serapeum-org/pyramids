@@ -887,8 +887,9 @@ class TestGeocentricCRS:
         per unit and the failure surfaced later as "falls outside the usable
         domain of 'WGS 84'", naming neither the cause nor EPSG:4978.
         """
+        geocentric = CRS.from_user_input(4978)
         with pytest.raises(CRSError, match="non-geographic counterpart"):
-            _geodetic_frame(CRS.from_user_input(4978))
+            _geodetic_frame(geocentric)
 
     def test_ground_distance_refuses_a_geocentric_crs(self):
         """The refusal reaches the public function, naming the real cause."""

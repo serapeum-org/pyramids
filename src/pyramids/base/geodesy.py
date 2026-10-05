@@ -630,7 +630,9 @@ def _geometry_in_degrees(name: str, geometry: Any) -> Any:
     # An empty geometry measures to zero and has all-nan bounds in shapely 2, so
     # it has to be let through before the finiteness check rather than after.
     if not empty and len(bounds) == 4:
-        min_x, min_y, max_x, max_y = bounds
+        # Only the latitudes are range-checked; longitude is unbounded here for
+        # the same reason it is in `_as_degrees` (CF uses both conventions).
+        _, min_y, _, max_y = bounds
         if not all(math.isfinite(value) for value in bounds):
             raise ValueError(
                 f"{name} has non-finite coordinates, so it cannot be measured"
