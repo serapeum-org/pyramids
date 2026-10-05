@@ -209,6 +209,10 @@
          <lastmod>2026-10-05</lastmod>
     </url>
     <url>
+         <loc>https://serapeum-org.github.io/pyramids/develop/examples/netcdf/band-dim-bookkeeping/</loc>
+         <lastmod>2026-10-05</lastmod>
+    </url>
+    <url>
          <loc>https://serapeum-org.github.io/pyramids/develop/examples/netcdf/dask-lazy-netcdf/</loc>
          <lastmod>2026-10-05</lastmod>
     </url>

@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://serapeum-org.github.io/pyramids/develop/examples/dataset/stac-solar-day/">
+        <link rel="canonical" href="https://serapeum-org.github.io/pyramids/develop/examples/netcdf/band-dim-bookkeeping/">
       
       
-        <link rel="prev" href="../rgb_animation/">
+        <link rel="prev" href="../../../tutorials/netcdf-plotting/">
       
       
-        <link rel="next" href="../south-america/">
+        <link rel="next" href="../dask-lazy-netcdf/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>— group tiled optical imagery by acquisition date - pyramids</title>
+        <title>Band-dimension bookkeeping - pyramids</title>
       
     
     
@@ -83,7 +83,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#group-tiled-optical-imagery-by-acquisition-date" class="md-skip">
+        <a href="#band-dimension-bookkeeping" class="md-skip">
           Skip to content
         </a>
       
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              — group tiled optical imagery by acquisition date
+              Band-dimension bookkeeping
             
           </span>
         </div>
@@ -1833,8 +1833,6 @@
                 
   
   
-    
-  
   
   
     
@@ -1845,11 +1843,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
         
           
           <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
@@ -1870,7 +1868,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2000,7 +1998,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../dataset/" class="md-nav__link">
+      <a href="../../dataset/dataset/" class="md-nav__link">
         
   
   
@@ -2028,7 +2026,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../spatial-operation-methods/" class="md-nav__link">
+      <a href="../../dataset/spatial-operation-methods/" class="md-nav__link">
         
   
   
@@ -2056,7 +2054,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../convert-longitude/" class="md-nav__link">
+      <a href="../../dataset/convert-longitude/" class="md-nav__link">
         
   
   
@@ -2112,7 +2110,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../dataset_collection/" class="md-nav__link">
+      <a href="../../dataset/dataset_collection/" class="md-nav__link">
         
   
   
@@ -2140,7 +2138,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../rgb_animation/" class="md-nav__link">
+      <a href="../../dataset/rgb_animation/" class="md-nav__link">
         
   
   
@@ -2165,37 +2163,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    — group tiled optical imagery by acquisition date
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../dataset/stac-solar-day/" class="md-nav__link">
         
   
   
@@ -2211,120 +2182,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How it works
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#a-tiny-offline-catalog" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        A tiny offline catalog
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="A tiny offline catalog">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#wrap-the-tiles-as-duck-typed-stac-items" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Wrap the tiles as duck-typed STAC items
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#without-grouping-one-timestep-per-item" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Without grouping — one timestep per item
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#with-one-timestep-per-acquisition-date" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        With — one timestep per acquisition date
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#why-shift-by-longitude-the-utc-midnight-boundary" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Why shift by longitude? The UTC-midnight boundary
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#where-to-use-it-and-where-not" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Where to use it — and where not
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#under-the-hood-the-equivalent-manual-recipe" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Under the hood — the equivalent manual recipe
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2337,7 +2194,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../south-america/" class="md-nav__link">
+      <a href="../../dataset/south-america/" class="md-nav__link">
         
   
   
@@ -2365,7 +2222,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../wms-wmts-readers/" class="md-nav__link">
+      <a href="../../dataset/wms-wmts-readers/" class="md-nav__link">
         
   
   
@@ -2477,7 +2334,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy-and-dask-explained/" class="md-nav__link">
+      <a href="../../dataset/lazy-and-dask-explained/" class="md-nav__link">
         
   
   
@@ -2505,7 +2362,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../dask-lazy-datasets/" class="md-nav__link">
+      <a href="../../dataset/dask-lazy-datasets/" class="md-nav__link">
         
   
   
@@ -2533,7 +2390,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy-dataset-complete/" class="md-nav__link">
+      <a href="../../dataset/lazy-dataset-complete/" class="md-nav__link">
         
   
   
@@ -2561,7 +2418,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../lazy-collection-complete/" class="md-nav__link">
+      <a href="../../dataset/lazy-collection-complete/" class="md-nav__link">
         
   
   
@@ -3134,6 +2991,8 @@
                 
   
   
+    
+  
   
   
     
@@ -3144,11 +3003,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11" checked>
         
           
           <label class="md-nav__link" for="__nav_3_11" id="__nav_3_11_label" tabindex="0">
@@ -3169,7 +3028,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_11_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_11_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3_11">
             <span class="md-nav__icon md-icon"></span>
             
@@ -3212,10 +3071,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../netcdf/band-dim-bookkeeping/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Band-dimension bookkeeping
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -3231,6 +3117,114 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-cube-we-start-from" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The cube we start from
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#-relabel-a-band-dimension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        - relabel a band dimension
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#-restamp-an-existing-axis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        - restamp an existing axis
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#-drop-an-axis-and-the-variables-along-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        - drop an axis and the variables along it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#-fold-variables-in-in-place" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        - fold variables in, in place
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hierarchical-stores" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hierarchical stores
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recap
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -3243,7 +3237,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../netcdf/dask-lazy-netcdf/" class="md-nav__link">
+      <a href="../dask-lazy-netcdf/" class="md-nav__link">
         
   
   
@@ -3271,7 +3265,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../netcdf/lazy-netcdf-complete/" class="md-nav__link">
+      <a href="../lazy-netcdf-complete/" class="md-nav__link">
         
   
   
@@ -3349,7 +3343,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../netcdf/ugrid/ugrid-mesh-exploration/" class="md-nav__link">
+      <a href="../ugrid/ugrid-mesh-exploration/" class="md-nav__link">
         
   
   
@@ -3377,7 +3371,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../netcdf/ugrid/ugrid-river-channel/" class="md-nav__link">
+      <a href="../ugrid/ugrid-river-channel/" class="md-nav__link">
         
   
   
@@ -3405,7 +3399,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../netcdf/ugrid/dask-lazy-ugrid/" class="md-nav__link">
+      <a href="../ugrid/dask-lazy-ugrid/" class="md-nav__link">
         
   
   
@@ -6268,10 +6262,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
+  <a href="#setup" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How it works
+        Setup
       
     </span>
   </a>
@@ -6279,38 +6273,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#a-tiny-offline-catalog" class="md-nav__link">
+  <a href="#the-cube-we-start-from" class="md-nav__link">
     <span class="md-ellipsis">
       
-        A tiny offline catalog
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="A tiny offline catalog">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#wrap-the-tiles-as-duck-typed-stac-items" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Wrap the tiles as duck-typed STAC items
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#without-grouping-one-timestep-per-item" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Without grouping — one timestep per item
+        The cube we start from
       
     </span>
   </a>
@@ -6318,10 +6284,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#with-one-timestep-per-acquisition-date" class="md-nav__link">
+  <a href="#-relabel-a-band-dimension" class="md-nav__link">
     <span class="md-ellipsis">
       
-        With — one timestep per acquisition date
+        - relabel a band dimension
       
     </span>
   </a>
@@ -6329,10 +6295,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#why-shift-by-longitude-the-utc-midnight-boundary" class="md-nav__link">
+  <a href="#-restamp-an-existing-axis" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Why shift by longitude? The UTC-midnight boundary
+        - restamp an existing axis
       
     </span>
   </a>
@@ -6340,10 +6306,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-to-use-it-and-where-not" class="md-nav__link">
+  <a href="#-drop-an-axis-and-the-variables-along-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where to use it — and where not
+        - drop an axis and the variables along it
       
     </span>
   </a>
@@ -6351,10 +6317,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#under-the-hood-the-equivalent-manual-recipe" class="md-nav__link">
+  <a href="#-fold-variables-in-in-place" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Under the hood — the equivalent manual recipe
+        - fold variables in, in place
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hierarchical-stores" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hierarchical stores
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recap
       
     </span>
   </a>
@@ -6378,7 +6366,7 @@
 
 
   
-    <a href="https://github.com/serapeum-org/pyramids/edit/master/docs/examples/dataset/stac-solar-day.ipynb" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/serapeum-org/pyramids/edit/master/docs/examples/netcdf/band-dim-bookkeeping.ipynb" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -6387,7 +6375,7 @@
     
       
     
-    <a href="https://github.com/serapeum-org/pyramids/raw/master/docs/examples/dataset/stac-solar-day.ipynb" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/serapeum-org/pyramids/raw/master/docs/examples/netcdf/band-dim-bookkeeping.ipynb" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
@@ -7115,74 +7103,61 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=2c39c6cf">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=6f233400">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="from_stacgroupbysolar_day-group-tiled-optical-imagery-by-acquisition-date"><code>from_stac(groupby="solar_day")</code> — group tiled optical imagery by acquisition date<a class="anchor-link" href="#from_stacgroupbysolar_day-group-tiled-optical-imagery-by-acquisition-date">¶</a></h1>
+<h1 id="band-dimension-bookkeeping">Band-dimension bookkeeping<a class="anchor-link" href="#band-dimension-bookkeeping">¶</a></h1><p>A cube's <strong>band dimensions</strong> are its non-spatial axes - <code>time</code>, <code>plev</code>, <code>level</code>. The horizontal
+<code>(y, x)</code> plane is pinned by the geotransform and is never one of them, so everything here acts on the
+band axes only.</p>
+<p>Four members do the bookkeeping:</p>
+<table>
+<thead>
+<tr>
+<th>Member</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rename_dims</code></td>
+<td>relabel a band dimension</td>
+</tr>
+<tr>
+<td><code>assign_coords</code></td>
+<td>restamp an existing band dimension's coordinates</td>
+</tr>
+<tr>
+<td><code>drop_dims</code></td>
+<td>drop a band dimension and the variables defined along it</td>
+</tr>
+<tr>
+<td><code>update</code></td>
+<td>add or replace variables from another cube, in place</td>
+</tr>
+</tbody>
+</table>
+<p>They are deliberately faithful to the store: a rename leaves no orphan dimension behind, keeps the
+variable inventory (CF bounds and sub-groups included), and carries coordinate and global attributes
+across. The cells below show each of those on real sample files.</p>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=91431541">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=4f1ba433">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>When you build a time series from a <strong>STAC</strong> catalog of tiled optical satellite imagery
-(Sentinel-2, Landsat, HLS, MODIS, ...), a single pass of the satellite over your area of
-interest is almost never one file. The provider chops each overpass into many
-<strong>granules / tiles</strong>, so a STAC search returns <em>N</em> items for what is really <strong>one
-acquisition on one date</strong>.</p>
-<p><code>DatasetCollection.from_stac(..., groupby="solar_day")</code> collapses those tiles back into
-<strong>one timestep per acquisition date</strong> — an analysis-ready, one-step-per-date cube — instead
-of <em>N</em> tile-timesteps. The default <code>groupby=None</code> keeps one timestep per item.</p>
+<h2 id="setup">Setup<a class="anchor-link" href="#setup">¶</a></h2><p>One notebook-relative data path. The sample files ship in the repo's <code>examples/data/netcdf/</code> folder.</p>
 </div>
 </div>
 </div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=006c2d0b">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="how-it-works">How it works<a class="anchor-link" href="#how-it-works">¶</a></h2><ol>
-<li><strong>Solar day of each item</strong> = its UTC timestamp shifted by
-<code>centroid_longitude / 15</code> hours, reduced to a calendar date. 15° of longitude
-≈ 1 hour of local solar time, so the shift converts UTC to <em>local</em> solar time. This
-keeps one overpass on a single date instead of splitting it across the UTC-midnight
-boundary (a tile imaged at 23:30 UTC far to the east belongs to the <em>next</em> solar day).</li>
-<li><strong>Group</strong> all items that share a solar day.</li>
-<li><strong>Mosaic</strong> each group with <code>merge_rasters(method="first")</code> — the first non-no-data
-pixel wins where neighbouring tiles overlap.</li>
-<li>The resulting <code>time_length</code> is the number of distinct solar days, in chronological order.</li>
-</ol>
-<p>Single-asset only (you mosaic one asset, e.g. one band or the <code>visual</code> product).</p>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=8008c7b7">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="a-tiny-offline-catalog">A tiny offline catalog<a class="anchor-link" href="#a-tiny-offline-catalog">¶</a></h2><p><code>from_stac</code> is fully duck-typed: a "STAC item" is any object (or plain <code>dict</code>) exposing
-<code>properties["datetime"]</code>, a <code>bbox</code>, and <code>assets[&lt;key&gt;]["href"]</code>. So we can demo the whole
-thing <strong>offline</strong> with three small GeoTIFFs and three hand-built item dicts — no network,
-no <code>pystac</code>.</p>
-<p>Scenario: two <strong>adjacent tiles of the same overpass</strong> on 2024-01-15, plus one tile from the
-next day's overpass on 2024-01-16.</p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d6d0a6a3">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=230f4080">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7200,61 +7175,54 @@ next day's overpass on 2024-01-16.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="o">%</span><span class="n">matplotlib</span> <span class="n">inline</span>
-
-<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">UTC</span><span class="p">,</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">DatasetCollection</span><span class="p">,</span> <span class="n">GeoReference</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">NetCDF</span>
 
-<span class="n">work</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">"solar_day_demo_"</span><span class="p">)</span>
-<span class="n">work</span>
+<span class="n">SAMPLES</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s1">'../../../examples/data/netcdf/samples'</span><span class="p">)</span>
+
+<span class="c1"># A CF file with a time axis, a 17-level pressure axis, CF bounds and 18 global attributes.</span>
+<span class="n">CF</span> <span class="o">=</span> <span class="n">SAMPLES</span> <span class="o">/</span> <span class="s1">'cf__12v__1d4-2d5-3d2-4d1__y-asc.nc'</span>
+<span class="c1"># A COARDS cube whose `level` axis has four steps - handy for restamping.</span>
+<span class="n">LEVELS</span> <span class="o">=</span> <span class="n">SAMPLES</span> <span class="o">/</span> <span class="s1">'coards__5v__1d4-4d1__y-desc.nc'</span>
+<span class="c1"># A NetCDF-4 store that keeps its variables in sub-groups.</span>
+<span class="n">GROUPS</span> <span class="o">=</span> <span class="n">SAMPLES</span> <span class="o">/</span> <span class="s1">'none__35v__1d35__groups-nc4.nc'</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-1">%matplotlib inline
-
-import os
-import tempfile
-from datetime import UTC, datetime, timedelta
+<div class="clipboard-copy-txt" id="cell-1">from pathlib import Path
 
 import numpy as np
 
-from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+from pyramids.netcdf import NetCDF
 
-work = tempfile.mkdtemp(prefix="solar_day_demo_")
-work</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[1]:</div>
-<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>'/tmp/solar_day_demo_oeo1c7mg'</pre>
+SAMPLES = Path('../../../examples/data/netcdf/samples')
+
+# A CF file with a time axis, a 17-level pressure axis, CF bounds and 18 global attributes.
+CF = SAMPLES / 'cf__12v__1d4-2d5-3d2-4d1__y-asc.nc'
+# A COARDS cube whose `level` axis has four steps - handy for restamping.
+LEVELS = SAMPLES / 'coards__5v__1d4-4d1__y-desc.nc'
+# A NetCDF-4 store that keeps its variables in sub-groups.
+GROUPS = SAMPLES / 'none__35v__1d35__groups-nc4.nc'</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=split-mk-tile-h">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=5c2dd50c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>A small helper writes a 1-band GeoTIFF tile so we can build a few overlapping scenes.</p>
+<h2 id="the-cube-we-start-from">The cube we start from<a class="anchor-link" href="#the-cube-we-start-from">¶</a></h2><p><code>dimension_sizes</code> lists every dimension and its length; <code>variable_names</code> lists the data variables
+(dimension coordinate arrays are not data variables, so they are not in it).</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=split-mk-tile-def">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=047bd184">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7272,47 +7240,53 @@ work</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">make_tile</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">top_left</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">"""Write a small 1-band GeoTIFF tile and return its path."""</span>
-    <span class="n">path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">work</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
-    <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="mi">20</span><span class="p">,</span> <span class="mi">20</span><span class="p">),</span> <span class="n">value</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s2">"float32"</span><span class="p">)</span>
-    <span class="n">Dataset</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
-        <span class="n">arr</span><span class="p">,</span>
-        <span class="n">no_data_value</span><span class="o">=-</span><span class="mf">9999.0</span><span class="p">,</span>
-        <span class="n">path</span><span class="o">=</span><span class="n">path</span><span class="p">,</span>
-        <span class="n">geo_ref</span><span class="o">=</span><span class="n">GeoReference</span><span class="p">(</span><span class="n">top_left_corner</span><span class="o">=</span><span class="n">top_left</span><span class="p">,</span> <span class="n">cell_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">),</span>
-    <span class="p">)</span>
-    <span class="k">return</span> <span class="n">path</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">CF</span><span class="p">))</span>
+
+<span class="n">nc</span><span class="o">.</span><span class="n">dimension_sizes</span><span class="p">,</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">nc</span><span class="o">.</span><span class="n">global_attributes</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-2">def make_tile(name, top_left, value):
-    """Write a small 1-band GeoTIFF tile and return its path."""
-    path = os.path.join(work, name)
-    arr = np.full((20, 20), value, dtype="float32")
-    Dataset.from_array(
-        arr,
-        no_data_value=-9999.0,
-        path=path,
-        geo_ref=GeoReference(top_left_corner=top_left, cell_size=0.05, epsg=4326),
-    )
-    return path</div>
+<div class="clipboard-copy-txt" id="cell-2">nc = NetCDF.read_file(str(CF))
+
+nc.dimension_sizes, nc.variable_names, len(nc.global_attributes)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:8289: RuntimeWarning: Cannot find variable corresponding to coordinate height
+  return _gdal.MDArray_GetCoordinateVariables(self, *args)
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[2]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>({'lat': 128, 'lon': 256, 'bnds': 2, 'plev': 17, 'time': 1},
+ ['area', 'msk_rgn', 'pr', 'tas', 'ua'],
+ 18)</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=split-mk-tile-u">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=605f597d">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>Create two tiles from the same overpass (2024-01-15) plus one from the next day.</p>
+<h2 id="rename_dims-relabel-a-band-dimension"><code>rename_dims</code> - relabel a band dimension<a class="anchor-link" href="#rename_dims-relabel-a-band-dimension">¶</a></h2><p>Pass <code>{old: new}</code>, or <code>old=new</code> keywords. Renaming moves no cells.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=split-mk-tile-use">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=ad796130">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7330,17 +7304,13 @@ work</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># Two adjacent tiles of the SAME overpass (2024-01-15) + one NEXT-day tile.</span>
-<span class="n">tile_a</span> <span class="o">=</span> <span class="n">make_tile</span><span class="p">(</span><span class="s2">"a.tif"</span><span class="p">,</span> <span class="n">top_left</span><span class="o">=</span><span class="p">(</span><span class="mf">10.0</span><span class="p">,</span> <span class="mf">41.0</span><span class="p">),</span> <span class="n">value</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>  <span class="c1"># day 1, west</span>
-<span class="n">tile_b</span> <span class="o">=</span> <span class="n">make_tile</span><span class="p">(</span><span class="s2">"b.tif"</span><span class="p">,</span> <span class="n">top_left</span><span class="o">=</span><span class="p">(</span><span class="mf">11.0</span><span class="p">,</span> <span class="mf">41.0</span><span class="p">),</span> <span class="n">value</span><span class="o">=</span><span class="mf">2.0</span><span class="p">)</span>  <span class="c1"># day 1, east</span>
-<span class="n">tile_c</span> <span class="o">=</span> <span class="n">make_tile</span><span class="p">(</span><span class="s2">"c.tif"</span><span class="p">,</span> <span class="n">top_left</span><span class="o">=</span><span class="p">(</span><span class="mf">10.0</span><span class="p">,</span> <span class="mf">41.0</span><span class="p">),</span> <span class="n">value</span><span class="o">=</span><span class="mf">3.0</span><span class="p">)</span>  <span class="c1"># day 2</span>
-<span class="p">[</span><span class="n">tile_a</span><span class="p">,</span> <span class="n">tile_b</span><span class="p">,</span> <span class="n">tile_c</span><span class="p">]</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">renamed</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">rename_dims</span><span class="p">(</span><span class="n">time</span><span class="o">=</span><span class="s1">'t'</span><span class="p">)</span>
+
+<span class="n">renamed</span><span class="o">.</span><span class="n">dimension_names</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3"># Two adjacent tiles of the SAME overpass (2024-01-15) + one NEXT-day tile.
-tile_a = make_tile("a.tif", top_left=(10.0, 41.0), value=1.0)  # day 1, west
-tile_b = make_tile("b.tif", top_left=(11.0, 41.0), value=2.0)  # day 1, east
-tile_c = make_tile("c.tif", top_left=(10.0, 41.0), value=3.0)  # day 2
-[tile_a, tile_b, tile_c]</div>
+<div class="clipboard-copy-txt" id="cell-3">renamed = nc.rename_dims(time='t')
+
+renamed.dimension_names</div>
 </div>
 </div>
 </div>
@@ -7352,52 +7322,26 @@ tile_c = make_tile("c.tif", top_left=(10.0, 41.0), value=3.0)  # day 2
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>['/tmp/solar_day_demo_oeo1c7mg/a.tif',
- '/tmp/solar_day_demo_oeo1c7mg/b.tif',
- '/tmp/solar_day_demo_oeo1c7mg/c.tif']</pre>
+<pre>['bnds', 'lat', 'lon', 'plev', 't']</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=b291b8b9">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=90265be9">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="wrap-the-tiles-as-duck-typed-stac-items">Wrap the tiles as duck-typed STAC items<a class="anchor-link" href="#wrap-the-tiles-as-duck-typed-stac-items">¶</a></h3><p><code>from_stac</code> never calls a STAC API — it only reads three fields off each item, so a plain <code>dict</code>
-is a valid "item". Below we hand-build one per tile: two share the <strong>2024-01-15</strong> overpass, the
-third is the next day. The <code>bbox</code> is what drives grouping — its centroid longitude is what shifts
-the UTC timestamp to a solar day.</p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Used for</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>properties["datetime"]</code></td>
-<td>The UTC acquisition time</td>
-</tr>
-<tr>
-<td><code>bbox</code> (<code>[minx, miny, maxx, maxy]</code>)</td>
-<td>Centroid longitude → solar-day shift</td>
-</tr>
-<tr>
-<td><code>assets[&lt;key&gt;]["href"]</code></td>
-<td>Path/URL of the raster to mosaic</td>
-</tr>
-</tbody>
-</table>
+<p><code>time</code> is <strong>gone</strong>, not left behind as an unused dimension - and nothing else moved. The variable
+inventory is identical, and all 18 global attributes came across:</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=ae791e42">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=373bb41d">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7415,39 +7359,15 @@ the UTC timestamp to a solar day.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">item</span><span class="p">(</span><span class="n">item_id</span><span class="p">,</span> <span class="n">when_iso</span><span class="p">,</span> <span class="n">bbox</span><span class="p">,</span> <span class="n">href</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">"""A minimal duck-typed STAC item dict."""</span>
-    <span class="k">return</span> <span class="p">{</span>
-        <span class="s2">"id"</span><span class="p">:</span> <span class="n">item_id</span><span class="p">,</span>
-        <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"datetime"</span><span class="p">:</span> <span class="n">when_iso</span><span class="p">},</span>
-        <span class="s2">"bbox"</span><span class="p">:</span> <span class="n">bbox</span><span class="p">,</span>  <span class="c1"># [minx, miny, maxx, maxy] -&gt; centroid lon</span>
-        <span class="s2">"assets"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"data"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"href"</span><span class="p">:</span> <span class="n">href</span><span class="p">}},</span>
-    <span class="p">}</span>
-
-
-<span class="n">items</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="n">item</span><span class="p">(</span><span class="s2">"a"</span><span class="p">,</span> <span class="s2">"2024-01-15T10:00:00Z"</span><span class="p">,</span> <span class="p">[</span><span class="mf">10.0</span><span class="p">,</span> <span class="mf">40.0</span><span class="p">,</span> <span class="mf">11.0</span><span class="p">,</span> <span class="mf">41.0</span><span class="p">],</span> <span class="n">tile_a</span><span class="p">),</span>
-    <span class="n">item</span><span class="p">(</span><span class="s2">"b"</span><span class="p">,</span> <span class="s2">"2024-01-15T10:01:00Z"</span><span class="p">,</span> <span class="p">[</span><span class="mf">11.0</span><span class="p">,</span> <span class="mf">40.0</span><span class="p">,</span> <span class="mf">12.0</span><span class="p">,</span> <span class="mf">41.0</span><span class="p">],</span> <span class="n">tile_b</span><span class="p">),</span>
-    <span class="n">item</span><span class="p">(</span><span class="s2">"c"</span><span class="p">,</span> <span class="s2">"2024-01-16T10:00:00Z"</span><span class="p">,</span> <span class="p">[</span><span class="mf">10.0</span><span class="p">,</span> <span class="mf">40.0</span><span class="p">,</span> <span class="mf">11.0</span><span class="p">,</span> <span class="mf">41.0</span><span class="p">],</span> <span class="n">tile_c</span><span class="p">),</span>
-<span class="p">]</span>
-<span class="nb">len</span><span class="p">(</span><span class="n">items</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="p">(</span>
+    <span class="n">renamed</span><span class="o">.</span><span class="n">variable_names</span> <span class="o">==</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span><span class="p">,</span>
+    <span class="nb">len</span><span class="p">(</span><span class="n">renamed</span><span class="o">.</span><span class="n">global_attributes</span><span class="p">),</span>
+<span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-4">def item(item_id, when_iso, bbox, href):
-    """A minimal duck-typed STAC item dict."""
-    return {
-        "id": item_id,
-        "properties": {"datetime": when_iso},
-        "bbox": bbox,  # [minx, miny, maxx, maxy] -&gt; centroid lon
-        "assets": {"data": {"href": href}},
-    }
-
-
-items = [
-    item("a", "2024-01-15T10:00:00Z", [10.0, 40.0, 11.0, 41.0], tile_a),
-    item("b", "2024-01-15T10:01:00Z", [11.0, 40.0, 12.0, 41.0], tile_b),
-    item("c", "2024-01-16T10:00:00Z", [10.0, 40.0, 11.0, 41.0], tile_c),
-]
-len(items)</div>
+<div class="clipboard-copy-txt" id="cell-4">(
+    renamed.variable_names == nc.variable_names,
+    len(renamed.global_attributes),
+)</div>
 </div>
 </div>
 </div>
@@ -7459,25 +7379,25 @@ len(items)</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>3</pre>
+<pre>(True, 18)</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=92c89d0b">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=eaa16d8b">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="without-grouping-one-timestep-per-item">Without grouping — one timestep per item<a class="anchor-link" href="#without-grouping-one-timestep-per-item">¶</a></h2><p>Three items in, three timesteps out. The two same-day tiles stay as two separate steps.</p>
+<p>The renamed axis keeps its own coordinate values, under the new name:</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=3cf5efaa">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=9683be4c">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7495,11 +7415,9 @@ len(items)</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_stac</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="s2">"data"</span><span class="p">)</span>
-<span class="n">cube</span><span class="o">.</span><span class="n">time_length</span>  <span class="c1"># -&gt; 3</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">renamed</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s1">'t'</span><span class="p">])</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-5">cube = DatasetCollection.from_stac(items, "data")
-cube.time_length  # -&gt; 3</div>
+<div class="clipboard-copy-txt" id="cell-5">np.asarray(renamed.coords['t'])</div>
 </div>
 </div>
 </div>
@@ -7511,26 +7429,26 @@ cube.time_length  # -&gt; 3</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[5]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>3</pre>
+<pre>array([730135.5])</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=2ae53900">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=174b4df6">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="with-groupbysolar_day-one-timestep-per-acquisition-date">With <code>groupby="solar_day"</code> — one timestep per acquisition date<a class="anchor-link" href="#with-groupbysolar_day-one-timestep-per-acquisition-date">¶</a></h2><p>The two 2024-01-15 tiles fuse into a single mosaicked timestep; 2024-01-16 is its own step.
-Three items in, <strong>two</strong> timesteps out.</p>
+<p>Renaming on a single variable is free - it relabels metadata and keeps the variable's lazy read,
+without copying any cells:</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=c5a46c5e">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=b5ad5412">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7548,42 +7466,33 @@ Three items in, <strong>two</strong> timesteps out.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">daily</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_stac</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="s2">"data"</span><span class="p">,</span> <span class="n">groupby</span><span class="o">=</span><span class="s2">"solar_day"</span><span class="p">)</span>
-<span class="n">daily</span><span class="o">.</span><span class="n">time_length</span>  <span class="c1"># -&gt; 2 (2024-01-15, 2024-01-16)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">variable</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'tas'</span><span class="p">)</span>
+
+<span class="n">variable</span><span class="o">.</span><span class="n">rename_dims</span><span class="p">(</span><span class="n">time</span><span class="o">=</span><span class="s1">'t'</span><span class="p">)</span><span class="o">.</span><span class="n">dimension_names</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-6">daily = DatasetCollection.from_stac(items, "data", groupby="solar_day")
-daily.time_length  # -&gt; 2 (2024-01-15, 2024-01-16)</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
-<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>2</pre>
+<div class="clipboard-copy-txt" id="cell-6">variable = nc.get_variable('tas')
+
+variable.rename_dims(time='t').dimension_names</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=fbe5fed1">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c3833fd7">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>Plot the first timestep of the grouped <code>daily</code> collection — the two adjacent 2024-01-15 tiles fused into one
-solar-day mosaic (west tile = 1, east tile = 2).</p>
+<h2 id="assign_coords-restamp-an-existing-axis"><code>assign_coords</code> - restamp an existing axis<a class="anchor-link" href="#assign_coords-restamp-an-existing-axis">¶</a></h2><p>This replaces the coordinate values of a band dimension that <strong>already exists</strong>. pyramids has no
+index model, so attaching a brand-new coordinate is not supported - restamping an existing axis is.
+The values must match the axis length, which is checked up front.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=e662d282">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=0d344751">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7601,9 +7510,13 @@ solar-day mosaic (west tile = 1, east tile = 2).</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">daily</span><span class="o">.</span><span class="n">iloc</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">band</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"Solar-day 1 mosaic (tiles a + b)"</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">levels</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">LEVELS</span><span class="p">))</span>
+
+<span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">levels</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s1">'level'</span><span class="p">])</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7">daily.iloc(0).plot(band=0, title="Solar-day 1 mosaic (tiles a + b)")</div>
+<div class="clipboard-copy-txt" id="cell-7">levels = NetCDF.read_file(str(LEVELS))
+
+np.asarray(levels.coords['level'])</div>
 </div>
 </div>
 </div>
@@ -7615,36 +7528,14 @@ solar-day mosaic (west tile = 1, east tile = 2).</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f3d3ef9cc20&gt;</pre>
+<pre>array([1000.,  925.,  850.,  700.], dtype=float32)</pre>
 </div>
 </div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedImage jp-OutputArea-output" tabindex="0">
-<img alt="No description has been provided for this image" class="" src="data:image/png;base64,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tWvXLNemTZt22YCdnUs/54MGDfJoe0JCgmnVqpWRZEaPHp1t+aZNmxpJZvv27T59XwCAgsecdgDFynXXXae9e/dq7ty5WrJkiX755Rft3LlTO3bs0AcffKD69etr4cKFuuqqqyRJixcvVnp6uvr06ZNltezmzZvr2Wef1d13361Fixbpvvvuy/X5ffv2lSRt27ZNO3bsUFJSktLT0yVJ1apV0+7du7V///5s599OmTJFNWvWdH99/vx5vffee1nua9u2rZo1ayZJ+vzzzyVJL774ourUqeO+JyAgQC+88IIWLVqk2NjYLHWMHDlS586d06pVq7R//36lpKTIGKOSJUtKujiH+VItW7ZUu3bttGLFCu3cuVONGjWSJF24cEH/+9//FB4erhEjRuT6+hSkKlWq6IUXXlBAQID7XPv27dWgQQPFxMToueee85jjXaJECd1+++1au3at9u7d6z7/2WefSbq4inrm5yTT+PHj9eWXX+q7777T4sWLde+990qSatWqpV27dsnpzLppS48ePbKc8/X1v5yPP/5Y0sXPTnbrNfTu3dureiTpxIkTknTZtRfy20cffSRJuuaaa/Tpp5/KGCNJ7v9m/l1YuXKl+7Pl6+uck/x6DzJNmDBB+/fvz/ba8uXLtXz58iznv/nmG58XYSxdurSmT5+uUqVKuc9VrFhR06ZNU4sWLfT5559rxowZWcplvq/Hjx/36XkAgIJHaAdQ7ISEhGjUqFHuPb//+OMPLV++XJMnT9bmzZvVt29fxcTEyOVyac+ePZKkTp06ZVtX5qJql4a6nPz4448aPXq0du3addl7Tp06lW1ob9WqlcfXKSkpGjt2bJb7XnrpJXdoz2xX+/bts9wXGBioVq1aZRvap0yZosmTJ+v06dOXbeNfjR8/XmvXrtVbb72l119/XZK0aNEiHTlyRA8//LDHnt5F4aqrrsp2Ia5KlSopJibG/ZpdqnLlypI8g4w3n4nvvvvO4zMRHR2tLVu2qHnz5urcubPatGnj/nO5cuWy1OHP65+dmJgYScqX/bczf7l06S89CtKOHTskSc8//3yO9508edL9Z19f55zk13uQaejQoR5tlS7u0z537lw1adIk233aq1ev7tMzJCkyMjLbX6w0b95cwcHBOnbsmE6fPq0yZcp4XM/8u5H5PgMArIPQDqDYK1u2rG655RZ169ZNNWvWVFxcnFauXKnu3bsrIyNDki67DVxmr5s3/9A9dOiQevXqpbNnzyoiIkLNmzdXuXLlVKJECUnSt99+q7i4uMvW9dd/iLtcLo0ZMybLfVdffbX7z5l1ZT7jr7L7vt5991098sgjcjgcuuaaa1SvXj2VKVNGAQEBMsZoxowZ2bbx5ptvVkREhD788ENFR0crJCREb775pgIDA/Wvf/0r+xelEOW2lV9O1zN7dyX59Zlo1qyZdu/erS+++ELff/+9lixZoilTpigjI0NDhgzR9OnTFRwcLMn/1z87mW293Pvvi8xV9H0Nq/66cOGCJOmOO+5wv6bZadq0qfvPvrzOOcnP9yBTdvugx8TEaO7cueratateeeUVn+q7nMt9Lh0Oh0qUKKGUlJRs2575C4WcdksAABQNQjsA/J+wsDBVqVJFiYmJSkhIkCRdeeWVkqRff/012zK//PKLx305+fzzz3X27FlFRUVp9uzZWXoss+vpzUmpUqU8ttbKTkREhI4dO6YtW7aoa9euWa5v2bIly7nMYcmffPKJbr31Vo9rv//+e7ZDa6WLPXX33HOPHn30Uc2aNUudOnXSqlWrFBUV9bfaZ/3KK69UQkKCfv31V1WrVi3L9ct9JkqXLq0hQ4a4t+lLSUnRc889p+eff17ly5fXyy+/LMn/1z87NWrU0NGjR/XTTz+pX79+3n+T2ahWrZocDof778ZfORyOPNX/VzVq1FBCQoKioqJ8Ging7euck/x8Dwrbzp07df78+Sy/qNm/f78SExNVpkyZbLclPHbsmCSpatWqhdJOAID3sk76AoC/qYMHD7qHC2fnu+++c1/PnC/bvXt3SdKcOXP0008/edx/6tQpTZw4UZJ382WTk5MlXdy3+q+Bfc6cOfrtt9+8+0Z8cMMNN0iSJk6cqJSUFI9rM2fO1ObNmy/bzsx56ZnS0tI0YcKEHJ83evRoBQcH680339Rbb70lSbr//vv9bb4lZX4mnnjiCSUlJXlcW7lypebNm+dxnyStW7fOo7dekoKDg91Bes2aNe7zeXn9/+qmm26SJD300EM6cOBAlusHDhxwPy83YWFhioyM1KFDh9wB71KZPdjZXfNHZtvvu+++y/6iIC4uTkePHnV/7cvrnJP8fA8K28mTJzV58mSPc2lpaXrooYckXfx/wl9/wZKQkKBDhw6pYcOGPk8jAAAUPHraARQbGzdu1IABA1SvXj21b99eV155pSpUqKA//vhDGzZs0JIlS2SMUbNmzdzzS6+55hr1799fn3/+uTp37qyhQ4eqcePGOnz4sD7++GMdOXJEFSpU0Lhx43J9fuvWrSVdnKO7f/9+XX311Tp9+rRWr16tpUuXKjw8XImJifn6Pd97772aPn261q5dq2bNmmngwIEqW7asfv75Zy1YsCDbZ7Zu3Vq//PKLevToodtvv13VqlXT4cOHNX/+/FyHRl9xxRUaNmyYZsyYoV27dqldu3ZZ5uJ749dff9XPP/8sSe72paWleYws6N69u2rXru1z3Xk1btw4zZgxQ7/99psaN26swYMHq3Llyvrtt980Z84cZWRk6JZbblHz5s3dZbp166YKFSq4p2CEhIQoLi5Oc+bMkeQZDvPy+v/VPffco/fff1+7du1Sw4YNNXjwYDVs2FCpqanavHmzFi9erK1btyo0NNSr+rp06aLt27dr/fr1WXruK1eurLJly2rnzp2666671LRpUwUGBqp+/frZjvLIzb333qtZs2Zp586dql27tgYNGqT69evL5XLpwIED2rRpk/vvTubaA768zjnJz/egsIWFhenZZ5/V2rVr1bVrV6Wmpmrx4sXatGmTAgMDs/2lQ+aieplrdAAALKZoFq0HgMK3ceNG06hRI/e2SNkdXbp0MYcOHfIol5SUZPr06ZPt/TVr1jQbN27M8qzLbfl29913Z6nD4XCYJ5980vTv3z/bvaQzt3z7888//fq+f/jhB3PFFVdkee6tt95q7r333ixbvh09etRjz/HMo1y5cua7774zkkyNGjUu+7zt27dfdis5bz377LM5vk++1J25FVafPn2yvd65c2cjyfz+++9Zri1atOiyW9xVr14923bdeOONWfa6vuGGG9xby/31aN++vce2a/68/pfbNs0YYw4cOGDat2+f7bNr1KhhDh8+7NXraIwxa9asMZLMnXfeme315557Lsszhg4dmmMbc2r74cOH3Xu1Z3fUrl3bY9s9X17nnOT174C3CmKf9j59+piHH344S9tLlSpl5syZk23ZzP3tV61aled2AADyHz3tAIqNFi1aaMeOHYqNjdXq1at14MABJSQkqGTJkqpRo4Y6derksahVptDQUH355Zdav369vvvuOyUkJKh06dK69tpr1a9fv2wX+br55pt19dVXZ1n0atq0aRoxYoSWL1+uo0ePqkqVKurXr5+uuuoqTZ8+XZUrV1bFihU9ytx22206duxYtiufe6Nz5876/fffNXfuXO3atUshISHq0qWLunXrpk8//VTnz5/32A6uUqVK2rx5s+bPn6/ffvtNqampatCggW655RaFh4drzJgxOQ6hrV+/vsqWLavQ0FANGDDArza3aNEi20X2LnVpm3NSvnx5jRkzJtv3VpJuvPFGNWzYMNt5vrVq1dKYMWPUsWNHj/MtW7bU7t279eWXX2rjxo06e/asKlWqpBtuuCHbkQVLly7VgQMHtGzZMsXGxio1NVVVqlRRx44ds9zvz+sfEhKiMWPGqG7dulmeHRERodWrV2v16tVauXKljh07pgoVKqhJkybq06ePT5+rdu3aqXHjxpo/f77eeOONLIuePf744+rQoYOWL1+uEydOKC0tzT3C5HJtzKntVapU0bfffqvNmzdr+fLlio+PV4kSJRQREaFrrrkmy4rrvrzOOcnr3wFvlS1bVmPGjMl2dwdfXfo5/+c//6lbbrlFX3/9tf744w/VrFlTgwYNynbtjdTUVC1YsECNGjXK8jkHAFiDw5i/TP4CACAPXn/9dY0bN07R0dF69NFHi7o5yGczZ87UiBEjNHPmTA0fPryom4M8mjVrloYPH653331X//jHP4q6OQCAbBDaAQB5tnXrVq1evVp79+7Va6+9pqCgIO3fv1/ly5cv6qYhn2VkZOiaa65RSkqKdu7cWWj7tiP/paenKzIyUiVKlNCWLVvkdLI+MQBYEcPjAQB59v3333usEv/SSy8R2P+mnE6n3nrrLX344YfavXu314u7wXr27Nmj6667TsOGDSOwA4CF0dMOAMiz5cuXa968eQoPD1fPnj3VpUuXom4SAADA3wKhHQAAAAAAi2IsFAAAAAAAFkVoBwAAAADAogjtAAAAAABYVJGuHp+YmKg5c+bo8OHDevzxxxUcHJzlnvj4eC1atEhnzpxRx44d1bFjxyJoKQAA/jt06JDmzJmjtLQ0PfbYY37fAwCAlcXExGj+/PmqVKmSRo8eneV6UlKSvv76a8XFxalGjRrq37+/SpcuXQQttZciW4juqaee0owZMxQZGanvv/9ex48fz7I90OrVq9WzZ09169ZN1apV00cffaS7775bL7zwQlE0GQAAnw0fPlw//PCD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"/>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=9321bba0">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="why-shift-by-longitude-the-utc-midnight-boundary">Why shift by longitude? The UTC-midnight boundary<a class="anchor-link" href="#why-shift-by-longitude-the-utc-midnight-boundary">¶</a></h2><p>A satellite's overpass happens at roughly the same <strong>local</strong> time everywhere, but the UTC
-timestamp of a tile depends on its longitude. Near the date line a tile can be stamped late
-in one UTC day while its neighbour on the same pass is stamped early the next UTC day — a
-naive <code>date()</code> would split one overpass across two timesteps. Shifting by
-<code>centroid_longitude / 15</code> hours puts both on the same <strong>solar</strong> day. The cell below
-reproduces the rule pyramids uses internally:</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=084b46a8">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=5f741d60">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7662,29 +7553,13 @@ reproduces the rule pyramids uses internally:</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">solar_day</span><span class="p">(</span><span class="n">when_utc</span><span class="p">,</span> <span class="n">centroid_lon</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">"""The rule pyramids uses: UTC shifted to local solar time, then the date."""</span>
-    <span class="n">shifted</span> <span class="o">=</span> <span class="n">when_utc</span> <span class="o">+</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="n">centroid_lon</span> <span class="o">/</span> <span class="mf">15.0</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">shifted</span><span class="o">.</span><span class="n">date</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">()</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">restamped</span> <span class="o">=</span> <span class="n">levels</span><span class="o">.</span><span class="n">assign_coords</span><span class="p">(</span><span class="n">level</span><span class="o">=</span><span class="p">[</span><span class="mf">1000.0</span><span class="p">,</span> <span class="mf">850.0</span><span class="p">,</span> <span class="mf">700.0</span><span class="p">,</span> <span class="mf">500.0</span><span class="p">])</span>
 
-
-<span class="c1"># A tile imaged at 23:30 UTC, far to the east (lon +150): its UTC day is the 15th,</span>
-<span class="c1"># but its LOCAL solar day is the 16th.</span>
-<span class="n">late</span> <span class="o">=</span> <span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">23</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">UTC</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"UTC date  :"</span><span class="p">,</span> <span class="n">late</span><span class="o">.</span><span class="n">date</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">())</span>  <span class="c1"># 2024-01-15</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">"solar day :"</span><span class="p">,</span> <span class="n">solar_day</span><span class="p">(</span><span class="n">late</span><span class="p">,</span> <span class="n">centroid_lon</span><span class="o">=</span><span class="mf">150.0</span><span class="p">))</span>  <span class="c1"># 2024-01-16</span>
+<span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">restamped</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s1">'level'</span><span class="p">])</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-8">def solar_day(when_utc, centroid_lon):
-    """The rule pyramids uses: UTC shifted to local solar time, then the date."""
-    shifted = when_utc + timedelta(hours=centroid_lon / 15.0)
-    return shifted.date().isoformat()
+<div class="clipboard-copy-txt" id="cell-8">restamped = levels.assign_coords(level=[1000.0, 850.0, 700.0, 500.0])
 
-
-# A tile imaged at 23:30 UTC, far to the east (lon +150): its UTC day is the 15th,
-# but its LOCAL solar day is the 16th.
-late = datetime(2024, 1, 15, 23, 30, tzinfo=UTC)
-print("UTC date  :", late.date().isoformat())  # 2024-01-15
-print("solar day :", solar_day(late, centroid_lon=150.0))  # 2024-01-16</div>
+np.asarray(restamped.coords['level'])</div>
 </div>
 </div>
 </div>
@@ -7693,58 +7568,29 @@ print("solar day :", solar_day(late, centroid_lon=150.0))  # 2024-01-16</div>
 <div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
-<pre>UTC date  : 2024-01-15
-solar day : 2024-01-16
-</pre>
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>array([1000.,  850.,  700.,  500.])</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d7a292a1">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=ea72c7ef">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="where-to-use-it-and-where-not">Where to use it — and where not<a class="anchor-link" href="#where-to-use-it-and-where-not">¶</a></h2><p><strong>Use <code>groupby="solar_day"</code> when:</strong></p>
-<ul>
-<li>The catalog is <strong>tiled optical EO</strong> (Sentinel-2 / Landsat / HLS / MODIS) and your AOI
-spans several tiles/granules per overpass.</li>
-<li>You want one <strong>analysis-ready timestep per acquisition date</strong> (e.g. a daily NDVI/true-colour
-stack) rather than many tile-steps.</li>
-<li>Same-overpass tiles overlap and a <strong>first-valid</strong> mosaic is acceptable.</li>
-</ul>
-<p><strong>Do <em>not</em> use it when:</strong></p>
-<ul>
-<li>The data is <strong>not</strong> per-overpass imagery — climate-model output, reanalysis, or
-already-mosaicked / single-granule products. There <code>groupby=None</code> is correct.</li>
-<li>You need a reducer other than first-valid (median compositing, cloud-score weighting,
-BRDF normalisation): do that in your EO pipeline — see the recipe below.</li>
-<li>Items lack a <code>datetime</code> or <code>bbox</code> (the solar-day computation needs both).</li>
-</ul>
+<h2 id="drop_dims-drop-an-axis-and-the-variables-along-it"><code>drop_dims</code> - drop an axis and the variables along it<a class="anchor-link" href="#drop_dims-drop-an-axis-and-the-variables-along-it">¶</a></h2><p>A dimension cannot be dropped on its own: the variables defined along it go with it. Here only <code>ua</code>
+spans the pressure axis.</p>
 </div>
 </div>
 </div>
-</div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c7b66817">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="under-the-hood-the-equivalent-manual-recipe">Under the hood — the equivalent manual recipe<a class="anchor-link" href="#under-the-hood-the-equivalent-manual-recipe">¶</a></h2><p><code>groupby="solar_day"</code> is a convenience over two generic pieces: group the item hrefs by solar
-day, then <code>merge_rasters</code> each group. If you need a <strong>different reducer</strong> (median compositing,
-cloud-score weighting) just adapt this — group with the same key and swap the merge step.</p>
-</div>
-</div>
-</div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=6a9d5e68">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d70c3e9b">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7762,67 +7608,28 @@ cloud-score weighting) just adapt this — group with the same key and swap the 
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span>
-
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset.merge</span><span class="w"> </span><span class="kn">import</span> <span class="n">merge_rasters</span>
-
-
-<span class="k">def</span><span class="w"> </span><span class="nf">group_by_solar_day</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">asset</span><span class="p">,</span> <span class="n">out_dir</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">"""One mosaicked GeoTIFF per solar day — the building blocks groupby uses."""</span>
-    <span class="n">groups</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
-    <span class="k">for</span> <span class="n">it</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
-        <span class="n">when</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">fromisoformat</span><span class="p">(</span>
-            <span class="n">it</span><span class="p">[</span><span class="s1">'properties'</span><span class="p">][</span><span class="s1">'datetime'</span><span class="p">]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">'Z'</span><span class="p">,</span> <span class="s1">'+00:00'</span><span class="p">)</span>
-        <span class="p">)</span>
-        <span class="n">minx</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">maxx</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">it</span><span class="p">[</span><span class="s1">'bbox'</span><span class="p">]</span>
-        <span class="n">day</span> <span class="o">=</span> <span class="n">solar_day</span><span class="p">(</span><span class="n">when</span><span class="p">,</span> <span class="n">centroid_lon</span><span class="o">=</span><span class="p">(</span><span class="n">minx</span> <span class="o">+</span> <span class="n">maxx</span><span class="p">)</span> <span class="o">/</span> <span class="mf">2.0</span><span class="p">)</span>
-        <span class="n">groups</span><span class="p">[</span><span class="n">day</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">it</span><span class="p">[</span><span class="s1">'assets'</span><span class="p">][</span><span class="n">asset</span><span class="p">][</span><span class="s1">'href'</span><span class="p">])</span>
-    <span class="n">paths</span> <span class="o">=</span> <span class="p">[]</span>
-    <span class="k">for</span> <span class="n">day</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">groups</span><span class="p">):</span>
-        <span class="n">out</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">out_dir</span><span class="p">,</span> <span class="sa">f</span><span class="s1">'</span><span class="si">{</span><span class="n">day</span><span class="si">}</span><span class="s1">.tif'</span><span class="p">)</span>
-        <span class="n">merge_rasters</span><span class="p">(</span><span class="n">groups</span><span class="p">[</span><span class="n">day</span><span class="p">],</span> <span class="n">out</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">'first'</span><span class="p">)</span>  <span class="c1"># swap for your own reducer</span>
-        <span class="n">paths</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">paths</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="p">[</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span> <span class="k">if</span> <span class="s1">'plev'</span> <span class="ow">in</span> <span class="p">(</span><span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">dimension_names</span> <span class="ow">or</span> <span class="p">[])]</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">from collections import defaultdict
-
-from pyramids.dataset.merge import merge_rasters
-
-
-def group_by_solar_day(items, asset, out_dir):
-    """One mosaicked GeoTIFF per solar day — the building blocks groupby uses."""
-    groups = defaultdict(list)
-    for it in items:
-        when = datetime.fromisoformat(
-            it['properties']['datetime'].replace('Z', '+00:00')
-        )
-        minx, _, maxx, _ = it['bbox']
-        day = solar_day(when, centroid_lon=(minx + maxx) / 2.0)
-        groups[day].append(it['assets'][asset]['href'])
-    paths = []
-    for day in sorted(groups):
-        out = os.path.join(out_dir, f'{day}.tif')
-        merge_rasters(groups[day], out, method='first')  # swap for your own reducer
-        paths.append(out)
-    return paths</div>
+<div class="clipboard-copy-txt" id="cell-9">[name for name in nc.variable_names if 'plev' in (nc.get_variable(name).dimension_names or [])]</div>
 </div>
 </div>
 </div>
 </div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[9]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>['ua']</pre>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=split-gsd-u">
-<div class="jp-Cell-inputWrapper" tabindex="0">
-<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
-</div>
-<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
-</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>Run the recipe: group the items by solar day, mosaic each day, and read the result back.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=split-gsd-use">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=e7093a7f">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7840,15 +7647,73 @@ def group_by_solar_day(items, asset, out_dir):
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">out_dir</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">"solar_day_manual_"</span><span class="p">)</span>
-<span class="n">day_paths</span> <span class="o">=</span> <span class="n">group_by_solar_day</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="s2">"data"</span><span class="p">,</span> <span class="n">out_dir</span><span class="p">)</span>
-<span class="n">manual</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_files</span><span class="p">(</span><span class="n">day_paths</span><span class="p">)</span>
-<span class="n">manual</span><span class="o">.</span><span class="n">time_length</span>  <span class="c1"># -&gt; 2, same as groupby='solar_day'</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">without_plev</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">drop_dims</span><span class="p">(</span><span class="s1">'plev'</span><span class="p">)</span>
+
+<span class="n">without_plev</span><span class="o">.</span><span class="n">dimension_names</span><span class="p">,</span> <span class="n">without_plev</span><span class="o">.</span><span class="n">variable_names</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-10">out_dir = tempfile.mkdtemp(prefix="solar_day_manual_")
-day_paths = group_by_solar_day(items, "data", out_dir)
-manual = DatasetCollection.from_files(day_paths)
-manual.time_length  # -&gt; 2, same as groupby='solar_day'</div>
+<div class="clipboard-copy-txt" id="cell-10">without_plev = nc.drop_dims('plev')
+
+without_plev.dimension_names, without_plev.variable_names</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
+<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:8289: RuntimeWarning: Cannot find variable corresponding to coordinate height
+  return _gdal.MDArray_GetCoordinateVariables(self, *args)
+</pre>
+</div>
+</div>
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[10]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>(['bnds', 'lat', 'lon', 'time'], ['area', 'msk_rgn', 'pr', 'tas'])</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=831f0c72">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><code>ua</code> is gone and so is <code>plev</code> itself. Each surviving variable keeps its stored form exactly - a
+CF-packed variable stays packed at its on-disk dtype, with its scale, offset and no-data value.
+<code>drop_dims</code> does not mutate the cube it was called on; it returns a new one:</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d4bb04ae">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [11]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-11">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-11">nc.variable_names</div>
 </div>
 </div>
 </div>
@@ -7858,25 +7723,187 @@ manual.time_length  # -&gt; 2, same as groupby='solar_day'</div>
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[10]:</div>
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[11]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>2</pre>
+<pre>['area', 'msk_rgn', 'pr', 'tas', 'ua']</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=4170cc33">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=7f756c5f">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>The manual recipe yields <code>time_length == 2</code> — identical to <code>groupby="solar_day"</code>. That confirms
-the built-in flag is just this group-then-<code>merge_rasters</code> pattern behind one keyword; swapping the
-<code>method="first"</code> merge for your own reducer (median compositing, cloud-score weighting) is the
-extension point when first-valid mosaicking is not enough.</p>
+<h2 id="update-fold-variables-in-in-place"><code>update</code> - fold variables in, in place<a class="anchor-link" href="#update-fold-variables-in-in-place">¶</a></h2><p><code>update</code> writes another cube's variables into this one, replacing same-named ones and adding the
+rest. Unlike the three above it <strong>mutates</strong> the receiver and returns <code>None</code>, as xarray's does. Every
+donor is checked against the receiver's grid and band axes before anything is written, so a
+mismatched update leaves the cube untouched rather than half-applied.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=861653d0">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [12]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-12">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">base</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">CF</span><span class="p">))</span>
+<span class="n">base</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">'tas_copy'</span><span class="p">:</span> <span class="n">base</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'tas'</span><span class="p">)})</span>
+
+<span class="nb">sorted</span><span class="p">(</span><span class="n">base</span><span class="o">.</span><span class="n">variable_names</span><span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-12">base = NetCDF.read_file(str(CF))
+base.update({'tas_copy': base.get_variable('tas')})
+
+sorted(base.variable_names)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[12]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>['area', 'msk_rgn', 'pr', 'tas', 'tas_copy', 'ua']</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=199f2578">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="hierarchical-stores">Hierarchical stores<a class="anchor-link" href="#hierarchical-stores">¶</a></h2><p>NetCDF-4 files can keep their variables in sub-groups. The bookkeeping members rebuild the whole
+store, so the groups and everything in them come across - all 29 variables across 7 sub-groups
+here, with the shared axis relabelled.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=ad65136e">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [13]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-13">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">groups</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">GROUPS</span><span class="p">))</span>
+
+<span class="nb">len</span><span class="p">(</span><span class="n">groups</span><span class="o">.</span><span class="n">variable_names</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">groups</span><span class="o">.</span><span class="n">group_names</span><span class="p">),</span> <span class="n">groups</span><span class="o">.</span><span class="n">dimension_names</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-13">groups = NetCDF.read_file(str(GROUPS))
+
+len(groups.variable_names), len(groups.group_names), groups.dimension_names</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[13]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>(29, 7, ['recNum'])</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=048396c9">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [14]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-14">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">regrouped</span> <span class="o">=</span> <span class="n">groups</span><span class="o">.</span><span class="n">rename_dims</span><span class="p">(</span><span class="n">recNum</span><span class="o">=</span><span class="s1">'record'</span><span class="p">)</span>
+
+<span class="nb">len</span><span class="p">(</span><span class="n">regrouped</span><span class="o">.</span><span class="n">variable_names</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">regrouped</span><span class="o">.</span><span class="n">group_names</span><span class="p">),</span> <span class="n">regrouped</span><span class="o">.</span><span class="n">dimension_names</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-14">regrouped = groups.rename_dims(recNum='record')
+
+len(regrouped.variable_names), len(regrouped.group_names), regrouped.dimension_names</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[14]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>(29, 7, ['record'])</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=d14d35c1">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="recap">Recap<a class="anchor-link" href="#recap">¶</a></h2><ul>
+<li><code>rename_dims(old=new)</code> relabels a band axis; no orphan dimension, inventory and attributes kept.</li>
+<li><code>assign_coords(dim=values)</code> restamps an existing axis; the length is checked up front.</li>
+<li><code>drop_dims(name)</code> removes an axis and the variables along it, returning a new cube.</li>
+<li><code>update(other)</code> folds variables in, in place, validating every donor before it writes.</li>
+</ul>
+<p>All four act on band dimensions only - the spatial plane stays pinned to the geotransform. For the
+wider tour of the class, see the <code>NetCDF</code> anatomy notebook.</p>
 </div>
 </div>
 </div>
@@ -7923,7 +7950,7 @@ extension point when first-valid mosaicking is not enough.</p>
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../rgb_animation/" class="md-footer__link md-footer__link--prev" aria-label="Previous: RGB true-colour animation with">
+          <a href="../../../tutorials/netcdf-plotting/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Plotting NetCDF data">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -7933,20 +7960,20 @@ extension point when first-valid mosaicking is not enough.</p>
                 Previous
               </span>
               <div class="md-ellipsis">
-                RGB true-colour animation with
+                Plotting NetCDF data
               </div>
             </div>
           </a>
         
         
           
-          <a href="../south-america/" class="md-footer__link md-footer__link--next" aria-label="Next: Exploring a single-band raster with">
+          <a href="../dask-lazy-netcdf/" class="md-footer__link md-footer__link--next" aria-label="Next: Lazy NetCDF reads + kerchunk + multi-file stacks with">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Exploring a single-band raster with
+                Lazy NetCDF reads + kerchunk + multi-file stacks with
               </div>
             </div>
             <div class="md-footer__button md-icon">
