@@ -85,3 +85,24 @@ class TestUpdateErrors:
         var = _cube("a").get_variable("a")
         with pytest.raises(ValueError, match="no .*variable mapping to update"):
             var.update(_cube("b", seed=1))
+
+    def test_update_is_atomic_when_a_later_donor_mismatches(self):
+        """A good donor followed by an off-grid one leaves the receiver untouched (M1).
+
+        The grid of every donor is validated before any is written, so the valid `b` is not
+        committed when `c` fails the grid check.
+        """
+        base = _cube("a")
+        on_grid = _cube("b", seed=1).get_variable("b")
+        off_grid = _cube("c", geo=OTHER_GEO).get_variable("c")
+        with pytest.raises(AlignmentError, match="different grid"):
+            base.update({"b": on_grid, "c": off_grid})
+        assert base.variable_names == ["a"], (
+            f"a refused update must not commit 'b': {base.variable_names}"
+        )
+
+    def test_update_rejects_an_unsupported_type(self):
+        """A donor that is neither a container nor a mapping raises a typed error (L3)."""
+        base = _cube("a")
+        with pytest.raises(TypeError, match="NetCDF container or a"):
+            base.update([1, 2, 3])

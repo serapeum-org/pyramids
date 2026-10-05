@@ -3346,7 +3346,10 @@ class Selection(_Engine["NetCDF"]):
         A bulk `set_variable`: every variable in `other` is written into this container, replacing
         one of the same name and adding the rest. The blessed mutation path — the read-through
         variables mapping refuses item assignment and points here. Mutates the receiver and returns
-        `None`, as xarray does. Grids must match (no resampling), consistent with `merge`/`concat`.
+        `None`, as xarray does. Grids must match (no resampling), consistent with `merge`/`concat`,
+        and every donor is grid-checked **before** any is written, so a mismatch leaves the receiver
+        untouched. The reference grid is the receiver's first variable (or, for an empty receiver,
+        the first donor variable).
 
         Args:
             other: A `NetCDF` container, or a `{name: variable}` mapping, whose variables share this
@@ -3354,7 +3357,8 @@ class Selection(_Engine["NetCDF"]):
 
         Raises:
             ValueError: The receiver is a single variable (it has no variable mapping to update).
-            AlignmentError: A variable in `other` is on a different grid.
+            TypeError: `other` is neither a `NetCDF` container nor a `{name: variable}` mapping.
+            AlignmentError: A variable in `other` is on a different grid (raised before any write).
 
         Examples:
             - Fold another cube's variable into this container, on the same grid:
@@ -3383,13 +3387,20 @@ class Selection(_Engine["NetCDF"]):
             )
         if isinstance(other, Mapping):
             items = list(other.items())
-        else:
+        elif hasattr(other, "variable_names") and hasattr(other, "get_variable"):
             items = [
                 (name, cast("NetCDF", other.get_variable(name)))
                 for name in other.variable_names
             ]
-        # Compare grids variable-to-variable: a container's own raster is a placeholder, so the
-        # reference is one of its variables (or, for an empty container, the first donor).
+        else:
+            raise TypeError(
+                "update() accepts a NetCDF container or a {name: variable} mapping, got "
+                f"{type(other).__name__}."
+            )
+        # Validate every donor's grid before writing anything, so a mismatch leaves the receiver
+        # untouched (all-or-nothing, as xarray's update is). Grids are compared variable-to-variable
+        # because a container's own raster is a placeholder: the reference is one of the receiver's
+        # variables, or — for an empty receiver — the first donor variable.
         reference: NetCDF | None = (
             cast("NetCDF", nc.get_variable(nc.variable_names[0]))
             if nc.variable_names
@@ -3403,6 +3414,7 @@ class Selection(_Engine["NetCDF"]):
                     f"update(): variable {name!r} is on a different grid than this container; "
                     f"align it first (resample / to_crs / align) — update does not resample."
                 )
+        for name, variable in items:
             nc.set_variable(name, variable)
 
     def interp(self, method: str = "linear", **coords: Any) -> NetCDF:
