@@ -1,0 +1,904 @@
+"""Tests for the geodesy helpers in :mod:`pyramids.base.geodesy`."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+from pyproj import CRS, Geod, Transformer
+from pyproj.exceptions import GeodError, ProjError
+from shapely.geometry import LineString, MultiLineString, Point, Polygon
+
+import pyramids.base.geodesy as geodesy_module
+from pyramids.base._errors import CRSError
+from pyramids.base.geodesy import (
+    _area_scale,
+    _geod_of,
+    _geodetic_frame,
+    _length_scale,
+    geodesic_distance,
+    geodesic_geometry_area,
+    geodesic_geometry_length,
+    ground_distance_in_crs,
+)
+
+# One degree of longitude on the WGS 84 ellipsoid, at the equator and at 60 N.
+# The second is the number that makes this module necessary: the same degree is
+# half the ground distance, so no single metres-per-degree constant can exist.
+DEGREE_AT_EQUATOR_M = 111319.49079327357
+DEGREE_AT_60N_M = 55799.47039326038
+
+
+class TestLengthScale:
+    """The unit table behind both public functions."""
+
+    @pytest.mark.parametrize(
+        ("unit", "expected"),
+        [("m", 1.0), ("km", 1000.0), ("mi", 1609.344), ("nmi", 1852.0)],
+    )
+    def test_known_units(self, unit: str, expected: float):
+        """Each supported unit reports its length in metres."""
+        assert _length_scale(unit) == expected
+
+    @pytest.mark.parametrize("unit", ["KM", " km ", "  M", "NMI"])
+    def test_case_and_whitespace_insensitive(self, unit: str):
+        """Case and surrounding whitespace do not change the unit."""
+        assert _length_scale(unit) == _length_scale(unit.strip().lower())
+
+    @pytest.mark.parametrize("unit", ["m2", "feet", "", "metres"])
+    def test_unknown_unit_raises(self, unit: str):
+        """An unrecognised unit is refused, and the message lists the valid ones."""
+        with pytest.raises(ValueError, match="unknown length unit"):
+            _length_scale(unit)
+
+    @pytest.mark.parametrize("unit", [None, 2, ["km"]])
+    def test_non_string_unit_raises_value_error(self, unit):
+        """A non-string is refused as a `ValueError`, not an `AttributeError`.
+
+        `strip()` is attempted before the lookup, so a non-string fails there;
+        the helper converts that into the `ValueError` it documents.
+        """
+        with pytest.raises(ValueError, match="unknown length unit"):
+            _length_scale(unit)
+
+
+class TestGeodesicDistance:
+    """The inverse geodesic problem on a CRS's own ellipsoid."""
+
+    def test_degree_at_equator(self):
+        """A degree of longitude at the equator is ~111.3 km."""
+        assert geodesic_distance(0.0, 0.0, 1.0, 0.0) == pytest.approx(
+            DEGREE_AT_EQUATOR_M
+        )
+
+    def test_degree_shrinks_towards_the_pole(self):
+        """The same degree at 60 N is about half as long."""
+        at_60 = geodesic_distance(0.0, 60.0, 1.0, 60.0)
+        assert at_60 == pytest.approx(DEGREE_AT_60N_M)
+        assert at_60 < DEGREE_AT_EQUATOR_M / 1.9
+
+    def test_identical_points_are_zero(self):
+        """A point is no distance from itself."""
+        assert geodesic_distance(12.5, 41.9, 12.5, 41.9) == pytest.approx(0.0)
+
+    def test_symmetric(self):
+        """Distance does not depend on which point is named first."""
+        forward = geodesic_distance(-74.0, 40.7, 2.35, 48.86)
+        backward = geodesic_distance(2.35, 48.86, -74.0, 40.7)
+        assert forward == pytest.approx(backward)
+
+    def test_scalar_input_returns_float(self):
+        """Scalars in, scalar out -- not a 0-d array."""
+        result = geodesic_distance(0.0, 0.0, 1.0, 0.0)
+        assert isinstance(result, float)
+
+    def test_array_input_returns_array(self):
+        """Arrays in, array out, elementwise over the inputs."""
+        result = geodesic_distance([0.0, 0.0], [0.0, 60.0], [1.0, 1.0], [0.0, 60.0])
+        assert isinstance(result, np.ndarray)
+        assert result.shape == (2,)
+        assert result[0] == pytest.approx(DEGREE_AT_EQUATOR_M)
+        assert result[1] == pytest.approx(DEGREE_AT_60N_M)
+
+    @pytest.mark.parametrize(
+        ("unit", "divisor"),
+        [("m", 1.0), ("km", 1000.0), ("mi", 1609.344), ("nmi", 1852.0)],
+    )
+    def test_unit_conversion(self, unit: str, divisor: float):
+        """Every unit is the metre answer divided by its length in metres."""
+        converted = geodesic_distance(0.0, 0.0, 1.0, 0.0, unit=unit)
+        assert converted == pytest.approx(DEGREE_AT_EQUATOR_M / divisor)
+
+    def test_unknown_unit_raises(self):
+        """An unrecognised unit is refused before any geodesy happens."""
+        with pytest.raises(ValueError, match="unknown length unit"):
+            geodesic_distance(0.0, 0.0, 1.0, 0.0, unit="furlong")
+
+    def test_projected_crs_contributes_its_datum_ellipsoid(self):
+        """A projected CRS is accepted and measures on its own datum.
+
+        UTM 36N is WGS 84, so it must agree exactly with EPSG:4326 -- the inputs
+        are geographic degrees either way, and only the ellipsoid is taken from
+        the CRS.
+        """
+        projected = geodesic_distance(0.0, 0.0, 1.0, 0.0, crs=32636)
+        assert projected == pytest.approx(DEGREE_AT_EQUATOR_M)
+
+    def test_ellipsoid_comes_from_the_crs_not_a_wgs84_default(self):
+        """A CRS on a sphere gives a different answer, proving the datum is read.
+
+        EPSG:4047 is the GRS 1980 authalic *sphere* (`f=0`), so a degree there is
+        ~124 m shorter than on the WGS 84 ellipsoid. If the implementation
+        defaulted to WGS 84 this would be indistinguishable.
+        """
+        on_sphere = geodesic_distance(0.0, 0.0, 1.0, 0.0, crs=4047)
+        assert on_sphere == pytest.approx(111195.04881760638)
+        assert on_sphere != pytest.approx(DEGREE_AT_EQUATOR_M)
+
+    def test_unresolvable_crs_raises_crs_error(self):
+        """A CRS that cannot be parsed surfaces as pyramids' `CRSError`."""
+        with pytest.raises(CRSError):
+            geodesic_distance(0.0, 0.0, 1.0, 0.0, crs="not a crs at all")
+
+    def test_crs_without_ellipsoid_raises_crs_error(self, monkeypatch):
+        """A datum naming no ellipsoid is refused rather than assumed.
+
+        No EPSG code in the database reaches this branch, so the resolved CRS is
+        stubbed: the guard exists for engineering/local CRSes whose datum carries
+        no figure of the earth.
+        """
+
+        class _NoEllipsoid:
+            name = "Stubbed CRS"
+
+            @staticmethod
+            def get_geod():
+                return None
+
+        monkeypatch.setattr(
+            geodesy_module, "crs_from_user_input", lambda _crs: _NoEllipsoid()
+        )
+        with pytest.raises(CRSError, match="declares no ellipsoid"):
+            geodesic_distance(0.0, 0.0, 1.0, 0.0, crs=4326)
+
+
+class TestGroundDistanceInCRS:
+    """A ground distance expressed in a CRS's own units, at a place."""
+
+    def test_degrees_at_the_equator(self):
+        """100 km at the equator is ~0.898 degrees of longitude."""
+        span = ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 0.0))
+        assert span == pytest.approx(0.8983152841195214)
+
+    def test_degrees_grow_towards_the_pole(self):
+        """The same 100 km needs about twice the degrees at 60 N.
+
+        This is the behaviour the `at` argument exists for: a single
+        degrees-per-metre factor would be wrong everywhere but one latitude.
+        """
+        at_equator = ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 0.0))
+        at_60 = ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 60.0))
+        assert at_60 == pytest.approx(1.7917177623766591)
+        assert at_60 / at_equator == pytest.approx(2.0, rel=0.01)
+
+    def test_web_mercator_metres_are_stretched_by_latitude(self):
+        """Web Mercator's unit is a metre only at the equator.
+
+        At 60 N its scale factor is `1 / cos(60) = 2`, so 100 km of ground spans
+        about 200 000 Web-Mercator metres -- the trap this function exists to
+        avoid for anyone sizing a scale bar on a web map.
+        """
+        y_at_60n = 8399737.89
+        span = ground_distance_in_crs(100_000.0, crs=3857, at=(0.0, y_at_60n))
+        assert span == pytest.approx(199466.86870209937)
+        assert span / 100_000.0 == pytest.approx(2.0, rel=0.01)
+
+    def test_projected_crs_is_near_but_not_exactly_true_scale(self):
+        """UTM is nearly true-scale, so 100 km of ground is ~100 000 units.
+
+        Not *exactly*: the zone's scale factor distorts by a few parts in ten
+        thousand, which is precisely why this is measured rather than assumed.
+        """
+        span = ground_distance_in_crs(100_000.0, crs=32636, at=(500_000.0, 3_300_000.0))
+        assert span == pytest.approx(100_000.0, rel=1e-3)
+        assert span != pytest.approx(100_000.0, rel=1e-6)
+
+    def test_round_trips_against_geodesic_distance(self):
+        """Walking the returned span back out measures the original distance.
+
+        Approximate rather than exact: a geodesic heading east drifts slightly in
+        latitude, and this check holds the latitude fixed on the way back.
+        """
+        span = ground_distance_in_crs(100_000.0, crs=4326, at=(10.0, 45.0))
+        measured = geodesic_distance(10.0, 45.0, 10.0 + span, 45.0)
+        assert measured == pytest.approx(100_000.0, rel=1e-3)
+
+    def test_azimuth_changes_the_answer(self):
+        """North and east are different questions away from the equator.
+
+        A degree of latitude is nearly constant, so measuring north at 60 N needs
+        about half the degrees that measuring east does.
+        """
+        east = ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 60.0), azimuth=90.0)
+        north = ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 60.0), azimuth=0.0)
+        assert north == pytest.approx(0.8975059986338607)
+        assert north < east
+
+    @pytest.mark.parametrize("distance", [0.0, -1.0, -100_000.0])
+    def test_non_positive_distance_raises(self, distance: float):
+        """A zero or negative ground distance is refused."""
+        with pytest.raises(ValueError, match="distance_m must be positive"):
+            ground_distance_in_crs(distance, crs=4326, at=(0.0, 0.0))
+
+    @pytest.mark.parametrize("distance", [float("nan"), float("inf")])
+    def test_non_finite_distance_raises(self, distance: float):
+        """A non-finite ground distance is refused."""
+        with pytest.raises(ValueError, match="must be a finite real number"):
+            ground_distance_in_crs(distance, crs=4326, at=(0.0, 0.0))
+
+    @pytest.mark.parametrize("at", [(0.0,), (0.0, 0.0, 0.0), ()])
+    def test_at_must_be_a_pair(self, at: tuple):
+        """`at` is an `(x, y)` pair; anything else is refused."""
+        with pytest.raises(ValueError, match=r"at must be an \(x, y\) pair"):
+            ground_distance_in_crs(100_000.0, crs=4326, at=at)
+
+    def test_unresolvable_crs_raises_crs_error(self):
+        """A CRS that cannot be parsed surfaces as pyramids' `CRSError`."""
+        with pytest.raises(CRSError):
+            ground_distance_in_crs(100_000.0, crs="not a crs at all", at=(0.0, 0.0))
+
+    def test_point_outside_the_crs_domain_raises_value_error(self):
+        """An un-invertible endpoint is refused instead of returning `inf`.
+
+        An orthographic projection only shows one hemisphere, so a point near the
+        limb whose geodesic walks over the edge has no image: PROJ hands back a
+        non-finite coordinate rather than raising, and the guard turns that into a
+        `ValueError` naming the point. Web Mercator is deliberately *not* used
+        here -- PROJ extrapolates it past its nominal latitude limit rather than
+        failing, so it never reaches this branch.
+        """
+        ortho = "+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        with pytest.raises(ValueError, match="outside the usable domain"):
+            ground_distance_in_crs(500_000.0, crs=ortho, at=(6_370_000.0, 0.0))
+
+    def test_near_the_limb_still_measures(self):
+        """Just inside the same projection's limb the answer is still defined.
+
+        Guards the test above against passing for the wrong reason: the refusal
+        must come from leaving the hemisphere, not from orthographic input being
+        rejected outright.
+        """
+        ortho = "+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        span = ground_distance_in_crs(500_000.0, crs=ortho, at=(6_000_000.0, 0.0))
+        assert span == pytest.approx(151000.48218178842)
+
+    def test_crs_without_geographic_counterpart_raises_crs_error(self, monkeypatch):
+        """A CRS with an ellipsoid but no geodetic counterpart is refused.
+
+        Defensive: every CRS in the EPSG database that names an ellipsoid also
+        exposes a `geodetic_crs`, so this branch is unreachable with real input
+        and the resolved CRS is stubbed to reach it. The guard stays because the
+        alternative is handing `None` to `Transformer.from_crs` and surfacing a
+        pyproj error that names neither the CRS nor the cause.
+        """
+
+        class _NoGeodeticCRS:
+            name = "Stubbed CRS"
+            geodetic_crs = None
+
+            @staticmethod
+            def get_geod():
+                return Geod(ellps="WGS84")
+
+        monkeypatch.setattr(
+            geodesy_module, "crs_from_user_input", lambda _crs: _NoGeodeticCRS()
+        )
+        with pytest.raises(CRSError, match="no geographic counterpart"):
+            ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 0.0))
+
+    def test_proj_error_becomes_value_error(self, monkeypatch):
+        """A `ProjError` from the transform is reported as a `ValueError`.
+
+        PROJ raises rather than returning `inf` for some malformed transforms, so
+        both failure shapes have to reach the caller as the `ValueError` the
+        docstring promises. `Transformer.from_crs` is made to raise to exercise
+        the handler without needing a CRS pair that happens to trigger it.
+        """
+
+        def _raise(*_args, **_kwargs):
+            raise ProjError("stubbed transform failure")
+
+        monkeypatch.setattr(geodesy_module.Transformer, "from_crs", _raise)
+        with pytest.raises(ValueError, match="could not measure") as excinfo:
+            ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 0.0))
+        assert isinstance(excinfo.value.__cause__, ProjError)
+
+
+class TestAreaScale:
+    """The area-unit table, moved here from the cell engine."""
+
+    @pytest.mark.parametrize(
+        ("unit", "expected"), [("m2", 1.0), ("km2", 1e6), ("ha", 1e4)]
+    )
+    def test_known_units(self, unit: str, expected: float):
+        """Each supported unit reports its size in square metres."""
+        assert _area_scale(unit) == expected
+
+    @pytest.mark.parametrize("unit", ["KM2", " km2 ", "HA"])
+    def test_case_and_whitespace_insensitive(self, unit: str):
+        """Case and surrounding whitespace do not change the unit."""
+        assert _area_scale(unit) == _area_scale(unit.strip().lower())
+
+    @pytest.mark.parametrize("unit", ["m", "acres", "", None, 2])
+    def test_unrecognised_unit_raises_value_error(self, unit):
+        """An unknown or non-string unit is refused as a `ValueError`."""
+        with pytest.raises(ValueError, match="unknown area unit"):
+            _area_scale(unit)
+
+
+class TestGeodesicGeometryLength:
+    """Length of a shapely geometry along the ellipsoid."""
+
+    def test_equatorial_degree_line(self):
+        """A one-degree line at the equator is ~111.3 km."""
+        line = LineString([(0, 0), (1, 0)])
+        assert geodesic_geometry_length(line) == pytest.approx(DEGREE_AT_EQUATOR_M)
+
+    def test_polygon_reports_its_perimeter(self):
+        """A polygon's length is its perimeter."""
+        square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        assert geodesic_geometry_length(square) == pytest.approx(443770.917248302)
+
+    def test_point_has_no_length(self):
+        """A point reports zero."""
+        assert geodesic_geometry_length(Point(5.0, 45.0)) == pytest.approx(0.0)
+
+    def test_multipart_sums_its_parts(self):
+        """A multi-line geometry sums its components."""
+        multi = MultiLineString([[(0, 0), (1, 0)], [(0, 60), (1, 60)]])
+        assert geodesic_geometry_length(multi) == pytest.approx(
+            DEGREE_AT_EQUATOR_M + DEGREE_AT_60N_M
+        )
+
+    def test_unit_conversion(self):
+        """Kilometres are the metre answer over a thousand."""
+        line = LineString([(0, 0), (1, 0)])
+        assert geodesic_geometry_length(line, unit="km") == pytest.approx(
+            DEGREE_AT_EQUATOR_M / 1000.0
+        )
+
+    def test_unknown_unit_raises(self):
+        """An unrecognised length unit is refused."""
+        line = LineString([(0, 0), (1, 0)])
+        with pytest.raises(ValueError, match="unknown length unit"):
+            geodesic_geometry_length(line, unit="furlong")
+
+    def test_ellipsoid_comes_from_the_crs(self):
+        """Measuring on a sphere gives a different answer than on WGS 84."""
+        line = LineString([(0, 0), (1, 0)])
+        assert geodesic_geometry_length(line, crs=4047) == pytest.approx(
+            111195.04881760638
+        )
+
+
+class TestGeodesicGeometryArea:
+    """Area of a shapely geometry on the ellipsoid."""
+
+    def test_equatorial_degree_square(self):
+        """A one-degree square at the equator covers ~12 309 km2."""
+        square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        assert geodesic_geometry_area(square, unit="km2") == pytest.approx(
+            12308.778361469452
+        )
+
+    def test_orientation_does_not_change_the_size(self):
+        """A clockwise ring reports the same magnitude as a counter-clockwise one.
+
+        `Geod.geometry_area_perimeter` returns a negative area for a clockwise
+        ring, which encodes winding rather than size.
+        """
+        ccw = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        cw = Polygon([(0, 0), (0, 1), (1, 1), (1, 0)])
+        assert geodesic_geometry_area(cw) == pytest.approx(geodesic_geometry_area(ccw))
+        assert geodesic_geometry_area(cw) > 0.0
+
+    def test_line_encloses_nothing(self):
+        """A line has no area."""
+        assert geodesic_geometry_area(LineString([(0, 0), (1, 0)])) == pytest.approx(
+            0.0
+        )
+
+    @pytest.mark.parametrize(
+        ("unit", "expected"),
+        [
+            ("m2", 12308778361.469452),
+            ("km2", 12308.778361469452),
+            ("ha", 1230877.8361469451),
+        ],
+    )
+    def test_unit_conversion(self, unit: str, expected: float):
+        """Each area unit is the square-metre answer divided by its size."""
+        square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        assert geodesic_geometry_area(square, unit=unit) == pytest.approx(expected)
+
+    def test_unknown_unit_raises(self):
+        """An unrecognised area unit is refused."""
+        square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        with pytest.raises(ValueError, match="unknown area unit"):
+            geodesic_geometry_area(square, unit="acres")
+
+    def test_shrinks_towards_the_pole(self):
+        """A degree square at 60 N covers less than half the equatorial one."""
+        at_equator = geodesic_geometry_area(
+            Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]), unit="km2"
+        )
+        at_60 = geodesic_geometry_area(
+            Polygon([(0, 60), (1, 60), (1, 61), (0, 61)]), unit="km2"
+        )
+        assert at_60 == pytest.approx(6122.943163071411)
+        assert at_60 < at_equator / 2
+
+
+class TestGradUnitGeodeticCRS:
+    """A geodetic counterpart in grads must not be read as degrees (M1).
+
+    `always_xy=True` normalises axis *order*, not *units*, so a CRS whose
+    geodetic counterpart is `NTF (Paris)` (EPSG:4807, axis unit `grad`) hands
+    `Geod` grads. Read as degrees that is wrong by the grad/degree ratio, twice
+    over -- 11% to 45% on the legacy French Lambert zones, with nothing raised.
+    """
+
+    @staticmethod
+    def _reference(code: int, at: tuple[float, float], distance_m: float) -> float:
+        """The same algorithm routed explicitly through EPSG:4326, as a control.
+
+        Not an exact oracle: going via WGS 84 applies an NTF-to-WGS84 datum
+        shift that the implementation avoids by staying on the CRS's own datum,
+        and NTF (Paris) measures longitude from Paris rather than Greenwich.
+        Those leave a ~5e-5 relative difference, which is why the assertions
+        below use `rel=1e-3` -- loose enough to absorb the datum shift, three
+        orders of magnitude tighter than the 11-45% unit bug it pins.
+        """
+        crs = CRS.from_user_input(code)
+        to_degrees = Transformer.from_crs(crs, 4326, always_xy=True)
+        to_native = Transformer.from_crs(4326, crs, always_xy=True)
+        lon, lat = to_degrees.transform(*at)
+        lon_end, lat_end, _ = crs.get_geod().fwd(lon, lat, 90.0, distance_m)
+        x_end, y_end = to_native.transform(lon_end, lat_end)
+        return float(np.hypot(x_end - at[0], y_end - at[1]))
+
+    @pytest.mark.parametrize(
+        ("code", "at"),
+        [
+            (27561, (600000.0, 1200000.0)),
+            (27562, (600000.0, 2200000.0)),
+            (27563, (600000.0, 3200000.0)),
+        ],
+    )
+    def test_french_lambert_matches_the_degree_route(self, code: int, at: tuple):
+        """A grad-geodetic CRS agrees with the explicit degree route."""
+        expected = self._reference(code, at, 100_000.0)
+        assert ground_distance_in_crs(100_000.0, crs=code, at=at) == pytest.approx(
+            expected, rel=1e-3
+        )
+
+    def test_degree_geodetic_crs_is_unaffected(self):
+        """Lambert-93, whose geodetic counterpart is in degrees, is the control."""
+        at = (700000.0, 6600000.0)
+        expected = self._reference(2154, at, 100_000.0)
+        # Exact here: a degree-axis geodetic CRS on the same datum as WGS 84
+        # means the control and the implementation take the identical route.
+        assert ground_distance_in_crs(100_000.0, crs=2154, at=at) == pytest.approx(
+            expected, rel=1e-12
+        )
+
+    def test_ntf_paris_itself(self):
+        """Measuring in EPSG:4807 answers in grads, its own unit.
+
+        400 grads span the circle where 360 degrees do, so a grad is the smaller
+        unit and a given ground distance occupies `1 / 0.9` times as many of
+        them. Latitude 50 grads is latitude 45 degrees, so the two calls measure
+        at the same place.
+        """
+        in_grads = ground_distance_in_crs(100_000.0, crs=4807, at=(0.0, 50.0))
+        in_degrees = ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 45.0))
+        assert in_grads == pytest.approx(in_degrees / 0.9, rel=1e-3)
+
+
+class TestGeodesicDistanceCoordinateValidation:
+    """Coordinates are validated instead of yielding `nan` (M2).
+
+    `geod.inv` answers out-of-domain input with `nan` rather than raising, so the
+    single most likely misuse -- passing projected coordinates alongside a
+    projected `crs`, which the docstring advertises as supported -- used to
+    produce a plausible-looking `nan` that propagated into a buffer radius or a
+    scale-bar length. Its sibling `ground_distance_in_crs` refuses every
+    non-finite input, so this was also internally inconsistent.
+    """
+
+    def test_projected_coordinates_are_refused(self):
+        """UTM metres passed as degrees are refused, not answered with `nan`."""
+        with pytest.raises(ValueError, match="lat1"):
+            geodesic_distance(500000.0, 3300000.0, 510000.0, 3300000.0, crs=32636)
+
+    def test_web_mercator_coordinates_are_refused(self):
+        """Web-Mercator metres likewise."""
+        with pytest.raises(ValueError, match="lat1"):
+            geodesic_distance(0.0, 8399737.89, 100000.0, 8399737.89, crs=3857)
+
+    @pytest.mark.parametrize("latitude", [90.0001, -90.0001, 100.0, -1000.0])
+    def test_latitude_out_of_range_is_refused(self, latitude: float):
+        """A latitude outside +-90 has no place on the ellipsoid."""
+        with pytest.raises(ValueError, match="between -90 and 90"):
+            geodesic_distance(0.0, latitude, 1.0, 0.0)
+
+    @pytest.mark.parametrize("latitude", [90.0, -90.0, 0.0])
+    def test_the_poles_and_equator_are_in_range(self, latitude: float):
+        """The bounds themselves are valid, not off-by-one rejected."""
+        assert geodesic_distance(0.0, latitude, 1.0, latitude) >= 0.0
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    def test_non_finite_coordinates_are_refused(self, bad: float):
+        """A non-finite coordinate is refused, naming the argument."""
+        with pytest.raises(ValueError, match="lon1"):
+            geodesic_distance(bad, 0.0, 1.0, 0.0)
+
+    def test_non_finite_is_found_inside_an_array(self):
+        """The check is vectorised, so one bad entry in an array is caught."""
+        with pytest.raises(ValueError, match="lat2"):
+            geodesic_distance([0.0, 0.0], [0.0, 0.0], [1.0, 1.0], [0.0, float("nan")])
+
+    def test_longitude_is_not_range_checked(self):
+        """Longitude is left unbounded, because CF uses both conventions.
+
+        A 0..360 grid is as legitimate as a -180..180 one, and `Geod` wraps
+        longitude itself, so bounding it would reject valid data.
+        """
+        wrapped = geodesic_distance(350.0, 0.0, 351.0, 0.0)
+        assert wrapped == pytest.approx(DEGREE_AT_EQUATOR_M)
+
+    def test_non_numeric_input_is_refused(self):
+        """A value that is not numeric at all is refused as a `ValueError`."""
+        with pytest.raises(ValueError, match="numeric degrees"):
+            geodesic_distance("east", 0.0, 1.0, 0.0)
+
+
+class TestGeodeticFrame:
+    """`_geodetic_frame`'s refusals, including one no real CRS reaches."""
+
+    @pytest.mark.parametrize(
+        ("code", "expected"), [(4326, 1.0), (4807, 0.9), (2154, 1.0), (32636, 1.0)]
+    )
+    def test_degrees_per_unit(self, code: int, expected: float):
+        """The factor is 1.0 for a degree axis and 0.9 for a grad one."""
+        _, to_degrees = _geodetic_frame(CRS.from_user_input(code))
+        assert to_degrees == pytest.approx(expected)
+
+    def test_mixed_angular_units_are_refused(self, monkeypatch):
+        """A counterpart whose two axes disagree has no single conversion factor.
+
+        Defensive: no CRS in the EPSG database mixes angular units between its
+        latitude and longitude axes, so the branch is unreachable with real input
+        and the axes are stubbed to reach it. The guard stays because the
+        alternative is silently adopting whichever axis comes first.
+        """
+
+        class _Axis:
+            def __init__(self, factor: float):
+                self.unit_conversion_factor = factor
+                self.unit_name = "stub"
+
+        class _Mixed:
+            name = "Stubbed geographic CRS"
+            is_geographic = True
+            axis_info = [_Axis(0.017453292519943295), _Axis(0.01570796326794895)]
+
+        class _Target:
+            name = "Stubbed projected CRS"
+            geodetic_crs = _Mixed()
+
+        target = _Target()
+        with pytest.raises(CRSError, match="mixes angular units"):
+            _geodetic_frame(target)
+
+
+class TestGroundDistanceArgumentValidation:
+    """`distance_m`, `at` and `azimuth` are validated as documented (S1-S3)."""
+
+    @pytest.mark.parametrize("value", ["100", None, [100000.0], {"m": 1}])
+    def test_non_numeric_distance_raises_value_error(self, value):
+        """A non-numeric `distance_m` raises the documented `ValueError`.
+
+        It used to escape as `TypeError` from `np.isfinite`, contradicting the
+        `Raises:` section.
+        """
+        with pytest.raises(ValueError, match="distance_m must be a finite"):
+            ground_distance_in_crs(value, crs=4326, at=(0.0, 0.0))
+
+    def test_bool_is_not_a_distance(self):
+        """`True` is not one metre; a bool is refused rather than coerced."""
+        with pytest.raises(ValueError, match="distance_m must be a finite"):
+            ground_distance_in_crs(True, crs=4326, at=(0.0, 0.0))
+
+    def test_single_element_array_is_refused(self):
+        """A 1-element array is refused; the result is a scalar, so the input is."""
+        boxed = np.array([100000.0])
+        with pytest.raises(ValueError, match="distance_m must be a finite"):
+            ground_distance_in_crs(boxed, crs=4326, at=(0.0, 0.0))
+
+    def test_mapping_at_is_refused(self):
+        """A 2-key mapping is not a point.
+
+        It used to be silently accepted -- `at[0]` / `at[1]` are key lookups on a
+        mapping, so `{0.0: 1, 1.0: 2}` measured at a different place entirely and
+        returned a plausible number.
+        """
+        with pytest.raises(ValueError, match="at must be an"):
+            ground_distance_in_crs(100_000.0, crs=4326, at={0.0: 1, 1.0: 2})
+
+    def test_string_at_is_refused(self):
+        """A 2-character string has length 2 but is not a coordinate pair."""
+        with pytest.raises(ValueError, match="at must be an"):
+            ground_distance_in_crs(100_000.0, crs=4326, at="ab")
+
+    @pytest.mark.parametrize("at", [(0.0,), (0.0, 0.0, 0.0), (), (0.0, "north")])
+    def test_bad_pair_is_refused(self, at):
+        """Wrong arity or a non-numeric member is refused."""
+        with pytest.raises(ValueError, match="at must be an"):
+            ground_distance_in_crs(100_000.0, crs=4326, at=at)
+
+    def test_numpy_pair_is_accepted(self):
+        """A 2-element array is a legitimate point and still works."""
+        result = ground_distance_in_crs(100_000.0, crs=4326, at=np.array([0.0, 0.0]))
+        assert result == pytest.approx(0.8983152841195214)
+
+    @pytest.mark.parametrize("azimuth", [float("nan"), float("inf")])
+    def test_non_finite_azimuth_raises_naming_azimuth(self, azimuth: float):
+        """A non-finite azimuth names itself.
+
+        It used to surface as "falls outside the usable domain of ...", which
+        blames the CRS for the caller's argument.
+        """
+        with pytest.raises(ValueError, match="azimuth must be a finite"):
+            ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 0.0), azimuth=azimuth)
+
+    def test_azimuth_wraps_rather_than_being_bounded(self):
+        """An out-of-turn azimuth wraps, so 450 degrees is due east.
+
+        Bounding it would reject a legitimate way to express a bearing; PROJ
+        normalises it, and this pins that rather than leaving it unstated.
+        """
+        east = ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 0.0))
+        wrapped = ground_distance_in_crs(
+            100_000.0, crs=4326, at=(0.0, 0.0), azimuth=450.0
+        )
+        assert wrapped == pytest.approx(east)
+
+
+class TestGeodErrorContract:
+    """`GeodError` is converted, not leaked (S4, S5).
+
+    `pyproj.exceptions.GeodError` is a sibling of `ProjError`, not a subclass --
+    its MRO goes straight to `RuntimeError` -- so `except ProjError` never caught
+    it and it escaped the documented `ValueError` contract.
+    """
+
+    def test_geod_error_is_not_a_proj_error(self):
+        """The premise, pinned so a pyproj change that fixes it is visible."""
+        assert not issubclass(GeodError, ProjError)
+
+    def test_unequal_array_lengths_raise_value_error(self):
+        """Unequal coordinate arrays are refused as a `ValueError`.
+
+        `geod.inv` does not broadcast -- it raises `GeodError("Array lengths are
+        not the same.")` -- which the docstring previously described as
+        broadcasting.
+        """
+        with pytest.raises(ValueError, match="same length"):
+            geodesic_distance([0.0, 0.0], [0.0, 0.0], [1.0], [0.0])
+
+    def test_equal_array_lengths_still_work(self):
+        """The control: matched lengths are unaffected."""
+        result = geodesic_distance([0.0, 0.0], [0.0, 60.0], [1.0, 1.0], [0.0, 60.0])
+        assert result[0] == pytest.approx(DEGREE_AT_EQUATOR_M)
+        assert result[1] == pytest.approx(DEGREE_AT_60N_M)
+
+    def test_geod_error_from_fwd_is_converted(self, monkeypatch):
+        """A `GeodError` raised inside `ground_distance_in_crs` becomes `ValueError`."""
+
+        def _raise(*_args, **_kwargs):
+            raise GeodError("stubbed geod failure")
+
+        monkeypatch.setattr(Geod, "fwd", _raise)
+        with pytest.raises(ValueError, match="could not measure") as excinfo:
+            ground_distance_in_crs(100_000.0, crs=4326, at=(0.0, 0.0))
+        assert isinstance(excinfo.value.__cause__, GeodError)
+
+
+class TestAtAxisOrder:
+    """`at` is always (x, y), and the detectable half of a swap is caught (S6)."""
+
+    def test_swapped_pair_on_a_geographic_crs_is_caught(self):
+        """A latitude in the x slot pushes the y member out of range."""
+        with pytest.raises(ValueError, match="which is not a latitude"):
+            ground_distance_in_crs(100_000.0, crs=4326, at=(45.0, 200.0))
+
+    def test_projected_northing_into_a_geographic_crs_is_caught(self):
+        """The common mistake: UTM coordinates handed to EPSG:4326."""
+        with pytest.raises(ValueError, match="which is not a latitude"):
+            ground_distance_in_crs(100_000.0, crs=4326, at=(500000.0, 3300000.0))
+
+    def test_grad_crs_bound_is_applied_in_degrees(self):
+        """The 90-degree bound accounts for the CRS's angular unit.
+
+        EPSG:4807 is in grads, where a pole is at 100, so a bound applied to the
+        raw number would reject a valid high latitude. 95 grads is 85.5 degrees
+        and must be accepted.
+        """
+        assert ground_distance_in_crs(100_000.0, crs=4807, at=(0.0, 95.0)) > 0.0
+
+    def test_in_range_pair_is_unaffected(self):
+        """A legitimate lon/lat pair still works."""
+        assert ground_distance_in_crs(
+            100_000.0, crs=4326, at=(10.0, 45.0)
+        ) == pytest.approx(1.2681977205244332)
+
+
+class TestCoordinateTypeGuards:
+    """`bool` and masked coordinates are refused (R2 S7)."""
+
+    @pytest.mark.parametrize("value", [True, False, np.bool_(True)])
+    def test_bool_coordinate_is_refused(self, value):
+        """A bool passes every numeric test, so it is excluded explicitly.
+
+        `True` was previously read as longitude 1.0, making
+        `geodesic_distance(True, 0.0, 1.0, 0.0)` report 0.0.
+        """
+        with pytest.raises(ValueError, match="must be numeric degrees"):
+            geodesic_distance(value, 0.0, 1.0, 0.0)
+
+    def test_masked_entries_are_refused(self):
+        """`np.asarray(..., dtype=float)` drops a mask, so fill values would be used."""
+        masked = np.ma.masked_array([0.0, 999.0], mask=[False, True])
+        with pytest.raises(ValueError, match="masked entries"):
+            geodesic_distance(masked, [0.0, 0.0], [1.0, 1.0], [0.0, 0.0])
+
+    def test_an_unmasked_masked_array_is_accepted(self):
+        """A masked array with nothing masked carries no fill values to misuse."""
+        clean = np.ma.masked_array([0.0, 0.0], mask=[False, False])
+        result = geodesic_distance(clean, [0.0, 60.0], [1.0, 1.0], [0.0, 60.0])
+        assert result[0] == pytest.approx(DEGREE_AT_EQUATOR_M)
+        assert result[1] == pytest.approx(DEGREE_AT_60N_M)
+
+
+class TestGeometryGuards:
+    """The geometry primitives validate their input (R2 S1, S2)."""
+
+    @pytest.mark.parametrize("bad", [None, (0, 0), "LINESTRING (0 0, 1 0)", 42])
+    def test_non_geometry_is_refused(self, bad):
+        """Anything without `.bounds` is refused by name.
+
+        `Geod` used to answer these with `GeodError: Invalid geometry provided.`,
+        which no docstring mentioned.
+        """
+        with pytest.raises(ValueError, match="must be a shapely geometry"):
+            geodesic_geometry_length(bad)
+
+    @pytest.mark.parametrize("bad", [None, (0, 0)])
+    def test_non_geometry_is_refused_by_area_too(self, bad):
+        """The same guard applies to the area primitive."""
+        with pytest.raises(ValueError, match="must be a shapely geometry"):
+            geodesic_geometry_area(bad)
+
+    def test_projected_line_is_refused(self):
+        """A UTM line is refused rather than answered with `nan`."""
+        line = LineString([(500000, 3300000), (510000, 3300000)])
+        with pytest.raises(ValueError, match="which are not"):
+            geodesic_geometry_length(line, crs=32636)
+
+    def test_projected_polygon_is_refused_by_area(self):
+        """Likewise for a projected polygon through the area primitive."""
+        square = Polygon([(500000, 3300000), (510000, 3300000), (510000, 3310000)])
+        with pytest.raises(ValueError, match="which are not"):
+            geodesic_geometry_area(square, crs=32636)
+
+    def test_non_finite_bounds_are_refused(self):
+        """A point whose coordinates are nan is caught by the bounds check."""
+        nowhere = Point(float("nan"), float("nan"))
+        with pytest.raises(ValueError, match="non-finite coordinates"):
+            geodesic_geometry_length(nowhere)
+
+    def test_a_nan_vertex_inside_a_line_is_caught_by_the_result_check(self):
+        """shapely's `bounds` skips a nan interior vertex, so the result is checked.
+
+        `LineString([(0, 0), (nan, 0)]).bounds` is `(0.0, 0.0, 0.0, 0.0)` -- the
+        nan vertex is invisible to the guard -- and `Geod` then returns nan
+        rather than raising. Without the result check this measured to `nan`.
+        """
+        line = LineString([(0, 0), (float("nan"), 0)])
+        with pytest.raises(ValueError, match="non-finite length"):
+            geodesic_geometry_length(line)
+
+    def test_a_nan_vertex_in_a_ring_is_caught_by_the_area_result_check(self):
+        """The same hole exists for area, and is closed the same way."""
+        ring = Polygon([(0, 0), (1, 0), (float("nan"), 1), (0, 1)])
+        with pytest.raises(ValueError, match="non-finite area"):
+            geodesic_geometry_area(ring)
+
+    @pytest.mark.parametrize("empty", [Point(), LineString(), Polygon()])
+    def test_empty_geometry_measures_to_zero(self, empty):
+        """An empty geometry has nothing to measure, and that is not an error.
+
+        shapely 2 reports all-nan bounds for an empty geometry, so the emptiness
+        has to be checked before the finiteness guard rather than after.
+        """
+        assert geodesic_geometry_length(empty) == pytest.approx(0.0)
+        assert geodesic_geometry_area(empty) == pytest.approx(0.0)
+
+    def test_geod_error_from_length_becomes_value_error(self, monkeypatch):
+        """A `GeodError` from `Geod.geometry_length` is converted."""
+
+        def _raise(*_args, **_kwargs):
+            raise GeodError("stubbed length failure")
+
+        monkeypatch.setattr(Geod, "geometry_length", _raise)
+        line = LineString([(0, 0), (1, 0)])
+        with pytest.raises(ValueError, match="could not measure") as excinfo:
+            geodesic_geometry_length(line)
+        assert isinstance(excinfo.value.__cause__, GeodError)
+
+    def test_geod_error_from_area_becomes_value_error(self, monkeypatch):
+        """And from `Geod.geometry_area_perimeter`."""
+
+        def _raise(*_args, **_kwargs):
+            raise GeodError("stubbed area failure")
+
+        monkeypatch.setattr(Geod, "geometry_area_perimeter", _raise)
+        square = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        with pytest.raises(ValueError, match="could not measure") as excinfo:
+            geodesic_geometry_area(square)
+        assert isinstance(excinfo.value.__cause__, GeodError)
+
+
+class TestGeodCaching:
+    """`_geod_of` memoises the ellipsoid lookup (R2 S4)."""
+
+    def test_same_crs_returns_the_same_geod_object(self):
+        """A repeated lookup is served from the cache, not recomputed."""
+        first = _geod_of(CRS.from_user_input(4326))
+        second = _geod_of(CRS.from_user_input(4326))
+        assert first is second
+
+    def test_different_crs_gets_its_own_geod(self):
+        """The cache is keyed on the CRS, so a sphere is not served WGS 84."""
+        wgs84 = _geod_of(CRS.from_user_input(4326))
+        sphere = _geod_of(CRS.from_user_input(4047))
+        assert wgs84.f != sphere.f
+
+
+class TestGeocentricCRS:
+    """A geocentric CRS has no angular frame and is refused by name (R2 N8)."""
+
+    def test_geocentric_crs_is_refused(self):
+        """EPSG:4978 is its own geodetic counterpart, with metre axes.
+
+        A metre axis has `unit_conversion_factor == 1.0`, exactly like a radian
+        axis, so the factor alone cannot discriminate -- `is_geographic` does.
+        Before this guard `_geodetic_frame` reported 57.29577951308232 degrees
+        per unit and the failure surfaced later as "falls outside the usable
+        domain of 'WGS 84'", naming neither the cause nor EPSG:4978.
+        """
+        geocentric = CRS.from_user_input(4978)
+        with pytest.raises(CRSError, match="non-geographic counterpart"):
+            _geodetic_frame(geocentric)
+
+    def test_ground_distance_refuses_a_geocentric_crs(self):
+        """The refusal reaches the public function, naming the real cause."""
+        with pytest.raises(CRSError, match="non-geographic counterpart"):
+            ground_distance_in_crs(100_000.0, crs=4978, at=(4000000.0, 300000.0))
+
+    @pytest.mark.parametrize("code", [4326, 4807, 2154, 32636, 3857])
+    def test_legitimate_crses_are_unaffected(self, code: int):
+        """The control: every geographic and projected CRS still resolves."""
+        geodetic, to_degrees = _geodetic_frame(CRS.from_user_input(code))
+        assert geodetic.is_geographic
+        assert to_degrees > 0.0

@@ -18,6 +18,7 @@ from pandas import DataFrame
 from pyproj import CRS
 
 from pyramids.base.crs import crs_from_user_input, crs_spec, require_crs_spec
+from pyramids.base.geodesy import _area_scale
 from pyramids.dataset.engines._base import _Engine
 from pyramids.feature import FeatureCollection, create_points, create_polygon
 
@@ -34,47 +35,6 @@ _NO_EXTENT = (
     "the raster's geotransform gives its cells no area; check the cell size "
     "and rotation terms"
 )
-
-# Square metres per unit of area. The names are the ones a caller writes, not
-# GDAL's or PROJ's spellings, because this is the surface a user types.
-_AREA_UNITS: dict[str, float] = {
-    "m2": 1.0,
-    "km2": 1e6,
-    "ha": 1e4,
-}
-
-
-def _area_scale(unit: str) -> float:
-    """Square metres in one `unit`.
-
-    Args:
-        unit: One of `m2`, `km2`, `ha`. Matched after `strip().lower()`, so
-            `KM2` and `" km2 "` name the same unit as `km2`.
-
-    Returns:
-        float: The divisor that turns square metres into `unit`.
-
-    Raises:
-        ValueError: `unit` is not one this package converts to, or is not a
-            string at all -- `None` and `2` are refused the same way.
-    """
-    try:
-        # Normalised first: `KM2` and `" km2"` are the same request as `km2`,
-        # and refusing them buys nothing. `strip`/`lower` are attributes, so a
-        # non-string argument still falls through to the refusal below.
-        scale = _AREA_UNITS[unit.strip().lower()]
-    except (KeyError, AttributeError):
-        # `AttributeError` as well as `KeyError`: anything that is not a string
-        # -- `None`, `2`, a list -- fails on `strip` before the lookup can miss
-        # it, and leaking that would contradict the `ValueError` this method
-        # documents. Normalising first is what makes `AttributeError` the way a
-        # non-string arrives, rather than the `TypeError` an unhashable key
-        # used to raise.
-        raise ValueError(
-            f"unknown area unit {unit!r}; expected one of "
-            f"{', '.join(sorted(_AREA_UNITS))}"
-        ) from None
-    return scale
 
 
 class Cell(_Engine["Dataset"]):
