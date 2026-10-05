@@ -209,8 +209,9 @@ class TestDropDimsTakesTheRebuild:
         nc = NetCDF.read_file(GROUPS_FIXTURE)
         before = set(nc.variable_names)
         expected = _variables_off(nc, "recNum")
-        assert expected and expected < before, (
-            f"precondition: some but not all of {len(before)} variables span recNum"
+        assert expected, "precondition: at least one variable must survive the drop"
+        assert expected < before, (
+            f"precondition: some of the {len(before)} variables must span recNum"
         )
         out = nc.drop_dims("recNum")
         assert set(out.variable_names) == expected, (
@@ -453,12 +454,11 @@ class TestRebuildGuards:
         remap = _DimensionRemap(
             destination.GetRootGroup(), {}, {"time"}, NetCDF._recreate_md_array
         )
+        spanning = source.GetRootGroup().CreateMDArray(
+            "t", [dropped], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+        )
         with pytest.raises(ValueError, match="being dropped"):
-            remap.axes(
-                source.GetRootGroup().CreateMDArray(
-                    "t", [dropped], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
-                )
-            )
+            remap.axes(spanning)
         assert destination.GetRootGroup().GetDimensions() == [], (
             "the dropped dimension must not reach the destination"
         )
