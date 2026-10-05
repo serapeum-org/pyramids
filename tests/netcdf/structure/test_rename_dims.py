@@ -94,11 +94,16 @@ class TestRenameDimsHappyPath:
             == var.rename_dims(time="t")._band_dim_names
         )
 
-    def test_two_dimensions_can_be_swapped(self):
-        """Renaming `time->level` and `level->time` in one call swaps the two names."""
+    def test_two_dimension_names_can_be_exchanged_in_one_call(self):
+        """Exchanging two names in one call relabels them in place — a relabel, not a transpose.
+
+        `rename_dims(time="level", level="time")` swaps the two *labels*; the axes keep their order
+        (axis 0 stays axis 0), so the data is not transposed. `transpose` is the axis-reorder op.
+        """
         var = _make_2d_nc().get_variable("v")
         out = var.rename_dims(time="level", level="time")
         assert out._band_dim_names == ("level", "time"), f"got {out._band_dim_names}"
+        assert out._band_dim_sizes == (2, 3), f"axes keep their order: {out._band_dim_sizes}"
 
     def test_a_container_renames_every_variable_that_spans_the_dim(self):
         """On a container the renamed dimension changes on every variable that has it."""
