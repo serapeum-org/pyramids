@@ -5779,12 +5779,18 @@ class NetCDF(Dataset):
                 result = self._preserve_band_dims(result)
         else:
             result = self._read_array_lazy_processed(
-                chunks, lock, unpack, masked, squeeze
+                chunks, lock, unpack, masked, squeeze, read_window
             )
         return cast(ArrayLike, result)
 
     def _read_array_lazy_processed(
-        self, chunks: Any, lock: Any, unpack: bool, masked: bool, squeeze: bool
+        self,
+        chunks: Any,
+        lock: Any,
+        unpack: bool,
+        masked: bool,
+        squeeze: bool,
+        window: Any = None,
     ) -> Any:
         """The lazy dask read with unpack, masking and `squeeze` applied, in that order.
 
@@ -5803,6 +5809,13 @@ class NetCDF(Dataset):
             Any: The lazy `dask` array (a masked dask array when `masked`), still uncomputed.
         """
         result = self._read_array_lazy(chunks, lock)
+        if window is not None:
+            # Slice the oriented `(*band_sizes, y, x)` array to the pixel window so a chunked read
+            # materialises only the requested block, not the whole variable (#1225). The window is
+            # x-first `[xoff, yoff, xsize, ysize]`; the trailing axes are (y, x), north-up like the
+            # eager windowed read, so the slice lines up with `read_array(window=...)` eagerly.
+            xoff, yoff, xsize, ysize = (int(v) for v in window)
+            result = result[..., yoff : yoff + ysize, xoff : xoff + xsize]
         # The lazy path builds its array straight from the MDArray rather than
         # through the raster read, so it applies the packing itself -- from
         # `_effective_packing`, the same resolver the eager arm uses. Reading
@@ -5938,14 +5951,22 @@ class NetCDF(Dataset):
         ``super().read_array``. Mirrors NetCDF.crop's "build mask once at the
         top" pattern.
         """
+        is_pixel_window = (
+            isinstance(window, (list, tuple))
+            and len(window) == 4
+            and all(
+                isinstance(v, (int, float, np.integer, np.floating)) for v in window
+            )
+        )
         if bbox is None:
-            if window is not None and chunks is not None:
-                # The lazy path re-reads the whole variable and never applies a pixel window, so a
-                # silently-ignored `window=` would return far more data than asked. Fail loudly,
-                # matching the `bbox=` + `chunks=` guard below (#728 review M1).
+            if window is not None and chunks is not None and not is_pixel_window:
+                # A geometry / polygon window cannot be a simple dask slice, so the lazy path still
+                # refuses it; a plain pixel window `[xoff, yoff, xsize, ysize]` is supported (#1225)
+                # and slices the lazy array in `_read_array_lazy_processed`.
                 raise ValueError(
-                    "read_array(chunks=..., window=...) is not supported; "
-                    "read lazily and slice the resulting dask array instead."
+                    "read_array(chunks=..., window=...) supports a pixel window "
+                    "[xoff, yoff, xsize, ysize]; for a geometry window read lazily and slice the "
+                    "resulting dask array instead."
                 )
             return window
         # The bbox/window exclusivity check stays here, ahead of the chunks and

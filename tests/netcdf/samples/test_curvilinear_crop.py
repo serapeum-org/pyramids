@@ -19,6 +19,7 @@ from pyramids.feature import FeatureCollection
 from pyramids.netcdf import GeoReference, NetCDF, _coord_match
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.engines.selection import _lon_cell_size, _read_curvilinear_window
+from tests._marks import requires_dask
 from tests.netcdf.samples.conftest import TOS as RECTILINEAR
 
 pytestmark = pytest.mark.core
@@ -32,6 +33,7 @@ def _fc(coords):
     return FeatureCollection(gpd.GeoDataFrame(geometry=[Polygon(coords)], crs=4326))
 
 
+@requires_dask
 def test_curvilinear_window_eager_matches_lazy_layout(sample):
     """`_read_curvilinear_window` keeps the native `(*band_sizes, rows, cols)` on both paths (M2, #1241).
 

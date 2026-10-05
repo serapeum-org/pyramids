@@ -117,14 +117,21 @@ class TestChunksLazy:
             f"identical reads should share a name, got {first.name!r} vs {second.name!r}"
         )
 
-    def test_window_with_chunks_raises(self, three_d_var):
-        """`read_array(window=, chunks=)` raises instead of silently ignoring the window (#728 M1).
+    def test_pixel_window_with_chunks_reads_only_the_window(self, three_d_var):
+        """`read_array(window=[...], chunks=)` reads only that pixel window, lazily (#1225).
 
-        The lazy path never applies a pixel window, so a silently-dropped `window=` would return the
-        whole variable; it must fail loudly like the `bbox=` + `chunks=` guard.
+        A pixel window now slices the lazy array to the requested block and matches the eager
+        windowed read, instead of raising; a geometry / bbox window with `chunks=` is still refused
+        (it has no plain-slice form).
         """
-        with pytest.raises(ValueError, match="window"):
-            three_d_var.read_array(window=[0, 0, 2, 2], chunks="auto")
+        lazy = three_d_var.read_array(window=[0, 0, 2, 2], chunks="auto")
+        assert isinstance(lazy, dask_array.Array)
+        assert lazy.shape[-2:] == (2, 2), f"not windowed: {lazy.shape}"
+        assert_allclose(
+            lazy.compute(),
+            three_d_var.read_array(window=[0, 0, 2, 2]),
+            err_msg="windowed lazy read must equal the eager windowed read",
+        )
 
     def test_chunks_tuple_returns_dask(self, three_d_var):
         """Tuple chunks also return a dask array with matching spec."""

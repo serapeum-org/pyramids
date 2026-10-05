@@ -106,6 +106,10 @@ class _AlongDim(ABC):
     verb: ClassVar[str] = ""
     keeps_length: ClassVar[bool] = False
     change_noun: ClassVar[str] = "reduced"
+    # Set False by the lazy cube (#1237) so `apply` returns a dask array that stays deferred until
+    # the cube's `compute()`. A plain class attribute, not a dataclass field: instances flip it in
+    # place. The eager path (default True) materialises each op's result as before.
+    materialize: bool = True
 
     def start(self) -> None:
         """Work out what waits for the receiver to pass its own checks. Nothing, by default."""
@@ -187,6 +191,7 @@ class _Reduction(_AlongDim):
                 resize=self.resize,
                 window_mean_coords=self.window_mean_coords,
                 group_coords=self.group_coords,
+                materialize=self.materialize,
             )
         )
 
@@ -241,42 +246,94 @@ class _Rolling(_AlongDim):
             `int64` and declares `-1`, the value of a window with too few valid cells; `all` /
             `any` are `uint8` and declare `255`.
         """
-        # Local import breaks the netcdf.py <-> engines import cycle.
-        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _FLAG_NO_DATA
-
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
-        axis = band_names.index(dim)
-        arr = nc._materialize_variable_array(var, lazy=True)
-        size = arr.shape[axis]
-        if self.how == "count":
-            short: Any = _COUNT_NO_DATA
-            result_ndv: Any = _COUNT_NO_DATA
-        elif self.how in _COUNTING_REDUCERS:
-            short = result_ndv = _FLAG_NO_DATA
-        else:
-            # A short window is a gap the operation makes, so a variable declaring no no-data value
-            # still has to declare one for the result: NaN, which the float64 statistic can hold.
-            short = result_ndv = np.nan if ndv is None else ndv
-        steps = []
-        for position in range(size):
-            members = _window_members(position, size, self.window, self.center)
-            block = np.take(arr, members, axis=axis)
-            value = nc._reduce_axis(block, axis, self.how, True, ndv, self.q)
-            # `_reduce_axis` sends `count` straight to `_count_axis`, so for that statistic the
-            # window's valid cells are the value itself — counting them again would be the same
-            # pass over the same block.
-            valid = (
-                value
-                if self.how == "count"
-                else nc._count_axis(block, axis, "count", True, ndv)
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        return _Applied(
+            *_rolled_array(
+                nc,
+                arr,
+                band_names,
+                values_map,
+                ndv,
+                dim,
+                window=self.window,
+                center=self.center,
+                min_periods=self.min_periods,
+                how=self.how,
+                q=self.q,
+                materialize=self.materialize,
             )
-            steps.append(np.where(valid >= self.min_periods, value, short))
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            values = np.asarray(np.stack(steps, axis=axis))
-        return _Applied(values, band_names, values_map, result_ndv)
+        )
+
+
+def _materialize_inputs(
+    nc: NetCDF, var: NetCDF
+) -> tuple[Any, list[str], dict[str, Any], Any]:
+    """The eager `(array, band_names, values_map, no_data)` an along-dim kernel reads from `var`.
+
+    Shared by the ops whose kernel is factored out so a lazy cube can run it on a given dask array
+    (#1237): the eager `apply` reads through here, the lazy compose passes the array directly.
+    """
+    return (
+        nc._materialize_variable_array(var, lazy=True),
+        list(var._band_dim_names),
+        dict(var._band_dim_values_map),
+        _read_no_data(var),
+    )
+
+
+def _rolled_array(
+    nc: NetCDF,
+    arr: Any,
+    band_names: list[str],
+    values_map: dict[str, Any],
+    ndv: Any,
+    dim: str,
+    *,
+    window: int,
+    center: bool,
+    min_periods: int,
+    how: str,
+    q: float | None,
+    materialize: bool = True,
+) -> tuple[Any, list[str], dict[str, Any], Any]:
+    """Roll one variable along `dim`: the per-variable step of `rolling`, on a given array.
+
+    Every operation here (`np.take`, `_reduce_axis`, `_count_axis`, `np.where`, `np.stack`)
+    dispatches on a `dask.array`, so with `materialize=False` the result stays a deferred dask
+    array for a lazy cube (#1237); the eager path collapses it with the final `np.asarray`.
+    """
+    from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _FLAG_NO_DATA
+
+    band_names = list(band_names)
+    values_map = dict(values_map)
+    axis = band_names.index(dim)
+    size = arr.shape[axis]
+    if how == "count":
+        short: Any = _COUNT_NO_DATA
+        result_ndv: Any = _COUNT_NO_DATA
+    elif how in _COUNTING_REDUCERS:
+        short = result_ndv = _FLAG_NO_DATA
+    else:
+        # A short window is a gap the operation makes, so a variable declaring no no-data value
+        # still has to declare one for the result: NaN, which the float64 statistic can hold.
+        short = result_ndv = np.nan if ndv is None else ndv
+    steps = []
+    for position in range(size):
+        members = _window_members(position, size, window, center)
+        block = np.take(arr, members, axis=axis)
+        value = nc._reduce_axis(block, axis, how, True, ndv, q)
+        # `_reduce_axis` sends `count` straight to `_count_axis`, so for that statistic the
+        # window's valid cells are the value itself — counting them again would be the same pass.
+        valid = (
+            value if how == "count" else nc._count_axis(block, axis, "count", True, ndv)
+        )
+        steps.append(np.where(valid >= min_periods, value, short))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        values = np.stack(steps, axis=axis)
+        if materialize:
+            values = np.asarray(values)
+    return values, band_names, values_map, result_ndv
 
 
 @dataclass
@@ -324,40 +381,70 @@ class _Diff(_AlongDim):
         Raises:
             ValueError: `n` is not below the length of `dim`, which would leave no steps.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
-        axis = band_names.index(dim)
-        arr = nc._materialize_variable_array(var, lazy=True)
-        size = arr.shape[axis]
-        if self.n >= size:
-            raise ValueError(
-                f"diff() of order {self.n} would leave nothing of {dim!r}: its length is "
-                f"{size}. Pass n below {size}."
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        return _Applied(
+            *_diffed_array(
+                nc,
+                arr,
+                band_names,
+                values_map,
+                ndv,
+                dim,
+                n=self.n,
+                label=self.label,
+                materialize=self.materialize,
             )
-        if self.n == 0:
-            # Differencing nothing is the values themselves. The gap handling below exists to
-            # keep a gap from propagating through a subtraction, and no subtraction happens
-            # here, so taking that path would only cost an integer band its own type.
-            values = arr
-            result_ndv = ndv
-        elif ndv is None and not np.issubdtype(arr.dtype, np.floating):
-            values = np.diff(arr, n=self.n, axis=axis)
-            result_ndv = None
-        else:
-            fill = np.nan if ndv is None else ndv
-            differences = np.diff(_gaps_as_nan(arr, ndv), n=self.n, axis=axis)
-            values = np.where(np.isnan(differences), fill, differences)
-            result_ndv = fill
-        coords = values_map.get(dim)
-        if coords is not None and self.n:
-            kept = (
-                list(coords[self.n :])
-                if self.label == "upper"
-                else list(coords[: size - self.n])
-            )
-            values_map[dim] = kept
-        return _Applied(np.asarray(values), band_names, values_map, result_ndv)
+        )
+
+
+def _diffed_array(
+    _nc: NetCDF,
+    arr: Any,
+    band_names: list[str],
+    values_map: dict[str, Any],
+    ndv: Any,
+    dim: str,
+    *,
+    n: int,
+    label: str,
+    materialize: bool = True,
+) -> tuple[Any, list[str], dict[str, Any], Any]:
+    """Difference one variable along `dim` on a given array (the per-variable step of `diff`).
+
+    `np.diff` / `np.where` / `_gaps_as_nan` all dispatch on a `dask.array`, so `materialize=False`
+    keeps the result deferred for a lazy cube (#1237). `_nc` is unused (diff needs no reducer off the
+    variable), but kept first for the uniform factored-kernel signature `_compose_direct` calls through.
+    """
+    band_names = list(band_names)
+    values_map = dict(values_map)
+    axis = band_names.index(dim)
+    size = arr.shape[axis]
+    if n >= size:
+        raise ValueError(
+            f"diff() of order {n} would leave nothing of {dim!r}: its length is "
+            f"{size}. Pass n below {size}."
+        )
+    if n == 0:
+        # Differencing nothing is the values themselves. The gap handling below exists to keep a
+        # gap from propagating through a subtraction, and none happens here, so taking that path
+        # would only cost an integer band its own type.
+        values = arr
+        result_ndv = ndv
+    elif ndv is None and not np.issubdtype(arr.dtype, np.floating):
+        values = np.diff(arr, n=n, axis=axis)
+        result_ndv = None
+    else:
+        fill = np.nan if ndv is None else ndv
+        differences = np.diff(_gaps_as_nan(arr, ndv), n=n, axis=axis)
+        values = np.where(np.isnan(differences), fill, differences)
+        result_ndv = fill
+    coords = values_map.get(dim)
+    if coords is not None and n:
+        kept = list(coords[n:]) if label == "upper" else list(coords[: size - n])
+        values_map[dim] = kept
+    if materialize:
+        values = np.asarray(values)
+    return values, band_names, values_map, result_ndv
 
 
 @dataclass
@@ -376,7 +463,13 @@ class _CumSum(_AlongDim):
     verb: ClassVar[str] = "accumulate"
     keeps_length: ClassVar[bool] = True
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Total one variable along `dim`.
 
         Args:
@@ -391,11 +484,12 @@ class _CumSum(_AlongDim):
             no-data value: the sentinel went into the running total, so no cell holds it any
             more and declaring it would mask whatever total happened to land on it.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        arr, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         axis = band_names.index(dim)
-        arr = nc._materialize_variable_array(var, lazy=True)
         if self.skipna:
             data = _gaps_as_nan(arr, ndv)
             fill = np.nan if ndv is None else ndv
@@ -408,7 +502,10 @@ class _CumSum(_AlongDim):
         else:
             values = self._raw(arr, axis)
             result_ndv = None
-        return _Applied(np.asarray(values), band_names, values_map, result_ndv)
+        # `materialize=False` (a lazy cube, #1237) keeps the running total a deferred dask array.
+        if self.materialize:
+            values = np.asarray(values)
+        return _Applied(values, band_names, values_map, result_ndv)
 
     @staticmethod
     def _skipping(data: Any, axis: int) -> Any:
@@ -499,7 +596,13 @@ class _Shift(_AlongDim):
     verb: ClassVar[str] = "shift"
     keeps_length: ClassVar[bool] = True
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Shift one variable along `dim`.
 
         Args:
@@ -517,11 +620,12 @@ class _Shift(_AlongDim):
         Raises:
             ValueError: The band cannot hold `fill_value`.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        data, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         axis = band_names.index(dim)
-        data = nc._materialize_variable_array(var, lazy=True)
         if self.fill_value is None:
             if ndv is None:
                 data = (
@@ -546,7 +650,10 @@ class _Shift(_AlongDim):
             fill = self.fill_value
             result_ndv = ndv
         values = _shifted(data, axis, self.periods, fill)
-        return _Applied(np.asarray(values), band_names, values_map, result_ndv)
+        # `materialize=False` (a lazy cube, #1237) keeps the shifted dask array deferred.
+        if self.materialize:
+            values = np.asarray(values)
+        return _Applied(values, band_names, values_map, result_ndv)
 
 
 @dataclass
@@ -572,7 +679,13 @@ class _Extremum(_AlongDim):
     caller: str
     verb: ClassVar[str] = "search"
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Find the extremum of one variable along `dim`.
 
         Args:
@@ -587,12 +700,13 @@ class _Extremum(_AlongDim):
         Raises:
             ValueError: `idx*` and `dim` has no coordinate values, or they are not all numbers.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        arr, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         axis = band_names.index(dim)
         labels = self._labels(values_map.get(dim), dim) if self.coordinate else None
-        arr = nc._materialize_variable_array(var, lazy=True)
         search = np.argmin if self.extreme == "min" else np.argmax
         if self.skipna:
             data = _gaps_as_nan(arr, ndv)
@@ -793,7 +907,13 @@ class _Interpolate(_AlongDim):
     verb: ClassVar[str] = "interpolate"
     keeps_length: ClassVar[bool] = True
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Interpolate one variable's interior gaps along `dim`.
 
         Args:
@@ -806,11 +926,12 @@ class _Interpolate(_AlongDim):
             declares the variable's no-data value, or NaN when it declares none, since a gap
             the interpolation could not reach is still a gap.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        arr, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         axis = band_names.index(dim)
-        arr = nc._materialize_variable_array(var, lazy=True)
         data = _gaps_as_nan(arr, ndv)
         positions = self._axis_positions(values_map.get(dim), data.shape[axis], dim)
         filled = _interpolated(data, axis, positions, self.method, self.limit)
@@ -867,7 +988,13 @@ class _InterpTo(_AlongDim):
     verb: ClassVar[str] = "interpolate"
     keeps_length: ClassVar[bool] = False
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Interpolate one variable's series along `dim` onto `target`.
 
         Args:
@@ -884,9 +1011,11 @@ class _InterpTo(_AlongDim):
             single gap anywhere makes the entire axis a gap — the same as `scipy.interpolate.interp1d`
             and `xarray.DataArray.interp`. Use a local kind on gappy data.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        arr, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         axis = band_names.index(dim)
         coords = values_map[dim]
         if coords is None:
@@ -897,7 +1026,6 @@ class _InterpTo(_AlongDim):
                 f"interp() has no coordinates for {dim!r} to interpolate from."
             )
         source = np.asarray([float(value) for value in coords], dtype="float64")
-        arr = nc._materialize_variable_array(var, lazy=True)
         data = _gaps_as_nan(arr, ndv)
         interpolated = _interp_onto(data, axis, source, self.target, self.kind)
         fill: Any = np.nan if ndv is None else ndv
@@ -958,7 +1086,13 @@ class _Rank(_AlongDim):
     verb: ClassVar[str] = "rank"
     keeps_length: ClassVar[bool] = True
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Rank one variable's values along `dim`.
 
         Args:
@@ -971,11 +1105,12 @@ class _Rank(_AlongDim):
             value or NaN) is excluded from the ranking and comes back as the no-data value, or NaN
             when the variable declares none.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        arr, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         axis = band_names.index(dim)
-        arr = nc._materialize_variable_array(var, lazy=True)
         data = np.asarray(_gaps_as_nan(arr, ndv), dtype="float64")
         ranks = np.asarray(
             rankdata(data, method="average", axis=axis, nan_policy="omit"),
@@ -1013,7 +1148,13 @@ class _Pad(_AlongDim):
     keeps_length: ClassVar[bool] = False
     change_noun: ClassVar[str] = "padded"
 
-    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+    def apply(
+        self,
+        nc: NetCDF,
+        var: NetCDF,
+        dim: str,
+        override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+    ) -> _Applied:
         """Pad one variable along `dim`.
 
         Args:
@@ -1027,15 +1168,15 @@ class _Pad(_AlongDim):
             no-data value (NaN when it declares none); the result declares the variable's own
             no-data value regardless.
         """
-        band_names = list(var._band_dim_names)
-        values_map = dict(var._band_dim_values_map)
-        ndv = _read_no_data(var)
+        raw, band_names, values_map, ndv = (
+            (override[0], list(override[1]), dict(override[2]), override[3])
+            if override is not None
+            else _materialize_inputs(nc, var)
+        )
         no_data: Any = np.nan if ndv is None else ndv
         fill = no_data if self.fill_value is None else self.fill_value
         axis = band_names.index(dim)
-        arr = np.asarray(
-            nc._materialize_variable_array(var, lazy=True), dtype="float64"
-        )
+        arr = np.asarray(raw, dtype="float64")
         pad_width = [(0, 0)] * arr.ndim
         pad_width[axis] = (self.before, self.after)
         values = np.pad(arr, pad_width, mode="constant", constant_values=fill)
@@ -1282,7 +1423,7 @@ def _window_members(position: int, size: int, window: int, center: bool) -> list
 
 def _reduced_array(
     nc: NetCDF,
-    var: NetCDF,
+    var: NetCDF | None,
     dim: str,
     how: str,
     *,
@@ -1292,7 +1433,9 @@ def _reduced_array(
     resize: int | None = None,
     window_mean_coords: bool = False,
     group_coords: list | None = None,
-) -> tuple[np.ndarray, list[str], dict[str, Any], Any]:
+    materialize: bool = True,
+    override: tuple[Any, list[str], dict[str, Any], Any] | None = None,
+) -> tuple[Any, list[str], dict[str, Any], Any]:
     """Reduce one raster variable along `dim`: the per-variable step of `reduce` and `coarsen`.
 
     A file-backed variable that still reads as its store (`NetCDF._reads_as_its_store`) is read
@@ -1328,12 +1471,21 @@ def _reduced_array(
     # Local import breaks the netcdf.py <-> engines.selection import cycle.
     from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _FLAG_NO_DATA
 
-    band_names = list(var._band_dim_names)
-    values_map = dict(var._band_dim_values_map)
-    ndv = _read_no_data(var)
+    if override is not None:
+        # A lazy cube composing ops (#1237): reduce the cube's CURRENT (possibly already
+        # transformed) dask array and its carried band layout, rather than re-reading from `var`.
+        arr, band_names, values_map, ndv = override
+        band_names = list(band_names)
+        values_map = dict(values_map)
+    else:
+        # `var` is required when no `override` is given — the eager callers always pass it.
+        assert var is not None, "_reduced_array needs `var` unless `override` is given"
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        ndv = _read_no_data(var)
+        arr = nc._materialize_variable_array(var, lazy=True)
     axis = band_names.index(dim)
     coords = values_map.get(dim)
-    arr = nc._materialize_variable_array(var, lazy=True)
     size = arr.shape[axis]
     if resize is not None and resize != size:
         arr = _resize_axis(arr, axis, resize)
@@ -1354,9 +1506,12 @@ def _reduced_array(
         values_map[dim] = _window_coordinates(coords, group_positions, size)
     elif group_coords is not None:
         values_map[dim] = list(group_coords)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        arr = np.asarray(arr)
+    if materialize:
+        # `materialize=False` (a lazy cube composing ops, #1237) keeps the reduced dask array so
+        # the reduction stays deferred until the cube's `compute()`; the eager path collapses it here.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            arr = np.asarray(arr)
     result_ndv = ndv
     if how == "count":
         result_ndv = None
