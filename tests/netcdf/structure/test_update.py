@@ -30,6 +30,17 @@ def _cube(name, geo=GEO, seed=SEED):
     )
 
 
+def _level_cube(name, length=2, geo=GEO):
+    """A one-variable cube whose band dimension is `level`, of the given length."""
+    arr = np.random.default_rng(length).random((length, 5, 8)).astype(np.float64)
+    return NetCDF.from_array(
+        arr=arr,
+        geo_ref=GeoReference(geo=geo),
+        variable_name=name,
+        dims=ExtraDimensions(name="level", values=list(range(length))),
+    )
+
+
 class TestUpdateHappyPath:
     """Update adds the new variables and replaces the colliding ones, in place."""
 
@@ -107,6 +118,25 @@ class TestUpdateErrors:
         base = _cube("a")
         with pytest.raises(TypeError, match="NetCDF container or a"):
             base.update([1, 2, 3])
+
+    def test_two_donors_disagreeing_with_each_other_are_refused(self):
+        """Two donors introducing the same dimension at different lengths are refused (M2).
+
+        The receiver has no `level`, so neither donor conflicts with *it*; they conflict with each
+        other. Snapshotting the receiver's dimensions before the write loop made the second donor's
+        conflict invisible, and it landed on a silently renamed `level_4` axis.
+        """
+        base = _cube("a")
+        first = _level_cube("b", length=2).get_variable("b")
+        second = _level_cube("c", length=4).get_variable("c")
+        with pytest.raises(AlignmentError, match="band dimension 'level'"):
+            base.update({"b": first, "c": second})
+        assert base.variable_names == ["a"], (
+            f"a refused update must commit neither donor: {base.variable_names}"
+        )
+        assert "level_4" not in (base.dimension_names or []), (
+            f"no renamed axis may be created: {base.dimension_names}"
+        )
 
     def test_a_band_dimension_length_conflict_is_refused(self):
         """A donor whose `time` length differs from the container's is refused up front (L2).

@@ -6761,30 +6761,31 @@ def _donor_variables(other: Any) -> list[tuple[str, NetCDF]]:
 
 
 def _assert_band_axes_fit(
-    name: str, variable: NetCDF, container_band_sizes: dict[str, int]
+    name: str, variable: NetCDF, band_sizes: dict[str, int]
 ) -> None:
     """Refuse a donor spanning a same-named band axis of a different length.
 
     Left unchecked, `set_variable` resolves the conflict by writing the donor onto a renamed
-    `<dim>_<len>` axis, so the donor silently lands on a different dimension (L2).
+    `<dim>_<len>` axis, so the donor silently lands on a different dimension.
 
     Args:
         name: The donor's variable name, for the message.
         variable: The donor variable.
-        container_band_sizes: The receiver's declared band-dimension lengths.
+        band_sizes: The lengths already fixed for each dimension name — the receiver's, plus
+            those the donors checked before this one introduced.
 
     Raises:
-        AlignmentError: A band dimension's length disagrees with the receiver's.
+        AlignmentError: A band dimension's length disagrees with the length already fixed.
     """
     for dim_name, dim_size in zip(variable._band_dim_names, variable._band_dim_sizes):
-        existing = container_band_sizes.get(dim_name)
+        existing = band_sizes.get(dim_name)
         if existing is not None and existing != dim_size:
             raise AlignmentError(
                 f"update(): variable {name!r} spans band dimension {dim_name!r} of "
-                f"length {dim_size}, but this container's {dim_name!r} is length "
-                f"{existing}; align the band axis first (interp / sel) — update does "
-                f"not reconcile band dimensions, and writing it as-is would land it on "
-                f"a renamed {dim_name}_{dim_size} axis."
+                f"length {dim_size}, but {dim_name!r} is already length {existing} here; "
+                f"align the band axis first (interp / sel) — update does not reconcile band "
+                f"dimensions, and writing it as-is would land it on a renamed "
+                f"{dim_name}_{dim_size} axis."
             )
 
 
@@ -6794,25 +6795,28 @@ def _assert_donors_fit(nc: NetCDF, items: list[tuple[str, NetCDF]]) -> None:
     The pre-write pass that makes `update` all-or-nothing: checking as we wrote left a valid donor
     committed when a later one failed. The spatial grid is compared variable-to-variable, because a
     container's own raster is a placeholder — the reference is the receiver's first variable, or,
-    for an empty receiver, the first donor.
+    for an empty receiver, the first donor. Band axes are checked against the receiver's *and*
+    against each other, so two donors cannot disagree about one dimension's length either.
 
     Args:
         nc: The receiving container.
         items: The donors from `_donor_variables`.
 
     Raises:
-        AlignmentError: A donor is on a different spatial grid, or disagrees on a band axis.
+        AlignmentError: A donor is on a different spatial grid, or disagrees on a band axis with
+            the receiver or with an earlier donor.
     """
     reference: NetCDF | None = (
         cast("NetCDF", nc.get_variable(nc.variable_names[0]))
         if nc.variable_names
         else None
     )
-    container_band_sizes = {
-        dim_name: dim_size
-        for dim_name, dim_size in nc.dimension_sizes.items()
-        if dim_name.lower() not in _SPATIAL_AXIS_NAMES
-    }
+    # Each accepted donor's axes join the map, so the donors are checked against one another and
+    # not only against the receiver: a dimension a donor introduces has to mean the same length
+    # for every later donor. Checking a map snapshotted before the loop let donor k+1 conflict
+    # with donor k's new axis and still land on a renamed `<dim>_<len>` axis, and left the donors
+    # of an empty receiver unchecked entirely (M2).
+    band_sizes = dict(nc.dimension_sizes)
     for name, variable in items:
         if reference is None:
             reference = variable
@@ -6821,7 +6825,8 @@ def _assert_donors_fit(nc: NetCDF, items: list[tuple[str, NetCDF]]) -> None:
                 f"update(): variable {name!r} is on a different grid than this container; "
                 f"align it first (resample / to_crs / align) — update does not resample."
             )
-        _assert_band_axes_fit(name, variable, container_band_sizes)
+        _assert_band_axes_fit(name, variable, band_sizes)
+        band_sizes.update(zip(variable._band_dim_names, variable._band_dim_sizes))
 
 
 def _unchanged(nc: NetCDF) -> NetCDF:
