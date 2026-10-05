@@ -165,8 +165,9 @@ class TestDropDimsErrors:
 
     def test_an_unknown_dimension_raises_by_default(self):
         """`errors='raise'` (default) refuses a dimension the container does not have."""
+        cont = _mixed_container()
         with pytest.raises(ValueError, match="not a dimension of this container"):
-            _mixed_container().drop_dims("season")
+            cont.drop_dims("season")
 
     def test_an_unknown_dimension_is_skipped_when_ignored(self):
         """`errors='ignore'` skips an unknown dimension and drops nothing for it."""
@@ -175,5 +176,6 @@ class TestDropDimsErrors:
 
     def test_a_bad_errors_flag_raises(self):
         """An errors flag other than raise/ignore is refused."""
+        cont = _mixed_container()
         with pytest.raises(ValueError, match="errors must be"):
-            _mixed_container().drop_dims("time", errors="warn")
+            cont.drop_dims("time", errors="warn")

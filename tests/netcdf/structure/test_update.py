@@ -83,8 +83,9 @@ class TestUpdateErrors:
     def test_a_single_variable_receiver_is_refused(self):
         """Called on a lone variable, update redirects to set_variable/merge."""
         var = _cube("a").get_variable("a")
+        donor = _cube("b", seed=1)
         with pytest.raises(ValueError, match="no .*variable mapping to update"):
-            var.update(_cube("b", seed=1))
+            var.update(donor)
 
     def test_update_is_atomic_when_a_later_donor_mismatches(self):
         """A good donor followed by an off-grid one leaves the receiver untouched (M1).

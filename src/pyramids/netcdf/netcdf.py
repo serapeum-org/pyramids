@@ -2200,6 +2200,105 @@ class _joins_cubes:  # noqa: N801
         return call
 
 
+class _DimensionRemap:
+    """The destination dimensions a container rebuild binds its arrays to.
+
+    Owns the clump a store rebuild would otherwise thread through every call — the destination
+    group, the `{old: new}` renames, the dropped names and the dimensions resolved so far — and the
+    behaviour over it: declaring each surviving source dimension under its new name, resolving an
+    array's axis, and carrying each dimension's coordinate array across.
+
+    Used by :meth:`NetCDF._rebuilt_container`.
+    """
+
+    def __init__(
+        self, dst_group: gdal.Group, rename: dict[str, str], drop: set[str]
+    ) -> None:
+        """Bind the remap to one destination group.
+
+        Args:
+            dst_group: The fresh root group the rebuild creates dimensions in.
+            rename: `{old: new}` dimension renames; a name not listed is carried unchanged.
+            drop: Dimension names that must not be created.
+        """
+        self._dst = dst_group
+        self._rename = rename
+        self._drop = drop
+        self._dims: dict[str, gdal.Dimension] = {}
+
+    def _created(self, dim: gdal.Dimension) -> gdal.Dimension:
+        """The destination twin of `dim`, created under its new name on first sight.
+
+        Args:
+            dim: A source dimension, from the group's own list or from an array's axes.
+
+        Returns:
+            gdal.Dimension: The destination dimension bound to the (possibly renamed) name.
+        """
+        name = dim.GetName()
+        if name not in self._dims:
+            self._dims[name] = self._dst.CreateDimension(
+                self._rename.get(name, name),
+                dim.GetType(),
+                dim.GetDirection(),
+                dim.GetSize(),
+            )
+        return self._dims[name]
+
+    def declare(self, src_dims: list) -> None:
+        """Create a destination dimension for every surviving source dimension.
+
+        Args:
+            src_dims: The source group's own dimensions.
+        """
+        for dim in src_dims:
+            if dim.GetName() not in self._drop:
+                self._created(dim)
+
+    def axes(self, src_array: gdal.MDArray) -> list:
+        """The destination dimensions for every axis of `src_array`.
+
+        An array need not span a dimension the working group declares: in a `get_group` view the
+        arrays reference dimensions declared in an ancestor group, which `GetDimensions()` does not
+        list. Those are resolved from the array's own axis, which carries name/type/direction/size
+        — without it the rebuild died with a bare `KeyError` on the axis name.
+
+        Args:
+            src_array: The source array being recreated.
+
+        Returns:
+            list: Its axes, as destination dimensions, in order.
+        """
+        return [self._created(axis) for axis in src_array.GetDimensions()]
+
+    def carry_coordinates(
+        self, src_group: gdal.Group, src_dims: list, array_names: list[str]
+    ) -> None:
+        """Recreate each surviving dimension's coordinate array under its new name and attach it.
+
+        This is what keeps a renamed axis carrying its *own* stamps and `units`, rather than
+        inheriting whatever the recycled name was associated with in the store (M3).
+
+        Args:
+            src_group: The source group to read the coordinate arrays from.
+            src_dims: The source group's own dimensions.
+            array_names: The arrays the source group holds, so a dimension without a coordinate
+                array is skipped.
+        """
+        for dim in src_dims:
+            name = dim.GetName()
+            if name in self._drop or name not in array_names:
+                continue
+            src_coord = src_group.OpenMDArray(name)
+            coord = NetCDF._recreate_md_array(
+                self._dst,
+                self._rename.get(name, name),
+                src_coord,
+                self.axes(src_coord),
+            )
+            self._dims[name].SetIndexingVariable(coord)
+
+
 class NetCDF(Dataset):
     """NetCDF.
 
@@ -13304,7 +13403,6 @@ class NetCDF(Dataset):
         Returns:
             NetCDF: A fresh root `Container` with the transformed axes.
         """
-        rename = dict(rename or {})
         drop = set(drop or [])
         mem = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
         src_rg = mem.GetRootGroup()
@@ -13316,59 +13414,16 @@ class NetCDF(Dataset):
         src_dims = src_rg.GetDimensions() or []
         src_dim_names = {dim.GetName() for dim in src_dims}
         array_names = list(src_rg.GetMDArrayNames() or [])
-        dim_map: dict[str, gdal.Dimension] = {}
-        for dim in src_dims:
-            name = dim.GetName()
-            if name in drop:
-                continue
-            dim_map[name] = dst_rg.CreateDimension(
-                rename.get(name, name), dim.GetType(), dim.GetDirection(), dim.GetSize()
-            )
-        def _dst_axis(axis: gdal.Dimension) -> gdal.Dimension:
-            """The destination dimension for one of an array's axes, created on first sight.
-
-            An array does not have to span a dimension declared in the working group: in a
-            `get_group` view the arrays reference dimensions declared in an ancestor group, which
-            `src_rg.GetDimensions()` does not list. Resolving those from the array's own
-            `Dimension` kept the rebuild from dying with a bare `KeyError` on the axis name.
-            """
-            name = axis.GetName()
-            if name not in dim_map:
-                dim_map[name] = dst_rg.CreateDimension(
-                    rename.get(name, name),
-                    axis.GetType(),
-                    axis.GetDirection(),
-                    axis.GetSize(),
-                )
-            return dim_map[name]
-
-        # The coordinate (indexing) array of each surviving dimension, recreated under the
-        # dimension's new name and re-attached, so a renamed axis keeps its own stamps and
-        # units rather than inheriting the recycled name's (M3).
-        for dim in src_dims:
-            name = dim.GetName()
-            if name in drop or name not in array_names:
-                continue
-            src_coord = src_rg.OpenMDArray(name)
-            coord = NetCDF._recreate_md_array(
-                dst_rg,
-                rename.get(name, name),
-                src_coord,
-                [_dst_axis(axis) for axis in src_coord.GetDimensions()],
-            )
-            dim_map[name].SetIndexingVariable(coord)
-        # Every other array (data variables and CF bounds), name unchanged, bound onto the
-        # transformed dimensions. An array spanning a dropped dimension goes with it.
+        remap = _DimensionRemap(dst_rg, dict(rename or {}), drop)
+        remap.declare(src_dims)
+        remap.carry_coordinates(src_rg, src_dims, array_names)
         for array_name in array_names:
             if array_name in src_dim_names:
                 continue
             src_arr = src_rg.OpenMDArray(array_name)
-            src_axes = src_arr.GetDimensions()
-            if {axis.GetName() for axis in src_axes} & drop:
+            if {axis.GetName() for axis in src_arr.GetDimensions()} & drop:
                 continue
-            NetCDF._recreate_md_array(
-                dst_rg, array_name, src_arr, [_dst_axis(axis) for axis in src_axes]
-            )
+            NetCDF._recreate_md_array(dst_rg, array_name, src_arr, remap.axes(src_arr))
         return Container(dst_ds)
 
     @staticmethod

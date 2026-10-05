@@ -3254,39 +3254,7 @@ class Selection(_Engine["NetCDF"]):
         """
         nc = self._ds
         mapping = {**(coords or {}), **coords_kwargs}
-        known = _band_dims_of(nc)
-        # The container's declared size of each band dimension, so the length check can run up
-        # front rather than being deferred into the per-variable closure. `_band_dims_of` lists
-        # every non-spatial dimension, auxiliary-only ones (e.g. CF `bnds`) included, and no data
-        # variable spans those; checking only inside the closure (`if dim in names`) let a wrong
-        # length on such a dimension through, silently restamping nothing (L1).
-        if _reduces_as_a_variable(nc):
-            declared = dict(zip(nc._band_dim_names, nc._band_dim_sizes))
-        else:
-            declared = {
-                name: size for name, size in nc.dimension_sizes.items() if name in known
-            }
-        coerced: dict[str, list] = {}
-        for dim, values in mapping.items():
-            if dim not in known:
-                raise ValueError(
-                    f"assign_coords(): {dim!r} is not an existing band dimension (have "
-                    f"{sorted(known)}). pyramids has no index model, so a new or non-dimension "
-                    f"coordinate cannot be attached — only an existing band dimension can be "
-                    f"restamped."
-                )
-            if np.ndim(values) != 1:
-                raise ValueError(
-                    f"assign_coords(): {dim!r} coordinates must be a 1-D sequence, got "
-                    f"{np.ndim(values)}-D."
-                )
-            size = declared.get(dim)
-            if size is not None and len(values) != size:
-                raise ValueError(
-                    f"assign_coords(): {dim!r} has length {size}, but {len(values)} "
-                    f"coordinate values were given."
-                )
-            coerced[dim] = list(values)
+        coerced = _validated_restamp(nc, mapping, _band_dims_of(nc))
         if not coerced:
             return _unchanged(nc)
 
@@ -3372,7 +3340,9 @@ class Selection(_Engine["NetCDF"]):
         ]
         if not survivors:
             result = nc.copy()
-            for variable_name in list(result.variable_names):
+            # `variable_names` builds a fresh list per call, so this is already a snapshot the
+            # removals below cannot disturb.
+            for variable_name in result.variable_names:
                 result.remove_variable(variable_name)
             return result
         # Rebuild into a fresh root group declaring only the surviving dimensions, so the
@@ -3429,57 +3399,8 @@ class Selection(_Engine["NetCDF"]):
                 "update() merges variables into a container, and a single variable has no "
                 "variable mapping to update. Use set_variable, or merge, instead."
             )
-        if isinstance(other, Mapping):
-            items = list(other.items())
-        elif hasattr(other, "variable_names") and hasattr(other, "get_variable"):
-            items = [
-                (name, cast("NetCDF", other.get_variable(name)))
-                for name in other.variable_names
-            ]
-        else:
-            raise TypeError(
-                "update() accepts a NetCDF container or a {name: variable} mapping, got "
-                f"{type(other).__name__}."
-            )
-        # Validate every donor's grid before writing anything, so a mismatch leaves the receiver
-        # untouched (all-or-nothing, as xarray's update is). Grids are compared variable-to-variable
-        # because a container's own raster is a placeholder: the reference is one of the receiver's
-        # variables, or — for an empty receiver — the first donor variable.
-        reference: NetCDF | None = (
-            cast("NetCDF", nc.get_variable(nc.variable_names[0]))
-            if nc.variable_names
-            else None
-        )
-        # The container's own band-dimension lengths, so a donor spanning a same-named band axis
-        # of a different length is rejected in this same pre-write pass rather than silently
-        # written onto a renamed `<dim>_<len>` axis by `set_variable` (L2). The spatial grid is
-        # checked variable-to-variable above; the band axes are checked against the store's
-        # declared dimensions (empty for an empty receiver, so the first donor establishes them).
-        container_band_sizes = {
-            dim_name: dim_size
-            for dim_name, dim_size in nc.dimension_sizes.items()
-            if dim_name.lower() not in _SPATIAL_AXIS_NAMES
-        }
-        for name, variable in items:
-            if reference is None:
-                reference = variable
-            if not _same_spatial_grid(reference, variable):
-                raise AlignmentError(
-                    f"update(): variable {name!r} is on a different grid than this container; "
-                    f"align it first (resample / to_crs / align) — update does not resample."
-                )
-            for dim_name, dim_size in zip(
-                variable._band_dim_names, variable._band_dim_sizes
-            ):
-                existing = container_band_sizes.get(dim_name)
-                if existing is not None and existing != dim_size:
-                    raise AlignmentError(
-                        f"update(): variable {name!r} spans band dimension {dim_name!r} of "
-                        f"length {dim_size}, but this container's {dim_name!r} is length "
-                        f"{existing}; align the band axis first (interp / sel) — update does "
-                        f"not reconcile band dimensions, and writing it as-is would land it on "
-                        f"a renamed {dim_name}_{dim_size} axis."
-                    )
+        items = _donor_variables(other)
+        _assert_donors_fit(nc, items)
         for name, variable in items:
             nc.set_variable(name, variable)
 
@@ -6754,6 +6675,160 @@ def _relabelled(nc: NetCDF, names: tuple, sizes: tuple, values_map: dict) -> Net
         result._band_count,
     )
     return result
+
+
+def _declared_band_sizes(nc: NetCDF, known: list[str]) -> dict[str, int]:
+    """Each band dimension's declared length, as the receiver itself declares it.
+
+    A `Variable` carries its own `(name, size)` pairs; a `Container` declares its dimensions in the
+    store, including auxiliary-only ones no data variable spans (CF `bnds`), which is exactly the
+    case a per-variable length check cannot see.
+
+    Args:
+        nc: The receiver.
+        known: The band-dimension names to report, from `_band_dims_of`.
+
+    Returns:
+        dict[str, int]: The declared length of each known band dimension.
+    """
+    if _reduces_as_a_variable(nc):
+        return dict(zip(nc._band_dim_names, nc._band_dim_sizes))
+    return {name: size for name, size in nc.dimension_sizes.items() if name in known}
+
+
+def _validated_restamp(
+    nc: NetCDF, mapping: dict[str, Any], known: list[str]
+) -> dict[str, list]:
+    """The requested coordinate restamp, checked against the cube's declared dimensions.
+
+    Validating up front — rather than inside the per-variable closure, which only sees the
+    dimensions a data variable spans — is what makes a wrong length on an auxiliary-only dimension
+    an error instead of a silent no-op (L1).
+
+    Args:
+        nc: The receiver.
+        mapping: The requested `{dim: values}`.
+        known: The receiver's band-dimension names.
+
+    Returns:
+        dict[str, list]: The accepted restamp, each entry a list of the dimension's length.
+
+    Raises:
+        ValueError: A name is not an existing band dimension, the values are not 1-D, or their
+            length does not match the dimension's declared length.
+    """
+    declared = _declared_band_sizes(nc, known)
+    coerced: dict[str, list] = {}
+    for dim, values in mapping.items():
+        if dim not in known:
+            raise ValueError(
+                f"assign_coords(): {dim!r} is not an existing band dimension (have "
+                f"{sorted(known)}). pyramids has no index model, so a new or non-dimension "
+                f"coordinate cannot be attached — only an existing band dimension can be "
+                f"restamped."
+            )
+        if np.ndim(values) != 1:
+            raise ValueError(
+                f"assign_coords(): {dim!r} coordinates must be a 1-D sequence, got "
+                f"{np.ndim(values)}-D."
+            )
+        size = declared.get(dim)
+        if size is not None and len(values) != size:
+            raise ValueError(
+                f"assign_coords(): {dim!r} has length {size}, but {len(values)} "
+                f"coordinate values were given."
+            )
+        coerced[dim] = list(values)
+    return coerced
+
+
+def _donor_variables(other: Any) -> list[tuple[str, NetCDF]]:
+    """The `(name, variable)` pairs `update` will write, from either accepted donor form.
+
+    Args:
+        other: A `NetCDF` container, or a `{name: variable}` mapping.
+
+    Returns:
+        list[tuple[str, NetCDF]]: The donors, in the order they will be written.
+
+    Raises:
+        TypeError: `other` is neither a container nor a `{name: variable}` mapping.
+    """
+    if isinstance(other, Mapping):
+        return list(other.items())
+    if hasattr(other, "variable_names") and hasattr(other, "get_variable"):
+        return [
+            (name, cast("NetCDF", other.get_variable(name)))
+            for name in other.variable_names
+        ]
+    raise TypeError(
+        "update() accepts a NetCDF container or a {name: variable} mapping, got "
+        f"{type(other).__name__}."
+    )
+
+
+def _assert_band_axes_fit(
+    name: str, variable: NetCDF, container_band_sizes: dict[str, int]
+) -> None:
+    """Refuse a donor spanning a same-named band axis of a different length.
+
+    Left unchecked, `set_variable` resolves the conflict by writing the donor onto a renamed
+    `<dim>_<len>` axis, so the donor silently lands on a different dimension (L2).
+
+    Args:
+        name: The donor's variable name, for the message.
+        variable: The donor variable.
+        container_band_sizes: The receiver's declared band-dimension lengths.
+
+    Raises:
+        AlignmentError: A band dimension's length disagrees with the receiver's.
+    """
+    for dim_name, dim_size in zip(variable._band_dim_names, variable._band_dim_sizes):
+        existing = container_band_sizes.get(dim_name)
+        if existing is not None and existing != dim_size:
+            raise AlignmentError(
+                f"update(): variable {name!r} spans band dimension {dim_name!r} of "
+                f"length {dim_size}, but this container's {dim_name!r} is length "
+                f"{existing}; align the band axis first (interp / sel) — update does "
+                f"not reconcile band dimensions, and writing it as-is would land it on "
+                f"a renamed {dim_name}_{dim_size} axis."
+            )
+
+
+def _assert_donors_fit(nc: NetCDF, items: list[tuple[str, NetCDF]]) -> None:
+    """Refuse the whole update unless every donor fits the receiver's grid and band axes.
+
+    The pre-write pass that makes `update` all-or-nothing: checking as we wrote left a valid donor
+    committed when a later one failed. The spatial grid is compared variable-to-variable, because a
+    container's own raster is a placeholder — the reference is the receiver's first variable, or,
+    for an empty receiver, the first donor.
+
+    Args:
+        nc: The receiving container.
+        items: The donors from `_donor_variables`.
+
+    Raises:
+        AlignmentError: A donor is on a different spatial grid, or disagrees on a band axis.
+    """
+    reference: NetCDF | None = (
+        cast("NetCDF", nc.get_variable(nc.variable_names[0]))
+        if nc.variable_names
+        else None
+    )
+    container_band_sizes = {
+        dim_name: dim_size
+        for dim_name, dim_size in nc.dimension_sizes.items()
+        if dim_name.lower() not in _SPATIAL_AXIS_NAMES
+    }
+    for name, variable in items:
+        if reference is None:
+            reference = variable
+        if not _same_spatial_grid(reference, variable):
+            raise AlignmentError(
+                f"update(): variable {name!r} is on a different grid than this container; "
+                f"align it first (resample / to_crs / align) — update does not resample."
+            )
+        _assert_band_axes_fit(name, variable, container_band_sizes)
 
 
 def _unchanged(nc: NetCDF) -> NetCDF:
