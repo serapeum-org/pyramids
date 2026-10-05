@@ -153,14 +153,29 @@ def _geodetic_frame(crs: Any) -> tuple[Any, float]:
         its angular units into degrees (`1.0` for a degree CRS, `0.9` for grads).
 
     Raises:
-        CRSError: `crs` has no geographic counterpart, or that counterpart mixes
-            angular units between its two axes, so no single factor describes it.
+        CRSError: `crs` has no geographic counterpart, that counterpart is not
+            geographic at all (a geocentric CRS is its own counterpart, with
+            metre axes), or it mixes angular units between its two axes, so no
+            single factor describes it.
     """
     geodetic = crs.geodetic_crs
     if geodetic is None:
         raise CRSError(
             f"the CRS {crs.name!r} has no geographic counterpart, so a "
             "ground distance cannot be walked out on it"
+        )
+    if not geodetic.is_geographic:
+        # A geocentric CRS (EPSG:4978) is its own geodetic counterpart, with
+        # **metre** axes whose conversion factor is 1.0 -- identical to a radian
+        # axis, so the factor alone cannot tell them apart. Without this the
+        # function reported 57.29577951308232 degrees per metre and the failure
+        # surfaced much later as "falls outside the usable domain of 'WGS 84'",
+        # naming neither the cause nor the CRS.
+        raise CRSError(
+            f"the CRS {crs.name!r} resolves to the non-geographic counterpart "
+            f"{geodetic.name!r} ({sorted({axis.unit_name for axis in geodetic.axis_info[:2]})}), "
+            "so it has no angular frame to measure a geodesic in; use a "
+            "geographic or projected CRS"
         )
     factors = {axis.unit_conversion_factor for axis in geodetic.axis_info[:2]}
     if len(factors) != 1:
@@ -312,7 +327,8 @@ def geodesic_distance(
 
     Returns:
         float | FloatArray: The distance(s), in `unit`. A float when every
-        coordinate argument is scalar, otherwise an array broadcast over them.
+        coordinate argument is scalar, otherwise an array of the same shape as
+        the inputs, which PROJ pairs elementwise.
 
     Raises:
         ValueError: `unit` is not recognised, a coordinate is not numeric or not

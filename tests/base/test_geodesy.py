@@ -585,9 +585,11 @@ class TestGeodeticFrame:
         class _Axis:
             def __init__(self, factor: float):
                 self.unit_conversion_factor = factor
+                self.unit_name = "stub"
 
         class _Mixed:
             name = "Stubbed geographic CRS"
+            is_geographic = True
             axis_info = [_Axis(0.017453292519943295), _Axis(0.01570796326794895)]
 
         class _Target:
@@ -871,3 +873,31 @@ class TestGeodCaching:
         wgs84 = _geod_of(CRS.from_user_input(4326))
         sphere = _geod_of(CRS.from_user_input(4047))
         assert wgs84.f != sphere.f
+
+
+class TestGeocentricCRS:
+    """A geocentric CRS has no angular frame and is refused by name (R2 N8)."""
+
+    def test_geocentric_crs_is_refused(self):
+        """EPSG:4978 is its own geodetic counterpart, with metre axes.
+
+        A metre axis has `unit_conversion_factor == 1.0`, exactly like a radian
+        axis, so the factor alone cannot discriminate -- `is_geographic` does.
+        Before this guard `_geodetic_frame` reported 57.29577951308232 degrees
+        per unit and the failure surfaced later as "falls outside the usable
+        domain of 'WGS 84'", naming neither the cause nor EPSG:4978.
+        """
+        with pytest.raises(CRSError, match="non-geographic counterpart"):
+            _geodetic_frame(CRS.from_user_input(4978))
+
+    def test_ground_distance_refuses_a_geocentric_crs(self):
+        """The refusal reaches the public function, naming the real cause."""
+        with pytest.raises(CRSError, match="non-geographic counterpart"):
+            ground_distance_in_crs(100_000.0, crs=4978, at=(4000000.0, 300000.0))
+
+    @pytest.mark.parametrize("code", [4326, 4807, 2154, 32636, 3857])
+    def test_legitimate_crses_are_unaffected(self, code: int):
+        """The control: every geographic and projected CRS still resolves."""
+        geodetic, to_degrees = _geodetic_frame(CRS.from_user_input(code))
+        assert geodetic.is_geographic
+        assert to_degrees > 0.0
