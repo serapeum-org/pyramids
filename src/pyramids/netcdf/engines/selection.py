@@ -3116,6 +3116,85 @@ class Selection(_Engine["NetCDF"]):
 
         return _apply_per_variable(nc, _fn, caller="transpose")
 
+    def rename_dims(
+        self, dims: Mapping[str, str] | None = None, **dims_kwargs: str
+    ) -> NetCDF:
+        """Rename one or more band dimensions; cells, band count and coordinates unchanged.
+
+        xarray's `rename_dims`, restricted to the band (non-spatial) axes: the geotransform pins
+        the `(y, x)` plane, so a spatial axis cannot be renamed and a band dimension cannot take a
+        spatial name. A rename moves no cells — on a single variable it is a free re-label that
+        keeps the variable's lazy read; on a container every variable that spans a renamed
+        dimension is rebuilt, as `transpose` rebuilds (a container keeps its dimensions in the
+        store, not in memory).
+
+        Args:
+            dims: A `{old: new}` mapping of band dimensions to rename.
+            **dims_kwargs: The same as `old=new` keywords; merged with `dims`.
+
+        Returns:
+            NetCDF: The cube with those band dimensions renamed.
+
+        Raises:
+            ValueError: An `old` name is not a band dimension, a `new` name is a spatial axis
+                name, two renames target the same name, or a `new` name already names a band
+                dimension that is not itself being renamed.
+
+        Examples:
+            - Rename `time` to `t`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="v",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("v")
+              >>> var.rename_dims(time="t")._band_dim_names
+              ('t',)
+
+              ```
+
+        See Also:
+            NetCDF.rename_variable: Rename a *variable* rather than a dimension.
+        """
+        nc = self._ds
+        mapping = {**(dims or {}), **dims_kwargs}
+        known = _band_dims_of(nc)
+        for old in mapping:
+            if old not in known:
+                raise ValueError(
+                    f"rename_dims(): {old!r} is not a band dimension of this cube; its band "
+                    f"dimensions are {sorted(known)}."
+                )
+        targets = list(mapping.values())
+        if len(set(targets)) != len(targets):
+            raise ValueError(
+                f"rename_dims(): the new names {targets} contain a duplicate."
+            )
+        for new in targets:
+            if new.lower() in _SPATIAL_AXIS_NAMES:
+                raise ValueError(
+                    f"rename_dims(): {new!r} is a spatial axis name; the geotransform pins the "
+                    f"(y, x) plane, so a band dimension cannot take it."
+                )
+            if new in known and new not in mapping:
+                raise ValueError(
+                    f"rename_dims(): target {new!r} already names a band dimension."
+                )
+
+        def relabel(var: NetCDF) -> tuple[list[str], dict]:
+            names = [mapping.get(name, name) for name in var._band_dim_names]
+            values_map = {
+                mapping.get(name, name): stamps
+                for name, stamps in var._band_dim_values_map.items()
+            }
+            return names, values_map
+
+        return _relabel_per_variable(nc, relabel, caller="rename_dims")
+
     def interp(self, method: str = "linear", **coords: Any) -> NetCDF:
         """Interpolate a band dimension onto new coordinate values.
 
@@ -6387,6 +6466,55 @@ def _relabelled(nc: NetCDF, names: tuple, sizes: tuple, values_map: dict) -> Net
         result._band_count,
     )
     return result
+
+
+def _relabel_per_variable(
+    nc: NetCDF, relabel: Callable[[NetCDF], tuple[list[str], dict]], *, caller: str
+) -> NetCDF:
+    """Relabel a variable's band dimensions without moving a single cell, or every variable's.
+
+    The cell-free sibling of `_apply_per_variable`: `rename_dims` and `assign_coords` change a
+    band dimension's *label* — its name or its coordinate stamps — never its cells or the band
+    count, so a single `Variable` is answered by `_rewrapped` (shares the raster, keeps a lazy
+    read) with its band metadata overwritten, exactly as a no-op `squeeze` is. A `Container`
+    keeps its band dimensions in the store rather than in memory, so it is rebuilt per variable
+    through `_apply_per_variable` — the same path `transpose` takes — with each variable's cells
+    carried over unchanged; this avoids a store-level dimension rewrite at the cost `transpose`
+    already pays for a container.
+
+    Args:
+        nc: The receiver, a variable or a container.
+        relabel: Given one variable, returns its `(new band names, new values map)`. The band
+            count and axis order must be unchanged — this relabels, it does not restructure.
+        caller: The member named in any refusal or warning.
+
+    Returns:
+        NetCDF: The relabelled variable or container; cells and band count unchanged.
+    """
+    if _reduces_as_a_variable(nc):
+        names, values_map = relabel(nc)
+        rename_map = dict(zip(nc._band_dim_names, names))
+        result = _rewrapped(nc)
+        result._band_dim_names = tuple(names)
+        result._band_dim_values_map = dict(values_map)
+        result._band_dim_time_attrs = {
+            rename_map.get(name, name): attrs
+            for name, attrs in nc._band_dim_time_attrs.items()
+        }
+        result._band_dim_name, result._band_dim_values = nc._derive_primary_band_view(
+            result._band_dim_names,
+            result._band_dim_values_map,
+            nc._band_dim_sizes,
+            result._band_count,
+        )
+        return result
+
+    def _fn(var: NetCDF) -> tuple:
+        names, values_map = relabel(var)
+        arr = np.asarray(nc._materialize_variable_array(var, lazy=True))
+        return arr, list(names), dict(values_map), _read_no_data(var), var.geotransform
+
+    return _apply_per_variable(nc, _fn, caller=caller)
 
 
 def _subset_along_dim(nc: NetCDF, dim_name: str, dim_indices: list[int]) -> NetCDF:

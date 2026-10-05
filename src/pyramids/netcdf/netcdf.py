@@ -15,7 +15,7 @@ import sys
 import threading
 import warnings
 import weakref
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TextIO, Unpack, cast
 
@@ -9166,6 +9166,12 @@ class NetCDF(Dataset):
     def expand_dims(self, dim: str, value: Any = None) -> NetCDF:
         """Facade — :meth:`Selection.expand_dims <pyramids.netcdf.engines.selection.Selection.expand_dims>`."""
         return self.selection.expand_dims(dim, value)
+
+    def rename_dims(
+        self, dims: Mapping[str, str] | None = None, **dims_kwargs: str
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.rename_dims <pyramids.netcdf.engines.selection.Selection.rename_dims>`."""
+        return self.selection.rename_dims(dims, **dims_kwargs)
 
     @classmethod
     def read_file(  # type: ignore[override]
