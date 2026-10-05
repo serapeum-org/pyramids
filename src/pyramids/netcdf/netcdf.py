@@ -11,6 +11,7 @@ import itertools
 import logging
 import math
 import os
+import re
 import sys
 import threading
 import warnings
@@ -156,6 +157,18 @@ _RESERVED_ACCESSOR_NAMES.update(_NETCDF_COLLABORATOR_ATTRS)
 # it is here so a malformed or hostile one cannot turn enumeration into an
 # unbounded walk.
 _MAX_GROUP_DEPTH = 32
+
+
+_CF_DIMENSION_REFERENCING_ATTRIBUTES = frozenset(
+    {"cell_methods", "cell_method", "coordinates", "bounds"}
+)
+"""CF attributes whose *value* names dimensions or axis arrays, so a rename must reach inside.
+
+Copied verbatim, `cell_methods = 'time: mean (interval: 1 month)'` stayed behind in a store that
+no longer has a `time`, which a CF-aware reader resolves against nothing. Only whole-word matches
+are rewritten, so a bounds variable (`time_bnds`) — which the rebuild does not rename — is left
+alone. `standard_name` is deliberately absent: the renamed axis is still the time axis.
+"""
 
 
 # Module-level logger, matching `pyramids.netcdf.metadata`: the summary helpers swallow
@@ -2231,9 +2244,10 @@ class _DimensionRemap:
                 declaring group is not bound falls back to it.
             rename: `{old: new}` dimension renames; a name not listed is carried unchanged.
             drop: Dimension names that must not be created.
-            recreate: The packing-preserving array copy to carry a coordinate array across,
-                injected rather than imported so this value object does not depend on the class
-                it serves (:meth:`NetCDF._recreate_md_array` is what the rebuild passes).
+            recreate: The packing-preserving array copy, called as
+                `recreate(dst_group, name, src_array, dst_dims, dim_rename)`. Injected rather
+                than imported so this value object does not depend on the class it serves
+                (:meth:`NetCDF._recreate_md_array` is what the rebuild passes).
         """
         self._dst_root = dst_group
         self._rename = rename
@@ -2406,6 +2420,9 @@ class _DimensionRemap:
     ) -> gdal.MDArray:
         """Copy `src_array` into `dst_group`, re-bound onto its destination axes.
 
+        The renames go with it, so a CF attribute naming a renamed dimension is rewritten in
+        the copy instead of being left pointing at an axis the result no longer declares.
+
         Args:
             dst_group: The destination group to create the copy in.
             var_name: The name to create it under.
@@ -2414,7 +2431,9 @@ class _DimensionRemap:
         Returns:
             gdal.MDArray: The freshly written copy.
         """
-        return self._recreate(dst_group, var_name, src_array, self.axes(src_array))
+        return self._recreate(
+            dst_group, var_name, src_array, self.axes(src_array), self._rename
+        )
 
 
 class NetCDF(Dataset):
@@ -13282,12 +13301,47 @@ class NetCDF(Dataset):
         return resolved
 
     @staticmethod
-    def _copy_md_array_attributes(src_mdarray, dst_mdarray):
+    def _rewritten_attribute_value(name, value, dim_rename):
+        """`value` with every whole-word mention of a renamed dimension replaced.
+
+        Applied only to the CF attributes listed in
+        :data:`_CF_DIMENSION_REFERENCING_ATTRIBUTES`, and in one pass, so exchanging two names
+        (`rename_dims(time="plev", plev="time")`) does not substitute each twice and land back
+        where it started.
+
+        Args:
+            name: The attribute's name.
+            value: Its string value, or `None` when GDAL cannot read it back.
+            dim_rename: `{old: new}` dimension renames, empty or `None` for a copy that renames
+                nothing.
+
+        Returns:
+            The value to write: rewritten for an attribute that names dimensions, unchanged
+            otherwise.
+        """
+        rewritten = value
+        if dim_rename and value and name in _CF_DIMENSION_REFERENCING_ATTRIBUTES:
+            alternatives = "|".join(re.escape(old) for old in dim_rename)
+            rewritten = re.sub(
+                rf"\b(?:{alternatives})\b", lambda m: dim_rename[m.group(0)], value
+            )
+        return rewritten
+
+    @staticmethod
+    def _copy_md_array_attributes(src_mdarray, dst_mdarray, dim_rename=None):
         """Copy every attribute from one MDArray to another, preserving dtype.
 
         GDAL's `Attribute.Write` routes through `WriteRaw`, which rejects numeric
         tuples, so each attribute is written with the type-specific call that
         matches its class (string vs integer vs floating point) and arity.
+
+        Args:
+            src_mdarray: The array (or group) to read the attributes from.
+            dst_mdarray: The array (or group) to create them on.
+            dim_rename: `{old: new}` dimension renames the copy is part of. A CF attribute whose
+                value names a dimension is rewritten through them, so a renamed axis leaves no
+                attribute pointing at a dimension the store no longer has (M4). `None` (the
+                default) copies every value verbatim.
         """
         for attr in src_mdarray.GetAttributes():
             name = attr.GetName()
@@ -13299,9 +13353,18 @@ class NetCDF(Dataset):
                     name, dims, gdal.ExtendedDataType.CreateString()
                 )
                 if count <= 1:
-                    new_attr.WriteString(attr.ReadAsString())
+                    new_attr.WriteString(
+                        NetCDF._rewritten_attribute_value(
+                            name, attr.ReadAsString(), dim_rename
+                        )
+                    )
                 else:
-                    new_attr.WriteStringArray(attr.ReadAsStringArray())
+                    new_attr.WriteStringArray(
+                        [
+                            NetCDF._rewritten_attribute_value(name, item, dim_rename)
+                            for item in attr.ReadAsStringArray()
+                        ]
+                    )
                 continue
             numeric_type = data_type.GetNumericDataType()
             new_attr = dst_mdarray.CreateAttribute(
@@ -13365,7 +13428,7 @@ class NetCDF(Dataset):
                 pass
 
     @staticmethod
-    def _copy_md_array_labels(src_mdarray, dst_mdarray) -> None:
+    def _copy_md_array_labels(src_mdarray, dst_mdarray, dim_rename=None) -> None:
         """Carry the unit, spatial reference and attributes onto a copy.
 
         Shared by both branches of `_add_md_array_to_group`. The string branch
@@ -13375,6 +13438,9 @@ class NetCDF(Dataset):
         Args:
             src_mdarray: The array being copied.
             dst_mdarray: The freshly created copy, not yet written.
+            dim_rename: `{old: new}` dimension renames, passed on to
+                :meth:`_copy_md_array_attributes` so a CF attribute naming a renamed dimension
+                is rewritten rather than copied verbatim. `None` copies verbatim.
         """
         unit = src_mdarray.GetUnit()
         if unit:
@@ -13382,7 +13448,7 @@ class NetCDF(Dataset):
         srs = src_mdarray.GetSpatialRef()
         if srs is not None:
             dst_mdarray.SetSpatialRef(srs)
-        NetCDF._copy_md_array_attributes(src_mdarray, dst_mdarray)
+        NetCDF._copy_md_array_attributes(src_mdarray, dst_mdarray, dim_rename)
 
     @staticmethod
     def _add_md_array_to_group(dst_group, var_name, src_mdarray):
@@ -13447,7 +13513,7 @@ class NetCDF(Dataset):
             new_md_array.Write(arr)
 
     @staticmethod
-    def _recreate_md_array(dst_group, var_name, src_mdarray, dst_dims):
+    def _recreate_md_array(dst_group, var_name, src_mdarray, dst_dims, dim_rename=None):
         """Create `var_name` in `dst_group` bound to `dst_dims`, byte-for-byte.
 
         The store-level sibling of :meth:`_add_md_array_to_group`: the caller supplies the
@@ -13467,6 +13533,9 @@ class NetCDF(Dataset):
             src_mdarray: The source `gdal.MDArray` to copy.
             dst_dims: The destination `gdal.Dimension` objects for `src_mdarray`'s axes, in
                 order.
+            dim_rename: `{old: new}` dimension renames this copy is part of, so a CF attribute
+                naming a renamed dimension is rewritten rather than left pointing at a
+                dimension the result no longer has (M4). `None` copies every value verbatim.
 
         Returns:
             gdal.MDArray: The freshly written copy.
@@ -13475,7 +13544,7 @@ class NetCDF(Dataset):
             new_md_array = dst_group.CreateMDArray(
                 var_name, dst_dims, gdal.ExtendedDataType.CreateString()
             )
-            NetCDF._copy_md_array_labels(src_mdarray, new_md_array)
+            NetCDF._copy_md_array_labels(src_mdarray, new_md_array, dim_rename)
             try:
                 new_md_array.Write(src_mdarray.Read())
             except (RuntimeError, TypeError, ValueError):
@@ -13486,7 +13555,7 @@ class NetCDF(Dataset):
                 var_name, dst_dims, src_mdarray.GetDataType()
             )
             NetCDF._copy_md_array_packing(src_mdarray, new_md_array)
-            NetCDF._copy_md_array_labels(src_mdarray, new_md_array)
+            NetCDF._copy_md_array_labels(src_mdarray, new_md_array, dim_rename)
             new_md_array.Write(src_mdarray.ReadAsArray())
         return new_md_array
 

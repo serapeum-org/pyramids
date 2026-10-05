@@ -360,6 +360,74 @@ class TestRebuildKeepsGlobalAttributes:
         assert missing == {}, f"attributes lost or altered on write: {missing}"
 
 
+def _string_attributes(nc, var_name):
+    """The string-valued attributes of one root-level array of `nc`'s store."""
+    array = nc._raster.GetRootGroup().OpenMDArray(var_name)
+    return {
+        attr.GetName(): attr.ReadAsString()
+        for attr in array.GetAttributes()
+        if attr.GetDataType().GetClass() == gdal.GEDTC_STRING
+    }
+
+
+class TestRebuildRewritesCfDimensionReferences:
+    """A CF attribute naming a renamed dimension is rewritten, not copied verbatim (M4)."""
+
+    def test_cell_methods_follows_the_rename(self):
+        """`cell_methods = 'time: mean ...'` becomes `'tt: mean ...'` after `rename_dims`.
+
+        Copied verbatim it named a dimension the result no longer has, so a CF-aware reader
+        resolving it against the renamed file found nothing.
+        """
+        nc = NetCDF.read_file(CF_FIXTURE)
+        before = _string_attributes(nc, "tas")
+        assert before["cell_methods"] == "time: mean (interval: 1 month)", (
+            f"precondition: {before.get('cell_methods')!r}"
+        )
+        out = nc.rename_dims(time="tt")
+        after = _string_attributes(out, "tas")
+        assert after["cell_methods"] == "tt: mean (interval: 1 month)", (
+            f"cell_methods must follow the rename, got {after['cell_methods']!r}"
+        )
+        assert after["cell_method"] == "tt: mean", (
+            f"cell_method must follow it too, got {after['cell_method']!r}"
+        )
+        assert "time" not in (out.dimension_names or []), (
+            "precondition: the store has no `time` left"
+        )
+
+    def test_a_bounds_variable_name_is_not_rewritten(self):
+        """`bounds = 'time_bnds'` is a variable name the rebuild keeps, so it stays as it is.
+
+        Only whole-word matches are rewritten, which is what separates the dimension token in
+        `cell_methods` from a variable whose name merely starts with it.
+        """
+        out = NetCDF.read_file(CF_FIXTURE).rename_dims(time="tt")
+        root = out._raster.GetRootGroup()
+        assert "time_bnds" in (root.GetMDArrayNames() or []), (
+            "precondition: the bounds array is kept under its own name"
+        )
+        assert _string_attributes(out, "tt")["bounds"] == "time_bnds", (
+            f"bounds must still resolve, got {_string_attributes(out, 'tt')['bounds']!r}"
+        )
+
+    def test_an_exchange_rewrites_each_name_once(self):
+        """Exchanging two names rewrites in one pass, so neither substitution undoes the other."""
+        out = NetCDF.read_file(CF_FIXTURE).rename_dims(time="plev", plev="time")
+        assert _string_attributes(out, "tas")["cell_methods"] == (
+            "plev: mean (interval: 1 month)"
+        ), f"got {_string_attributes(out, 'tas')['cell_methods']!r}"
+
+    def test_a_drop_leaves_the_attribute_values_alone(self):
+        """A drop renames nothing, so no attribute value is rewritten."""
+        nc = NetCDF.read_file(CF_FIXTURE)
+        before = _string_attributes(nc, "area")
+        out = nc.drop_dims("time")
+        assert _string_attributes(out, "area") == before, (
+            f"a drop must copy verbatim, got {_string_attributes(out, 'area')}"
+        )
+
+
 class TestRebuildGuards:
     """The rebuild refuses the inputs it cannot honour, and owns no reference to its caller."""
 
@@ -403,9 +471,11 @@ class TestRebuildGuards:
         """
         calls = []
 
-        def _record(dst_group, var_name, src_mdarray, dst_dims):
+        def _record(dst_group, var_name, src_mdarray, dst_dims, dim_rename=None):
             calls.append(var_name)
-            return NetCDF._recreate_md_array(dst_group, var_name, src_mdarray, dst_dims)
+            return NetCDF._recreate_md_array(
+                dst_group, var_name, src_mdarray, dst_dims, dim_rename
+            )
 
         source = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
         src_rg = source.GetRootGroup()
