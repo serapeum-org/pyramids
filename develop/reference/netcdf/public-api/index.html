@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6421,7 +6421,7 @@
 
 
 <h1 id="netcdf-public-api"><a class="toclink" href="#netcdf-public-api"><code>NetCDF</code> — public API</a><a class="headerlink" href="#netcdf-public-api" title="Permanent link">#</a></h1>
-<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 115 in all: 80 methods, 27 properties,
+<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 119 in all: 84 methods, 27 properties,
 7 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
 <code>__len__</code>). <code>concat</code> and <code>merge</code> are counted among the methods: each is callable on the class
 (<code>NetCDF.concat([a, b], dim)</code>) and on a cube (<code>a.concat([b], dim)</code>, which joins the
@@ -6846,6 +6846,18 @@ A variable with no raster plane is the exception — see each member's docstring
 <td><code>weighted()</code></td>
 <td>Weighted statistics over the spatial axes or a band dim — <code>"area"</code>, <code>how</code>.</td>
 </tr>
+<tr>
+<td><code>rename_dims()</code></td>
+<td>Renames band dims — <code>{old: new}</code> / <code>old=new</code>; never a spatial axis.</td>
+</tr>
+<tr>
+<td><code>assign_coords()</code></td>
+<td>Restamps an existing band dim's coordinates — <code>dim=values</code>.</td>
+</tr>
+<tr>
+<td><code>drop_dims()</code></td>
+<td>Drops band dims and the variables along them (container) — <code>errors</code>.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="spatial-operations"><a class="toclink" href="#spatial-operations">Spatial operations</a><a class="headerlink" href="#spatial-operations" title="Permanent link">#</a></h2>
@@ -6899,6 +6911,10 @@ A variable with no raster plane is the exception — see each member's docstring
 <tr>
 <td><code>rename_variable()</code></td>
 <td>Renames a variable in this container.</td>
+</tr>
+<tr>
+<td><code>update()</code></td>
+<td>Adds or replaces this container's variables from another cube, in place.</td>
 </tr>
 <tr>
 <td><code>crop_variable()</code></td>
