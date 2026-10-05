@@ -108,6 +108,20 @@ def _group_attributes(nc, group_name):
     }
 
 
+def _variables_off(nc, dim_name):
+    """The names of `nc`'s variables that do **not** span a dimension called `dim_name`."""
+    survivors = set()
+    for name in nc.variable_names:
+        parts = name.split("/")
+        holder = nc._raster.GetRootGroup()
+        for part in parts[:-1]:
+            holder = holder.OpenGroup(part)
+        axes = {dim.GetName() for dim in holder.OpenMDArray(parts[-1]).GetDimensions()}
+        if dim_name not in axes:
+            survivors.add(name)
+    return survivors
+
+
 class TestRebuildKeepsSubGroups:
     """A hierarchical container keeps every sub-group and every variable in it (C1)."""
 
@@ -161,6 +175,57 @@ class TestRebuildKeepsSubGroups:
         out = nc.rename_dims(time="tt")
         assert _group_attributes(out, "diagnostics") == before, (
             f"sub-group attributes lost: {_group_attributes(out, 'diagnostics')}"
+        )
+
+
+class TestDropDimsTakesTheRebuild:
+    """`drop_dims` has one exit, so neither shape escapes the rebuild (H3, M3)."""
+
+    def test_the_no_survivor_case_declares_no_dropped_dimension(self):
+        """A container whose only variable spans the dropped dimension keeps nothing of it.
+
+        The empty-survivor case fell back to `copy()` plus a `remove_variable` per variable,
+        which is exactly the path that leaves the dimension declared: the result still reported
+        `time` in `dimension_names` and still carried the `time` coordinate array into `to_file`.
+        """
+        nc = _nested_container()
+        out = nc.drop_dims("time")
+        assert out.variable_names == [], (
+            f"both variables span time, got {out.variable_names}"
+        )
+        assert "time" not in (out.dimension_names or []), (
+            f"the dropped dimension must be gone, got {out.dimension_names}"
+        )
+        arrays = out._raster.GetRootGroup().GetMDArrayNames() or []
+        assert "time" not in arrays, f"its coordinate array too, got {sorted(arrays)}"
+
+    def test_a_hierarchical_container_drop_works_and_keeps_the_survivors(self):
+        """`drop_dims` on the grouped fixture drops only what spans the named dimension (M3).
+
+        Both exits used to raise on this file shape: the survivor scan died with
+        `AttributeError: 'LabeledArray' object has no attribute '_band_dim_names'`, and the
+        fallback with `remove_variable() cannot act on '<group>/<var>'`.
+        """
+        nc = NetCDF.read_file(GROUPS_FIXTURE)
+        before = set(nc.variable_names)
+        expected = _variables_off(nc, "recNum")
+        assert expected and expected < before, (
+            f"precondition: some but not all of {len(before)} variables span recNum"
+        )
+        out = nc.drop_dims("recNum")
+        assert set(out.variable_names) == expected, (
+            "survivors must be exactly the variables off recNum; differing: "
+            f"{sorted(set(out.variable_names) ^ expected)}"
+        )
+        assert "recNum" not in (out.dimension_names or []), (
+            f"the dropped dimension must be gone, got {out.dimension_names}"
+        )
+
+    def test_a_hierarchical_container_drop_keeps_the_sub_groups(self):
+        """A sub-group emptied by the drop is still a sub-group of the result."""
+        out = _nested_container().drop_dims("time")
+        assert out.group_names == ["diagnostics"], (
+            f"the sub-group itself must remain, got {out.group_names}"
         )
 
 

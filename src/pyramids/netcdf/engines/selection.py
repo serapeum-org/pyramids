@@ -3330,26 +3330,19 @@ class Selection(_Engine["NetCDF"]):
         drop = {dim for dim in targets if dim in known}
         if not drop:
             return nc.copy()
-        survivors = [
-            variable_name
-            for variable_name in nc.variable_names
-            if not (
-                set(cast("NetCDF", nc.get_variable(variable_name))._band_dim_names)
-                & drop
-            )
-        ]
-        if not survivors:
-            result = nc.copy()
-            # `variable_names` builds a fresh list per call, so this is already a snapshot the
-            # removals below cannot disturb.
-            for variable_name in result.variable_names:
-                result.remove_variable(variable_name)
-            return result
-        # Rebuild into a fresh root group declaring only the surviving dimensions, so the
-        # dropped dimension (and its coordinate array) is gone rather than orphaned the way
-        # `remove_variable` leaves it -- matching the method name and xarray's `drop_dims`
-        # (M2). The store-level copy keeps each survivor's exact dtype, CF packing and no-data,
-        # which a `merge` rebuild silently unpacked (int16/scale -> float64, M1).
+        # One exit, one mechanism: rebuild into a fresh store declaring only the dimensions the
+        # surviving arrays actually span, so the dropped dimension (and its coordinate array) is
+        # gone rather than orphaned the way `remove_variable` leaves it -- matching the method
+        # name and xarray's `drop_dims` (M2). The store-level copy keeps each survivor's exact
+        # dtype, CF packing and no-data, which a `merge` rebuild silently unpacked (int16/scale
+        # -> float64, M1).
+        #
+        # There used to be a second path for the case where nothing survives -- `copy()` plus a
+        # `remove_variable` per variable -- which reintroduced exactly the orphan this method
+        # exists to avoid (H3) and refused a group-qualified name outright, while the survivor
+        # scan itself crashed on a hierarchical container because `get_variable` hands back a
+        # `LabeledArray` for a 1-D array (M3). The rebuild handles both: it needs no survivor
+        # list, and a zero-variable result is just a store with no arrays to copy.
         return nc._rebuilt_container(drop=drop)
 
     def update(self, other: Any) -> None:
