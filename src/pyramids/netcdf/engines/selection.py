@@ -30,6 +30,7 @@ import pandas as pd
 from shapely import box, contains_xy
 
 from pyramids.base._axes import X_AXIS_NAMES, Y_AXIS_NAMES
+from pyramids.base._errors import AlignmentError
 from pyramids.base._utils import carry_band_packing
 from pyramids.base.crs import crs_equal, crs_spec, sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
@@ -3273,6 +3274,117 @@ class Selection(_Engine["NetCDF"]):
             return names, values_map
 
         return _relabel_per_variable(nc, relabel, caller="assign_coords")
+
+    def drop_dims(
+        self, drop_dims: str | Sequence[str], *, errors: str = "raise"
+    ) -> NetCDF:
+        """Drop one or more band dimensions and every variable that spans them.
+
+        xarray's `drop_dims`: a dimension cannot be dropped on its own — the variables defined
+        along it go with it. This is a **container** operation (a single variable *is* its bands,
+        so dropping a dimension it spans would leave nothing), and it does not mutate the receiver:
+        it drops from a `copy`, through `remove_variable`, and returns the result.
+
+        Args:
+            drop_dims: A band-dimension name, or a sequence of names, to drop.
+            errors: `"raise"` (default) to refuse an unknown dimension, `"ignore"` to skip it.
+
+        Returns:
+            NetCDF: A new container without those dimensions or the variables that spanned them.
+
+        Raises:
+            ValueError: `errors` is not `"raise"`/`"ignore"`; the receiver is a single variable;
+                or (with `errors="raise"`) a named dimension is not a dimension of the container.
+
+        Examples:
+            - Drop `time`, removing the variable defined along it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(12.0).reshape(3, 2, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="v",
+              ...     dims=ExtraDimensions(name="time", values=[0, 6, 12]),
+              ... )
+              >>> "v" in cube.drop_dims("time").variable_names
+              False
+
+              ```
+        """
+        nc = self._ds
+        if errors not in ("raise", "ignore"):
+            raise ValueError(
+                f"drop_dims(): errors must be 'raise' or 'ignore', got {errors!r}."
+            )
+        targets = [drop_dims] if isinstance(drop_dims, str) else list(drop_dims)
+        if _reduces_as_a_variable(nc):
+            raise ValueError(
+                "drop_dims() removes whole variables, and a single variable is its own bands. "
+                "Call it on the container, or drop this variable with remove_variable()."
+            )
+        known = set(_band_dims_of(nc))
+        if errors == "raise":
+            for dim in targets:
+                if dim not in known:
+                    raise ValueError(
+                        f"drop_dims(): {dim!r} is not a dimension of this container; its "
+                        f"dimensions are {sorted(known)}."
+                    )
+        drop = {dim for dim in targets if dim in known}
+        result = nc.copy()
+        for variable_name in list(result.variable_names):
+            var_dims = set(cast("NetCDF", result.get_variable(variable_name))._band_dim_names)
+            if var_dims & drop:
+                result.remove_variable(variable_name)
+        return result
+
+    def update(self, other: Any) -> None:
+        """Add or replace variables from another cube, in place — xarray's `Dataset.update`.
+
+        A bulk `set_variable`: every variable in `other` is written into this container, replacing
+        one of the same name and adding the rest. The blessed mutation path — the read-through
+        variables mapping refuses item assignment and points here. Mutates the receiver and returns
+        `None`, as xarray does. Grids must match (no resampling), consistent with `merge`/`concat`.
+
+        Args:
+            other: A `NetCDF` container, or a `{name: variable}` mapping, whose variables share this
+                container's grid.
+
+        Raises:
+            ValueError: The receiver is a single variable (it has no variable mapping to update).
+            AlignmentError: A variable in `other` is on a different grid.
+        """
+        nc = self._ds
+        if _reduces_as_a_variable(nc):
+            raise ValueError(
+                "update() merges variables into a container, and a single variable has no "
+                "variable mapping to update. Use set_variable, or merge, instead."
+            )
+        if isinstance(other, Mapping):
+            items = list(other.items())
+        else:
+            items = [
+                (name, cast("NetCDF", other.get_variable(name)))
+                for name in other.variable_names
+            ]
+        # Compare grids variable-to-variable: a container's own raster is a placeholder, so the
+        # reference is one of its variables (or, for an empty container, the first donor).
+        reference: NetCDF | None = (
+            cast("NetCDF", nc.get_variable(nc.variable_names[0]))
+            if nc.variable_names
+            else None
+        )
+        for name, variable in items:
+            if reference is None:
+                reference = variable
+            if not _same_spatial_grid(reference, variable):
+                raise AlignmentError(
+                    f"update(): variable {name!r} is on a different grid than this container; "
+                    f"align it first (resample / to_crs / align) — update does not resample."
+                )
+            nc.set_variable(name, variable)
 
     def interp(self, method: str = "linear", **coords: Any) -> NetCDF:
         """Interpolate a band dimension onto new coordinate values.

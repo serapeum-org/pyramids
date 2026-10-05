@@ -9179,6 +9179,14 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.assign_coords <pyramids.netcdf.engines.selection.Selection.assign_coords>`."""
         return self.selection.assign_coords(coords, **coords_kwargs)
 
+    def drop_dims(self, drop_dims: str | Sequence[str], *, errors: str = "raise") -> NetCDF:
+        """Facade — :meth:`Selection.drop_dims <pyramids.netcdf.engines.selection.Selection.drop_dims>`."""
+        return self.selection.drop_dims(drop_dims, errors=errors)
+
+    def update(self, other: Any) -> None:  # type: ignore[override]
+        """Facade — :meth:`Selection.update <pyramids.netcdf.engines.selection.Selection.update>`."""
+        self.selection.update(other)
+
     @classmethod
     def read_file(  # type: ignore[override]
         cls,
