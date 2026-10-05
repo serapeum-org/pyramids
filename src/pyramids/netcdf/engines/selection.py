@@ -3355,6 +3355,25 @@ class Selection(_Engine["NetCDF"]):
         Raises:
             ValueError: The receiver is a single variable (it has no variable mapping to update).
             AlignmentError: A variable in `other` is on a different grid.
+
+        Examples:
+            - Fold another cube's variable into this container, on the same grid:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> dims = ExtraDimensions(name="time", values=[0.0, 1.0])
+              >>> a = NetCDF.from_array(np.zeros((2, 1, 1)), geo_ref=geo, variable_name="a", dims=dims)
+              >>> b = NetCDF.from_array(np.ones((2, 1, 1)), geo_ref=geo, variable_name="b", dims=dims)
+              >>> a.update(b)
+              >>> sorted(a.variable_names)
+              ['a', 'b']
+
+              ```
+
+        See Also:
+            NetCDF.merge: Combine cubes into a new container rather than mutating this one.
         """
         nc = self._ds
         if _reduces_as_a_variable(nc):
