@@ -98,6 +98,161 @@ def _ancestor_coordinate_container():
     return Container(store)
 
 
+def _group_attributes(nc, group_name):
+    """The attributes of one sub-group of `nc`'s store, as a `{name: value}` dict of strings."""
+    group = nc._raster.GetRootGroup().OpenGroup(group_name)
+    return {
+        attr.GetName(): attr.ReadAsString()
+        for attr in group.GetAttributes()
+        if attr.GetDataType().GetClass() == gdal.GEDTC_STRING
+    }
+
+
+class TestRebuildKeepsSubGroups:
+    """A hierarchical container keeps every sub-group and every variable in it (C1)."""
+
+    def test_a_hierarchical_container_rename_keeps_every_variable(self):
+        """`rename_dims` on the grouped fixture keeps all 29 variables and all 7 sub-groups.
+
+        The rebuild read the working group's arrays and nothing else, so this file came back
+        holding one variable and no sub-groups at all — silent, irreversible loss on a
+        documented operation.
+        """
+        nc = NetCDF.read_file(GROUPS_FIXTURE)
+        before_variables = sorted(nc.variable_names)
+        before_groups = sorted(nc.group_names)
+        assert len(before_variables) == 29, (
+            f"precondition: 29 variables, got {len(before_variables)}"
+        )
+        out = nc.rename_dims({"recNum": "rec"})
+        assert sorted(out.variable_names) == before_variables, (
+            f"{len(out.variable_names)} of {len(before_variables)} variables survived"
+        )
+        assert sorted(out.group_names) == before_groups, (
+            f"sub-groups lost: {sorted(out.group_names)} != {before_groups}"
+        )
+        assert "rec" in (out.dimension_names or []), f"got {out.dimension_names}"
+        assert "recNum" not in (out.dimension_names or []), "the old dim must be gone"
+
+    def test_a_nested_cube_keeps_its_sub_group_variable(self):
+        """A root `t2m` plus a `diagnostics/flag` come back as both, with cells intact."""
+        nc = _nested_container()
+        assert sorted(nc.variable_names) == ["diagnostics/flag", "t2m"], (
+            f"precondition: {sorted(nc.variable_names)}"
+        )
+        out = nc.rename_dims(time="tt")
+        assert sorted(out.variable_names) == ["diagnostics/flag", "t2m"], (
+            f"the sub-group variable must survive, got {sorted(out.variable_names)}"
+        )
+        carried = (
+            out._raster.GetRootGroup().OpenGroup("diagnostics").OpenMDArray("flag")
+        )
+        assert_allclose(carried.ReadAsArray(), np.ones((2, 2, 2)))
+        axes = [dim.GetName() for dim in carried.GetDimensions()]
+        assert axes[0] == "tt", (
+            f"the sub-group array must span the renamed axis, got {axes}"
+        )
+
+    def test_a_sub_group_keeps_its_own_attributes(self):
+        """A sub-group's attributes are copied along with the group (H2, below the root)."""
+        nc = _nested_container()
+        before = _group_attributes(nc, "diagnostics")
+        assert before == {"note": "quality flags"}, f"precondition: {before}"
+        out = nc.rename_dims(time="tt")
+        assert _group_attributes(out, "diagnostics") == before, (
+            f"sub-group attributes lost: {_group_attributes(out, 'diagnostics')}"
+        )
+
+
+class TestRebuildOfAGroupView:
+    """A `get_group(...)` rebuild keeps its ancestors' coordinates and its own identity."""
+
+    def test_a_group_view_rename_keeps_the_geotransform(self):
+        """The ancestor group's `y`/`x` coordinate arrays are carried, so the grid is kept (H1).
+
+        Without them the geotransform was silently replaced by a GDAL default — origin and
+        extent of a 512-row raster — while `epsg` still read 4326, so the result looked sound.
+        """
+        view = _ancestor_coordinate_container().get_group("g")
+        before = view.geotransform
+        assert before == (-0.5, 1.0, 0, 1.5, 0, -1.0), f"precondition: {before}"
+        out = view.rename_dims({"recNum": "rec"})
+        assert out.geotransform == before, (
+            f"geotransform must be identical, got {out.geotransform}"
+        )
+        assert out.epsg == view.epsg, f"epsg must be identical, got {out.epsg}"
+
+    def test_a_group_view_rename_keeps_an_untouched_dimensions_stamps(self):
+        """A band dimension the caller never named keeps its coordinate values (H1).
+
+        `nrows` is declared in the ancestor group, so its coordinate array was dropped and the
+        variable spanning it came back with `None` for its stamps.
+        """
+        view = _ancestor_coordinate_container().get_group("g")
+        before = view.get_variable("other")._band_dim_values_map["nrows"]
+        assert_allclose(np.ravel(before), [10.0, 20.0, 30.0])
+        out = view.rename_dims({"recNum": "rec"})
+        after = out.get_variable("other")._band_dim_values_map["nrows"]
+        assert after is not None, "the untouched dimension lost its stamps"
+        assert_allclose(np.ravel(after), np.ravel(before))
+
+    def test_a_group_view_rename_returns_a_group_view(self):
+        """The rebuild of a view is the equivalent view, not a promoted root container (L6)."""
+        view = _ancestor_coordinate_container().get_group("g")
+        out = view.rename_dims({"recNum": "rec"})
+        assert out._group_path == "g", f"group identity lost, got {out._group_path!r}"
+        assert out._raster.GetRootGroup().GetGroupNames() == ["g"], (
+            "the rebuilt store must hold the group, not its contents at the root"
+        )
+        assert sorted(out.variable_names) == sorted(view.variable_names), (
+            f"the view's inventory must be unchanged, got {sorted(out.variable_names)}"
+        )
+
+
+class TestRebuildDeclaresNoOrphanDimension:
+    """The result declares only the dimensions its surviving arrays actually span (M1)."""
+
+    def test_a_drop_leaves_no_dimension_without_a_referencing_array(self):
+        """After `drop_dims('time')` on the CF fixture, `plev` is gone with its coordinate.
+
+        Only `ua` spanned `plev`, and `ua` spans `time` too, so nothing left references the
+        pressure axis — yet it used to be declared, and its coordinate array written, because
+        every non-dropped source dimension was declared up front.
+        """
+        nc = NetCDF.read_file(CF_FIXTURE)
+        assert "plev" in (nc.dimension_names or []), "precondition: plev is declared"
+        out = nc.drop_dims("time")
+        declared = set(out.dimension_names or [])
+        assert "time" not in declared, (
+            f"the dropped dimension must be gone, got {declared}"
+        )
+        assert "plev" not in declared, (
+            f"plev is spanned by nothing that survived, got {sorted(declared)}"
+        )
+        arrays = set(out._raster.GetRootGroup().GetMDArrayNames() or [])
+        assert "plev" not in arrays, (
+            f"the orphan's coordinate array too, got {sorted(arrays)}"
+        )
+        spanned = {
+            dim.GetName()
+            for name in arrays
+            for dim in out._raster.GetRootGroup().OpenMDArray(name).GetDimensions()
+        }
+        assert declared <= spanned, (
+            f"every declared dimension must be spanned: {sorted(declared - spanned)}"
+        )
+
+    def test_a_rename_still_keeps_every_referenced_dimension(self):
+        """On-demand creation must not lose an axis a survivor does use — the inventory holds."""
+        nc = NetCDF.read_file(CF_FIXTURE)
+        before = set(nc.dimension_names or [])
+        out = nc.rename_dims(time="tt")
+        after = set(out.dimension_names or [])
+        assert after == (before - {"time"}) | {"tt"}, (
+            f"only `time` may change name, got {sorted(after)} from {sorted(before)}"
+        )
+
+
 class TestRebuildKeepsGlobalAttributes:
     """A rename or a drop carries the group's attributes across (H2)."""
 
@@ -194,10 +349,14 @@ class TestRebuildGuards:
         coord = src_rg.CreateMDArray("time", [dim], f64)
         coord.Write(np.array([0.0, 1.0]))
         dim.SetIndexingVariable(coord)
+        data = src_rg.CreateMDArray("v", [dim], f64)
+        data.Write(np.array([2.0, 3.0]))
         destination = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
         remap = _DimensionRemap(
             destination.GetRootGroup(), {"time": "tt"}, set(), _record
         )
-        remap.declare([dim])
-        remap.carry_coordinates(src_rg, [dim], ["time"])
-        assert calls == ["tt"], f"the injected copy must be the one used, got {calls}"
+        remap.bind(src_rg, destination.GetRootGroup())
+        remap.recreate(destination.GetRootGroup(), "v", data)
+        assert calls == ["tt", "v"], (
+            f"the injected copy must be the one used, got {calls}"
+        )

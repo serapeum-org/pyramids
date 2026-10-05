@@ -2201,12 +2201,18 @@ class _joins_cubes:  # noqa: N801
 
 
 class _DimensionRemap:
-    """The destination dimensions a container rebuild binds its arrays to.
+    """The destination groups and dimensions a container rebuild binds its arrays to.
 
     Owns the clump a store rebuild would otherwise thread through every call — the destination
-    group, the `{old: new}` renames, the dropped names and the dimensions resolved so far — and the
-    behaviour over it: declaring each surviving source dimension under its new name, resolving an
-    array's axis, and carrying each dimension's coordinate array across.
+    store, the `{old: new}` renames, the dropped names, the source groups paired with their
+    destination twins and the dimensions resolved so far — and the behaviour over it: binding a
+    group, resolving an array's axes, and carrying each dimension's coordinate array across.
+
+    A dimension is keyed by its **full store path**, not its bare name, because a netCDF-4 store
+    may declare same-named dimensions of different lengths in different groups (the suite's
+    grouped fixture does: a 74-long `/recNum` at the root and a 76-long `air_press` inside one
+    flight group). Each one is created in the destination twin of the group that declares it, so
+    a sub-group array spanning a dimension declared in an ancestor keeps referencing it there.
 
     Used by :meth:`NetCDF._rebuilt_container`.
     """
@@ -2218,27 +2224,112 @@ class _DimensionRemap:
         drop: set[str],
         recreate: Callable[..., gdal.MDArray],
     ) -> None:
-        """Bind the remap to one destination group.
+        """Bind the remap to one destination store.
 
         Args:
-            dst_group: The fresh root group the rebuild creates dimensions in.
+            dst_group: The fresh root group of the destination store. A dimension whose
+                declaring group is not bound falls back to it.
             rename: `{old: new}` dimension renames; a name not listed is carried unchanged.
             drop: Dimension names that must not be created.
             recreate: The packing-preserving array copy to carry a coordinate array across,
                 injected rather than imported so this value object does not depend on the class
                 it serves (:meth:`NetCDF._recreate_md_array` is what the rebuild passes).
         """
-        self._dst = dst_group
+        self._dst_root = dst_group
         self._rename = rename
         self._drop = drop
         self._recreate = recreate
         self._dims: dict[str, gdal.Dimension] = {}
+        self._src_groups: dict[str, gdal.Group] = {}
+        self._dst_groups: dict[str, gdal.Group] = {}
+
+    @staticmethod
+    def _declaring_path(full_name: str) -> str:
+        """The `/`-rooted path of the group a full store path sits in.
+
+        Args:
+            full_name: A full store path, as `GetFullName()` reports it (`/time`, `/g/recNum`).
+
+        Returns:
+            str: The declaring group's path (`/` for a root-level name).
+        """
+        head = full_name.rsplit("/", 1)[0]
+        return head or "/"
+
+    def bind(self, src_group: gdal.Group, dst_group: gdal.Group) -> None:
+        """Pair a source group with the destination group standing in for it.
+
+        Every group the rebuild touches — the working group, each of its sub-groups, and each
+        ancestor above a `get_group` view — is bound, so a dimension and its coordinate array
+        are recreated in the same place they were declared.
+
+        Args:
+            src_group: The source `gdal.Group`.
+            dst_group: Its freshly created destination twin.
+        """
+        self._src_groups[src_group.GetFullName()] = src_group
+        self._dst_groups[src_group.GetFullName()] = dst_group
+
+    def source_coordinate(self, dim: gdal.Dimension) -> gdal.MDArray | None:
+        """The source array that stamps `dim`, or `None` when it has none.
+
+        GDAL's own answer (`GetIndexingVariable`) comes first: it is the only one that finds a
+        coordinate array named differently from its dimension (the grouped fixture indexes
+        `/recNum` by `/UTC_time`). A store that declares no indexing variable falls back to the
+        CF convention of a 1-D array named after the dimension, in the dimension's own group.
+
+        Args:
+            dim: The source dimension to find the coordinate array of.
+
+        Returns:
+            gdal.MDArray | None: The coordinate array, or `None`.
+        """
+        coord = dim.GetIndexingVariable()
+        if coord is None:
+            src_group = self._src_groups.get(self._declaring_path(dim.GetFullName()))
+            name = dim.GetName()
+            if src_group is not None and name in (src_group.GetMDArrayNames() or []):
+                candidate = src_group.OpenMDArray(name)
+                axes = [axis.GetFullName() for axis in candidate.GetDimensions()]
+                if axes == [dim.GetFullName()]:
+                    coord = candidate
+        return coord
+
+    def coordinate_paths(self, src_groups: Iterable[gdal.Group]) -> set[str]:
+        """The full store paths of every coordinate array the given groups' arrays reach.
+
+        The rebuild creates a coordinate array only through :meth:`_created`, on demand, so the
+        array walk has to know which names *not* to copy as data. Dimensions are collected both
+        from each group's own list and from its arrays' axes, so an ancestor group's axis — which
+        the working group does not declare — is covered too.
+
+        Args:
+            src_groups: The source groups whose arrays the rebuild will walk.
+
+        Returns:
+            set[str]: Full store paths of the coordinate arrays.
+        """
+        paths = set()
+        for src_group in src_groups:
+            dims = list(src_group.GetDimensions() or [])
+            for array_name in src_group.GetMDArrayNames() or []:
+                dims.extend(src_group.OpenMDArray(array_name).GetDimensions())
+            for dim in dims:
+                coord = self.source_coordinate(dim)
+                if coord is not None:
+                    paths.add(coord.GetFullName())
+        return paths
 
     def _created(self, dim: gdal.Dimension) -> gdal.Dimension:
         """The destination twin of `dim`, created under its new name on first sight.
 
+        Creation is on demand — only a dimension some surviving array actually spans is ever
+        born, which is what keeps a `drop` from leaving an axis nothing references declared in
+        the result (M1) — and it is the one place a dimension's coordinate array is carried
+        across, so a coordinate follows its dimension or neither appears.
+
         Args:
-            dim: A source dimension, from the group's own list or from an array's axes.
+            dim: A source dimension, taken from an array's axes.
 
         Returns:
             gdal.Dimension: The destination dimension bound to the (possibly renamed) name.
@@ -2254,32 +2345,53 @@ class _DimensionRemap:
                 f"_DimensionRemap: {name!r} is being dropped, so it has no destination "
                 "dimension; the rebuild must skip every array that spans it."
             )
-        if name not in self._dims:
-            self._dims[name] = self._dst.CreateDimension(
+        key = dim.GetFullName()
+        if key not in self._dims:
+            host = self._dst_groups.get(self._declaring_path(key), self._dst_root)
+            self._dims[key] = host.CreateDimension(
                 self._rename.get(name, name),
                 dim.GetType(),
                 dim.GetDirection(),
                 dim.GetSize(),
             )
-        return self._dims[name]
+            self._carry_coordinate(dim, host)
+        return self._dims[key]
 
-    def declare(self, src_dims: list) -> None:
-        """Create a destination dimension for every surviving source dimension.
+    def _carry_coordinate(self, dim: gdal.Dimension, host: gdal.Group) -> None:
+        """Recreate `dim`'s coordinate array in `host` and attach it to the new dimension.
+
+        This is what keeps a renamed axis carrying its *own* stamps and `units`, rather than
+        inheriting whatever the recycled name was associated with in the store (M3), and what
+        keeps a `get_group` view's inherited spatial axes — and so its geotransform — when the
+        coordinate arrays live in an ancestor group (H1). The array is renamed only when it is
+        named after its dimension; a differently named one keeps its own name.
 
         Args:
-            src_dims: The source group's own dimensions.
+            dim: The source dimension whose destination twin has just been created.
+            host: The destination group the twin was created in.
         """
-        for dim in src_dims:
-            if dim.GetName() not in self._drop:
-                self._created(dim)
+        src_coord = self.source_coordinate(dim)
+        if src_coord is not None and not (
+            {axis.GetName() for axis in src_coord.GetDimensions()} & self._drop
+        ):
+            name = dim.GetName()
+            target = (
+                self._rename.get(name, name)
+                if src_coord.GetName() == name
+                else src_coord.GetName()
+            )
+            self._dims[dim.GetFullName()].SetIndexingVariable(
+                self.recreate(host, target, src_coord)
+            )
 
     def axes(self, src_array: gdal.MDArray) -> list:
         """The destination dimensions for every axis of `src_array`.
 
-        An array need not span a dimension the working group declares: in a `get_group` view the
-        arrays reference dimensions declared in an ancestor group, which `GetDimensions()` does not
-        list. Those are resolved from the array's own axis, which carries name/type/direction/size
-        — without it the rebuild died with a bare `KeyError` on the axis name.
+        An array need not span a dimension its own group declares: in a `get_group` view, and in
+        a netCDF-4 store that shares its axes from the root, the arrays reference dimensions
+        declared in an ancestor group, which `GetDimensions()` does not list. Those are resolved
+        from the array's own axis, which carries path/name/type/direction/size — without it the
+        rebuild died with a bare `KeyError` on the axis name.
 
         Args:
             src_array: The source array being recreated.
@@ -2289,32 +2401,20 @@ class _DimensionRemap:
         """
         return [self._created(axis) for axis in src_array.GetDimensions()]
 
-    def carry_coordinates(
-        self, src_group: gdal.Group, src_dims: list, array_names: list[str]
-    ) -> None:
-        """Recreate each surviving dimension's coordinate array under its new name and attach it.
-
-        This is what keeps a renamed axis carrying its *own* stamps and `units`, rather than
-        inheriting whatever the recycled name was associated with in the store (M3).
+    def recreate(
+        self, dst_group: gdal.Group, var_name: str, src_array: gdal.MDArray
+    ) -> gdal.MDArray:
+        """Copy `src_array` into `dst_group`, re-bound onto its destination axes.
 
         Args:
-            src_group: The source group to read the coordinate arrays from.
-            src_dims: The source group's own dimensions.
-            array_names: The arrays the source group holds, so a dimension without a coordinate
-                array is skipped.
+            dst_group: The destination group to create the copy in.
+            var_name: The name to create it under.
+            src_array: The source array to copy.
+
+        Returns:
+            gdal.MDArray: The freshly written copy.
         """
-        for dim in src_dims:
-            name = dim.GetName()
-            if name in self._drop or name not in array_names:
-                continue
-            src_coord = src_group.OpenMDArray(name)
-            coord = self._recreate(
-                self._dst,
-                self._rename.get(name, name),
-                src_coord,
-                self.axes(src_coord),
-            )
-            self._dims[name].SetIndexingVariable(coord)
+        return self._recreate(dst_group, var_name, src_array, self.axes(src_array))
 
 
 class NetCDF(Dataset):
@@ -13390,27 +13490,119 @@ class NetCDF(Dataset):
             new_md_array.Write(src_mdarray.ReadAsArray())
         return new_md_array
 
+    @staticmethod
+    def _bound_ancestor_chain(
+        src_root: gdal.Group,
+        dst_root: gdal.Group,
+        group_path: str | None,
+        remap: _DimensionRemap,
+    ) -> tuple[gdal.Group, gdal.Group]:
+        """Recreate the groups above the working group and bind each to its twin.
+
+        A `get_group(...)` view's arrays reference dimensions — and their coordinate arrays —
+        declared in an ancestor group. Recreating the chain gives those a destination group to
+        be born in, which is what keeps the view's geotransform and its untouched axes' stamps
+        (H1), and gives the rebuilt store the same shape the view came from so the result can be
+        handed back as the equivalent view rather than a root container (L6).
+
+        Args:
+            src_root: The source store's root group.
+            dst_root: The destination store's root group.
+            group_path: The `/`-joined path of the working group, or `None` at the root.
+            remap: The remap to bind each pair into.
+
+        Returns:
+            tuple[gdal.Group, gdal.Group]: The working group and its destination twin.
+        """
+        remap.bind(src_root, dst_root)
+        NetCDF._copy_md_array_attributes(src_root, dst_root)
+        src_group, dst_group = src_root, dst_root
+        for part in group_path.split("/") if group_path else []:
+            src_group = src_group.OpenGroup(part)
+            dst_group = dst_group.CreateGroup(part)
+            remap.bind(src_group, dst_group)
+            NetCDF._copy_md_array_attributes(src_group, dst_group)
+        return src_group, dst_group
+
+    @staticmethod
+    def _bound_sub_tree(
+        src_group: gdal.Group,
+        dst_group: gdal.Group,
+        remap: _DimensionRemap,
+        depth: int = 0,
+    ) -> list[tuple[gdal.Group, gdal.Group]]:
+        """The working group and every sub-group beneath it, each bound to a fresh twin.
+
+        The rebuild used to read the working group's own arrays and nothing else, so a
+        hierarchical container came back holding one variable out of twenty-nine with no warning
+        and no error (C1). Each sub-group is recreated with its attributes, and its arrays are
+        rebound through the same remap — which resolves a dimension declared in an ancestor from
+        the array's own axis.
+
+        Args:
+            src_group: The source group, already bound to `dst_group`.
+            dst_group: Its destination twin.
+            remap: The remap to bind each created pair into.
+            depth: Recursion depth, used by the recursion.
+
+        Returns:
+            list[tuple[gdal.Group, gdal.Group]]: `(source, destination)` pairs, the given group
+                first, then its sub-groups depth-first.
+
+        Warns:
+            UserWarning: Nesting deeper than :data:`_MAX_GROUP_DEPTH` is not recreated, so the
+                variables under those groups are absent from the result.
+        """
+        scope = [(src_group, dst_group)]
+        sub_group_names = src_group.GetGroupNames() or []
+        if depth < _MAX_GROUP_DEPTH:
+            for group_name in sub_group_names:
+                src_sub = src_group.OpenGroup(group_name)
+                if src_sub is not None:
+                    dst_sub = dst_group.CreateGroup(group_name)
+                    remap.bind(src_sub, dst_sub)
+                    NetCDF._copy_md_array_attributes(src_sub, dst_sub)
+                    scope.extend(
+                        NetCDF._bound_sub_tree(src_sub, dst_sub, remap, depth + 1)
+                    )
+        elif sub_group_names:
+            skipped = ", ".join(sub_group_names)
+            warnings.warn(
+                f"Group nesting deeper than {_MAX_GROUP_DEPTH} is not rebuilt: the variables "
+                f"under {skipped} are absent from the result of this rename/drop.",
+                UserWarning,
+                stacklevel=_caller_stacklevel(),
+            )
+        return scope
+
     def _rebuilt_container(
         self,
         *,
         rename: Mapping[str, str] | None = None,
         drop: Iterable[str] | None = None,
     ) -> NetCDF:
-        """Rebuild this container into a fresh root group with its axes renamed or pruned.
+        """Rebuild this container into a fresh store with its axes renamed or pruned.
 
         The store-level engine behind the container paths of :meth:`rename_dims` and
-        :meth:`drop_dims`. Every array — data variable, coordinate axis and CF bounds — is
-        recreated in a brand-new in-memory root group by a packing-preserving copy
-        (:meth:`_recreate_md_array`) bound to a transformed dimension set:
+        :meth:`drop_dims`. Every array — data variable, coordinate axis and CF bounds — in the
+        working group **and in every sub-group beneath it** is recreated in a brand-new
+        in-memory store by a packing-preserving copy (:meth:`_recreate_md_array`) bound to a
+        transformed dimension set, and every group's attributes come across with it:
 
         * `rename` re-labels a dimension in place — the old dimension and its coordinate array
           are gone from the result (no orphan GDAL would otherwise leave behind, M2), the
           coordinate axis carries its own `units` onto the new name (so a non-time axis is
           never tagged with CF time units, M3), and the variable inventory is unchanged because
           every array, bounds included, is carried onto the renamed axis.
-        * `drop` omits the named dimensions, their coordinate arrays and every variable that
-          spans them, keeping each survivor's exact dtype / packing / no-data (a `merge`
-          rebuild would read and unpack them, M1).
+        * `drop` omits the named dimensions, their coordinate arrays and every array that spans
+          them, keeping each survivor's exact dtype / packing / no-data (a `merge` rebuild would
+          read and unpack them, M1).
+
+        Dimensions are created **on demand**, from the axes of the arrays that survive, so the
+        result declares no dimension nothing in it references (M1). On a `get_group(...)` view
+        the ancestor chain is recreated too, so the view's inherited spatial axes keep their
+        coordinate arrays — and the result is handed back as the equivalent group view rather
+        than a root container.
 
         A rename and a drop are not combined in one call; passing both is refused.
 
@@ -13419,7 +13611,8 @@ class NetCDF(Dataset):
             drop: Dimension names to remove, with every array declared along them.
 
         Returns:
-            NetCDF: A fresh root `Container` with the transformed axes.
+            NetCDF: A fresh `Container` with the transformed axes, or — when this container is
+                itself a `get_group(...)` view — the equivalent view onto the rebuilt store.
 
         Raises:
             ValueError: Both `rename` and `drop` were passed. The two transforms are applied by
@@ -13437,35 +13630,31 @@ class NetCDF(Dataset):
         # `CreateCopy` this used to take bought nothing -- it only doubled peak memory for an
         # operation that moves no cells (`rename`) or strictly reduces (`drop`), and made
         # `drop_dims` materialize the very arrays it was about to discard (M5).
-        src_rg = self._raster.GetRootGroup()
-        if self._group_path:
-            for part in self._group_path.split("/"):
-                src_rg = src_rg.OpenGroup(part)
         dst_ds = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
-        dst_rg = dst_ds.GetRootGroup()
-        # The group's attributes are this container's `global_attributes` -- `Conventions`,
-        # `title`, `institution`, the whole `history` provenance chain. A fresh destination
-        # group starts with none, so without this an effective rename or drop wiped all of
-        # them while a no-op one kept them, and the loss was baked in by `to_file` (H2).
-        # `_copy_md_array_attributes` works on anything with `GetAttributes()` /
-        # `CreateAttribute`, which is why `_manual_netcdf_copy` already uses it on groups.
-        NetCDF._copy_md_array_attributes(src_rg, dst_rg)
-        src_dims = src_rg.GetDimensions() or []
-        src_dim_names = {dim.GetName() for dim in src_dims}
-        array_names = list(src_rg.GetMDArrayNames() or [])
         remap = _DimensionRemap(
-            dst_rg, dict(rename or {}), drop, NetCDF._recreate_md_array
+            dst_ds.GetRootGroup(), dict(rename or {}), drop, NetCDF._recreate_md_array
         )
-        remap.declare(src_dims)
-        remap.carry_coordinates(src_rg, src_dims, array_names)
-        for array_name in array_names:
-            if array_name in src_dim_names:
-                continue
-            src_arr = src_rg.OpenMDArray(array_name)
-            if {axis.GetName() for axis in src_arr.GetDimensions()} & drop:
-                continue
-            NetCDF._recreate_md_array(dst_rg, array_name, src_arr, remap.axes(src_arr))
-        return Container(dst_ds)
+        src_group, dst_group = NetCDF._bound_ancestor_chain(
+            self._raster.GetRootGroup(),
+            dst_ds.GetRootGroup(),
+            self._group_path,
+            remap,
+        )
+        scope = NetCDF._bound_sub_tree(src_group, dst_group, remap)
+        # A coordinate array is created by the remap, when and only when its dimension is, so
+        # the walk must not copy one as data as well -- and must not copy one whose dimension
+        # never gets created at all.
+        coordinates = remap.coordinate_paths([pair[0] for pair in scope])
+        for src_sub, dst_sub in scope:
+            for array_name in src_sub.GetMDArrayNames() or []:
+                src_arr = src_sub.OpenMDArray(array_name)
+                spans_dropped = {
+                    axis.GetName() for axis in src_arr.GetDimensions()
+                } & drop
+                if not (spans_dropped or src_arr.GetFullName() in coordinates):
+                    remap.recreate(dst_sub, array_name, src_arr)
+        rebuilt = Container(dst_ds)
+        return rebuilt if not self._group_path else rebuilt.get_group(self._group_path)
 
     @staticmethod
     def _get_or_create_dimension(
