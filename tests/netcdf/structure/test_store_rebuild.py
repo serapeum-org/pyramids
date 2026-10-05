@@ -98,6 +98,48 @@ def _ancestor_coordinate_container():
     return Container(store)
 
 
+class TestRebuildKeepsGlobalAttributes:
+    """A rename or a drop carries the group's attributes across (H2)."""
+
+    def test_a_container_rename_keeps_every_global_attribute(self):
+        """`rename_dims` keeps all 18 global attributes of the CF fixture, not none of them.
+
+        `global_attributes` is a documented public member; before this the rebuild returned a
+        store with zero attributes, so whether `Conventions` / `title` / `history` survived
+        depended on whether the mapping happened to be a no-op.
+        """
+        nc = NetCDF.read_file(CF_FIXTURE)
+        before = nc.global_attributes
+        assert len(before) == 18, (
+            f"precondition: 18 global attributes, got {len(before)}"
+        )
+        out = nc.rename_dims(time="tt")
+        assert out.global_attributes == before, (
+            f"global attributes must be carried, got {out.global_attributes}"
+        )
+
+    def test_a_container_drop_keeps_every_global_attribute(self):
+        """`drop_dims` keeps the group's attributes too — it takes the same rebuild."""
+        nc = NetCDF.read_file(CF_FIXTURE)
+        before = nc.global_attributes
+        out = nc.drop_dims("time")
+        assert out.global_attributes == before, (
+            f"global attributes must be carried, got {out.global_attributes}"
+        )
+
+    def test_the_global_attributes_reach_the_written_file(self, tmp_path):
+        """The carried attributes survive `to_file` + reload, where the loss used to be baked in."""
+        nc = NetCDF.read_file(CF_FIXTURE)
+        before = nc.global_attributes
+        path = tmp_path / "renamed.nc"
+        nc.rename_dims(time="tt").to_file(str(path))
+        reloaded = NetCDF.read_file(str(path)).global_attributes
+        missing = {
+            key: before[key] for key in before if reloaded.get(key) != before[key]
+        }
+        assert missing == {}, f"attributes lost or altered on write: {missing}"
+
+
 class TestRebuildGuards:
     """The rebuild refuses the inputs it cannot honour, and owns no reference to its caller."""
 

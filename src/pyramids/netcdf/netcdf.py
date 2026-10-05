@@ -13443,6 +13443,13 @@ class NetCDF(Dataset):
                 src_rg = src_rg.OpenGroup(part)
         dst_ds = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
         dst_rg = dst_ds.GetRootGroup()
+        # The group's attributes are this container's `global_attributes` -- `Conventions`,
+        # `title`, `institution`, the whole `history` provenance chain. A fresh destination
+        # group starts with none, so without this an effective rename or drop wiped all of
+        # them while a no-op one kept them, and the loss was baked in by `to_file` (H2).
+        # `_copy_md_array_attributes` works on anything with `GetAttributes()` /
+        # `CreateAttribute`, which is why `_manual_netcdf_copy` already uses it on groups.
+        NetCDF._copy_md_array_attributes(src_rg, dst_rg)
         src_dims = src_rg.GetDimensions() or []
         src_dim_names = {dim.GetName() for dim in src_dims}
         array_names = list(src_rg.GetMDArrayNames() or [])
