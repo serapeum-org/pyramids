@@ -124,6 +124,21 @@ def _store_with_an_ancillary_holding_the_reference() -> gdal.Dataset:
     return store
 
 
+def _grouped_store_root(flat: NetCDF) -> NetCDF:
+    """`flat`'s arrays copied into a sub-group, returned as the store's **root**.
+
+    Distinct from `_grouped_store(...).get_group("inner")`: this is the root container,
+    whose `_group_path` is empty while its `variable_names` are group-qualified.
+
+    Args:
+        flat: A root container whose arrays to copy.
+
+    Returns:
+        NetCDF: The root container of the grouped store.
+    """
+    return _grouped_store(flat)
+
+
 def _roles(nc: NetCDF) -> dict[str, str]:
     """The CF role of every array in the store.
 
@@ -589,6 +604,43 @@ class TestResetCoords:
         demoted = cube.reset_coords()
 
         assert sorted(demoted.variable_names) == ["expver", "t2m"]
+
+
+class TestAGroupedStoreSRoot:
+    """Qualified names cannot carry a relative CF reference (round 2 H3)."""
+
+    def test_both_spellings_are_refused_with_an_explanation(self):
+        """A raw GDAL error used to escape one spelling and nothing worked.
+
+        The `get_group` refusal keys on `_group_path`, which is empty for the root of a
+        grouped store — yet its `variable_names` are qualified (`inner/a`).
+        `_with_coordinate_refs` opened receivers off the root group, so the qualified
+        spelling surfaced `RuntimeError: Array inner/a does not exist`, while the
+        relative spelling was "not a variable of this container".
+
+        Test scenario:
+            Both spellings raise the same explained `ValueError`, and neither leaks a
+            `RuntimeError`.
+        """
+        root = _grouped_store_root(_container(a=1.0, b=2.0, expver=5.0))
+        assert any("/" in name for name in root.variable_names), "precondition"
+        assert not root._group_path, "precondition: this is the root, not a view"
+
+        for spelling in ("inner/expver", "expver"):
+            with pytest.raises(ValueError, match="sub-groups"):
+                root.set_coords(spelling)
+
+    def test_the_demotion_is_refused_too(self):
+        """`reset_coords` escaped only because the aux-coordinate list happened to be empty.
+
+        Test scenario:
+            `reset_coords()` on the same root raises the same refusal rather than
+            quietly doing nothing.
+        """
+        root = _grouped_store_root(_container(a=1.0, b=2.0, expver=5.0))
+
+        with pytest.raises(ValueError, match="sub-groups"):
+            root.reset_coords()
 
 
 class TestDemotionSweepsEveryClassifiedArray:

@@ -5289,7 +5289,15 @@ def _assert_coordinate_partition(nc: NetCDF, *, caller: str) -> None:
     reports a sub-group's arrays under their group-qualified names (`inner/expver`), so a
     reference written inside a group is never matched back to the array it names. The write
     would succeed and the role would not change — a silent no-op, which is worse than a
-    refusal. The root container is where the roles are read, so that is where they are set.
+    refusal.
+
+    The **root container of a grouped store** is refused for the same reason, and has to be
+    checked separately: its `_group_path` is empty, so the clause above does not catch it,
+    yet its `variable_names` are group-qualified. Neither spelling of a name works there —
+    the qualified one cannot be opened from the root group (which used to surface as a raw
+    GDAL `RuntimeError: Array inner/a does not exist`) and the relative one is not a
+    variable of the container. So these two members apply to a root container whose own
+    arrays are at the top level, which is where the roles can both be written and read.
 
     Args:
         nc: The receiver.
@@ -5312,6 +5320,17 @@ def _assert_coordinate_partition(nc: NetCDF, *, caller: str) -> None:
             f"classified under their group-qualified names, so a reference written here "
             f"would never be matched back and the role would silently not change. Open the "
             f"store without get_group() and set the roles on the root container."
+        )
+    qualified = sorted(name for name in nc.variable_names if "/" in name)
+    if qualified:
+        raise ValueError(
+            f"{caller}() is not supported on a store whose variables live in sub-groups "
+            f"({qualified[:3]}{' …' if len(qualified) > 3 else ''}). Their names are "
+            f"group-qualified while a CF `coordinates` reference is a relative name, so "
+            f"there is no spelling that both identifies the array and reads back as a "
+            f"reference — the qualified name cannot be opened from the root group, and the "
+            f"relative one is not a variable of this container. The roles have to be set "
+            f"in the file itself for a store shaped like this."
         )
 
 
