@@ -64,6 +64,24 @@ def _cube(dims: list[tuple[str, list]], name: str = "v") -> NetCDF:
     return container.get_variable(name)
 
 
+def _store_with_no_gridded_variable() -> gdal.Dataset:
+    """A store holding only 1-D arrays, so nothing in it has a `(y, x)` plane.
+
+    Returns:
+        gdal.Dataset: An in-memory multidimensional store with `series(time)` only.
+    """
+    store = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
+    root = store.GetRootGroup()
+    f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    time = root.CreateDimension("time", gdal.DIM_TYPE_TEMPORAL, "", 3)
+    coordinate = root.CreateMDArray("time", [time], f64)
+    coordinate.Write(np.array(TIMES))
+    time.SetIndexingVariable(coordinate)
+    series = root.CreateMDArray("series", [time], f64)
+    series.Write(np.array([1.0, 2.0, 3.0]))
+    return store
+
+
 def _store_without_time_coordinate() -> gdal.Dataset:
     """A store whose `time` dimension has no coordinate array of any kind.
 
@@ -546,6 +564,37 @@ class TestBroadcastLikeOnAContainer:
         step = lifted.sel(time=6.0)
 
         assert np.asarray(step.read_array(squeeze=True)).shape == (NY, NX)
+
+
+class TestAContainerWithNoGriddedVariable:
+    """`_grid_reference` has nothing to stand in for the container, and must not guess."""
+
+    def test_it_is_refused_on_the_grid_rather_than_crashing(self):
+        """A store of 1-D arrays has no grid, so the comparison must fail cleanly.
+
+        Test scenario:
+            A container holding only `series(time)` reports no gridded variables, so
+            `_grid_reference` hands the container itself back and the grid check
+            refuses with `AlignmentError` instead of picking an arbitrary array.
+        """
+        container = Container(_store_with_no_gridded_variable())
+        assert container._spatial_variable_names() == [], "precondition: none gridded"
+
+        with pytest.raises(AlignmentError, match="different"):
+            container.broadcast_like(_cube([("time", TIMES)]))
+
+    def test_such_a_container_is_refused_as_the_donor_too(self):
+        """The donor side resolves its reference through the same helper.
+
+        Test scenario:
+            A healthy variable broadcast against the gridless container is refused on
+            the grid — `_grid_reference` has no gridded variable to stand in for it and
+            hands the container back rather than picking one of its 1-D arrays.
+        """
+        container = Container(_store_with_no_gridded_variable())
+
+        with pytest.raises(AlignmentError, match="different"):
+            _cube([("time", TIMES)]).broadcast_like(container)
 
 
 class TestBroadcastEqualsRefusesAContainer:
