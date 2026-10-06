@@ -283,9 +283,10 @@ class TestBroadcastLikeRefusals:
             A plain `Dataset` raises `TypeError` naming its type.
         """
         plain = Dataset.from_array(np.full((NY, NX), 1.0), geo_ref=_geo_ref())
+        mask = _flat()
 
         with pytest.raises(TypeError, match="NetCDF cube"):
-            _flat().broadcast_like(plain)
+            mask.broadcast_like(plain)
 
 
 class TestBroadcastLikeAgainstAContainerDonor:
