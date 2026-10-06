@@ -161,6 +161,26 @@ class TestSetCoords:
 
         assert promoted.variable_names == ["t2m"]
 
+    def test_a_second_promotion_extends_the_existing_reference(self):
+        """Promoting one at a time must edit the attribute, not be swallowed.
+
+        `CreateAttribute` refuses a name the array already carries and the attribute
+        writer logs and skips a refusal, so writing over an existing `coordinates` was
+        a silent no-op on the MEM driver: the second promotion appeared to succeed and
+        changed nothing.
+
+        Test scenario:
+            Promote `expver`, then promote `angle` on the result. Both must end up
+            coordinates, leaving `t2m` the only data variable.
+        """
+        cube = _container(t2m=1.0, expver=5.0, angle=7.0)
+
+        both = cube.set_coords("expver").set_coords("angle")
+
+        assert both.variable_names == ["t2m"]
+        assert _roles(both)["expver"] == "auxiliary_coordinate"
+        assert _roles(both)["angle"] == "auxiliary_coordinate"
+
     def test_promoting_twice_is_idempotent(self):
         """A name already referenced is not added again.
 
@@ -292,6 +312,27 @@ class TestResetCoords:
         demoted = promoted.reset_coords()
 
         assert sorted(demoted.variable_names) == ["angle", "expver", "t2m"]
+
+    def test_demoting_one_of_several_leaves_the_others_coordinates(self):
+        """A partial demotion rewrites the reference list instead of being swallowed.
+
+        This is the demotion half of the same attribute-overwrite trap: removing one
+        name from `coordinates` leaves a non-empty list, so it is a *rewrite* rather
+        than a delete, and the rewrite was silently skipped on the MEM driver.
+
+        Test scenario:
+            Two coordinates promoted together, then one demoted by name. The demoted
+            one is a data variable again and the other is still a coordinate.
+        """
+        promoted = _container(t2m=1.0, expver=5.0, angle=7.0).set_coords(
+            ["expver", "angle"]
+        )
+
+        half = promoted.reset_coords("angle")
+
+        assert sorted(half.variable_names) == ["angle", "t2m"]
+        assert _roles(half)["angle"] == "data"
+        assert _roles(half)["expver"] == "auxiliary_coordinate"
 
     def test_a_promote_demote_round_trip_restores_the_roles(self):
         """The two members are inverses.

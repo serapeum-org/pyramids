@@ -3177,6 +3177,41 @@ class Selection(_Engine["NetCDF"]):
 
               ```
 
+            - Promote two at once, leaving one data variable behind:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> cube = NetCDF.from_array(
+              ...     np.full((1, 1), 1.0), geo_ref=geo, variable_name="t2m"
+              ... )
+              >>> for label in ("expver", "angle"):
+              ...     extra = NetCDF.from_array(
+              ...         np.full((1, 1), 2.0), geo_ref=geo, variable_name=label
+              ...     ).get_variable(label)
+              ...     cube.set_variable(label, extra)
+              >>> cube.set_coords(["expver", "angle"]).variable_names
+              ['t2m']
+
+              ```
+
+            - A dimension is already its own coordinate, so naming one is refused:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> cube = NetCDF.from_array(
+              ...     np.full((1, 1), 1.0), geo_ref=geo, variable_name="t2m"
+              ... )
+              >>> cube.set_coords("x")
+              Traceback (most recent call last):
+                  ...
+              ValueError: set_coords(): 'x' is a dimension of this cube, so it is already ...
+
+              ```
+
         See Also:
             NetCDF.reset_coords: Demotes them back to data variables.
             NetCDF.rename_variable: Renames an array, the only way to make one a
@@ -3244,6 +3279,26 @@ class Selection(_Engine["NetCDF"]):
               ['t2m']
               >>> sorted(promoted.reset_coords().variable_names)
               ['expver', 't2m']
+
+              ```
+
+            - Demote one of two coordinates by name, leaving the other a coordinate:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> cube = NetCDF.from_array(
+              ...     np.full((1, 1), 1.0), geo_ref=geo, variable_name="t2m"
+              ... )
+              >>> for label in ("expver", "angle"):
+              ...     extra = NetCDF.from_array(
+              ...         np.full((1, 1), 2.0), geo_ref=geo, variable_name=label
+              ...     ).get_variable(label)
+              ...     cube.set_variable(label, extra)
+              >>> promoted = cube.set_coords(["expver", "angle"])
+              >>> sorted(promoted.reset_coords("angle").variable_names)
+              ['angle', 't2m']
 
               ```
 
@@ -3321,6 +3376,60 @@ class Selection(_Engine["NetCDF"]):
               (('time',), (3,))
               >>> np.asarray(lifted.read_array(squeeze=True)).ravel().tolist()
               [2.0, 2.0, 2.0]
+
+              ```
+
+            - Stretch an axis that is one step long, taking the donor's stamps for it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> levels = [("time", [0.0, 6.0]), ("level", [1000.0, 850.0, 500.0])]
+              >>> donor = NetCDF.from_array(
+              ...     np.zeros((2, 3, 1, 1)),
+              ...     geo_ref=geo,
+              ...     variable_name="d",
+              ...     dims=ExtraDimensions(dims=levels),
+              ... ).get_variable("d")
+              >>> one_level = NetCDF.from_array(
+              ...     np.arange(2.0).reshape(2, 1, 1, 1),
+              ...     geo_ref=geo,
+              ...     variable_name="v",
+              ...     dims=ExtraDimensions(dims=[("time", [0.0, 6.0]), ("level", [1000.0])]),
+              ... ).get_variable("v")
+              >>> stretched = one_level.broadcast_like(donor)
+              >>> stretched._band_dim_sizes
+              (2, 3)
+              >>> stretched._band_dim_values_map["level"]
+              [1000.0, 850.0, 500.0]
+              >>> stretched.band_count
+              6
+
+              ```
+
+            - Two real lengths cannot be reconciled, since broadcasting never joins axes:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> two = NetCDF.from_array(
+              ...     np.zeros((2, 1, 1)),
+              ...     geo_ref=geo,
+              ...     variable_name="a",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... ).get_variable("a")
+              >>> three = NetCDF.from_array(
+              ...     np.zeros((3, 1, 1)),
+              ...     geo_ref=geo,
+              ...     variable_name="b",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("b")
+              >>> two.broadcast_like(three)
+              Traceback (most recent call last):
+                  ...
+              ValueError: broadcast_like(): dimension 'time' is 2 long here and 3 long ...
 
               ```
 
@@ -3402,6 +3511,35 @@ class Selection(_Engine["NetCDF"]):
               ... ).get_variable("t")
               >>> mask.equals(cube), mask.broadcast_equals(cube)
               (False, True)
+
+              ```
+
+            - Lining the shapes up does not make the cells agree, and a pair that cannot
+              be broadcast at all answers `False` rather than raising:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> mask = NetCDF.from_array(
+              ...     np.full((1, 1), 2.0), geo_ref=geo, variable_name="m"
+              ... ).get_variable("m")
+              >>> rising = NetCDF.from_array(
+              ...     np.arange(3.0).reshape(3, 1, 1),
+              ...     geo_ref=geo,
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> mask.broadcast_equals(rising)
+              False
+              >>> two_steps = NetCDF.from_array(
+              ...     np.zeros((2, 1, 1)),
+              ...     geo_ref=geo,
+              ...     variable_name="s",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... ).get_variable("s")
+              >>> two_steps.broadcast_equals(rising)
+              False
 
               ```
 

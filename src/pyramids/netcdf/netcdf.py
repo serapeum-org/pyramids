@@ -12092,20 +12092,25 @@ class NetCDF(Dataset):
     def _write_coordinate_refs(array: gdal.MDArray, refs: list[str]) -> None:
         """Put `refs` in `array`'s CF `coordinates` attribute, or take the attribute away.
 
-        An empty reference list is written as *no attribute* rather than as an empty
-        string: `coordinates = ""` would still declare the attribute, and a store that
-        has nothing to say about coordinates should not say it.
+        The existing attribute is **deleted before** the new one is created. `CreateAttribute`
+        refuses a name the array already carries, and `write_attributes_to_md_array` logs and
+        skips a refusal rather than raising — so writing over an existing `coordinates` was a
+        silent no-op on the MEM driver (the netCDF driver happens to allow it). That broke
+        exactly the cases where the attribute is edited rather than created: demoting one of
+        several coordinates, and promoting a second one.
+
+        An empty reference list is written as *no attribute* rather than as an empty string:
+        `coordinates = ""` would still declare the attribute, and a store that has nothing to
+        say about coordinates should not say it.
 
         Args:
             array: The data variable to write on.
             refs: The coordinate variable names it should reference.
         """
+        if "coordinates" in {attr.GetName() for attr in array.GetAttributes()}:
+            array.DeleteAttribute("coordinates")
         if refs:
             write_attributes_to_md_array(array, {"coordinates": " ".join(refs)})
-        else:
-            # Only reached when the attribute was there and is now empty, so the delete
-            # has something to delete.
-            array.DeleteAttribute("coordinates")
 
     def _writable_root_group(self) -> tuple[gdal.Dataset, gdal.Group]:
         """Return a ``(dataset, working_group)`` pair that is safe to mutate.
