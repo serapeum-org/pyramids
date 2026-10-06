@@ -1889,9 +1889,13 @@ class Analysis(_Engine["Dataset"]):
         `_operand_arrays` reads one band as a 2-D array and several as
         `(bands, rows, cols)`, so a one-band operand against an *n*-band one arrives
         with one axis fewer and NumPy's own rule lines them up. The stretch is a
-        `np.broadcast_to` view: the single band is read once and never materialised *n*
-        times, which is the point of broadcasting here rather than asking the caller to
-        tile the mask first.
+        `np.broadcast_to` view, so the band is **read** once — one `read_array` instead
+        of *n*, which is the saving on offer here.
+
+        It is not a peak-memory saving, and this docstring used to claim one. The very
+        next step, `_computed_values`, does `left[domain]` (or `left.ravel()` when masking
+        is off) on the view, and neither can work in place on a `np.broadcast_to` result —
+        both materialise a full *n*-band copy. The I/O is saved; the memory is not.
 
         Only the band axis can differ by the time this runs -- `_check_combinable` has
         refused any other band-count pair and `Spatial.same_grid` has matched the rows

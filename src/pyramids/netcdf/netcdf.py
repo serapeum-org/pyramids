@@ -12062,7 +12062,12 @@ class NetCDF(Dataset):
         Non-mutating, like the rest of the structural members: `_writable_root_group`
         hands back an independent in-memory copy of the store, the attributes are rewritten
         on that, and the copy is wrapped as a new cube. The receiver this was called on is
-        untouched, and a `get_group` view comes back as the same view of the new store.
+        untouched.
+
+        The root container is the only receiver that reaches here: both callers run
+        `_assert_coordinate_partition` first, which refuses a `get_group` view because a CF
+        reference is a relative name while a sub-group's arrays classify under
+        group-qualified ones. So there is no view to re-derive on the way out.
 
         Each receiver keeps the references it already had: a name is appended only when it
         is not already there (so a repeated promotion is idempotent) and removed only when
@@ -12085,8 +12090,7 @@ class NetCDF(Dataset):
             updated = [*kept, *[ref for ref in add if ref not in kept]]
             if updated != current:
                 NetCDF._write_coordinate_refs(array, updated)
-        rebuilt = Container(dataset)
-        return rebuilt if not self._group_path else rebuilt.get_group(self._group_path)
+        return Container(dataset)
 
     @staticmethod
     def _write_coordinate_refs(array: gdal.MDArray, refs: list[str]) -> None:
