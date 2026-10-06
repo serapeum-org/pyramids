@@ -1,6 +1,6 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 121 in all: 86 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 123 in all: 88 methods, 27 properties,
 7 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). `concat` and `merge` are counted among the methods: each is callable on the class
 (`NetCDF.concat([a, b], dim)`) and on a cube (`a.concat([b], dim)`, which joins the
@@ -148,6 +148,8 @@ A variable with no raster plane is the exception — see each member's docstring
 | `drop_dims()`      | Drops band dims and the variables along them (container) — `errors`.                 |
 | `broadcast_like()` | Takes another cube's band layout, repeating cells along the added axes.              |
 | `broadcast_equals()` | Whether two cubes agree once broadcast against each other.                        |
+| `set_coords()`     | Marks variables as CF auxiliary coordinates (container); leaves `data_vars`.         |
+| `reset_coords()`   | Demotes auxiliary coordinates back to data variables (container).                    |
 
 ## Spatial operations
 

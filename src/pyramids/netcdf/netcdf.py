@@ -9403,6 +9403,16 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.expand_dims <pyramids.netcdf.engines.selection.Selection.expand_dims>`."""
         return self.selection.expand_dims(dim, value)
 
+    def set_coords(self, names: str | Sequence[str]) -> NetCDF:
+        """Facade — :meth:`Selection.set_coords <pyramids.netcdf.engines.selection.Selection.set_coords>`."""
+        return self.selection.set_coords(names)
+
+    def reset_coords(self, names: str | Sequence[str] | None = None) -> NetCDF:
+        """Facade — :meth:`Selection.reset_coords
+        <pyramids.netcdf.engines.selection.Selection.reset_coords>`.
+        """
+        return self.selection.reset_coords(names)
+
     def broadcast_like(self, other: Any) -> NetCDF:
         """Facade — :meth:`Selection.broadcast_like <pyramids.netcdf.engines.selection.Selection.broadcast_like>`."""
         return self.selection.broadcast_like(other)
@@ -12032,6 +12042,70 @@ class NetCDF(Dataset):
         except (RuntimeError, AttributeError):
             cube._scale = None
             cube._offset = None
+
+    def _with_coordinate_refs(
+        self,
+        receivers: Sequence[str],
+        *,
+        add: tuple[str, ...] = (),
+        remove: tuple[str, ...] = (),
+    ) -> NetCDF:
+        """Rewrite the CF `coordinates` attribute of `receivers`, on a copy of the store.
+
+        The write side of the auxiliary-coordinate role pyramids already reads: CF says a
+        variable is a coordinate of another by naming it in that other's `coordinates`
+        attribute, `cf.classify_variables` parses exactly that, and `variable_names`
+        filters itself by the roles it reports. So moving a name in or out of this
+        attribute is what promotes or demotes it — nothing else has to be taught the
+        partition.
+
+        Non-mutating, like the rest of the structural members: `_writable_root_group`
+        hands back an independent in-memory copy of the store, the attributes are rewritten
+        on that, and the copy is wrapped as a new cube. The receiver this was called on is
+        untouched, and a `get_group` view comes back as the same view of the new store.
+
+        Each receiver keeps the references it already had: a name is appended only when it
+        is not already there (so a repeated promotion is idempotent) and removed only when
+        it is, and the attribute is deleted outright rather than left as an empty string
+        when nothing is left to reference.
+
+        Args:
+            receivers: The data variables whose `coordinates` attribute to rewrite.
+            add: Names to reference.
+            remove: Names to stop referencing.
+
+        Returns:
+            NetCDF: A new cube whose store carries the rewritten references.
+        """
+        dataset, group = self._writable_root_group()
+        for name in receivers:
+            array = group.OpenMDArray(name)
+            current = str(_read_attributes(array).get("coordinates") or "").split()
+            kept = [ref for ref in current if ref not in remove]
+            updated = [*kept, *[ref for ref in add if ref not in kept]]
+            if updated != current:
+                NetCDF._write_coordinate_refs(array, updated)
+        rebuilt = Container(dataset)
+        return rebuilt if not self._group_path else rebuilt.get_group(self._group_path)
+
+    @staticmethod
+    def _write_coordinate_refs(array: gdal.MDArray, refs: list[str]) -> None:
+        """Put `refs` in `array`'s CF `coordinates` attribute, or take the attribute away.
+
+        An empty reference list is written as *no attribute* rather than as an empty
+        string: `coordinates = ""` would still declare the attribute, and a store that
+        has nothing to say about coordinates should not say it.
+
+        Args:
+            array: The data variable to write on.
+            refs: The coordinate variable names it should reference.
+        """
+        if refs:
+            write_attributes_to_md_array(array, {"coordinates": " ".join(refs)})
+        else:
+            # Only reached when the attribute was there and is now empty, so the delete
+            # has something to delete.
+            array.DeleteAttribute("coordinates")
 
     def _writable_root_group(self) -> tuple[gdal.Dataset, gdal.Group]:
         """Return a ``(dataset, working_group)`` pair that is safe to mutate.

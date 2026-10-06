@@ -3117,6 +3117,148 @@ class Selection(_Engine["NetCDF"]):
 
         return _apply_per_variable(nc, _fn, caller="transpose")
 
+    def set_coords(self, names: str | Sequence[str]) -> NetCDF:
+        """Mark existing variables as CF auxiliary coordinates.
+
+        xarray's `set_coords`, expressed the way CF and GDAL already express it: a variable
+        is a coordinate of another because that other names it in its `coordinates`
+        attribute. pyramids already *reads* that — `cf.classify_variables` assigns the
+        auxiliary-coordinate role from it, and `variable_names` / `data_vars` filter
+        themselves by the roles — so this is the write side, and the partition needs no new
+        model. A promoted variable therefore leaves `data_vars`, as it does in xarray, and
+        everything that iterates variables (`merge`, `concat`, `apply`, `reduce`,
+        `to_dataframe`, `to_xarray`) follows without being told.
+
+        What it does **not** do is promote to a *dimension* coordinate. The netCDF driver
+        skips GDAL's `SetIndexingVariable`, so a dimension's coordinate is the same-named
+        1-D array by CF convention and cannot be reassigned; `rename_variable` is the only
+        honest way to make an array a dimension's coordinate. Naming a dimension here is
+        refused rather than silently doing nothing.
+
+        A **container** operation: a single variable has no sibling to carry the reference,
+        and promoting the only variable would leave a cube with no data at all.
+        Non-mutating, like `rename_dims` / `assign_coords` / `drop_dims` — the receiver is
+        untouched and a new cube comes back. The variable itself is never moved or copied:
+        only its role changes, and `get_variable` still reads it.
+
+        Args:
+            names: A variable name, or a sequence of them, to promote.
+
+        Returns:
+            NetCDF: A new container in which those variables are auxiliary coordinates.
+
+        Raises:
+            ValueError: The receiver is a single variable; a name is not a variable of this
+                container; a name is a dimension (already a coordinate by CF convention);
+                or no remaining data variable spans the promoted variable's dimensions, so
+                nothing can reference it.
+
+        Examples:
+            - Promote a per-cell experiment flag out of the data variables:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326)
+              >>> cube = NetCDF.from_array(
+              ...     np.full((2, 2), 1.0), geo_ref=geo, variable_name="t2m"
+              ... )
+              >>> flag = NetCDF.from_array(
+              ...     np.full((2, 2), 5.0), geo_ref=geo, variable_name="expver"
+              ... ).get_variable("expver")
+              >>> cube.set_variable("expver", flag)
+              >>> sorted(cube.variable_names)
+              ['expver', 't2m']
+              >>> promoted = cube.set_coords("expver")
+              >>> promoted.variable_names
+              ['t2m']
+              >>> promoted.get_variable("expver").band_count
+              1
+
+              ```
+
+        See Also:
+            NetCDF.reset_coords: Demotes them back to data variables.
+            NetCDF.rename_variable: Renames an array, the only way to make one a
+                dimension's coordinate.
+        """
+        nc = self._ds
+        _assert_coordinate_partition(nc, caller="set_coords")
+        requested = _requested_names(names)
+        promoted = _validated_promotions(nc, requested)
+        receivers = _promotion_receivers(nc, promoted)
+        return (
+            nc._with_coordinate_refs(receivers, add=tuple(promoted))
+            if promoted
+            else nc.copy()
+        )
+
+    def reset_coords(self, names: str | Sequence[str] | None = None) -> NetCDF:
+        """Demote auxiliary coordinates back to data variables.
+
+        The inverse of :meth:`set_coords`, and the reason that one is not a one-way door.
+        It removes the named variables from every data variable's CF `coordinates`
+        attribute — deleting the attribute outright when nothing is left in it — so
+        `cf.classify_variables` stops reporting them as coordinates and they reappear in
+        `variable_names` / `data_vars`.
+
+        It matters for files that over-declare. A store that lists a per-cell experiment
+        flag or a scan angle as a coordinate keeps it out of the data-variable role, so
+        anything driven by the roles treats it as a label rather than as data a caller may
+        want to analyse. This is how to get it back.
+
+        The variable is never deleted — only its role changes. `remove_variable` and
+        `drop_dims` are the members that remove data.
+
+        A **container** operation and non-mutating, as :meth:`set_coords` is. A
+        **dimension** coordinate cannot be demoted: it is a coordinate because it shares
+        its dimension's name, so naming one here is refused.
+
+        Args:
+            names: A variable name, or a sequence of them, to demote. `None` (default)
+                demotes every auxiliary coordinate in the container.
+
+        Returns:
+            NetCDF: A new container in which those variables are data variables again.
+
+        Raises:
+            ValueError: The receiver is a single variable; a name is not an auxiliary
+                coordinate of this container; or a name is a dimension coordinate.
+
+        Examples:
+            - Promote and then demote, which returns the original roles:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326)
+              >>> cube = NetCDF.from_array(
+              ...     np.full((2, 2), 1.0), geo_ref=geo, variable_name="t2m"
+              ... )
+              >>> flag = NetCDF.from_array(
+              ...     np.full((2, 2), 5.0), geo_ref=geo, variable_name="expver"
+              ... ).get_variable("expver")
+              >>> cube.set_variable("expver", flag)
+              >>> promoted = cube.set_coords("expver")
+              >>> promoted.variable_names
+              ['t2m']
+              >>> sorted(promoted.reset_coords().variable_names)
+              ['expver', 't2m']
+
+              ```
+
+        See Also:
+            NetCDF.set_coords: The promotion this undoes.
+        """
+        nc = self._ds
+        _assert_coordinate_partition(nc, caller="reset_coords")
+        demoted = _validated_demotions(nc, names)
+        return (
+            nc._with_coordinate_refs(list(nc.variable_names), remove=tuple(demoted))
+            if demoted
+            else nc.copy()
+        )
+
     def broadcast_like(self, other: Any) -> NetCDF:
         """Give this cube `other`'s band layout, repeating cells along the added axes.
 
@@ -4932,6 +5074,186 @@ def _resolve_interp_kind(method: str, caller: str = "interp") -> str:
             f"{caller}() method must be one of {list(_INTERP_KINDS)}, got {method!r}."
         )
     return method
+
+
+def _assert_coordinate_partition(nc: NetCDF, *, caller: str) -> None:
+    """Refuse the coordinate-role members on a single variable.
+
+    CF marks a coordinate by naming it in *another* variable's `coordinates` attribute, so
+    a lone variable has no sibling to carry the reference — and promoting the only variable
+    there is would leave a cube with no data variables at all.
+
+    Args:
+        nc: The receiver.
+        caller: The member the user called, named in the refusal.
+
+    Raises:
+        ValueError: `nc` is a single variable rather than a container.
+    """
+    if _reduces_as_a_variable(nc):
+        raise ValueError(
+            f"{caller}() changes which of a container's variables are coordinates, and "
+            f"this is a single variable: CF marks a coordinate by naming it in another "
+            f"variable's `coordinates` attribute, so there is nothing here to name it. "
+            f"Call it on the container this variable came from."
+        )
+
+
+def _requested_names(names: str | Sequence[str]) -> list[str]:
+    """One or several variable names, as a list, in the order given.
+
+    Args:
+        names: A single name or a sequence of them.
+
+    Returns:
+        list[str]: The names, de-duplicated with their first-seen order kept.
+    """
+    requested = [names] if isinstance(names, str) else list(names)
+    return list(dict.fromkeys(requested))
+
+
+def _cf_roles(nc: NetCDF) -> dict[str, str]:
+    """The CF role `classify_variables` gives each of the store's arrays.
+
+    Args:
+        nc: The container.
+
+    Returns:
+        dict[str, str]: Array name to role, empty when the store declares no CF roles.
+    """
+    cf = nc.meta_data.cf
+    return dict(cf.classifications or {}) if cf is not None else {}
+
+
+def _auxiliary_coordinates(nc: NetCDF) -> list[str]:
+    """The container's auxiliary-coordinate variables, in the store's own order.
+
+    Args:
+        nc: The container.
+
+    Returns:
+        list[str]: The names CF classifies as auxiliary coordinates.
+    """
+    roles = _cf_roles(nc)
+    return [name for name, role in roles.items() if role == "auxiliary_coordinate"]
+
+
+def _validated_promotions(nc: NetCDF, requested: list[str]) -> list[str]:
+    """The names `set_coords` will promote, refusing the ones it cannot.
+
+    A name that is *already* an auxiliary coordinate is dropped rather than refused, so
+    promoting twice is idempotent — but a dimension coordinate is refused, because it is a
+    coordinate by name convention and asking for it signals a different intent than this
+    member can serve.
+
+    Args:
+        nc: The container.
+        requested: The names the caller asked to promote.
+
+    Returns:
+        list[str]: The subset that needs promoting.
+
+    Raises:
+        ValueError: A name is a dimension, or is not a variable of this container.
+    """
+    dimensions = set(nc.dimension_names or [])
+    existing = set(_auxiliary_coordinates(nc))
+    variables = list(nc.variable_names)
+    promoted: list[str] = []
+    for name in requested:
+        if name in dimensions:
+            raise ValueError(
+                f"set_coords(): {name!r} is a dimension of this cube, so it is already "
+                f"its dimension's coordinate by CF name convention — a coordinate this "
+                f"member cannot assign, because the netCDF driver does not support "
+                f"reassigning a dimension's indexing variable. Only non-dimension "
+                f"(auxiliary) coordinates are set here."
+            )
+        if name not in existing:
+            if name not in variables:
+                raise ValueError(
+                    f"set_coords(): {name!r} is not a variable of this container; its "
+                    f"variables are {sorted(variables)}."
+                )
+            promoted.append(name)
+    return promoted
+
+
+def _promotion_receivers(nc: NetCDF, promoted: list[str]) -> list[str]:
+    """The data variables that will reference the promoted coordinates.
+
+    CF's `coordinates` attribute means "these variables label *my* cells", so only a data
+    variable spanning the promoted variable's own band dimensions can carry the reference.
+    The promoted names themselves are excluded: a coordinate does not reference itself.
+
+    Args:
+        nc: The container.
+        promoted: The names being promoted.
+
+    Returns:
+        list[str]: The receiving data variables, in the container's order.
+
+    Raises:
+        ValueError: Nothing is left to reference the promotion.
+    """
+    receivers = [name for name in nc.variable_names if name not in promoted]
+    needed: set[str] = set()
+    for name in promoted:
+        needed |= set(cast("NetCDF", nc.get_variable(name))._band_dim_names)
+    spanning = [
+        name
+        for name in receivers
+        if needed <= set(cast("NetCDF", nc.get_variable(name))._band_dim_names)
+    ]
+    if promoted and not spanning:
+        why = (
+            "none of the other variables span its dimensions"
+            if receivers
+            else "it is the container's only variable"
+        )
+        raise ValueError(
+            f"set_coords(): no data variable is left to reference {sorted(promoted)} — "
+            f"{why}. CF marks a coordinate by naming it in the `coordinates` attribute "
+            f"of the variables it labels, so a promotion nothing can reference would "
+            f"take the variable out of `data_vars` and leave it unreachable as a label."
+        )
+    return spanning
+
+
+def _validated_demotions(nc: NetCDF, names: str | Sequence[str] | None) -> list[str]:
+    """The names `reset_coords` will demote, refusing the ones it cannot.
+
+    Args:
+        nc: The container.
+        names: The names the caller asked to demote, or `None` for every auxiliary
+            coordinate.
+
+    Returns:
+        list[str]: The names to demote.
+
+    Raises:
+        ValueError: A name is a dimension coordinate, or is not an auxiliary coordinate of
+            this container.
+    """
+    auxiliary = _auxiliary_coordinates(nc)
+    dimensions = set(nc.dimension_names or [])
+    # With `names=None` the list *is* the auxiliary set, so both checks below pass
+    # trivially -- a dimension's coordinate is classified "coordinate", never "auxiliary".
+    requested = list(auxiliary) if names is None else _requested_names(names)
+    for name in requested:
+        if name in dimensions:
+            raise ValueError(
+                f"reset_coords(): {name!r} is a dimension of this cube, and a dimension's "
+                f"coordinate is its same-named array by CF convention, not a reference "
+                f"that can be removed. Rename the array (`rename_variable`) if it should "
+                f"stop being that dimension's coordinate."
+            )
+        if name not in auxiliary:
+            raise ValueError(
+                f"reset_coords(): {name!r} is not an auxiliary coordinate of this "
+                f"container; its auxiliary coordinates are {sorted(auxiliary)}."
+            )
+    return requested
 
 
 def _grid_reference(nc: NetCDF) -> NetCDF:
