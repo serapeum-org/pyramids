@@ -3360,7 +3360,10 @@ class Selection(_Engine["NetCDF"]):
             TypeError: `other` is not a `NetCDF`.
             AlignmentError: `other` is on a different spatial grid.
             ValueError: A band dimension the two share has different lengths and neither is
-                one, so there is nothing to stretch and a join would be needed.
+                one, so there is nothing to stretch and a join would be needed; or this
+                cube holds more planes than its band dimensions account for, which is the
+                state an unlabelled broadcast result is in (see `NetCDF.combine`) and
+                leaves nothing to repeat the extra planes along.
 
         Examples:
             - Lift a plain raster to a cube's `time` axis:
@@ -3509,7 +3512,11 @@ class Selection(_Engine["NetCDF"]):
             bool: `True` when the two agree after broadcasting.
 
         Raises:
-            ValueError: The receiver is a container.
+            ValueError: The receiver is a container; or a cube holds more planes than its
+                band dimensions account for. That second one is deliberately *not*
+                answered `False`: it is a fact about the operand's own layout rather than
+                a mismatch between the two, and reporting it as inequality is the bug H3
+                was.
 
         Examples:
             - A mask and the cube whose every step holds it:
@@ -5669,6 +5676,17 @@ def _broadcast_values(
     """
     spatial = values.shape[-2:]
     declared = dict(zip(mine, my_sizes))
+    planes = int(values.size // max(int(np.prod(spatial)), 1))
+    accounted = int(np.prod(my_sizes)) if my_sizes else 1
+    if planes != accounted:
+        raise ValueError(
+            f"broadcast_like(): this cube holds {planes} planes but its band dimensions "
+            f"{list(mine)} account for {accounted}, so there is no way to tell what the "
+            f"extra planes are and nothing to repeat them along. A cube reaches this "
+            f"state when a broadcast dropped its layout — see `NetCDF.combine` — so "
+            f"label it first with `expand_dims` / `assign_coords`, or broadcast the "
+            f"operands it came from instead."
+        )
     source = values.reshape((*my_sizes, *spatial))
     lifted = source.reshape((*[declared.get(name, 1) for name in names], *spatial))
     return np.ascontiguousarray(np.broadcast_to(lifted, (*sizes, *spatial)))

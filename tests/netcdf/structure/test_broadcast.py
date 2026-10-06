@@ -393,6 +393,52 @@ class TestAContainerWhoseFirstVariableIsNotGridded:
         assert lifted.band_count >= receiver.band_count
 
 
+class TestACubeWithMorePlanesThanTrackedDimensions:
+    """The state a layout-dropping broadcast leaves behind must refuse by name (M2)."""
+
+    def _degraded(self) -> NetCDF:
+        """A 3-band variable tracking no band dimensions.
+
+        Returns:
+            NetCDF: The product of a one-step variable and a 3-band plain raster.
+        """
+        mask = NetCDF.from_array(
+            np.full((1, NY, NX), 2.0),
+            geo_ref=_geo_ref(),
+            variable_name="m",
+            dims=ExtraDimensions(name="time", values=[0.0]),
+        ).get_variable("m")
+        plain = Dataset.from_array(np.ones((3, NY, NX)), geo_ref=_geo_ref())
+        return mask * plain
+
+    def test_broadcast_like_names_the_problem(self):
+        """A bare numpy reshape message named neither the member nor the cause.
+
+        Test scenario:
+            The degraded cube refuses with a message naming the plane count and the
+            dimensions that fail to account for it — it used to raise
+            `ValueError: cannot reshape array of size 12 into shape (2,2)`.
+        """
+        degraded = self._degraded()
+        assert degraded.band_count == 3, "precondition: several planes"
+        assert tuple(degraded._band_dim_names) == (), "precondition: no tracked dims"
+
+        with pytest.raises(ValueError, match="holds 3 planes"):
+            degraded.broadcast_like(_cube([("time", TIMES)]))
+
+    def test_broadcast_equals_lets_it_surface(self):
+        """An operand's own broken layout is not an inequality, so it is not `False`.
+
+        Test scenario:
+            The same cube makes the predicate raise rather than answer, which is the
+            H3 lesson applied: only genuine incomparability answers `False`.
+        """
+        degraded = self._degraded()
+
+        with pytest.raises(ValueError, match="holds 3 planes"):
+            degraded.broadcast_equals(_cube([("time", TIMES)]))
+
+
 class TestBroadcastLikeOnAContainer:
     """A container broadcasts each of its variables."""
 
