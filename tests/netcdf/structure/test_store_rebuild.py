@@ -586,8 +586,9 @@ class TestRebuildGroupNestingLimit:
         group = store.GetRootGroup()
         for level in range(_MAX_GROUP_DEPTH + 2):
             group = group.CreateGroup(f"g{level}")
+        container = Container(store)
         with pytest.warns(UserWarning, match="Group nesting deeper than"):
-            out = Container(store).rename_dims(time="t")
+            out = container.rename_dims(time="t")
         assert "t" in (out.dimension_names or []), (
             "the rename itself must still succeed"
         )
