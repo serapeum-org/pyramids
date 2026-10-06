@@ -5332,12 +5332,35 @@ def _validated_promotions(nc: NetCDF, requested: list[str]) -> list[str]:
     return promoted
 
 
+def _band_axes_of(nc: NetCDF, name: str) -> set[str]:
+    """The band dimensions of one of a container's arrays, empty when it has none.
+
+    A container's inventory is not all rasters: a 1-D or otherwise non-gridded array comes
+    back from `get_variable` as a `LabeledArray`, which carries no band surface at all.
+    `cast` is a type-checker annotation and not a runtime guard, so reading
+    `_band_dim_names` off one raised `AttributeError` from inside a public member.
+
+    Args:
+        nc: The container.
+        name: The array to inspect.
+
+    Returns:
+        set[str]: Its band dimension names, or an empty set when it tracks none.
+    """
+    return set(getattr(nc.get_variable(name), "_band_dim_names", ()) or ())
+
+
 def _promotion_receivers(nc: NetCDF, promoted: list[str]) -> list[str]:
     """The data variables that will reference the promoted coordinates.
 
     CF's `coordinates` attribute means "these variables label *my* cells", so only a data
     variable spanning the promoted variable's own band dimensions can carry the reference.
     The promoted names themselves are excluded: a coordinate does not reference itself.
+
+    Only **gridded** variables are offered the reference. A non-gridded array has no cells
+    on the grid to label, and `_spatial_variable_names` is the same inventory the rest of
+    the fan-out machinery uses; asking a non-gridded one for its band dimensions is what
+    raised `AttributeError` on real CF stores.
 
     Args:
         nc: The container.
@@ -5349,15 +5372,14 @@ def _promotion_receivers(nc: NetCDF, promoted: list[str]) -> list[str]:
     Raises:
         ValueError: Nothing is left to reference the promotion.
     """
-    receivers = [name for name in nc.variable_names if name not in promoted]
+    gridded = nc._spatial_variable_names()
+    receivers = [
+        name for name in nc.variable_names if name not in promoted and name in gridded
+    ]
     needed: set[str] = set()
     for name in promoted:
-        needed |= set(cast("NetCDF", nc.get_variable(name))._band_dim_names)
-    spanning = [
-        name
-        for name in receivers
-        if needed <= set(cast("NetCDF", nc.get_variable(name))._band_dim_names)
-    ]
+        needed |= _band_axes_of(nc, name)
+    spanning = [name for name in receivers if needed <= _band_axes_of(nc, name)]
     if promoted and not spanning:
         why = (
             "none of the other variables span its dimensions"

@@ -9,6 +9,8 @@ readable by name, and a demoted one comes back.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
@@ -19,6 +21,12 @@ from pyramids.netcdf.netcdf import Container
 
 pytestmark = pytest.mark.core
 
+NON_GRIDDED_FIRST = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "netcdf"
+    / "cf__48v__1d17-3d21-4d10__y-asc.nc"
+)
 GEO = (0.0, 1.0, 0.0, 2.0, 0.0, -1.0)
 NY, NX = 2, 2
 
@@ -213,6 +221,43 @@ class TestSetCoords:
 
         assert reopened.variable_names == ["t2m"]
         assert _roles(reopened)["expver"] == "auxiliary_coordinate"
+
+
+class TestSetCoordsOnARealCFStore:
+    """A container's inventory is not all rasters, and the promotion must survive that."""
+
+    def test_a_non_gridded_array_can_be_promoted(self):
+        """Promoting a 1-D auxiliary is the member's whole purpose on a real store.
+
+        Test scenario:
+            On a 43-variable CF store whose inventory holds 1-D arrays, promoting the
+            1-D `gw` moves it out of `variable_names` and into the
+            auxiliary-coordinate role, while staying readable. Reading band dimensions
+            off a non-gridded array previously raised `AttributeError: 'LabeledArray'
+            object has no attribute '_band_dim_names'`.
+        """
+        nc = NetCDF.read_file(str(NON_GRIDDED_FIRST), open_as_multi_dimensional=True)
+        assert "gw" in nc.variable_names, "precondition: gw starts as a data variable"
+
+        promoted = nc.set_coords("gw")
+
+        assert "gw" not in promoted.variable_names
+        assert _roles(promoted)["gw"] == "auxiliary_coordinate"
+        assert promoted.get_variable("gw") is not None
+
+    def test_the_rest_of_the_inventory_is_untouched(self):
+        """Only the promoted name changes role; nothing else is dropped.
+
+        Test scenario:
+            The store's remaining 42 variables are all still data variables after the
+            promotion.
+        """
+        nc = NetCDF.read_file(str(NON_GRIDDED_FIRST), open_as_multi_dimensional=True)
+        before = len(nc.variable_names)
+
+        promoted = nc.set_coords("gw")
+
+        assert len(promoted.variable_names) == before - 1
 
 
 class TestSetCoordsRefusals:
