@@ -1035,8 +1035,12 @@ class TestSingleBandBroadcast:
 
         same = np.ones((3, 2, 2), "float32")
         untouched = Analysis._broadcast_band_axis(same, same)
-        assert untouched[0] is same, "an already-shaped left operand must be handed back"
-        assert untouched[1] is same, "an already-shaped right operand must be handed back"
+        assert untouched[0] is same, (
+            "an already-shaped left operand must be handed back"
+        )
+        assert untouched[1] is same, (
+            "an already-shaped right operand must be handed back"
+        )
 
     def test_a_single_band_pair_still_combines(self):
         """Two one-band rasters are unaffected by the broadcast path.
