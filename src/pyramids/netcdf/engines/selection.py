@@ -3351,6 +3351,14 @@ class Selection(_Engine["NetCDF"]):
         anything (`cube * mask`). Reach for this when you need the broadcast result *as a
         cube*: to write it to a file, `concat` it, or hand it to `to_xarray`.
 
+        The repeats are not the only cost on a **container**. Like `transpose` and the
+        spatial `pad`, this goes through `_apply_per_variable`, which rebuilds the
+        variables and does not carry the store's global attributes or the variables' own
+        (`units`, `standard_name`); an auxiliary array indexed by a dimension whose length
+        changed is dropped with a warning. That attribute loss is shared, long-standing
+        behaviour of that path rather than something this member adds, but it is worth
+        knowing before broadcasting a container you then write to a file.
+
         Args:
             other: The cube whose band layout to take, on this cube's grid.
 

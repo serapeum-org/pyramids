@@ -56,7 +56,7 @@ from pyramids.dataset.dataset import (
     _invalidate_cached_accessors,
 )
 from pyramids.dataset.engines._read_window import resolve_read_window
-from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA
+from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA, Analysis
 from pyramids.dataset.engines.io import _caller_stacklevel
 from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._axis import detect_axis_indices
@@ -12578,7 +12578,14 @@ class NetCDF(Dataset):
             — including a broadcast whose multi-band side is a plain raster, which has no
             band dimensions to lend.
         """
-        broadcast = isinstance(other, Dataset) and other.band_count != self.band_count
+        # The predicate, not bare inequality: this is only correct because
+        # `_check_combinable` has already refused every unequal pair that is not 1-vs-n,
+        # and saying so here keeps a future third caller honest.
+        broadcast = (
+            isinstance(other, Dataset)
+            and other.band_count != self.band_count
+            and Analysis._broadcastable_bands(self.band_count, other.band_count)
+        )
         if not broadcast:
             owner = mine if mine is not None else theirs
         elif self.band_count > other.band_count:
