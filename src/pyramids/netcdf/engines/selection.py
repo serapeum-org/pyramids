@@ -3141,9 +3141,12 @@ class Selection(_Engine["NetCDF"]):
         untouched and a new cube comes back. The variable itself is never moved or copied:
         only its role changes, and `get_variable` still reads it.
 
-        The reference is written onto **every** gridded data variable whose dimensions
-        cover the promoted one's, which is what CF's `coordinates` attribute means
-        ("these variables label my cells"). So one promotion on a wide store rewrites one
+        The reference is written onto **every** gridded data variable whose non-spatial
+        dimensions cover the promoted one's, which is what CF's `coordinates` attribute
+        means ("these variables label my cells"). The spatial axes are not compared: every
+        gridded variable spans them by definition. A promoted array whose own axes no
+        variable has — a 1-D array on an interface level, say, in a store whose variables
+        all sit on mid-levels — is refused rather than referenced invalidly. So one promotion on a wide store rewrites one
         attribute per spanning variable, and a variable promoted later keeps the copy it
         was given earlier — :meth:`reset_coords` therefore sweeps the auxiliary
         coordinates as well as the data variables, so the pair stays symmetric.
@@ -5391,21 +5394,26 @@ def _validated_promotions(nc: NetCDF, requested: list[str]) -> list[str]:
 
 
 def _band_axes_of(nc: NetCDF, name: str) -> set[str]:
-    """The band dimensions of one of a container's arrays, empty when it has none.
+    """The non-spatial dimensions of one of a container's arrays, read from the store.
 
-    A container's inventory is not all rasters: a 1-D or otherwise non-gridded array comes
-    back from `get_variable` as a `LabeledArray`, which carries no band surface at all.
-    `cast` is a type-checker annotation and not a runtime guard, so reading
-    `_band_dim_names` off one raised `AttributeError` from inside a public member.
+    Read from the **store**, not from `_band_dim_names`. A container's inventory is not all
+    rasters: a 1-D or otherwise non-gridded array comes back from `get_variable` as a
+    `LabeledArray`, which carries no band surface at all. Reading `_band_dim_names` off one
+    raised `AttributeError`; answering an empty set for it instead was worse, because it
+    made `_promotion_receivers`' containment test vacuous — every receiver trivially covers
+    nothing — so a 1-D array was referenced by variables that do not span its dimension,
+    which is not a valid CF `coordinates` reference.
 
     Args:
         nc: The container.
         name: The array to inspect.
 
     Returns:
-        set[str]: Its band dimension names, or an empty set when it tracks none.
+        set[str]: The array's dimension names minus the spatial pair, empty when it spans
+        none or cannot be opened.
     """
-    return set(getattr(nc.get_variable(name), "_band_dim_names", ()) or ())
+    declared = nc._variable_dim_names(nc._raster.GetRootGroup(), name)
+    return {dim for dim in declared if dim.lower() not in _SPATIAL_AXIS_NAMES}
 
 
 def _promotion_receivers(nc: NetCDF, promoted: list[str]) -> list[str]:

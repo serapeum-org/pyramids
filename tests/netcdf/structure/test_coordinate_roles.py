@@ -245,6 +245,41 @@ class TestSetCoordsOnARealCFStore:
         assert _roles(promoted)["gw"] == "auxiliary_coordinate"
         assert promoted.get_variable("gw") is not None
 
+    def test_an_array_no_variable_spans_is_refused_not_mis_referenced(self):
+        """A CF `coordinates` reference is only valid if the data variable spans its dims.
+
+        `_band_axes_of` used to answer an empty set for a non-gridded array, which made
+        the containment test vacuous: every gridded variable "covered" nothing, so
+        `hyai(ilev)` was referenced by `ICEFRAC(time, lat, lon)` — invalid CF that
+        `to_file` then persisted.
+
+        Test scenario:
+            `hyai` spans `ilev`, which no gridded variable has, so the promotion is
+            refused instead of writing a reference no variable can carry.
+        """
+        nc = NetCDF.read_file(str(NON_GRIDDED_FIRST), open_as_multi_dimensional=True)
+        root = nc._raster.GetRootGroup()
+        assert nc._variable_dim_names(root, "hyai") == ["ilev"], "precondition"
+        assert "ilev" not in nc._variable_dim_names(root, "ICEFRAC"), "precondition"
+
+        with pytest.raises(ValueError, match="none of the other variables span"):
+            nc.set_coords("hyai")
+
+    def test_an_array_on_a_shared_spatial_axis_is_still_promoted(self):
+        """The spatial axes are shared by every gridded variable, so they do not block it.
+
+        Test scenario:
+            `gw(lat)` is promoted, because `lat` is part of every gridded variable's
+            grid — the containment test only has to consider the non-spatial axes.
+        """
+        nc = NetCDF.read_file(str(NON_GRIDDED_FIRST), open_as_multi_dimensional=True)
+        root = nc._raster.GetRootGroup()
+        assert nc._variable_dim_names(root, "gw") == ["lat"], "precondition"
+
+        promoted = nc.set_coords("gw")
+
+        assert _roles(promoted)["gw"] == "auxiliary_coordinate"
+
     def test_the_rest_of_the_inventory_is_untouched(self):
         """Only the promoted name changes role; nothing else is dropped.
 
