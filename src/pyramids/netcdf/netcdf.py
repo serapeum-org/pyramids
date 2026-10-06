@@ -12265,6 +12265,21 @@ class NetCDF(Dataset):
         cannot describe the result's planes. `cube * mask` and `mask * cube` therefore come
         back with the same layout.
 
+        Two consequences of that rule are worth stating, because both used to be a
+        band-count `ValueError` and now succeed:
+
+        - A band dimension only the **one-band** operand has is **dropped**:
+          `cube(time=3) * level_slice(level=1)` comes back tracking `time` alone. The
+          result's three planes are the cube's three steps; the single `level` plane was
+          applied to each of them and is not an axis of the answer.
+        - When the multi-band operand is a plain raster — or a classic-mode container — it
+          has no band dimensions to lend, so the result tracks **none**, even if the
+          one-band operand had some. `mask(time=1) * scene(3 bands)` is three bands with no
+          band dimensions, so `isel`, `sel`, `coords` and `to_xarray` do not apply to it.
+          The alternative would be to keep `time` at length three, which would claim three
+          time steps where the operands held one; an unlabelled result is the honest answer,
+          and `expand_dims` / `assign_coords` are the way to label it deliberately.
+
         Args:
             other: The second operand, on this variable's grid.
             func: Binary callable applied to the operands' matching cells.

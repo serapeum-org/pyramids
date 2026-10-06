@@ -532,6 +532,64 @@ class TestASingleBandOperandBroadcasts:
         assert np.asarray(step.read_array(squeeze=True)).shape == (NY, NX)
 
 
+class TestWhatABroadcastDoesToTheLayout:
+    """Both shapes below used to be a band-count ValueError, so they are pinned (M1)."""
+
+    def test_a_dimension_only_the_one_band_operand_has_is_dropped(self):
+        """The result's planes are the multi-band operand's, so only its axes survive.
+
+        Test scenario:
+            `cube(time=4, level=3)` times a one-band `station` variable tracks the
+            cube's two dimensions and not `station`, from either operand order.
+        """
+        cube = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        single = _variable([("station", [1.0])], name="one")
+
+        assert _layout(cube * single) == _layout(cube)
+        assert _layout(single * cube) == _layout(cube)
+
+    def test_a_plain_multi_band_operand_leaves_the_result_unlabelled(self):
+        """No band dimensions is the honest answer, and it is now explicit.
+
+        A plain raster has no band dimensions to lend, and keeping the one-band
+        operand's `time` at the result's length would claim four steps where the
+        operands held one. The result is therefore unlabelled — documented on
+        `NetCDF.combine`, and pinned here because it used to raise.
+
+        Test scenario:
+            A one-step variable times a 3-band plain raster gives three bands with no
+            tracked dimensions, and the band-dimension members refuse it.
+        """
+        single = _variable([("time", [0.0])], name="one")
+        plain = Dataset.from_array(
+            np.full((3, NY, NX), 2.0), geo_ref=GeoReference(geo=GEO, epsg=4326)
+        )
+
+        result = single * plain
+
+        assert result.band_count == 3
+        assert tuple(result._band_dim_names) == ()
+        with pytest.raises(ValueError, match="non-spatial dimension"):
+            result.isel(time=0)
+
+    def test_the_cells_are_right_even_where_the_layout_is_not_tracked(self):
+        """The degradation is in the bookkeeping only — the arithmetic is correct.
+
+        Test scenario:
+            Every band of the plain operand is multiplied by the single mask plane.
+        """
+        single = _variable([("time", [0.0])], name="one")
+        plain = Dataset.from_array(
+            np.full((3, NY, NX), 2.0), geo_ref=GeoReference(geo=GEO, epsg=4326)
+        )
+
+        result = np.asarray((single * plain).read_array())
+
+        expected = np.asarray(single.read_array(squeeze=True)) * 2.0
+        for band in range(3):
+            assert_array_equal(result[band], expected)
+
+
 class TestWhatMustNotChange:
     """The paths the labels must not reach come out as they did before."""
 
