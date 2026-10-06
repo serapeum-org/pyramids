@@ -56,7 +56,7 @@ from pyramids.dataset.dataset import (
     _invalidate_cached_accessors,
 )
 from pyramids.dataset.engines._read_window import resolve_read_window
-from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA, Analysis
+from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA
 from pyramids.dataset.engines.io import _caller_stacklevel
 from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._axis import detect_axis_indices
@@ -12279,10 +12279,16 @@ class NetCDF(Dataset):
         - When the multi-band operand is a plain raster — or a classic-mode container — it
           has no band dimensions to lend, so the result tracks **none**, even if the
           one-band operand had some. `mask(time=1) * scene(3 bands)` is three bands with no
-          band dimensions, so `isel`, `sel`, `coords` and `to_xarray` do not apply to it.
-          The alternative would be to keep `time` at length three, which would claim three
-          time steps where the operands held one; an unlabelled result is the honest answer,
-          and `expand_dims` / `assign_coords` are the way to label it deliberately.
+          band dimensions, so `isel`, `sel`, `coords` and `to_xarray` do not apply to it,
+          `concat` refuses it, and `broadcast_like` refuses it too. The alternative would be
+          to keep `time` at length three, which would claim three time steps where the
+          operands held one; an unlabelled result is the honest answer.
+
+          Such a result **cannot be labelled afterwards** — `expand_dims` only adds a
+          length-one axis and `assign_coords` needs an existing dimension — so broadcast
+          the operands before combining them if the layout matters. And note what `to_file`
+          does with it: it succeeds, writing **one variable per plane** (`Band1`, `Band2`,
+          …), so a three-step cube reopens as three unrelated single-plane variables.
 
         Args:
             other: The second operand, on this variable's grid.
@@ -12578,14 +12584,14 @@ class NetCDF(Dataset):
             — including a broadcast whose multi-band side is a plain raster, which has no
             band dimensions to lend.
         """
-        # The predicate, not bare inequality: this is only correct because
-        # `_check_combinable` has already refused every unequal pair that is not 1-vs-n,
-        # and saying so here keeps a future third caller honest.
-        broadcast = (
-            isinstance(other, Dataset)
-            and other.band_count != self.band_count
-            and Analysis._broadcastable_bands(self.band_count, other.band_count)
-        )
+        # Bare inequality, deliberately. `_check_combinable` is the one member that
+        # reports a band-count mismatch, and `_band_layout_source` is documented to *skip*
+        # its comparison for such a pair so that message is the one the caller sees —
+        # a test pins that ordering. Conjoining `_broadcastable_bands` here reads as a
+        # safety net but is not one: a 2-vs-3 pair that somehow arrived without the gate
+        # would merely fall into the counts-agree branch instead. Raising here was worse
+        # still, because it took the mismatch report away from `_check_combinable`.
+        broadcast = isinstance(other, Dataset) and other.band_count != self.band_count
         if not broadcast:
             owner = mine if mine is not None else theirs
         elif self.band_count > other.band_count:

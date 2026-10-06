@@ -272,18 +272,37 @@ class TestASingleBandCondition:
             A 3-band stack masked by a single-band condition keeps three bands, with
             the same cells selected in each.
         """
-        stack = Dataset.from_array(
-            np.tile(np.arange(12.0).reshape(3, 4), (3, 1, 1)), geo_ref=GEO_REF
+        bands = np.stack(
+            [np.arange(12.0).reshape(3, 4) + 100.0 * index for index in range(3)]
         )
-        condition = Dataset.from_array(
-            (np.arange(12.0).reshape(3, 4) > 5).astype("uint8"), geo_ref=GEO_REF
-        )
+        stack = Dataset.from_array(bands, geo_ref=GEO_REF)
+        keep = np.arange(12.0).reshape(3, 4) > 5
+        condition = Dataset.from_array(keep.astype("uint8"), geo_ref=GEO_REF)
 
         masked = _read(stack.where(condition, 0.0))
 
         assert masked.shape == (3, 3, 4)
-        for band in range(1, 3):
-            assert_allclose(masked[band], masked[0])
+        for index in range(3):
+            assert_allclose(masked[index][keep], bands[index][keep])
+            assert_allclose(masked[index][~keep], np.zeros(int((~keep).sum())))
+
+    def test_an_array_condition_with_more_planes_is_refused_the_same_way(self):
+        """The refusal must not be limited to a raster condition.
+
+        It originally sat inside `isinstance(cond, RasterBase)`, so an array condition
+        still reported the internal broadcast shape the fix set out to replace.
+
+        Test scenario:
+            A 3-plane boolean array on a 1-band raster raises the band-count message,
+            and a single-plane array still broadcasts across a stack.
+        """
+        one_band = _raster(np.arange(12.0).reshape(3, 4))
+
+        with pytest.raises(ValueError, match="different number of bands"):
+            one_band.where(np.ones((3, 3, 4), bool), 0.0)
+
+        stack = Dataset.from_array(np.ones((3, 3, 4)), geo_ref=GEO_REF)
+        assert stack.where(np.ones((3, 4), bool), 0.0).band_count == 3
 
     def test_a_condition_with_more_bands_is_refused_by_band_count(self):
         """`where` answers in this raster's shape, so extra condition bands have nowhere to go.

@@ -2960,6 +2960,31 @@ class Analysis(_Engine["Dataset"]):
         )
         return self._identified(self._rebuilt(flags, None))
 
+    @staticmethod
+    def _condition_planes(cond: Any) -> int | None:
+        """How many planes a `where` condition carries, or `None` when it has no shape.
+
+        A raster answers with its band count and a 3-D array with its leading axis. A 2-D
+        array, a callable and a scalar have no plane count to compare — a callable's result
+        is only known once it has run, and `_where_condition` checks that shape itself.
+
+        The band-count refusal reads this rather than only a raster's `band_count`, so an
+        array condition with more planes than the raster gets the same named message
+        instead of a downstream report about an internal broadcast shape.
+
+        Args:
+            cond: The condition as the caller gave it.
+
+        Returns:
+            int | None: The condition's plane count, or `None` when it has none.
+        """
+        planes: int | None = None
+        if isinstance(cond, RasterBase):
+            planes = int(cast("Dataset", cond).band_count)
+        elif isinstance(cond, np.ndarray) and cond.ndim == 3:
+            planes = int(cond.shape[0])
+        return planes
+
     def _where_layout_source(self, cond: Any) -> Any:
         """Check a raster condition's grid and band layout, and say what labels the result.
 
@@ -2986,6 +3011,16 @@ class Analysis(_Engine["Dataset"]):
             ValueError: The condition carries several bands and this raster carries one.
         """
         self._refuse_a_container("where")
+        planes = Analysis._condition_planes(cond)
+        if planes is not None and planes > self._ds.band_count:
+            raise ValueError(
+                f"the operands carry a different number of bands "
+                f"({self._ds.band_count} and {planes}): a single-band condition "
+                f"broadcasts across this raster's bands, but a {planes}-band condition "
+                f"has nowhere to go on a {self._ds.band_count}-band raster, since "
+                f"`where` answers in this raster's shape. Select one band of the "
+                f"condition, or apply it to a raster with as many bands."
+            )
         if isinstance(cond, RasterBase):
             raster = cast("Dataset", cond)
             self._check_combinable(raster, np.logical_and, None)

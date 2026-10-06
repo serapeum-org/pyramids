@@ -1747,10 +1747,11 @@ def _apply_per_variable(
 
     `fn(var)` returns `(values, band_names, values_map, no_data, geotransform)`. Unlike
     `_apply_to_container`, which runs only on the variables spanning one named dimension, this runs
-    on every gridded variable, so it serves the whole-variable operations `transpose` (reorders
-    band axes) and the spatial `pad` (grows the grid). Auxiliary variables are carried; any named in
-    `dropped` are dropped with a warning (none, for these two — transpose keeps every length and a
-    spatial pad touches no band dimension).
+    on every gridded variable, so it serves the whole-variable operations — `transpose` (reorders
+    band axes), the spatial `pad` (grows the grid), `coarsen` and `broadcast_like`. Auxiliary
+    variables are carried; any named in `dropped` are dropped with a warning. `transpose` and `pad`
+    name none (transpose keeps every length and a spatial pad touches no band dimension);
+    `broadcast_like` is the caller that does, since stretching an axis changes its length.
 
     Args:
         nc: The container or variable.
@@ -1779,10 +1780,14 @@ def _apply_per_variable(
             nc, _Applied(values, band_names, values_map, ndv), geotransform=geo
         )
     else:
-        if not nc.variable_names:
-            raise ValueError(f"Cannot {caller} an empty container (no data variables).")
         rg = nc._working_group()
         spatial_vars = nc._spatial_variable_names(rg)
+        # The *gridded* inventory, not `variable_names`: a container can hold variables and
+        # still have nothing to fan out over (every array 1-D). The loop below then leaves
+        # `result` and `grid` as `None` and `_stamped` fails with
+        # `TypeError: 'NoneType' object is not iterable`, which is not a refusal.
+        if not spatial_vars:
+            raise ValueError(f"Cannot {caller} an empty container (no data variables).")
         aux_vars = nc._carryable_aux_names(rg, spatial_vars)
         result: NetCDF | None = None
         grid: tuple | None = None

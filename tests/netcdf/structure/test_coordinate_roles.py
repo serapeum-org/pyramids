@@ -273,6 +273,41 @@ class TestSetCoords:
         assert _roles(reopened)["expver"] == "auxiliary_coordinate"
 
 
+class TestMoreSetCoordsEdges:
+    """Round 2's Low findings on the coordinate members."""
+
+    def test_the_no_receiver_message_does_not_claim_an_only_variable(self):
+        """Receivers are filtered to the gridded set, so an empty list is not "only one".
+
+        Test scenario:
+            A container with a gridded `t` and a non-gridded sibling refuses the
+            promotion of `t` saying it has no other *gridded* variable, not that it is
+            the container's only variable.
+        """
+        cube = _container(t=1.0)
+
+        with pytest.raises(ValueError, match="no other gridded variable"):
+            cube.set_coords("t")
+
+    def test_removing_the_last_receiver_reverts_the_promotion(self):
+        """The reference lives on the receivers, so deleting them un-promotes.
+
+        Documented on `set_coords`; pinned here because it is surprising and silent.
+
+        Test scenario:
+            Promote `a` (reference written on `b`), then remove `b`. `a` comes back as
+            a data variable.
+        """
+        pair = _container(a=1.0, b=2.0)
+        promoted = pair.set_coords("a")
+        assert promoted.variable_names == ["b"], "precondition: a is a coordinate"
+
+        promoted.remove_variable("b")
+
+        assert promoted.variable_names == ["a"]
+        assert _roles(promoted)["a"] == "data"
+
+
 class TestSetCoordsOnARealCFStore:
     """A container's inventory is not all rasters, and the promotion must survive that."""
 
@@ -370,6 +405,26 @@ class TestSetCoordsRefusals:
 
         with pytest.raises(TypeError, match="must be a string"):
             cube.set_coords(3)
+
+    def test_a_set_or_generator_of_names_is_accepted(self):
+        """Narrowing the type gate to `Sequence` broke two shapes that worked before.
+
+        A `set` is the natural input when the caller computed the names, and xarray
+        accepts any iterable. The named `TypeError` for a non-iterable stays.
+
+        Test scenario:
+            A `set` and a generator both promote; an `int` and `bytes` are refused with
+            messages naming what went wrong.
+        """
+        cube = _container(t2m=1.0, expver=5.0, angle=7.0)
+
+        assert cube.set_coords({"expver"}).variable_names == ["angle", "t2m"]
+        assert cube.set_coords(n for n in ["angle"]).variable_names == ["expver", "t2m"]
+
+        with pytest.raises(TypeError, match="iterable of them"):
+            cube.set_coords(3)
+        with pytest.raises(TypeError, match="must be a string"):
+            cube.set_coords(b"ab")
 
     def test_a_dimension_is_refused(self):
         """A dimension's coordinate is its same-named array, which this cannot assign.

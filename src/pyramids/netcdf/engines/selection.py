@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 import operator
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, cast
@@ -3153,6 +3153,12 @@ class Selection(_Engine["NetCDF"]):
         :meth:`reset_coords` sweeps every classified array rather than just the data
         variables: it is the only way the two stay symmetric.
 
+        It also means the promotion lives on the receivers, not on the promoted array, so
+        `remove_variable` on the last variable holding the reference silently un-promotes
+        it — the array reappears in `data_vars`. That is CF's model rather than a quirk of
+        this implementation, but it is worth knowing before removing variables from a cube
+        whose roles you have set.
+
         Args:
             names: A variable name, or a sequence of them, to promote.
 
@@ -3364,6 +3370,13 @@ class Selection(_Engine["NetCDF"]):
         behaviour of that path rather than something this member adds, but it is worth
         knowing before broadcasting a container you then write to a file.
 
+        One consequence is worth naming on its own, because it collides with
+        :meth:`set_coords`: the CF `coordinates` attribute is one of the attributes not
+        carried, so a container broadcast **discards the coordinate partition**. Every
+        auxiliary coordinate comes back a data variable, and
+        `nc.set_coords("expver").broadcast_like(other)` throws the promotion away. Promote
+        after broadcasting, not before.
+
         Args:
             other: The cube whose band layout to take, on this cube's grid.
 
@@ -3466,7 +3479,11 @@ class Selection(_Engine["NetCDF"]):
         """
         nc = self._ds
         donor = _donor_band_layout(other, caller="broadcast_like")
-        _assert_broadcast_grids(nc, other)
+        # Resolved once and shared: the grid check and the changed-dimension scan both need
+        # every gridded variable, and opening them separately walked the inventory twice
+        # over before a pixel was read.
+        sources = _broadcast_sources(nc)
+        _assert_broadcast_grids(sources, other)
 
         def _fn(var: NetCDF) -> tuple:
             out_names, out_sizes, values_map = _broadcast_layout(var, donor)
@@ -3493,7 +3510,7 @@ class Selection(_Engine["NetCDF"]):
             # array indexed by one cannot be carried verbatim: it would keep the source
             # length while the gridded variables take the donor's. `_carry_auxiliaries`
             # drops those with a warning, which the empty default silently skipped.
-            dropped=_broadcast_changed_dims(nc, donor),
+            dropped=_broadcast_changed_dims(sources, donor),
             noun="broadcast",
             # A classic-mode raster has real bands and an empty variable list, so the
             # container branch would refuse it as "an empty container" although `equals`,
@@ -3521,8 +3538,8 @@ class Selection(_Engine["NetCDF"]):
         up. Only those three cases are swallowed; anything else surfaces, so a defect is
         never reported as inequality.
 
-        A **container** receiver is refused rather than answered, for the same reason
-        `equals` refuses one: a container has no cells of its own, so there is nothing to
+        A **container** on *either* side is refused rather than answered, for the same
+        reason `equals` refuses one: a container has no cells of its own, so there is nothing to
         compare. (Before this was explicit, `equals`' own refusal was caught and turned
         into `False`, which made a container not broadcast-equal to *itself*.) "Container"
         here means what it means to `equals` — a cube that has variables and no band
@@ -3607,6 +3624,16 @@ class Selection(_Engine["NetCDF"]):
                 "container, which has no cells of its own to compare — the same reason "
                 "`equals` refuses one. Pick the variables to compare with "
                 "`get_variable`, or compare the containers variable by variable."
+            )
+        if (
+            isinstance(other, Dataset)
+            and getattr(other, "variable_names", None)
+            and not getattr(other, "_band_dim_names", ())
+        ):
+            raise ValueError(
+                "broadcast_equals() compares one raster with another, and `other` is a "
+                "container, which has no cells of its own to compare. Pick the variable "
+                "to compare against with `other.get_variable(...)`."
             )
         answer = False
         try:
@@ -5334,26 +5361,41 @@ def _assert_coordinate_partition(nc: NetCDF, *, caller: str) -> None:
         )
 
 
-def _requested_names(names: str | Sequence[str]) -> list[str]:
+def _requested_names(names: str | Iterable[str]) -> list[str]:
     """One or several variable names, as a list, de-duplicated in first-seen order.
 
+    Any non-string iterable is accepted — a `set` is the natural input when the caller
+    computed the names (`set(nc.variable_names) - keep`), and a generator is as valid.
+    Narrowing this to `Sequence` to give `set_coords(3)` a named message took those away.
+
+    The element check is separate from the container check so that `bytes`, which is
+    iterable and yields integers, is reported as the integers it actually produced rather
+    than passing the outer gate and failing later as an unknown variable name.
+
     Args:
-        names: A single name or a sequence of them.
+        names: A single name or an iterable of them.
 
     Returns:
         list[str]: The names, de-duplicated with their first-seen order kept.
 
     Raises:
-        TypeError: `names` is neither a string nor a sequence of them.
+        TypeError: `names` is neither a string nor an iterable, or it yields a non-string.
     """
     if isinstance(names, str):
         requested = [names]
-    elif isinstance(names, Sequence):
+    elif isinstance(names, Iterable):
         requested = list(names)
     else:
         raise TypeError(
-            f"a variable name must be a string, or a sequence of them, not "
+            f"a variable name must be a string, or an iterable of them, not "
             f"{type(names).__name__}."
+        )
+    if any(not isinstance(name, str) for name in requested):
+        offenders = sorted(
+            {type(n).__name__ for n in requested if not isinstance(n, str)}
+        )
+        raise TypeError(
+            f"every variable name must be a string; got {', '.join(offenders)}."
         )
     return list(dict.fromkeys(requested))
 
@@ -5482,7 +5524,7 @@ def _promotion_receivers(nc: NetCDF, promoted: list[str]) -> list[str]:
         why = (
             "none of the other variables span its dimensions"
             if receivers
-            else "it is the container's only variable"
+            else "it has no other gridded variable"
         )
         raise ValueError(
             f"set_coords(): no data variable is left to reference {sorted(promoted)} — "
@@ -5586,7 +5628,9 @@ def _grid_reference(nc: NetCDF) -> NetCDF:
     off it raised `AttributeError` from inside a public member.
 
     A container with no gridded variable has no grid to compare, so it is handed back
-    as-is and the caller's own grid check reports the mismatch.
+    as-is. That is not by itself a refusal: when *both* sides are gridless their 512x512
+    placeholders match and the grid check passes, so `_apply_per_variable` refuses the
+    empty gridded inventory instead.
 
     Args:
         nc: A variable or a container.
@@ -5647,42 +5691,70 @@ def _donor_band_layout(
     return [(name, sizes[name], stamps.get(name)) for name in names if name in sizes]
 
 
-def _assert_broadcast_grids(nc: NetCDF, other: Any) -> None:
+def _broadcast_sources(nc: NetCDF) -> list[NetCDF]:
+    """The cubes a broadcast will rebuild: a variable itself, or a container's gridded set.
+
+    Resolved once per call and passed on, because the grid check, the changed-dimension
+    scan and the rebuild all need the same list; opening it per helper walked a 31-variable
+    store three times before reading a pixel.
+
+    Args:
+        nc: The cube being broadcast.
+
+    Returns:
+        list[NetCDF]: `[nc]` for a single raster, else its gridded variables. Empty when a
+        container has none, which `_apply_per_variable` then refuses by name.
+    """
+    if _reduces_as_a_variable(nc) or not nc.variable_names:
+        resolved = [nc]
+    else:
+        resolved = [
+            cast("NetCDF", nc.get_variable(name))
+            for name in nc._spatial_variable_names()
+        ]
+    return resolved
+
+
+def _assert_broadcast_grids(sources: list[NetCDF], other: Any) -> None:
     """Refuse a broadcast whose operands are not cell-for-cell on one grid.
 
     Compared variable to variable: a root container's own raster is a 512x512 placeholder,
     so comparing the containers themselves refuses every container broadcast. **Every**
-    gridded variable of the receiver is checked, not just the first — `_fn` rebuilds each
-    one with its own geotransform, so a container holding variables on two grids would
-    otherwise be only partly validated and the result would mix them.
+    gridded variable is checked on **both** sides — `_fn` rebuilds each receiver variable
+    with its own geotransform, and a donor container can likewise hold variables on two
+    grids, so validating either side on its first variable alone leaves a result that
+    mixes grids.
 
     Args:
-        nc: The cube being broadcast.
+        sources: The receiver's cubes, from `_broadcast_sources`.
         other: The donor.
 
     Raises:
-        AlignmentError: A variable of `nc` is not on the donor's grid.
+        AlignmentError: A receiver variable is not on a donor variable's grid.
     """
-    donor_grid = _grid_reference(other)
-    sources = (
-        [nc]
-        if _reduces_as_a_variable(nc)
-        else [
-            cast("NetCDF", nc.get_variable(name))
-            for name in nc._spatial_variable_names()
-        ]
+    # `or [other]` matters: a donor container with no gridded variable resolves to an
+    # empty list, and an empty inner loop would check nothing and accept it silently.
+    # Falling back to the container itself compares against its placeholder raster, which
+    # is what reports the mismatch.
+    fallback = [cast("NetCDF", other)]
+    donor_grids = (
+        _broadcast_sources(cast("NetCDF", other)) or fallback
+        if isinstance(other, Dataset) and hasattr(other, "variable_names")
+        else fallback
     )
-    for variable in sources or [nc]:
-        if not _same_spatial_grid(variable, donor_grid):
-            raise AlignmentError(
-                "broadcast_like() does not resample: the two cubes are on different "
-                "spatial grids, so there is no cell-for-cell correspondence to repeat. "
-                "Put them on one grid first (`other = other.align(self)`)."
-            )
+    for variable in sources:
+        for donor_grid in donor_grids:
+            if not _same_spatial_grid(variable, donor_grid):
+                raise AlignmentError(
+                    "broadcast_like() does not resample: the two cubes are on different "
+                    "spatial grids, so there is no cell-for-cell correspondence to "
+                    "repeat. Put them on one grid first "
+                    "(`other = other.align(self)`)."
+                )
 
 
 def _broadcast_changed_dims(
-    nc: NetCDF, donor: list[tuple[str, int, list | None]]
+    sources: list[NetCDF], donor: list[tuple[str, int, list | None]]
 ) -> tuple[str, ...]:
     """The band dimensions a broadcast against `donor` changes the length of.
 
@@ -5692,20 +5764,12 @@ def _broadcast_changed_dims(
     the stretched length-one ones count; a dimension kept at its own length does not.
 
     Args:
-        nc: The cube being broadcast.
+        sources: The receiver's cubes, from `_broadcast_sources`.
         donor: The donor's layout from `_donor_band_layout`.
 
     Returns:
         tuple[str, ...]: The affected dimension names, in the donor's order.
     """
-    sources = (
-        [nc]
-        if _reduces_as_a_variable(nc)
-        else [
-            cast("NetCDF", nc.get_variable(name))
-            for name in nc._spatial_variable_names()
-        ]
-    )
     changed: set[str] = set()
     for variable in sources:
         own = dict(zip(variable._band_dim_names, variable._band_dim_sizes))
@@ -5735,8 +5799,9 @@ def _broadcast_layout(
         tuple: The result's dimension names, their sizes, and their coordinate values.
 
     Raises:
-        ValueError: A shared dimension has different lengths on the two sides and neither
-            is one, so neither can be stretched onto the other.
+        _NotBroadcastable: A shared dimension has different lengths on the two sides and
+            neither is one, so neither can be stretched onto the other. It is a `ValueError`
+            subclass, which `broadcast_equals` catches to answer `False`.
     """
     mine = list(var._band_dim_names)
     my_sizes = dict(zip(mine, var._band_dim_sizes))
@@ -5773,7 +5838,9 @@ def _assert_axes_stretch(name: str, ours: int | None, theirs: int | None) -> Non
         theirs: Its length on the donor, or `None` when the donor does not have it.
 
     Raises:
-        ValueError: Both sides have it, at different lengths, and neither is one.
+        _NotBroadcastable: Both sides have it, at different lengths, and neither is one. A
+            `ValueError` subclass, so `broadcast_like`'s documented contract is unchanged
+            while `broadcast_equals` can catch exactly this and answer `False`.
     """
     if (
         ours is not None
@@ -5831,9 +5898,10 @@ def _broadcast_values(
             f"broadcast_like(): this cube holds {planes} planes but its band dimensions "
             f"{list(mine)} account for {accounted}, so there is no way to tell what the "
             f"extra planes are and nothing to repeat them along. A cube reaches this "
-            f"state when a broadcast dropped its layout — see `NetCDF.combine` — so "
-            f"label it first with `expand_dims` / `assign_coords`, or broadcast the "
-            f"operands it came from instead."
+            f"state when a broadcast dropped its layout — see `NetCDF.combine` — and it "
+            f"cannot be labelled after the fact: `expand_dims` only adds a length-one "
+            f"axis and `assign_coords` needs a dimension that already exists. Broadcast "
+            f"the operands *before* combining them instead."
         )
     source = values.reshape((*my_sizes, *spatial))
     lifted = source.reshape((*[declared.get(name, 1) for name in names], *spatial))

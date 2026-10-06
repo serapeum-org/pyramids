@@ -574,6 +574,41 @@ class TestBroadcastLikeOnAContainer:
         assert np.asarray(step.read_array(squeeze=True)).shape == (NY, NX)
 
 
+class TestWhatAContainerBroadcastCosts:
+    """The documented costs are pinned, including the one that collides with set_coords."""
+
+    def test_it_discards_the_coordinate_partition(self):
+        """`_apply_per_variable` does not carry attributes, `coordinates` among them.
+
+        Test scenario:
+            A store with an `expver` auxiliary coordinate comes back from an identity
+            broadcast with no auxiliary coordinates at all, so a promotion made before
+            broadcasting is lost. Documented on `broadcast_like`; pinned here.
+        """
+        nc = NetCDF.read_file(str(CLASSIC_CUBE), open_as_multi_dimensional=True)
+        roles = nc.meta_data.cf.classifications or {}
+        assert "auxiliary_coordinate" in roles.values(), "precondition: one exists"
+        donor = nc.get_variable(nc._spatial_variable_names()[0])
+
+        after = nc.broadcast_like(donor)
+
+        kept = (after.meta_data.cf.classifications or {}).values()
+        assert "auxiliary_coordinate" not in kept
+
+    def test_two_gridless_containers_are_refused_not_crashed(self):
+        """Both placeholders match, so the grid check passes and the fan-out must refuse.
+
+        Test scenario:
+            Gridless against gridless raised `TypeError: 'NoneType' object is not
+            iterable` from deep inside the rebuild; it now refuses by name.
+        """
+        left = Container(_store_with_no_gridded_variable())
+        right = Container(_store_with_no_gridded_variable())
+
+        with pytest.raises(ValueError, match="empty container"):
+            left.broadcast_like(right)
+
+
 class TestAClassicModeRaster:
     """Classic mode is a raster with real bands and no variable list (round 2 H2)."""
 
@@ -625,28 +660,27 @@ class TestAClassicModeRaster:
 class TestAContainerWithNoGriddedVariable:
     """`_grid_reference` has nothing to stand in for the container, and must not guess."""
 
-    def test_it_is_refused_on_the_grid_rather_than_crashing(self):
-        """A store of 1-D arrays has no grid, so the comparison must fail cleanly.
+    def test_it_is_refused_by_name_rather_than_crashing(self):
+        """A store of 1-D arrays has nothing to broadcast, so it must refuse cleanly.
 
         Test scenario:
             A container holding only `series(time)` reports no gridded variables, so
-            `_grid_reference` hands the container itself back and the grid check
-            refuses with `AlignmentError` instead of picking an arbitrary array.
+            there is nothing for the rebuild to fan out over and it refuses by name
+            instead of leaving the result unset and failing on a `NoneType`.
         """
         container = Container(_store_with_no_gridded_variable())
         donor = _cube([("time", TIMES)])
         assert container._spatial_variable_names() == [], "precondition: none gridded"
 
-        with pytest.raises(AlignmentError, match="different"):
+        with pytest.raises(ValueError, match="empty container"):
             container.broadcast_like(donor)
 
     def test_such_a_container_is_refused_as_the_donor_too(self):
-        """The donor side resolves its reference through the same helper.
+        """The donor side has no grid to compare against either.
 
         Test scenario:
             A healthy variable broadcast against the gridless container is refused on
-            the grid — `_grid_reference` has no gridded variable to stand in for it and
-            hands the container back rather than picking one of its 1-D arrays.
+            the grid — the container's own raster is a placeholder, not a grid.
         """
         container = Container(_store_with_no_gridded_variable())
         receiver = _cube([("time", TIMES)])
@@ -676,6 +710,21 @@ class TestBroadcastEqualsRefusesAContainer:
 
         with pytest.raises(ValueError, match="get_variable"):
             container.broadcast_equals(container)
+
+    def test_a_container_donor_is_refused_too(self):
+        """The refusal covered the receiver only, so a container donor answered `False`.
+
+        Test scenario:
+            A variable compared against the container it came from raises rather than
+            answering, which is the same asymmetry round 1's H3 left on the other side.
+        """
+        container = NetCDF.from_array(
+            np.full((NY, NX), 1.0), geo_ref=_geo_ref(), variable_name="v"
+        )
+        variable = container.get_variable("v")
+
+        with pytest.raises(ValueError, match="`other` is a container"):
+            variable.broadcast_equals(container)
 
     def test_a_variable_is_reflexive(self):
         """The property the swallowed refusal broke.
