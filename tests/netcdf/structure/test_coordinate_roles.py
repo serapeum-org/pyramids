@@ -12,8 +12,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
+from osgeo import gdal
 
 from pyramids.netcdf import GeoReference, NetCDF
+from pyramids.netcdf.netcdf import Container
 
 pytestmark = pytest.mark.core
 
@@ -50,6 +52,33 @@ def _container(**variables: float) -> NetCDF:
         ).get_variable(name)
         container.set_variable(name, donor)
     return container
+
+
+def _grouped_store(flat: NetCDF) -> NetCDF:
+    """Copy `flat`'s arrays into a sub-group of a fresh store, for the group-view tests.
+
+    Args:
+        flat: A root container whose arrays to copy.
+
+    Returns:
+        NetCDF: A container whose `inner` sub-group holds the same arrays.
+    """
+    source = flat._raster.GetRootGroup()
+    store = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
+    inner = store.GetRootGroup().CreateGroup("inner")
+    axes = {
+        dim.GetName(): inner.CreateDimension(dim.GetName(), "", "", dim.GetSize())
+        for dim in source.GetDimensions()
+    }
+    for name in source.GetMDArrayNames():
+        array = source.OpenMDArray(name)
+        copied = inner.CreateMDArray(
+            name,
+            [axes[d.GetName()] for d in array.GetDimensions()],
+            array.GetDataType(),
+        )
+        copied.Write(array.Read())
+    return Container(store)
 
 
 def _roles(nc: NetCDF) -> dict[str, str]:
@@ -214,6 +243,23 @@ class TestSetCoordsRefusals:
 
         with pytest.raises(ValueError, match="single variable"):
             variable.set_coords("expver")
+
+    def test_a_group_view_is_refused_rather_than_silently_ignored(self):
+        """A reference written inside a group is never matched back, so it must refuse.
+
+        Test scenario:
+            A `get_group` view raises, naming the group. Without this the write would
+            succeed and the role would not change: CF references are relative names
+            (`expver`) while a sub-group's arrays classify as `inner/expver`.
+        """
+        cube = _container(t2m=1.0, expver=5.0)
+        view = _grouped_store(cube).get_group("inner")
+
+        with pytest.raises(ValueError, match="get_group"):
+            view.set_coords("expver")
+
+        with pytest.raises(ValueError, match="get_group"):
+            view.reset_coords()
 
 
 class TestResetCoords:

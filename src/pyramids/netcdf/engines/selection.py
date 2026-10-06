@@ -5083,12 +5083,19 @@ def _assert_coordinate_partition(nc: NetCDF, *, caller: str) -> None:
     a lone variable has no sibling to carry the reference — and promoting the only variable
     there is would leave a cube with no data variables at all.
 
+    A `get_group` view is refused as well, and for a sharper reason: the CF `coordinates`
+    attribute names its references *relatively* (`expver`), while `classify_variables`
+    reports a sub-group's arrays under their group-qualified names (`inner/expver`), so a
+    reference written inside a group is never matched back to the array it names. The write
+    would succeed and the role would not change — a silent no-op, which is worse than a
+    refusal. The root container is where the roles are read, so that is where they are set.
+
     Args:
         nc: The receiver.
         caller: The member the user called, named in the refusal.
 
     Raises:
-        ValueError: `nc` is a single variable rather than a container.
+        ValueError: `nc` is a single variable, or a `get_group` view.
     """
     if _reduces_as_a_variable(nc):
         raise ValueError(
@@ -5096,6 +5103,14 @@ def _assert_coordinate_partition(nc: NetCDF, *, caller: str) -> None:
             f"this is a single variable: CF marks a coordinate by naming it in another "
             f"variable's `coordinates` attribute, so there is nothing here to name it. "
             f"Call it on the container this variable came from."
+        )
+    if nc._group_path:
+        raise ValueError(
+            f"{caller}() is not supported on a get_group() view ({nc._group_path!r}). A CF "
+            f"`coordinates` reference is a relative name, while a sub-group's arrays are "
+            f"classified under their group-qualified names, so a reference written here "
+            f"would never be matched back and the role would silently not change. Open the "
+            f"store without get_group() and set the roles on the root container."
         )
 
 
