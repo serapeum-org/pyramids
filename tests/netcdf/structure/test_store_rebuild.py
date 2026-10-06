@@ -13,7 +13,12 @@ import pytest
 from numpy.testing import assert_allclose
 from osgeo import gdal, osr
 
-from pyramids.netcdf.netcdf import Container, NetCDF, _DimensionRemap
+from pyramids.netcdf.netcdf import (
+    _MAX_GROUP_DEPTH,
+    Container,
+    NetCDF,
+    _DimensionRemap,
+)
 
 pytestmark = pytest.mark.core
 
@@ -494,4 +499,95 @@ class TestRebuildGuards:
         remap.recreate(destination.GetRootGroup(), "v", data)
         assert calls == ["tt", "v"], (
             f"the injected copy must be the one used, got {calls}"
+        )
+
+
+def _flat_store(time_size=3, time_values=(0.0, 6.0, 12.0), index_time=True):
+    """A minimal root-only store with `t2m(time,y,x)`, optionally without a time index variable.
+
+    `index_time=False` leaves the `time` dimension with no indexing variable while still writing
+    the CF same-named 1-D array, which is the shape the coordinate fallback exists for.
+    """
+    store = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
+    rg = store.GetRootGroup()
+    f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    dim_time = rg.CreateDimension("time", gdal.DIM_TYPE_TEMPORAL, "", time_size)
+    dim_y = rg.CreateDimension("y", gdal.DIM_TYPE_HORIZONTAL_Y, "NORTH", 2)
+    dim_x = rg.CreateDimension("x", gdal.DIM_TYPE_HORIZONTAL_X, "EAST", 2)
+    time_coord = rg.CreateMDArray("time", [dim_time], f64)
+    time_coord.Write(np.array(list(time_values)))
+    if index_time:
+        dim_time.SetIndexingVariable(time_coord)
+    for dim, values in ((dim_y, [1.0, 0.0]), (dim_x, [0.0, 1.0])):
+        coord = rg.CreateMDArray(dim.GetName(), [dim], f64)
+        coord.Write(np.array(values))
+        dim.SetIndexingVariable(coord)
+    data = rg.CreateMDArray("t2m", [dim_time, dim_y, dim_x], f64)
+    data.Write(np.arange(float(time_size * 4)).reshape(time_size, 2, 2))
+    data.SetSpatialRef(_wgs84())
+    return store
+
+
+class TestRebuildCoordinateFallback:
+    """A dimension GDAL reports no indexing variable for is still stamped, by CF convention."""
+
+    def test_a_dimension_without_an_indexing_variable_keeps_its_coordinates(self):
+        """The rebuild falls back to the CF same-named 1-D array in the dimension's own group.
+
+        `GetIndexingVariable()` answers `None` for a store that never declared one, so without
+        the fallback the renamed axis would come back unstamped.
+        """
+        store = _flat_store(index_time=False)
+        assert store.GetRootGroup().GetDimensions()[0].GetIndexingVariable() is None, (
+            "precondition: the time dimension must have no indexing variable"
+        )
+        out = Container(store).rename_dims(time="t")
+        assert "t" in (out.dimension_names or []), f"got {out.dimension_names}"
+        assert_allclose(np.asarray(out.coords["t"]), [0.0, 6.0, 12.0])
+
+
+class TestRebuildCarriesStringArrayAttributes:
+    """A multi-value string attribute goes through a different GDAL call than a single string."""
+
+    def test_a_string_array_attribute_is_carried_value_by_value(self):
+        """`flag_meanings = ['low', 'medium', 'high']` survives a rename intact.
+
+        A one-element string attribute is written with `WriteString` and a multi-element one with
+        `WriteStringArray`; only the first path was exercised before.
+        """
+        store = _flat_store()
+        array = store.GetRootGroup().OpenMDArray("t2m")
+        attribute = array.CreateAttribute(
+            "flag_meanings", [3], gdal.ExtendedDataType.CreateString()
+        )
+        attribute.WriteStringArray(["low", "medium", "high"])
+        out = Container(store).rename_dims(time="t")
+        carried = out._raster.GetRootGroup().OpenMDArray("t2m")
+        values = {
+            attr.GetName(): attr.ReadAsStringArray()
+            for attr in carried.GetAttributes()
+            if attr.GetName() == "flag_meanings"
+        }
+        assert values.get("flag_meanings") == ["low", "medium", "high"], (
+            f"the string array must be carried verbatim, got {values}"
+        )
+
+
+class TestRebuildGroupNestingLimit:
+    """Nesting past the rebuild's depth limit is reported rather than silently dropped."""
+
+    def test_nesting_deeper_than_the_limit_warns(self):
+        """Groups below `_MAX_GROUP_DEPTH` are not rebuilt, and the caller is warned by name.
+
+        The limit stops unbounded recursion; the warning is what keeps the omission from being
+        silent data loss of the kind the sub-group fix exists to prevent.
+        """
+        store = _flat_store()
+        group = store.GetRootGroup()
+        for level in range(_MAX_GROUP_DEPTH + 2):
+            group = group.CreateGroup(f"g{level}")
+        with pytest.warns(UserWarning, match="Group nesting deeper than"):
+            out = Container(store).rename_dims(time="t")
+        assert "t" in (out.dimension_names or []), (
+            "the rename itself must still succeed"
         )
