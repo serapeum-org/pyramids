@@ -1741,6 +1741,7 @@ def _apply_per_variable(
     caller: str,
     dropped: tuple[str, ...] = (),
     noun: str = "reduced",
+    as_variable: bool | None = None,
 ) -> NetCDF:
     """Rebuild a variable, or every gridded variable of a container, through `fn`.
 
@@ -1758,6 +1759,12 @@ def _apply_per_variable(
         dropped: Band dimensions whose length changed, for the auxiliary-drop decision.
         noun: How the drop warning names that change — `"reduced"` by default, which suits a
             shortening operation; `broadcast_like` passes `"broadcast"` because it stretches.
+        as_variable: Whether to treat `nc` as a single raster rather than fan out over its
+            variables. `None` (the default) asks `_reduces_as_a_variable`, which is what
+            every caller wanted until `broadcast_like`: a **classic-mode** raster answers
+            `False` there while having real bands and an empty variable list, so it reached
+            the container branch and was refused as "an empty container". Pass `True` to
+            route such a raster down the single-variable path.
 
     Returns:
         NetCDF: The rebuilt variable or container.
@@ -1765,7 +1772,8 @@ def _apply_per_variable(
     Raises:
         ValueError: The container has no data variables.
     """
-    if _reduces_as_a_variable(nc):
+    single = _reduces_as_a_variable(nc) if as_variable is None else as_variable
+    if single:
         values, band_names, values_map, ndv, geo = fn(nc)
         out: NetCDF = _variable_from_applied(
             nc, _Applied(values, band_names, values_map, ndv), geotransform=geo

@@ -28,6 +28,12 @@ NON_GRIDDED_FIRST = (
     / "netcdf"
     / "cf__48v__1d17-3d21-4d10__y-asc.nc"
 )
+CLASSIC_CUBE = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "netcdf"
+    / "cf__5v__1d4-3d1__geog__y-desc.nc"
+)
 GEO = (0.0, 1.0, 0.0, 2.0, 0.0, -1.0)
 TIMES = [0.0, 6.0, 12.0]
 LEVELS = [1000.0, 850.0, 500.0]
@@ -566,6 +572,54 @@ class TestBroadcastLikeOnAContainer:
         step = lifted.sel(time=6.0)
 
         assert np.asarray(step.read_array(squeeze=True)).shape == (NY, NX)
+
+
+class TestAClassicModeRaster:
+    """Classic mode is a raster with real bands and no variable list (round 2 H2)."""
+
+    def test_it_is_broadcast_equal_to_itself(self):
+        """The refusal must use `equals`' predicate, not a wider one.
+
+        `_reduces_as_a_variable` is false for a classic-mode raster, so the container
+        refusal caught it and claimed it had "no cells of its own to compare" — while
+        `equals` accepts it and it carries 12 bands of cells.
+
+        Test scenario:
+            A classic-mode raster, and the result of an operator on one, are both
+            broadcast-equal to themselves.
+        """
+        classic = NetCDF.read_file(str(CLASSIC_CUBE), open_as_multi_dimensional=False)
+        assert classic.variable_names == [], "precondition: no variable list"
+        assert classic.band_count > 1, "precondition: real bands"
+
+        assert classic.equals(classic) is True
+        assert (classic * 2.0).broadcast_equals(classic * 2.0) is True
+
+    def test_broadcast_like_does_not_call_it_an_empty_container(self):
+        """It must take the single-raster path, not the fan-out path.
+
+        Test scenario:
+            Broadcasting a classic-mode raster against itself returns a raster with the
+            same bands — it used to raise "Cannot broadcast_like an empty container".
+        """
+        classic = NetCDF.read_file(str(CLASSIC_CUBE), open_as_multi_dimensional=False)
+
+        lifted = classic.broadcast_like(classic)
+
+        assert lifted.band_count == classic.band_count
+
+    def test_a_multidimensional_container_is_still_refused(self):
+        """Narrowing the predicate must not stop refusing a real container.
+
+        Test scenario:
+            The same file opened multidimensionally still refuses, since it has
+            variables and no band dimensions of its own.
+        """
+        container = NetCDF.read_file(str(CLASSIC_CUBE), open_as_multi_dimensional=True)
+        assert container.variable_names, "precondition: it has variables"
+
+        with pytest.raises(ValueError, match="get_variable"):
+            container.broadcast_equals(container)
 
 
 class TestAContainerWithNoGriddedVariable:

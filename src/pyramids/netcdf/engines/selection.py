@@ -3493,6 +3493,10 @@ class Selection(_Engine["NetCDF"]):
             # drops those with a warning, which the empty default silently skipped.
             dropped=_broadcast_changed_dims(nc, donor),
             noun="broadcast",
+            # A classic-mode raster has real bands and an empty variable list, so the
+            # container branch would refuse it as "an empty container" although `equals`,
+            # `combine` and the operators all accept it.
+            as_variable=_reduces_as_a_variable(nc) or not nc.variable_names,
         )
 
     def broadcast_equals(self, other: Any) -> bool:
@@ -3518,7 +3522,10 @@ class Selection(_Engine["NetCDF"]):
         A **container** receiver is refused rather than answered, for the same reason
         `equals` refuses one: a container has no cells of its own, so there is nothing to
         compare. (Before this was explicit, `equals`' own refusal was caught and turned
-        into `False`, which made a container not broadcast-equal to *itself*.)
+        into `False`, which made a container not broadcast-equal to *itself*.) "Container"
+        here means what it means to `equals` — a cube that has variables and no band
+        dimensions. A **classic-mode** raster is not one: it carries real bands and an
+        empty variable list, and it is compared like any other raster.
 
         Args:
             other: The cube to compare with.
@@ -3588,7 +3595,11 @@ class Selection(_Engine["NetCDF"]):
             Analysis.equals: The comparison it ends in.
         """
         nc = self._ds
-        if not _reduces_as_a_variable(nc):
+        # The same predicate `equals` uses (`Analysis._refuse_a_container`): a cube is a
+        # container only when it *has* variables and no band dimensions of its own.
+        # `_reduces_as_a_variable` is wider — it is false for a classic-mode raster too,
+        # which has real cells, an empty `variable_names`, and which `equals` accepts.
+        if nc.variable_names and not nc._band_dim_names:
             raise ValueError(
                 "broadcast_equals() compares one raster with another, and this is a "
                 "container, which has no cells of its own to compare — the same reason "
@@ -5774,6 +5785,13 @@ def _broadcast_values(
     """
     spatial = values.shape[-2:]
     declared = dict(zip(mine, my_sizes))
+    if list(names) == list(mine) and list(sizes) == list(my_sizes):
+        # Nothing to stretch or add: the donor's layout is already this cube's. Returning
+        # the cells untouched skips the reshape entirely, which matters because a cube may
+        # legitimately hold several planes it tracks no dimensions for — a classic-mode
+        # raster is exactly that — and reshaping by the declared sizes would refuse it for
+        # a state it is entitled to be in.
+        return np.ascontiguousarray(values)
     planes = int(values.size // max(int(np.prod(spatial)), 1))
     accounted = int(np.prod(my_sizes)) if my_sizes else 1
     if planes != accounted:
