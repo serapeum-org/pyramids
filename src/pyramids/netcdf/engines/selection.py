@@ -3426,10 +3426,11 @@ class Selection(_Engine["NetCDF"]):
               ...     variable_name="b",
               ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
               ... ).get_variable("b")
-              >>> two.broadcast_like(three)
-              Traceback (most recent call last):
-                  ...
-              ValueError: broadcast_like(): dimension 'time' is 2 long here and 3 long ...
+              >>> try:
+              ...     two.broadcast_like(three)
+              ... except ValueError as refusal:
+              ...     print(str(refusal)[:49])
+              broadcast_like(): dimension 'time' is 2 long here
 
               ```
 
