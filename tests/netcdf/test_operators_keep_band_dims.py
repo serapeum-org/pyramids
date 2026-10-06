@@ -412,6 +412,126 @@ class TestTwoVariablesMustAgreeOnTheirDimensions:
             _ = left + right
 
 
+class TestASingleBandOperandBroadcasts:
+    """A one-band operand applies to every plane, and never relabels the result (#1250)."""
+
+    def test_a_mask_without_band_dimensions_reaches_every_plane(self):
+        """A plain `(y, x)` mask multiplies all 12 planes of a `(time, level)` cube.
+
+        Test scenario:
+            The result keeps the cube's two band dimensions, sizes and coordinates, and
+            every plane has been doubled.
+        """
+        cube = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        mask = Dataset.from_array(
+            np.full((NY, NX), 2.0), geo_ref=GeoReference(geo=GEO, epsg=4326)
+        )
+
+        result = cube * mask
+
+        assert _layout(result) == _layout(cube)
+        assert_array_equal(
+            np.asarray(result.read_array(squeeze=True)),
+            np.asarray(cube.read_array(squeeze=True)) * 2.0,
+        )
+
+    def test_the_cube_labels_the_result_from_either_side(self):
+        """`mask * cube` carries the cube's layout, exactly as `cube * mask` does.
+
+        Test scenario:
+            A one-band *variable* on the left — so both operands are NetCDF and the
+            left one carries a band dimension of its own — still yields the cube's
+            layout, because a single plane cannot describe twelve.
+        """
+        cube = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        single = _variable([("time", [0.0])], name="mask")
+
+        assert _layout(cube * single) == _layout(cube)
+        assert _layout(single * cube) == _layout(cube)
+
+    def test_the_one_band_operand_lends_no_coordinates(self):
+        """A broadcast partner never fills the result's missing labels.
+
+        Test scenario:
+            The cube's `time` has no coordinates and the one-band operand's `time`
+            has one stamp. The result's `time` must stay unlabelled rather than take
+            a single stamp for four planes.
+        """
+        cube = _variable([("time", TIMES)])
+        cube._band_dim_values_map["time"] = None
+        single = _variable([("time", [99.0])], name="mask")
+
+        result = cube + single
+
+        assert result._band_dim_names == ("time",)
+        assert result._band_dim_sizes == (4,)
+        assert result._band_dim_values_map["time"] is None
+
+    def test_a_disagreeing_layout_is_not_compared_when_it_broadcasts(self):
+        """Names and sizes are only compared between operands of equal band count.
+
+        Test scenario:
+            A one-band `station` variable against a `(time, pressure_level)` cube has
+            an entirely different dimension name, which would be refused at equal band
+            counts, but broadcasts instead of raising.
+        """
+        cube = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        single = _variable([("station", [1.0])], name="mask")
+
+        result = cube - single
+
+        assert _layout(result) == _layout(cube)
+
+    def test_the_multi_band_operand_must_still_be_a_netcdf_to_label(self):
+        """Broadcasting onto a plain multi-band raster leaves the result unlabelled.
+
+        Test scenario:
+            A one-band variable times a 3-band plain `Dataset` has no NetCDF layout
+            describing the result's planes, so no band dimensions are claimed.
+        """
+        single = _variable([("time", [0.0])], name="mask")
+        stack = Dataset.from_array(
+            np.full((3, NY, NX), 2.0), geo_ref=GeoReference(geo=GEO, epsg=4326)
+        )
+
+        result = single * stack
+
+        assert result.band_count == 3
+        assert tuple(result._band_dim_names) == ()
+
+    def test_band_layout_owner_picks_the_operand_with_the_planes(self):
+        """The helper behind the rule, asserted directly.
+
+        Test scenario:
+            Equal band counts keep the left operand's layout; a broadcast pair hands
+            it to whichever side carries the result's planes.
+        """
+        cube = _variable([("time", TIMES)])
+        single = _variable([("time", [0.0])], name="mask")
+
+        assert cube._band_layout_owner(cube, cube, cube) is cube
+        assert cube._band_layout_owner(single, cube, single) is cube
+        assert single._band_layout_owner(cube, single, cube) is cube
+        assert cube._band_layout_owner(None, cube, None) is cube
+
+    def test_a_broadcast_result_can_still_be_selected(self):
+        """The point of keeping the layout: `sel` works on the broadcast result.
+
+        Test scenario:
+            After masking, the result is still selectable by coordinate value on both
+            of the cube's dimensions.
+        """
+        cube = _variable([("time", TIMES), ("pressure_level", LEVELS)])
+        mask = Dataset.from_array(
+            np.full((NY, NX), 2.0), geo_ref=GeoReference(geo=GEO, epsg=4326)
+        )
+
+        masked = cube * mask
+        step = masked.sel(time=6.0, pressure_level=850.0)
+
+        assert np.asarray(step.read_array(squeeze=True)).shape == (NY, NX)
+
+
 class TestWhatMustNotChange:
     """The paths the labels must not reach come out as they did before."""
 

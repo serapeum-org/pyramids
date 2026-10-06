@@ -12169,6 +12169,13 @@ class NetCDF(Dataset):
         as every other case does. A coordinate-less dimension on either side is not compared.
         The check runs only when `band` is `None` and the two grids and band counts agree.
 
+        A **broadcast** pair is the exception to all of the above: when one operand carries a
+        single band it applies to every band of the other, so the layouts are not compared at
+        all. The multi-band operand owns the result's dimensions, names, sizes and coordinates,
+        whichever side it is on, and the one-band operand lends nothing — its single stamp
+        cannot describe the result's planes. `cube * mask` and `mask * cube` therefore come
+        back with the same layout.
+
         Args:
             other: The second operand, on this variable's grid.
             func: Binary callable applied to the operands' matching cells.
@@ -12189,7 +12196,8 @@ class NetCDF(Dataset):
             ValueError: `band` is `None`, both operands carry band dimensions, their grids
                 and band counts agree, and their dimension names or sizes differ. Differing
                 coordinate values are not refused. Operands whose band counts differ skip the
-                check and are refused by `Dataset.combine` with its own message.
+                check — a single band against *n* broadcasts, and any other pair is refused by
+                `Dataset.combine` with its own message.
             AlignmentError: The operands do not share a grid, raised by `Dataset.combine`.
                 A grid mismatch is reported as this whether or not the band layouts also
                 disagree, since the layouts are only compared on a shared grid.
@@ -12312,6 +12320,9 @@ class NetCDF(Dataset):
                 and other is not self
                 and isinstance(other, NetCDF)
                 and bool(other._band_dim_names)
+                # A broadcast partner holds one plane; its single stamp cannot label the
+                # result's n, so a broadcast result takes its labels from its owner alone.
+                and other.band_count == self.band_count
             )
             layout = (layout_source, disagreeing, other if paired else None)
         return layout
@@ -12405,10 +12416,12 @@ class NetCDF(Dataset):
                 band dimensions.
 
         Returns:
-            tuple[NetCDF | None, list[str]]: This variable when it carries band dimensions, else
-            `other` when it is a `NetCDF` that does, else `None`; and the dimensions whose
+            tuple[NetCDF | None, list[str]]: The operand whose dimensions describe the result
+            (`_band_layout_owner` — this variable when the counts agree and it has them, the
+            multi-band operand when they broadcast, else `None`); and the dimensions whose
             coordinate values the two operands disagree on (empty unless both carry band
-            dimensions on a shared grid with the same band count).
+            dimensions on a shared grid with the same band count, so a broadcast pair
+            reports none).
 
         Raises:
             ValueError: Both operands carry band dimensions, share a grid and a band count,
@@ -12433,7 +12446,38 @@ class NetCDF(Dataset):
                     f"before combining them."
                 )
             disagreeing = NetCDF._disagreeing_coordinates(self, other)
-        return (mine if mine is not None else theirs), disagreeing
+        return self._band_layout_owner(other, mine, theirs), disagreeing
+
+    def _band_layout_owner(
+        self, other: Any, mine: NetCDF | None, theirs: NetCDF | None
+    ) -> NetCDF | None:
+        """Which operand's band dimensions describe the combined result.
+
+        With band counts that agree, this variable's layout wins when it has one, so the
+        result keeps the left operand's dimensions and `other` only fills labels they lack.
+        A **broadcast** pair is different: one operand holds a single plane, and a single
+        plane's name, size and stamp cannot describe the *n* planes the result carries. So
+        the operand that owns those planes owns the layout, whichever side it is on, and a
+        one-band mask never relabels the scene it is applied to.
+
+        Args:
+            other: The right operand, or `None` for a fold (no second layout).
+            mine: This variable when it carries band dimensions, else `None`.
+            theirs: `other` when it is a `NetCDF` carrying band dimensions, else `None`.
+
+        Returns:
+            NetCDF | None: The operand describing the result, or `None` when neither does
+            — including a broadcast whose multi-band side is a plain raster, which has no
+            band dimensions to lend.
+        """
+        broadcast = isinstance(other, Dataset) and other.band_count != self.band_count
+        if not broadcast:
+            owner = mine if mine is not None else theirs
+        elif self.band_count > other.band_count:
+            owner = mine
+        else:
+            owner = theirs
+        return owner
 
     @staticmethod
     def _band_layout_difference(left: NetCDF, right: NetCDF) -> str | None:
