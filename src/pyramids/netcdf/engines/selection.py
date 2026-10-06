@@ -3146,10 +3146,12 @@ class Selection(_Engine["NetCDF"]):
         means ("these variables label my cells"). The spatial axes are not compared: every
         gridded variable spans them by definition. A promoted array whose own axes no
         variable has — a 1-D array on an interface level, say, in a store whose variables
-        all sit on mid-levels — is refused rather than referenced invalidly. So one promotion on a wide store rewrites one
-        attribute per spanning variable, and a variable promoted later keeps the copy it
-        was given earlier — :meth:`reset_coords` therefore sweeps the auxiliary
-        coordinates as well as the data variables, so the pair stays symmetric.
+        all sit on mid-levels — is refused rather than referenced invalidly.
+
+        So one promotion on a wide store rewrites one attribute per spanning variable, and
+        a variable promoted later keeps the copy it was given earlier. That is why
+        :meth:`reset_coords` sweeps every classified array rather than just the data
+        variables: it is the only way the two stay symmetric.
 
         Args:
             names: A variable name, or a sequence of them, to promote.
@@ -5475,22 +5477,33 @@ def _promotion_receivers(nc: NetCDF, promoted: list[str]) -> list[str]:
 def _demotion_receivers(nc: NetCDF) -> list[str]:
     """Every array that can be holding a `coordinates` reference to demote.
 
-    Not `variable_names`: that list is **role-filtered**, so it excludes the arrays that
-    are themselves auxiliary coordinates — and `set_coords` writes the reference onto
-    *every* spanning data variable, so one of those receivers may since have been promoted
-    and still be carrying its copy. Rewriting only `variable_names` left that copy in
-    place, `cf.classify_variables` kept reporting the name as a coordinate, and
-    `reset_coords()` was not the inverse of `set_coords` after two chained promotions (it
-    took a second call to converge).
+    The store's whole classified inventory, minus the dimension coordinates. Two narrower
+    attempts were both wrong, and silently so:
+
+    - `variable_names` alone is **role-filtered**, so it excludes arrays that are
+      themselves auxiliary coordinates. `set_coords` writes the reference onto every
+      spanning data variable, so a receiver promoted later keeps its copy out of reach and
+      `reset_coords()` needed a second call to converge.
+    - data variables **plus** auxiliary coordinates still misses the rest.
+      `cf._classify_one` ranks `grid_mapping`, `bounds`, `cell_measure` and `ancillary`
+      *above* `auxiliary_coordinate`, so an array in one of those roles is in neither
+      list — and stores do put a `coordinates` attribute on an ancillary array. With that
+      copy left in place the demotion never converged at all, however many times it ran.
+
+    Writing to an array that holds no reference is a no-op — `_with_coordinate_refs` only
+    rewrites when the list actually changes — so sweeping wide costs nothing and is the
+    only way to be exhaustive. Dimension coordinates are left out: they are coordinates by
+    name convention and carry no `coordinates` attribute of their own.
 
     Args:
         nc: The container.
 
     Returns:
-        list[str]: The data variables plus the auxiliary coordinates, de-duplicated with
-        the container's order kept.
+        list[str]: Every classified array except the dimension coordinates, after the data
+        variables, de-duplicated with the store's order kept.
     """
-    return list(dict.fromkeys([*nc.variable_names, *_auxiliary_coordinates(nc)]))
+    classified = [name for name, role in _cf_roles(nc).items() if role != "coordinate"]
+    return list(dict.fromkeys([*nc.variable_names, *classified]))
 
 
 def _validated_demotions(nc: NetCDF, names: str | Sequence[str] | None) -> list[str]:

@@ -14,9 +14,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
-from osgeo import gdal
+from osgeo import gdal, osr
 
 from pyramids.netcdf import GeoReference, NetCDF
+from pyramids.netcdf.cf import write_attributes_to_md_array
 from pyramids.netcdf.netcdf import Container
 
 pytestmark = pytest.mark.core
@@ -87,6 +88,40 @@ def _grouped_store(flat: NetCDF) -> NetCDF:
         )
         copied.Write(array.Read())
     return Container(store)
+
+
+def _store_with_an_ancillary_holding_the_reference() -> gdal.Dataset:
+    """A store where an `ancillary` array also names `expver` in its `coordinates`.
+
+    `cf._classify_one` ranks `ancillary` above `auxiliary_coordinate`, so `qc` lands in
+    neither `variable_names` nor the auxiliary-coordinate list — the two buckets the
+    demotion used to sweep.
+
+    Returns:
+        gdal.Dataset: An in-memory store with `a`, `b`, `qc` and `expver` on one grid.
+    """
+    store = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
+    root = store.GetRootGroup()
+    f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    lat = root.CreateDimension("lat", gdal.DIM_TYPE_HORIZONTAL_Y, "NORTH", NY)
+    lon = root.CreateDimension("lon", gdal.DIM_TYPE_HORIZONTAL_X, "EAST", NX)
+    for dim, values in ((lat, [1.5, 0.5]), (lon, [0.5, 1.5])):
+        coordinate = root.CreateMDArray(dim.GetName(), [dim], f64)
+        coordinate.Write(np.array(values))
+        dim.SetIndexingVariable(coordinate)
+    reference = osr.SpatialReference()
+    reference.ImportFromEPSG(4326)
+    for name in ("a", "b", "qc", "expver"):
+        array = root.CreateMDArray(name, [lat, lon], f64)
+        array.Write(np.full((NY, NX), 1.0))
+        array.SetSpatialRef(reference)
+    write_attributes_to_md_array(
+        root.OpenMDArray("a"),
+        {"ancillary_variables": "qc", "coordinates": "expver"},
+    )
+    for name in ("b", "qc"):
+        write_attributes_to_md_array(root.OpenMDArray(name), {"coordinates": "expver"})
+    return store
 
 
 def _roles(nc: NetCDF) -> dict[str, str]:
@@ -554,6 +589,44 @@ class TestResetCoords:
         demoted = cube.reset_coords()
 
         assert sorted(demoted.variable_names) == ["expver", "t2m"]
+
+
+class TestDemotionSweepsEveryClassifiedArray:
+    """An `ancillary` array can hold the reference, and used to be missed (round 2 H4)."""
+
+    def test_a_reference_on_an_ancillary_array_is_removed(self):
+        """`variable_names` + auxiliary coordinates is not the whole inventory.
+
+        `cf._classify_one` ranks `ancillary` above `auxiliary_coordinate`, so `qc` was
+        in neither bucket: `reset_coords()` cleared `a` and `b`, left `qc`'s copy, and
+        returned normally having changed nothing observable. Unlike round 1's H4, a
+        second call did not converge either.
+
+        Test scenario:
+            A store where the ancillary `qc` also references `expver`. One
+            `reset_coords()` must bring `expver` back as a data variable.
+        """
+        nc = Container(_store_with_an_ancillary_holding_the_reference())
+        assert _roles(nc)["qc"] == "ancillary", "precondition: a non-data role"
+        assert _roles(nc)["expver"] == "auxiliary_coordinate", "precondition"
+
+        back = nc.reset_coords()
+
+        assert sorted(back.variable_names) == ["a", "b", "expver"]
+        assert _roles(back)["expver"] == "data"
+
+    def test_it_converges_in_one_call(self):
+        """A second call must be a no-op, not a further step.
+
+        Test scenario:
+            Calling it twice gives the same inventory as calling it once.
+        """
+        nc = Container(_store_with_an_ancillary_holding_the_reference())
+        once = nc.reset_coords()
+
+        twice = once.reset_coords()
+
+        assert sorted(twice.variable_names) == sorted(once.variable_names)
 
 
 class TestResetCoordsRefusals:
