@@ -258,6 +258,52 @@ class TestACubeShapedCondition:
             variable.where(wrong)
 
 
+class TestASingleBandCondition:
+    """One mask covering a whole stack, and the asymmetry that comes with it (M4)."""
+
+    def test_a_one_band_condition_covers_every_band(self):
+        """The band-axis broadcast reaches `where` through the shared gate.
+
+        `where` and the operators share `_check_combinable`, so relaxing it for
+        broadcasting changed `where` too — previously this raised a band-count
+        `ValueError`. It is the wanted behaviour, so it is pinned here.
+
+        Test scenario:
+            A 3-band stack masked by a single-band condition keeps three bands, with
+            the same cells selected in each.
+        """
+        stack = Dataset.from_array(
+            np.tile(np.arange(12.0).reshape(3, 4), (3, 1, 1)), geo_ref=GEO_REF
+        )
+        condition = Dataset.from_array(
+            (np.arange(12.0).reshape(3, 4) > 5).astype("uint8"), geo_ref=GEO_REF
+        )
+
+        masked = _read(stack.where(condition, 0.0))
+
+        assert masked.shape == (3, 3, 4)
+        for band in range(1, 3):
+            assert_allclose(masked[band], masked[0])
+
+    def test_a_condition_with_more_bands_is_refused_by_band_count(self):
+        """`where` answers in this raster's shape, so extra condition bands have nowhere to go.
+
+        Without the explicit refusal this passed the shared gate and failed later in
+        `_where_condition` with a message about an internal broadcast shape rather than
+        the band counts.
+
+        Test scenario:
+            A 3-band condition on a 1-band raster raises, naming both counts.
+        """
+        one_band = _raster(np.arange(12.0).reshape(3, 4))
+        condition = Dataset.from_array(
+            (np.arange(36.0).reshape(3, 3, 4) > 5).astype("uint8"), geo_ref=GEO_REF
+        )
+
+        with pytest.raises(ValueError, match="different number of bands"):
+            one_band.where(condition, 0.0)
+
+
 class TestDrop:
     """`drop=True` trims the raster to the bounding box of what survived."""
 

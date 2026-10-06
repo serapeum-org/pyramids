@@ -2441,6 +2441,12 @@ class Analysis(_Engine["Dataset"]):
                 raster's cells; a raster on the same grid, which a comparison such as
                 `raster > 5` produces and whose own no-data cells read as false; or a
                 callable handed this raster's physical values and returning either.
+
+                A **single-band** raster condition broadcasts across this raster's
+                bands, so one mask covers a whole stack. The reverse is refused: the
+                result answers in this raster's shape, so a condition with *more* bands
+                than this raster has nowhere to put them, and the band counts are named
+                rather than reported later as an internal broadcast shape.
             other: What an unselected cell holds. Left out, it is the raster's declared
                 no-data value, or NaN when it declares none. An explicit `None` is NaN
                 whatever the raster declares — the two are not the same argument. A
@@ -2958,16 +2964,37 @@ class Analysis(_Engine["Dataset"]):
         hook that lets a `NetCDF` refuse band dimensions that do not pair up. Anything else
         is an array and has neither.
 
+        The band-count rule here is **asymmetric**, unlike `combine`'s. A single-band
+        condition broadcasts across this raster's bands, which is how one mask covers a
+        whole stack. The reverse does not: `where` answers in *this* raster's shape, so an
+        *n*-band condition on a one-band raster has nowhere to put its extra planes and is
+        refused with the band-count message. Letting it through the shared gate only moved
+        the failure to `_where_condition`, which reported an internal broadcast shape
+        instead of naming the band counts.
+
         Args:
             cond: The condition as the caller gave it.
 
         Returns:
             Any: What `_label_combined` should label the result from, or `None`.
+
+        Raises:
+            ValueError: The condition carries several bands and this raster carries one.
         """
         self._refuse_a_container("where")
         if isinstance(cond, RasterBase):
             raster = cast("Dataset", cond)
             self._check_combinable(raster, np.logical_and, None)
+            if raster.band_count > self._ds.band_count:
+                raise ValueError(
+                    f"the operands carry a different number of bands "
+                    f"({self._ds.band_count} and {raster.band_count}): a single-band "
+                    f"condition broadcasts across this raster's bands, but a "
+                    f"{raster.band_count}-band condition has nowhere to go on a "
+                    f"{self._ds.band_count}-band raster, since `where` answers in this "
+                    f"raster's shape. Select one band of the condition, or apply it to a "
+                    f"raster with as many bands."
+                )
             return self._ds._combine_layout_source(raster, None)
         # An array or a callable brings no layout of its own, which is the shape a fold
         # has: one operand, nothing to compare it with or fill labels from. Asking the
