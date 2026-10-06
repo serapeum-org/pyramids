@@ -393,6 +393,51 @@ class TestAContainerWhoseFirstVariableIsNotGridded:
         assert lifted.band_count >= receiver.band_count
 
 
+class TestStretchedDimensionsDropStaleAuxiliaries:
+    """An auxiliary indexed by a stretched dimension cannot be carried verbatim (M3)."""
+
+    def test_the_drop_is_warned_about(self):
+        """`broadcast_like` is the first caller that changes a band length.
+
+        `_apply_per_variable`'s `dropped` argument exists so `_carry_auxiliaries` can
+        drop — with a warning — any auxiliary indexed by a dimension whose length the
+        operation changed. `broadcast_like` inherited the empty default, so on a
+        container those auxiliaries were carried at their source length while the
+        gridded variables took the donor's.
+
+        Test scenario:
+            On a real CF store, broadcasting against its own `U` variable stretches
+            `lev`, and the `hyam` / `hybm` auxiliaries indexed by it are dropped with a
+            warning naming them and the dimension.
+        """
+        nc = NetCDF.read_file(str(NON_GRIDDED_FIRST), open_as_multi_dimensional=True)
+        donor = nc.get_variable("U")
+
+        with pytest.warns(UserWarning, match="span the broadcast dimension 'lev'"):
+            lifted = nc.broadcast_like(donor)
+
+        assert "hyam" not in lifted.variable_names
+        assert "hybm" not in lifted.variable_names
+
+    def test_an_unchanged_dimension_keeps_its_auxiliaries(self):
+        """Only the dimensions whose length actually changed cost anything.
+
+        Test scenario:
+            Broadcasting a container against a donor with the same layout changes no
+            length, so `_broadcast_changed_dims` is empty and nothing is dropped.
+        """
+        container = NetCDF.from_array(
+            np.arange(12.0).reshape(3, NY, NX),
+            geo_ref=_geo_ref(),
+            variable_name="a",
+            dims=ExtraDimensions(name="time", values=TIMES),
+        )
+
+        lifted = container.broadcast_like(_cube([("time", TIMES)]))
+
+        assert lifted.get_variable("a")._band_dim_sizes == (3,)
+
+
 class TestACubeWithMorePlanesThanTrackedDimensions:
     """The state a layout-dropping broadcast leaves behind must refuse by name (M2)."""
 

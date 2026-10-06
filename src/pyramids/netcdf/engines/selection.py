@@ -3478,7 +3478,17 @@ class Selection(_Engine["NetCDF"]):
                 var.geotransform,
             )
 
-        return _apply_per_variable(nc, _fn, caller="broadcast_like")
+        return _apply_per_variable(
+            nc,
+            _fn,
+            caller="broadcast_like",
+            # Every dimension this stretches or adds changes a length, so an auxiliary
+            # array indexed by one cannot be carried verbatim: it would keep the source
+            # length while the gridded variables take the donor's. `_carry_auxiliaries`
+            # drops those with a warning, which the empty default silently skipped.
+            dropped=_broadcast_changed_dims(nc, donor),
+            noun="broadcast",
+        )
 
     def broadcast_equals(self, other: Any) -> bool:
         """Whether two cubes hold the same values once broadcast against each other.
@@ -5571,6 +5581,39 @@ def _donor_band_layout(
             for name in names
         }
     return [(name, sizes[name], stamps.get(name)) for name in names if name in sizes]
+
+
+def _broadcast_changed_dims(
+    nc: NetCDF, donor: list[tuple[str, int, list | None]]
+) -> tuple[str, ...]:
+    """The band dimensions a broadcast against `donor` changes the length of.
+
+    Collected over every variable the rebuild will touch — a container's gridded inventory,
+    or the single variable itself — because a dimension stretched for one variable and
+    untouched for another still changes length in the result. Both the added dimensions and
+    the stretched length-one ones count; a dimension kept at its own length does not.
+
+    Args:
+        nc: The cube being broadcast.
+        donor: The donor's layout from `_donor_band_layout`.
+
+    Returns:
+        tuple[str, ...]: The affected dimension names, in the donor's order.
+    """
+    sources = (
+        [nc]
+        if _reduces_as_a_variable(nc)
+        else [
+            cast("NetCDF", nc.get_variable(name))
+            for name in nc._spatial_variable_names()
+        ]
+    )
+    changed: set[str] = set()
+    for variable in sources:
+        own = dict(zip(variable._band_dim_names, variable._band_dim_sizes))
+        names, sizes, _ = _broadcast_layout(variable, donor)
+        changed |= {name for name, size in zip(names, sizes) if own.get(name) != size}
+    return tuple(name for name, _, _ in donor if name in changed)
 
 
 def _broadcast_layout(

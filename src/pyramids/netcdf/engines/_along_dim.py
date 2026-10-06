@@ -1740,6 +1740,7 @@ def _apply_per_variable(
     *,
     caller: str,
     dropped: tuple[str, ...] = (),
+    noun: str = "reduced",
 ) -> NetCDF:
     """Rebuild a variable, or every gridded variable of a container, through `fn`.
 
@@ -1755,6 +1756,8 @@ def _apply_per_variable(
         fn: Builds each result variable's `(values, band_names, values_map, no_data, geotransform)`.
         caller: The member the user called, named in refusals/warnings.
         dropped: Band dimensions whose length changed, for the auxiliary-drop decision.
+        noun: How the drop warning names that change — `"reduced"` by default, which suits a
+            shortening operation; `broadcast_like` passes `"broadcast"` because it stretches.
 
     Returns:
         NetCDF: The rebuilt variable or container.
@@ -1801,7 +1804,7 @@ def _apply_per_variable(
         _stamped(cast("NetCDF", result), cast(tuple, grid))
         cast("NetCDF", result)._band_dim_time_attrs = time_attrs
         _carry_auxiliaries(
-            nc, cast("NetCDF", result), rg, aux_vars, list(dropped), caller
+            nc, cast("NetCDF", result), rg, aux_vars, list(dropped), caller, noun
         )
         out = cast("NetCDF", result)
     return out
