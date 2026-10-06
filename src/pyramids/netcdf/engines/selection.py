@@ -3141,6 +3141,13 @@ class Selection(_Engine["NetCDF"]):
         untouched and a new cube comes back. The variable itself is never moved or copied:
         only its role changes, and `get_variable` still reads it.
 
+        The reference is written onto **every** gridded data variable whose dimensions
+        cover the promoted one's, which is what CF's `coordinates` attribute means
+        ("these variables label my cells"). So one promotion on a wide store rewrites one
+        attribute per spanning variable, and a variable promoted later keeps the copy it
+        was given earlier — :meth:`reset_coords` therefore sweeps the auxiliary
+        coordinates as well as the data variables, so the pair stays symmetric.
+
         Args:
             names: A variable name, or a sequence of them, to promote.
 
@@ -3309,7 +3316,7 @@ class Selection(_Engine["NetCDF"]):
         _assert_coordinate_partition(nc, caller="reset_coords")
         demoted = _validated_demotions(nc, names)
         return (
-            nc._with_coordinate_refs(list(nc.variable_names), remove=tuple(demoted))
+            nc._with_coordinate_refs(_demotion_receivers(nc), remove=tuple(demoted))
             if demoted
             else nc.copy()
         )
@@ -5414,6 +5421,27 @@ def _promotion_receivers(nc: NetCDF, promoted: list[str]) -> list[str]:
             f"take the variable out of `data_vars` and leave it unreachable as a label."
         )
     return spanning
+
+
+def _demotion_receivers(nc: NetCDF) -> list[str]:
+    """Every array that can be holding a `coordinates` reference to demote.
+
+    Not `variable_names`: that list is **role-filtered**, so it excludes the arrays that
+    are themselves auxiliary coordinates — and `set_coords` writes the reference onto
+    *every* spanning data variable, so one of those receivers may since have been promoted
+    and still be carrying its copy. Rewriting only `variable_names` left that copy in
+    place, `cf.classify_variables` kept reporting the name as a coordinate, and
+    `reset_coords()` was not the inverse of `set_coords` after two chained promotions (it
+    took a second call to converge).
+
+    Args:
+        nc: The container.
+
+    Returns:
+        list[str]: The data variables plus the auxiliary coordinates, de-duplicated with
+        the container's order kept.
+    """
+    return list(dict.fromkeys([*nc.variable_names, *_auxiliary_coordinates(nc)]))
 
 
 def _validated_demotions(nc: NetCDF, names: str | Sequence[str] | None) -> list[str]:

@@ -379,6 +379,46 @@ class TestResetCoords:
         assert _roles(half)["angle"] == "data"
         assert _roles(half)["expver"] == "auxiliary_coordinate"
 
+    def test_a_chained_promotion_is_undone_by_one_call(self):
+        """`set_coords` fans the reference out, so demotion must sweep wider than `data_vars`.
+
+        `set_coords("expver")` writes `coordinates="expver"` onto every spanning data
+        variable — including `angle`. Promoting `angle` next takes it out of
+        `variable_names`, so its copy of the reference became unreachable: rewriting
+        only `variable_names` left `expver` classified as a coordinate and
+        `reset_coords()` needed a *second* call to converge.
+
+        Test scenario:
+            Promote two coordinates in two separate calls, then demote all in one.
+            Both must come back as data variables.
+        """
+        cube = _container(t2m=1.0, expver=5.0, angle=7.0)
+
+        chained = cube.set_coords("expver").set_coords("angle")
+        back = chained.reset_coords()
+
+        assert sorted(back.variable_names) == ["angle", "expver", "t2m"]
+        assert _roles(back)["expver"] == "data"
+        assert _roles(back)["angle"] == "data"
+
+    def test_the_demotion_is_idempotent_after_a_chained_promotion(self):
+        """One call is enough, and a second changes nothing.
+
+        Test scenario:
+            A second `reset_coords()` on the already-demoted container is a no-op
+            rather than a further convergence step.
+        """
+        chained = (
+            _container(t2m=1.0, expver=5.0, angle=7.0)
+            .set_coords("expver")
+            .set_coords("angle")
+        )
+        once = chained.reset_coords()
+
+        twice = once.reset_coords()
+
+        assert sorted(twice.variable_names) == sorted(once.variable_names)
+
     def test_a_promote_demote_round_trip_restores_the_roles(self):
         """The two members are inverses.
 
