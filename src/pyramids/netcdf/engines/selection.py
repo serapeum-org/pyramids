@@ -30,6 +30,7 @@ import pandas as pd
 from shapely import box, contains_xy
 
 from pyramids.base._axes import X_AXIS_NAMES, Y_AXIS_NAMES
+from pyramids.base._errors import AlignmentError
 from pyramids.base._utils import carry_band_packing
 from pyramids.base.crs import crs_equal, crs_spec, sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
@@ -3115,6 +3116,303 @@ class Selection(_Engine["NetCDF"]):
             return arr, order, values_map, _read_no_data(var), var.geotransform
 
         return _apply_per_variable(nc, _fn, caller="transpose")
+
+    def rename_dims(
+        self, dims: Mapping[str, str] | None = None, **dims_kwargs: str
+    ) -> NetCDF:
+        """Rename one or more band dimensions; cells, band count and coordinates unchanged.
+
+        xarray's `rename_dims`, restricted to the band (non-spatial) axes: the geotransform pins
+        the `(y, x)` plane, so a spatial axis cannot be renamed and a band dimension cannot take a
+        spatial name. A rename moves no cells. On a single variable it is a free re-label that
+        keeps the variable's lazy read. A container keeps its dimensions in the *store*, so there
+        the rename is store-level surgery: the cube is rebuilt into a fresh root group with the
+        dimension re-labelled in place, which leaves no orphan of the old name, keeps the variable
+        inventory (CF bounds and sub-groups included) and carries each coordinate array, its
+        attributes and the store's global attributes across.
+
+        Args:
+            dims: A `{old: new}` mapping of band dimensions to rename.
+            **dims_kwargs: The same as `old=new` keywords; merged with `dims`.
+
+        Returns:
+            NetCDF: The cube with those band dimensions renamed.
+
+        Raises:
+            ValueError: An `old` name is not a band dimension, a `new` name is a spatial axis
+                name, two renames target the same name, a `new` name already names a band
+                dimension that is not itself being renamed, or a `new` name already names a
+                variable (the renamed coordinate array would collide with it).
+
+        Examples:
+            - Rename `time` to `t`:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="v",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("v")
+              >>> var.rename_dims(time="t")._band_dim_names
+              ('t',)
+
+              ```
+
+        See Also:
+            NetCDF.rename_variable: Rename a *variable* rather than a dimension.
+        """
+        nc = self._ds
+        mapping = {**(dims or {}), **dims_kwargs}
+        known = _band_dims_of(nc)
+        for old in mapping:
+            if old not in known:
+                raise ValueError(
+                    f"rename_dims(): {old!r} is not a band dimension of this cube; its band "
+                    f"dimensions are {sorted(known)}."
+                )
+        targets = list(mapping.values())
+        if len(set(targets)) != len(targets):
+            raise ValueError(
+                f"rename_dims(): the new names {targets} contain a duplicate."
+            )
+        for new in targets:
+            if new.lower() in _SPATIAL_AXIS_NAMES:
+                raise ValueError(
+                    f"rename_dims(): {new!r} is a spatial axis name; the geotransform pins the "
+                    f"(y, x) plane, so a band dimension cannot take it."
+                )
+            if new in known and new not in mapping:
+                raise ValueError(
+                    f"rename_dims(): target {new!r} already names a band dimension."
+                )
+            if new in nc.variable_names:
+                raise ValueError(
+                    f"rename_dims(): target {new!r} already names a variable of this cube; the "
+                    f"renamed coordinate array would collide with it."
+                )
+        effective = {old: new for old, new in mapping.items() if old != new}
+        if not effective:
+            return _unchanged(nc)
+
+        if not _reduces_as_a_variable(nc):
+            # A container keeps its dimensions in the store, so a rename is store-level
+            # surgery: rebuild into a fresh root group with the dimension re-labelled in
+            # place. This leaves no orphan of the old dimension (M2), carries CF bounds
+            # variables onto the new name with the inventory unchanged (M2), and lets a
+            # renamed axis keep its own CF units instead of the recycled name's (M3) — none
+            # of which a per-variable in-memory rebuild could do.
+            return nc._rebuilt_container(rename=effective)
+
+        def relabel(var: NetCDF) -> tuple[list[str], dict]:
+            names = [mapping.get(name, name) for name in var._band_dim_names]
+            values_map = {
+                mapping.get(name, name): stamps
+                for name, stamps in var._band_dim_values_map.items()
+            }
+            return names, values_map
+
+        return _relabel_per_variable(nc, relabel, caller="rename_dims")
+
+    def assign_coords(
+        self, coords: Mapping[str, Any] | None = None, **coords_kwargs: Any
+    ) -> NetCDF:
+        """Replace the coordinate stamps of one or more existing band dimensions.
+
+        The honest subset of xarray's `assign_coords`: pyramids has no index model, so it cannot
+        attach a *new*, non-dimension coordinate, nor a coordinate that becomes an alignment index —
+        those are refused. What it can do is restamp a band dimension that already exists, which is a
+        pure re-label (no cells move): on a single variable it keeps the lazy read, on a container
+        every variable spanning the dimension is restamped.
+
+        Args:
+            coords: A `{dim: values}` mapping; each `dim` must be an existing band dimension and
+                `values` a 1-D sequence as long as that dimension.
+            **coords_kwargs: The same as `dim=values` keywords; merged with `coords`.
+
+        Returns:
+            NetCDF: The cube with those band dimensions restamped.
+
+        Raises:
+            ValueError: A name is not an existing band dimension (a new/non-dimension coordinate
+                needs an index model pyramids does not have), the values are not 1-D, or their
+                length does not match the dimension.
+
+        Examples:
+            - Restamp `time` with hours-since-midnight:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.arange(4.0).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="v",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0, 3.0]),
+              ... ).get_variable("v")
+              >>> var.assign_coords(time=[0, 6, 12, 18])._band_dim_values_map["time"]
+              [0, 6, 12, 18]
+
+              ```
+
+        See Also:
+            NetCDF.rename_dims: Rename a band dimension rather than restamp it.
+        """
+        nc = self._ds
+        mapping = {**(coords or {}), **coords_kwargs}
+        coerced = _validated_restamp(nc, mapping, _band_dims_of(nc))
+        if not coerced:
+            return _unchanged(nc)
+
+        def relabel(var: NetCDF) -> tuple[list[str], dict]:
+            names = list(var._band_dim_names)
+            values_map = dict(var._band_dim_values_map)
+            for dim, values in coerced.items():
+                if dim in names:
+                    # Re-checked per variable, not only against the cube's declaration: a
+                    # hierarchical container's sub-groups may declare a same-named dimension at
+                    # a different length, which the working group's view cannot show (L3).
+                    size = var._band_dim_sizes[names.index(dim)]
+                    if len(values) != size:
+                        raise ValueError(
+                            f"assign_coords(): {dim!r} is length {size} on one of this cube's "
+                            f"variables, but {len(values)} coordinate values were given."
+                        )
+                    values_map[dim] = list(values)
+            return names, values_map
+
+        return _relabel_per_variable(nc, relabel, caller="assign_coords")
+
+    def drop_dims(
+        self, drop_dims: str | Sequence[str], *, errors: str = "raise"
+    ) -> NetCDF:
+        """Drop one or more band dimensions and every variable that spans them.
+
+        xarray's `drop_dims`: a dimension cannot be dropped on its own — the variables defined
+        along it go with it. This is a **container** operation (a single variable *is* its bands,
+        so dropping a dimension it spans would leave nothing), and it does not mutate the receiver:
+        it rebuilds the survivors into a fresh container — declaring only the dimensions they
+        actually use, so the dropped dimension and its coordinate are gone rather than orphaned —
+        and keeps each survivor's exact dtype, CF packing and no-data.
+
+        Args:
+            drop_dims: A band-dimension name, or a sequence of names, to drop.
+            errors: `"raise"` (default) to refuse an unknown dimension, `"ignore"` to skip it.
+
+        Returns:
+            NetCDF: A new container without those dimensions or the variables that spanned them.
+
+        Raises:
+            ValueError: `errors` is not `"raise"`/`"ignore"`; the receiver is a single variable;
+                or (with `errors="raise"`) a named dimension is not a dimension of the container.
+
+        Examples:
+            - Drop `time`, removing the variable defined along it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(12.0).reshape(3, 2, 2),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="v",
+              ...     dims=ExtraDimensions(name="time", values=[0, 6, 12]),
+              ... )
+              >>> "v" in cube.drop_dims("time").variable_names
+              False
+
+              ```
+        """
+        nc = self._ds
+        if errors not in ("raise", "ignore"):
+            raise ValueError(
+                f"drop_dims(): errors must be 'raise' or 'ignore', got {errors!r}."
+            )
+        targets = [drop_dims] if isinstance(drop_dims, str) else list(drop_dims)
+        if _reduces_as_a_variable(nc):
+            raise ValueError(
+                "drop_dims() removes whole variables, and a single variable is its own bands. "
+                "Call it on the container, or drop this variable with remove_variable()."
+            )
+        known = set(_band_dims_of(nc))
+        if errors == "raise":
+            for dim in targets:
+                if dim not in known:
+                    raise ValueError(
+                        f"drop_dims(): {dim!r} is not a dimension of this container; its "
+                        f"dimensions are {sorted(known)}."
+                    )
+        drop = {dim for dim in targets if dim in known}
+        if not drop:
+            return nc.copy()
+        # One exit, one mechanism: rebuild into a fresh store declaring only the dimensions the
+        # surviving arrays actually span, so the dropped dimension (and its coordinate array) is
+        # gone rather than orphaned the way `remove_variable` leaves it -- matching the method
+        # name and xarray's `drop_dims` (M2). The store-level copy keeps each survivor's exact
+        # dtype, CF packing and no-data, which a `merge` rebuild silently unpacked (int16/scale
+        # -> float64, M1).
+        #
+        # There used to be a second path for the case where nothing survives -- `copy()` plus a
+        # `remove_variable` per variable -- which reintroduced exactly the orphan this method
+        # exists to avoid (H3) and refused a group-qualified name outright, while the survivor
+        # scan itself crashed on a hierarchical container because `get_variable` hands back a
+        # `LabeledArray` for a 1-D array (M3). The rebuild handles both: it needs no survivor
+        # list, and a zero-variable result is just a store with no arrays to copy.
+        return nc._rebuilt_container(drop=drop)
+
+    def update(self, other: Any) -> None:
+        """Add or replace variables from another cube, in place — xarray's `Dataset.update`.
+
+        A bulk `set_variable`: every variable in `other` is written into this container, replacing
+        one of the same name and adding the rest. The blessed mutation path — the read-through
+        variables mapping refuses item assignment and points here. Mutates the receiver and returns
+        `None`, as xarray does. Grids must match (no resampling), consistent with `merge`/`concat`,
+        and every donor is grid-checked **before** any is written, so a mismatch leaves the receiver
+        untouched. The reference grid is the receiver's first variable (or, for an empty receiver,
+        the first donor variable).
+
+        Args:
+            other: A `NetCDF` container, or a `{name: variable}` mapping, whose variables share this
+                container's grid.
+
+        Raises:
+            ValueError: The receiver is a single variable (it has no variable mapping to update).
+            TypeError: `other` is neither a `NetCDF` container nor a `{name: variable}` mapping.
+            AlignmentError: A variable in `other` is on a different spatial grid, or spans a band
+                dimension sharing a name with one of this container's but of a different length
+                (both raised before any write, so the receiver is left untouched).
+
+        Examples:
+            - Fold another cube's variable into this container, on the same grid:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> dims = ExtraDimensions(name="time", values=[0.0, 1.0])
+              >>> a = NetCDF.from_array(np.zeros((2, 1, 1)), geo_ref=geo, variable_name="a", dims=dims)
+              >>> b = NetCDF.from_array(np.ones((2, 1, 1)), geo_ref=geo, variable_name="b", dims=dims)
+              >>> a.update(b)
+              >>> sorted(a.variable_names)
+              ['a', 'b']
+
+              ```
+
+        See Also:
+            NetCDF.merge: Combine cubes into a new container rather than mutating this one.
+        """
+        nc = self._ds
+        if _reduces_as_a_variable(nc):
+            raise ValueError(
+                "update() merges variables into a container, and a single variable has no "
+                "variable mapping to update. Use set_variable, or merge, instead."
+            )
+        items = _donor_variables(other)
+        _assert_donors_fit(nc, items)
+        for name, variable in items:
+            nc.set_variable(name, variable)
 
     def interp(self, method: str = "linear", **coords: Any) -> NetCDF:
         """Interpolate a band dimension onto new coordinate values.
@@ -6387,6 +6685,262 @@ def _relabelled(nc: NetCDF, names: tuple, sizes: tuple, values_map: dict) -> Net
         result._band_count,
     )
     return result
+
+
+def _declared_band_sizes(nc: NetCDF, known: list[str]) -> dict[str, int]:
+    """Each band dimension's declared length, as the receiver itself declares it.
+
+    A `Variable` carries its own `(name, size)` pairs; a `Container` declares its dimensions in the
+    store, including auxiliary-only ones no data variable spans (CF `bnds`), which is exactly the
+    case a per-variable length check cannot see.
+
+    Args:
+        nc: The receiver.
+        known: The band-dimension names to report, from `_band_dims_of`.
+
+    Returns:
+        dict[str, int]: The declared length of each known band dimension.
+    """
+    if _reduces_as_a_variable(nc):
+        sizes = dict(zip(nc._band_dim_names, nc._band_dim_sizes))
+    else:
+        sizes = {
+            name: size for name, size in nc.dimension_sizes.items() if name in known
+        }
+    return sizes
+
+
+def _validated_restamp(
+    nc: NetCDF, mapping: dict[str, Any], known: list[str]
+) -> dict[str, list]:
+    """The requested coordinate restamp, checked against the cube's declared dimensions.
+
+    Validating up front — rather than inside the per-variable closure, which only sees the
+    dimensions a data variable spans — is what makes a wrong length on an auxiliary-only dimension
+    an error instead of a silent no-op (L1).
+
+    Args:
+        nc: The receiver.
+        mapping: The requested `{dim: values}`.
+        known: The receiver's band-dimension names.
+
+    Returns:
+        dict[str, list]: The accepted restamp, each entry a list of the dimension's length.
+
+    Raises:
+        ValueError: A name is not an existing band dimension, the values are not 1-D, or their
+            length does not match the dimension's declared length.
+    """
+    declared = _declared_band_sizes(nc, known)
+    coerced: dict[str, list] = {}
+    for dim, values in mapping.items():
+        if dim not in known:
+            raise ValueError(
+                f"assign_coords(): {dim!r} is not an existing band dimension (have "
+                f"{sorted(known)}). pyramids has no index model, so a new or non-dimension "
+                f"coordinate cannot be attached — only an existing band dimension can be "
+                f"restamped."
+            )
+        if np.ndim(values) != 1:
+            raise ValueError(
+                f"assign_coords(): {dim!r} coordinates must be a 1-D sequence, got "
+                f"{np.ndim(values)}-D."
+            )
+        size = declared.get(dim)
+        if size is None:
+            # `known` and `declared` are built from the same declaration, so a name in one is in
+            # the other. Failing loudly beats the old `if size is not None` guard, which skipped
+            # the length check instead of reporting that the two had drifted apart (L3).
+            raise ValueError(
+                f"assign_coords(): {dim!r} is a band dimension of this cube but its declared "
+                f"length is unknown, so the restamp cannot be checked."
+            )
+        if len(values) != size:
+            raise ValueError(
+                f"assign_coords(): {dim!r} has length {size}, but {len(values)} "
+                f"coordinate values were given."
+            )
+        coerced[dim] = list(values)
+    return coerced
+
+
+def _donor_variables(other: Any) -> list[tuple[str, NetCDF]]:
+    """The `(name, variable)` pairs `update` will write, from either accepted donor form.
+
+    Args:
+        other: A `NetCDF` container, or a `{name: variable}` mapping.
+
+    Returns:
+        list[tuple[str, NetCDF]]: The donors, in the order they will be written.
+
+    Raises:
+        TypeError: `other` is neither a container nor a `{name: variable}` mapping.
+    """
+    if isinstance(other, Mapping):
+        items = list(other.items())
+    elif hasattr(other, "variable_names") and hasattr(other, "get_variable"):
+        items = [
+            (name, cast("NetCDF", other.get_variable(name)))
+            for name in other.variable_names
+        ]
+    else:
+        raise TypeError(
+            "update() accepts a NetCDF container or a {name: variable} mapping, got "
+            f"{type(other).__name__}."
+        )
+    return items
+
+
+def _assert_band_axes_fit(
+    name: str, variable: NetCDF, band_sizes: dict[str, int]
+) -> None:
+    """Refuse a donor spanning a same-named band axis of a different length.
+
+    Left unchecked, `set_variable` resolves the conflict by writing the donor onto a renamed
+    `<dim>_<len>` axis, so the donor silently lands on a different dimension.
+
+    Args:
+        name: The donor's variable name, for the message.
+        variable: The donor variable.
+        band_sizes: The lengths already fixed for each dimension name — the receiver's, plus
+            those the donors checked before this one introduced.
+
+    Raises:
+        AlignmentError: A band dimension's length disagrees with the length already fixed.
+    """
+    for dim_name, dim_size in zip(variable._band_dim_names, variable._band_dim_sizes):
+        existing = band_sizes.get(dim_name)
+        if existing is not None and existing != dim_size:
+            raise AlignmentError(
+                f"update(): variable {name!r} spans band dimension {dim_name!r} of "
+                f"length {dim_size}, but {dim_name!r} is already length {existing} here; "
+                f"align the band axis first (interp / sel) — update does not reconcile band "
+                f"dimensions, and writing it as-is would land it on a renamed "
+                f"{dim_name}_{dim_size} axis."
+            )
+
+
+def _assert_donors_fit(nc: NetCDF, items: list[tuple[str, NetCDF]]) -> None:
+    """Refuse the whole update unless every donor fits the receiver's grid and band axes.
+
+    The pre-write pass that makes `update` all-or-nothing: checking as we wrote left a valid donor
+    committed when a later one failed. The spatial grid is compared variable-to-variable, because a
+    container's own raster is a placeholder — the reference is the receiver's first variable, or,
+    for an empty receiver, the first donor. Band axes are checked against the receiver's *and*
+    against each other, so two donors cannot disagree about one dimension's length either.
+
+    Args:
+        nc: The receiving container.
+        items: The donors from `_donor_variables`.
+
+    Raises:
+        AlignmentError: A donor is on a different spatial grid, or disagrees on a band axis with
+            the receiver or with an earlier donor.
+    """
+    reference: NetCDF | None = (
+        cast("NetCDF", nc.get_variable(nc.variable_names[0]))
+        if nc.variable_names
+        else None
+    )
+    # Each accepted donor's axes join the map, so the donors are checked against one another and
+    # not only against the receiver: a dimension a donor introduces has to mean the same length
+    # for every later donor. Checking a map snapshotted before the loop let donor k+1 conflict
+    # with donor k's new axis and still land on a renamed `<dim>_<len>` axis, and left the donors
+    # of an empty receiver unchecked entirely (M2).
+    band_sizes = dict(nc.dimension_sizes)
+    for name, variable in items:
+        if reference is None:
+            reference = variable
+        if not _same_spatial_grid(reference, variable):
+            raise AlignmentError(
+                f"update(): variable {name!r} is on a different grid than this container; "
+                f"align it first (resample / to_crs / align) — update does not resample."
+            )
+        _assert_band_axes_fit(name, variable, band_sizes)
+        band_sizes.update(zip(variable._band_dim_names, variable._band_dim_sizes))
+
+
+def _unchanged(nc: NetCDF) -> NetCDF:
+    """A cheap, non-mutating copy of the receiver for a no-op relabel.
+
+    A single `Variable` is `_rewrapped` (shares the raster, keeps the lazy read); a `Container` is
+    a `copy` (a single store copy, not the per-variable in-memory rebuild `_apply_per_variable`
+    would do for a guaranteed no-op).
+
+    Args:
+        nc: The receiver.
+
+    Returns:
+        NetCDF: An equivalent, independent cube.
+    """
+    if _reduces_as_a_variable(nc):
+        return _rewrapped(nc)
+    return nc.copy()
+
+
+def _relabel_per_variable(
+    nc: NetCDF,
+    relabel: Callable[[NetCDF], tuple[list[str], dict]],
+    *,
+    caller: str,
+) -> NetCDF:
+    """Relabel a variable's band dimensions without moving a single cell, or every variable's.
+
+    The cell-free sibling of `_apply_per_variable`: `assign_coords` (and the single-variable
+    path of `rename_dims`) change a band dimension's *label* — its name or its coordinate
+    stamps — never its cells or the band count, so a single `Variable` is answered by
+    `_rewrapped` (shares the raster, keeps a lazy read) with its band metadata overwritten,
+    exactly as a no-op `squeeze` is. A `Container` keeps its band dimensions in the store rather
+    than in memory, so it is rebuilt per variable through `_apply_per_variable` — the same path
+    `transpose` takes — with each variable's cells carried over unchanged. (A container
+    *rename* takes the store-level path instead, `NetCDF._rebuilt_container`, which renames the
+    dimension in place; this per-variable rebuild is the `assign_coords` container path.)
+
+    On the single-variable path the CF time attributes are re-keyed from the **resolved** view
+    (`_resolved_band_dim_time_attrs`), as `_rewrapped` and `_copy_band_dim_metadata` already do.
+    That normalises the result's raw dict for *both* callers, not just the renaming one: a
+    non-CF-time `units` (a pressure level's `millibar`, say) is dropped and an entry resolved from
+    a parent cube is added, so `assign_coords` — which renames nothing — can still come back with
+    a different raw dict than it went in with. Every consumer reads these through
+    `_carried_time_attrs`, which applies the same CF-time filter, so the normalisation is not
+    observable in the cube's behaviour; it is called out here because nothing else records it.
+
+    Args:
+        nc: The receiver, a variable or a container.
+        relabel: Given one variable, returns its `(new band names, new values map)`. The band
+            count and axis order must be unchanged — this relabels, it does not restructure.
+        caller: The member named in any refusal or warning.
+
+    Returns:
+        NetCDF: The relabelled variable or container; cells and band count unchanged.
+    """
+    if _reduces_as_a_variable(nc):
+        names, values_map = relabel(nc)
+        rename_map = dict(zip(nc._band_dim_names, names))
+        result = _rewrapped(nc)
+        result._band_dim_names = tuple(names)
+        result._band_dim_values_map = dict(values_map)
+        # Re-key from the resolved (CF-time-only) view, matching `_copy_band_dim_metadata` and
+        # the container path: a non-time entry (a pressure level's `millibar`) is dropped rather
+        # than carried under the new key, so the single-variable and container paths agree (N1).
+        result._band_dim_time_attrs = {
+            rename_map.get(name, name): attrs
+            for name, attrs in nc._resolved_band_dim_time_attrs().items()
+        }
+        result._band_dim_name, result._band_dim_values = nc._derive_primary_band_view(
+            result._band_dim_names,
+            result._band_dim_values_map,
+            nc._band_dim_sizes,
+            result._band_count,
+        )
+        return result
+
+    def _fn(var: NetCDF) -> tuple:
+        names, values_map = relabel(var)
+        arr = np.asarray(nc._materialize_variable_array(var, lazy=True))
+        return arr, list(names), dict(values_map), _read_no_data(var), var.geotransform
+
+    return _apply_per_variable(nc, _fn, caller=caller)
 
 
 def _subset_along_dim(nc: NetCDF, dim_name: str, dim_indices: list[int]) -> NetCDF:
