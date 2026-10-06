@@ -3483,15 +3483,25 @@ class Selection(_Engine["NetCDF"]):
         reordered onto the left's dimension order first, so the answer does not depend on
         which side it was asked from.
 
-        A pair that cannot be broadcast — a shared dimension at two lengths, or different
-        grids — answers `False` rather than raising: this is a predicate, and `equals`
-        already answers `False` for operands it cannot line up.
+        A pair that cannot be broadcast — a shared dimension at two lengths, a different
+        grid, or an operand that is not a cube — answers `False` rather than raising: this
+        is a predicate, and `equals` already answers `False` for operands it cannot line
+        up. Only those three cases are swallowed; anything else surfaces, so a defect is
+        never reported as inequality.
+
+        A **container** receiver is refused rather than answered, for the same reason
+        `equals` refuses one: a container has no cells of its own, so there is nothing to
+        compare. (Before this was explicit, `equals`' own refusal was caught and turned
+        into `False`, which made a container not broadcast-equal to *itself*.)
 
         Args:
             other: The cube to compare with.
 
         Returns:
             bool: `True` when the two agree after broadcasting.
+
+        Raises:
+            ValueError: The receiver is a container.
 
         Examples:
             - A mask and the cube whose every step holds it:
@@ -3548,6 +3558,13 @@ class Selection(_Engine["NetCDF"]):
             Analysis.equals: The comparison it ends in.
         """
         nc = self._ds
+        if not _reduces_as_a_variable(nc):
+            raise ValueError(
+                "broadcast_equals() compares one raster with another, and this is a "
+                "container, which has no cells of its own to compare — the same reason "
+                "`equals` refuses one. Pick the variables to compare with "
+                "`get_variable`, or compare the containers variable by variable."
+            )
         answer = False
         try:
             left = nc.broadcast_like(other)
@@ -3558,9 +3575,12 @@ class Selection(_Engine["NetCDF"]):
                 else right.transpose(*left._band_dim_names)
             )
             answer = bool(left.equals(ordered))
-        except (AlignmentError, TypeError, ValueError):
-            # Not comparable is not an error for a predicate: `equals` already answers
-            # False for a pair it cannot line up, and this is the weaker question.
+        except (AlignmentError, TypeError, _NotBroadcastable):
+            # Only the three ways two cubes can be *incomparable* are answered `False`:
+            # a different grid, an operand that is not a cube, and axes that cannot be
+            # reconciled. Anything else is a defect and must surface, not be reported as
+            # inequality -- catching plain `ValueError` here hid both a container
+            # refusal and a reshape bug.
             answer = False
         return answer
 
@@ -5431,6 +5451,16 @@ def _validated_demotions(nc: NetCDF, names: str | Sequence[str] | None) -> list[
     return requested
 
 
+class _NotBroadcastable(ValueError):
+    """Two band layouts that cannot be reconciled by repeating a length-one axis.
+
+    A `ValueError` subclass, so `broadcast_like` keeps raising exactly what its `Raises:`
+    section documents, while `broadcast_equals` can catch *this* and nothing else. Catching
+    plain `ValueError` there turned two real defects into a confident `False`: a container
+    receiver, which `equals` refuses, and a reshape mismatch inside `_broadcast_values`.
+    """
+
+
 def _grid_reference(nc: NetCDF) -> NetCDF:
     """A cube whose own raster describes the grid, for a variable-to-variable comparison.
 
@@ -5574,7 +5604,7 @@ def _assert_axes_stretch(name: str, ours: int | None, theirs: int | None) -> Non
         and ours != theirs
         and 1 not in (ours, theirs)
     ):
-        raise ValueError(
+        raise _NotBroadcastable(
             f"broadcast_like(): dimension {name!r} is {ours} long here and {theirs} long "
             f"on the other cube, and neither is length one, so there is nothing to "
             f"stretch. Broadcasting never joins two axes — select or interpolate one of "

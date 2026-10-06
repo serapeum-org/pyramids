@@ -364,19 +364,19 @@ class TestAContainerWhoseFirstVariableIsNotGridded:
 
         assert "U" in lifted.variable_names
 
-    def test_broadcast_equals_does_not_raise_on_such_a_container(self):
-        """The predicate must answer, not raise an internal attribute error.
+    def test_broadcast_equals_refuses_such_a_container_by_name(self):
+        """The predicate must refuse a container, not die on an internal attribute.
 
         Test scenario:
-            The same store as a `broadcast_equals` receiver returns a bool rather than
-            propagating `AttributeError` (which the blanket `except` never caught).
+            The same store as a `broadcast_equals` receiver raises the container
+            refusal rather than propagating `AttributeError` from `_grid_reference`
+            (which the `except` clause never caught).
         """
         nc = NetCDF.read_file(str(NON_GRIDDED_FIRST), open_as_multi_dimensional=True)
         donor = nc.get_variable("U")
 
-        answer = nc.broadcast_equals(donor)
-
-        assert answer in (True, False)
+        with pytest.raises(ValueError, match="container"):
+            nc.broadcast_equals(donor)
 
     def test_such_a_container_works_as_the_donor_too(self):
         """The donor side resolves its grid the same way.
@@ -455,6 +455,50 @@ class TestBroadcastLikeOnAContainer:
         step = lifted.sel(time=6.0)
 
         assert np.asarray(step.read_array(squeeze=True)).shape == (NY, NX)
+
+
+class TestBroadcastEqualsRefusesAContainer:
+    """`equals` has no answer for a container, so neither does this."""
+
+    def test_a_container_is_refused_rather_than_answered(self):
+        """A container used to answer `False` — including against itself.
+
+        `Analysis.equals` refuses a container with a `ValueError`, and the blanket
+        `except (AlignmentError, TypeError, ValueError)` turned that into `False`, so a
+        cube was not broadcast-equal to itself and no caller could tell "not equal"
+        from "unsupported".
+
+        Test scenario:
+            A container receiver raises, naming the container and pointing at
+            `get_variable`.
+        """
+        container = NetCDF.from_array(
+            np.full((NY, NX), 1.0), geo_ref=_geo_ref(), variable_name="a"
+        )
+
+        with pytest.raises(ValueError, match="get_variable"):
+            container.broadcast_equals(container)
+
+    def test_a_variable_is_reflexive(self):
+        """The property the swallowed refusal broke.
+
+        Test scenario:
+            A variable is broadcast-equal to itself.
+        """
+        cube = _cube([("time", TIMES)])
+
+        assert cube.broadcast_equals(cube) is True
+
+    def test_an_unbroadcastable_pair_is_still_false_not_an_error(self):
+        """Narrowing the `except` must not turn incomparability into an exception.
+
+        Test scenario:
+            Two `time` axes of 2 and 3 steps still answer `False` — that refusal is
+            raised as the dedicated broadcast exception, which stays caught.
+        """
+        short = _cube([("time", [0.0, 6.0])], name="short")
+
+        assert short.broadcast_equals(_cube([("time", TIMES)])) is False
 
 
 class TestBroadcastEquals:
