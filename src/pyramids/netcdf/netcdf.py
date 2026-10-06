@@ -9403,6 +9403,16 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.expand_dims <pyramids.netcdf.engines.selection.Selection.expand_dims>`."""
         return self.selection.expand_dims(dim, value)
 
+    def broadcast_like(self, other: Any) -> NetCDF:
+        """Facade — :meth:`Selection.broadcast_like <pyramids.netcdf.engines.selection.Selection.broadcast_like>`."""
+        return self.selection.broadcast_like(other)
+
+    def broadcast_equals(self, other: Any) -> bool:
+        """Facade — :meth:`Selection.broadcast_equals
+        <pyramids.netcdf.engines.selection.Selection.broadcast_equals>`.
+        """
+        return self.selection.broadcast_equals(other)
+
     def rename_dims(
         self, dims: Mapping[str, str] | None = None, **dims_kwargs: str
     ) -> NetCDF:

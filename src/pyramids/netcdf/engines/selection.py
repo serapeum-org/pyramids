@@ -3117,6 +3117,173 @@ class Selection(_Engine["NetCDF"]):
 
         return _apply_per_variable(nc, _fn, caller="transpose")
 
+    def broadcast_like(self, other: Any) -> NetCDF:
+        """Give this cube `other`'s band layout, repeating cells along the added axes.
+
+        xarray's `broadcast_like`, restricted to what a georeferenced cube can mean: the
+        `(y, x)` plane is pinned by the geotransform, so only the band (non-spatial) axes
+        are broadcast and the grids must already match. There is no alignment and no join —
+        a dimension the two share at different lengths is refused rather than outer-joined,
+        because pyramids has no index to join on.
+
+        What happens to each band dimension:
+
+        - one `other` has and this cube lacks is **added**, with `other`'s size and
+          coordinate values, and the cells repeated along it;
+        - one both carry, at length one here against `other`'s *n*, is **stretched** the
+          same way and takes `other`'s coordinates;
+        - one both carry at the same length is left alone, keeping its own coordinates;
+        - one this cube has and `other` lacks is kept as it is.
+
+        The result's dimensions are this cube's, in their own order, followed by `other`'s
+        that it did not have — xarray's ordering, and the reason `mask.broadcast_like(cube)`
+        comes back with exactly `cube`'s layout when the mask has no band dimensions of its
+        own.
+
+        Unlike xarray's lazy view this **materialises** the repeats: a mask broadcast over
+        twelve steps holds twelve times the cells. For arithmetic you do not need it — a
+        single-band operand already broadcasts inside `combine`, without materialising
+        anything (`cube * mask`). Reach for this when you need the broadcast result *as a
+        cube*: to write it to a file, `concat` it, or hand it to `to_xarray`.
+
+        Args:
+            other: The cube whose band layout to take, on this cube's grid.
+
+        Returns:
+            NetCDF: This cube on the broadcast layout.
+
+        Raises:
+            TypeError: `other` is not a `NetCDF`.
+            AlignmentError: `other` is on a different spatial grid.
+            ValueError: A band dimension the two share has different lengths and neither is
+                one, so there is nothing to stretch and a join would be needed.
+
+        Examples:
+            - Lift a plain raster to a cube's `time` axis:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(3.0).reshape(3, 1, 1),
+              ...     geo_ref=geo,
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> mask = NetCDF.from_array(
+              ...     np.full((1, 1), 2.0), geo_ref=geo, variable_name="m"
+              ... ).get_variable("m")
+              >>> lifted = mask.broadcast_like(cube)
+              >>> lifted._band_dim_names, lifted._band_dim_sizes
+              (('time',), (3,))
+              >>> np.asarray(lifted.read_array(squeeze=True)).ravel().tolist()
+              [2.0, 2.0, 2.0]
+
+              ```
+
+        See Also:
+            NetCDF.combine: Broadcasts a single band without materialising it, which is
+                what the arithmetic operators use.
+            NetCDF.expand_dims: Adds one band dimension of length one.
+            NetCDF.broadcast_equals: Compares two cubes after broadcasting.
+        """
+        nc = self._ds
+        donor = _donor_band_layout(other, caller="broadcast_like")
+        # Variable to variable: a container's own raster is a 512x512 placeholder, so
+        # comparing the containers themselves refuses every container broadcast.
+        if not _same_spatial_grid(_grid_reference(nc), _grid_reference(other)):
+            raise AlignmentError(
+                "broadcast_like() does not resample: the two cubes are on different "
+                "spatial grids, so there is no cell-for-cell correspondence to repeat. "
+                "Put them on one grid first (`other = other.align(self)`)."
+            )
+
+        def _fn(var: NetCDF) -> tuple:
+            out_names, out_sizes, values_map = _broadcast_layout(var, donor)
+            values = np.asarray(nc._materialize_variable_array(var, lazy=True))
+            return (
+                _broadcast_values(
+                    values,
+                    list(var._band_dim_names),
+                    list(var._band_dim_sizes),
+                    out_names,
+                    out_sizes,
+                ),
+                out_names,
+                values_map,
+                _read_no_data(var),
+                var.geotransform,
+            )
+
+        return _apply_per_variable(nc, _fn, caller="broadcast_like")
+
+    def broadcast_equals(self, other: Any) -> bool:
+        """Whether two cubes hold the same values once broadcast against each other.
+
+        xarray's `broadcast_equals`: the weaker of the two equality questions. `equals`
+        compares the layouts as they are, so a `(y, x)` mask and the `(time, y, x)` cube
+        whose every step holds that mask are not equal; this asks whether they describe the
+        same values at a common rank, which they do.
+
+        Both operands are put on their common layout with `broadcast_like` and then handed
+        to `equals`, so the grid, band dimensions, coordinates and cells are all compared by
+        one implementation rather than a second copy of the rules. The right operand is
+        reordered onto the left's dimension order first, so the answer does not depend on
+        which side it was asked from.
+
+        A pair that cannot be broadcast — a shared dimension at two lengths, or different
+        grids — answers `False` rather than raising: this is a predicate, and `equals`
+        already answers `False` for operands it cannot line up.
+
+        Args:
+            other: The cube to compare with.
+
+        Returns:
+            bool: `True` when the two agree after broadcasting.
+
+        Examples:
+            - A mask and the cube whose every step holds it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> mask = NetCDF.from_array(
+              ...     np.full((1, 1), 2.0), geo_ref=geo, variable_name="m"
+              ... ).get_variable("m")
+              >>> cube = NetCDF.from_array(
+              ...     np.full((3, 1, 1), 2.0),
+              ...     geo_ref=geo,
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> mask.equals(cube), mask.broadcast_equals(cube)
+              (False, True)
+
+              ```
+
+        See Also:
+            NetCDF.broadcast_like: The broadcast this is built on.
+            Analysis.equals: The comparison it ends in.
+        """
+        nc = self._ds
+        answer = False
+        try:
+            left = nc.broadcast_like(other)
+            right = other.broadcast_like(nc)
+            ordered = (
+                right
+                if tuple(right._band_dim_names) == tuple(left._band_dim_names)
+                else right.transpose(*left._band_dim_names)
+            )
+            answer = bool(left.equals(ordered))
+        except (AlignmentError, TypeError, ValueError):
+            # Not comparable is not an error for a predicate: `equals` already answers
+            # False for a pair it cannot line up, and this is the weaker question.
+            answer = False
+        return answer
+
     def rename_dims(
         self, dims: Mapping[str, str] | None = None, **dims_kwargs: str
     ) -> NetCDF:
@@ -4765,6 +4932,173 @@ def _resolve_interp_kind(method: str, caller: str = "interp") -> str:
             f"{caller}() method must be one of {list(_INTERP_KINDS)}, got {method!r}."
         )
     return method
+
+
+def _grid_reference(nc: NetCDF) -> NetCDF:
+    """A cube whose own raster describes the grid, for a variable-to-variable comparison.
+
+    A root multidimensional container's raster is a placeholder — GDAL reports it as
+    512x512 whatever the store holds — so a grid check against the container itself fails
+    for every container. Its first variable carries the real rows, columns and transform,
+    which is the same reference `_assert_donors_fit` uses for `update`.
+
+    Args:
+        nc: A variable or a container.
+
+    Returns:
+        NetCDF: The variable to compare grids with — `nc` itself when it is a variable, or
+        an empty container with no variable to stand in for it.
+    """
+    reference = nc
+    if not _reduces_as_a_variable(nc) and nc.variable_names:
+        reference = cast("NetCDF", nc.get_variable(nc.variable_names[0]))
+    return reference
+
+
+def _donor_band_layout(
+    other: Any, *, caller: str
+) -> list[tuple[str, int, list | None]]:
+    """The band dimensions a broadcast donor offers, as `(name, size, values)`.
+
+    A variable carries its own band bookkeeping; a container's dimensions come from the
+    store, minus the spatial axes, with their coordinates read from the indexing arrays. A
+    donor with no band dimensions offers nothing, which makes a broadcast against it a
+    no-op rather than an error.
+
+    Args:
+        other: The donor cube.
+        caller: The member the user called, named in the refusal.
+
+    Returns:
+        list[tuple[str, int, list | None]]: One entry per band dimension, in the donor's
+        order, each with its size and coordinate values (`None` when it has none).
+
+    Raises:
+        TypeError: `other` is not a cube carrying the NetCDF band surface.
+    """
+    if not isinstance(other, Dataset) or not hasattr(other, "_band_dim_names"):
+        raise TypeError(
+            f"{caller}() takes the band layout from another NetCDF cube, not from "
+            f"{type(other).__name__}."
+        )
+    names = _band_dims_of(other)
+    if _reduces_as_a_variable(other):
+        sizes = dict(zip(other._band_dim_names, other._band_dim_sizes))
+        stamps = {name: other._band_dim_values_map.get(name) for name in names}
+    else:
+        declared = dict(other.dimension_sizes or {})
+        coordinates = other.coords
+        sizes = {name: int(declared[name]) for name in names if name in declared}
+        stamps = {
+            name: (list(coordinates[name]) if name in coordinates else None)
+            for name in names
+        }
+    return [(name, sizes[name], stamps.get(name)) for name in names if name in sizes]
+
+
+def _broadcast_layout(
+    var: NetCDF, donor: list[tuple[str, int, list | None]]
+) -> tuple[list[str], list[int], dict[str, list | None]]:
+    """The band layout `var` takes when broadcast against `donor`.
+
+    This variable's own dimensions keep their order and come first, then the donor's that
+    it lacks — xarray's ordering, which makes a broadcast against a donor whose dimensions
+    are a superset come back in exactly the donor's order.
+
+    A dimension is taken from the donor when this variable does not have it at all, or has
+    it at length one against the donor's longer axis. Otherwise this variable's own length
+    and coordinates win, so a donor's length-one axis never shortens anything.
+
+    Args:
+        var: The variable being broadcast.
+        donor: The donor's layout from `_donor_band_layout`.
+
+    Returns:
+        tuple: The result's dimension names, their sizes, and their coordinate values.
+
+    Raises:
+        ValueError: A shared dimension has different lengths on the two sides and neither
+            is one, so neither can be stretched onto the other.
+    """
+    mine = list(var._band_dim_names)
+    my_sizes = dict(zip(mine, var._band_dim_sizes))
+    donor_sizes = {name: size for name, size, _ in donor}
+    donor_stamps = {name: values for name, _, values in donor}
+    names = [*mine, *[name for name, _, _ in donor if name not in mine]]
+    sizes: list[int] = []
+    values_map: dict[str, list | None] = {}
+    for name in names:
+        ours = my_sizes.get(name)
+        theirs = donor_sizes.get(name)
+        _assert_axes_stretch(name, ours, theirs)
+        from_donor = ours is None or (ours == 1 and theirs not in (None, 1))
+        stamps = (
+            donor_stamps.get(name) if from_donor else var._band_dim_values_map.get(name)
+        )
+        sizes.append(theirs if from_donor else ours)
+        values_map[name] = list(stamps) if stamps is not None else None
+    return names, sizes, values_map
+
+
+def _assert_axes_stretch(name: str, ours: int | None, theirs: int | None) -> None:
+    """Refuse a shared band dimension neither side can be stretched onto.
+
+    Broadcasting has no index to join on, so two axes of different lengths are only
+    reconcilable when one of them is a single step to repeat.
+
+    Args:
+        name: The dimension's name.
+        ours: Its length here, or `None` when this cube does not have it.
+        theirs: Its length on the donor, or `None` when the donor does not have it.
+
+    Raises:
+        ValueError: Both sides have it, at different lengths, and neither is one.
+    """
+    if (
+        ours is not None
+        and theirs is not None
+        and ours != theirs
+        and 1 not in (ours, theirs)
+    ):
+        raise ValueError(
+            f"broadcast_like(): dimension {name!r} is {ours} long here and {theirs} long "
+            f"on the other cube, and neither is length one, so there is nothing to "
+            f"stretch. Broadcasting never joins two axes — select or interpolate one of "
+            f"them onto the other's steps first."
+        )
+
+
+def _broadcast_values(
+    values: np.ndarray,
+    mine: list[str],
+    my_sizes: list[int],
+    names: list[str],
+    sizes: list[int],
+) -> np.typing.NDArray:
+    """Repeat `values` onto the broadcast layout.
+
+    The result's own dimensions lead `names`, so the source's band axes already sit in the
+    right order and only the added ones have to be inserted — as length-one axes, which
+    `np.broadcast_to` then stretches. The declared sizes drive the reshape rather than the
+    array's own, so a materialised read carrying a spare leading axis is normalised here.
+    The stretched view is made contiguous at the end: the repeats have to be real cells in
+    the rebuilt variable, which is the cost this method is documented to have.
+
+    Args:
+        values: The source cells, with the band axes outermost and `(rows, columns)` last.
+        mine: The source's band dimension names, outermost first.
+        my_sizes: The source's band dimension sizes, aligned to `mine`.
+        names: The result's band dimension names.
+        sizes: The result's band dimension sizes, aligned to `names`.
+
+    Returns:
+        np.ndarray: The cells on the broadcast shape, contiguous.
+    """
+    spatial = values.shape[-2:]
+    declared = dict(zip(mine, my_sizes))
+    source = values.reshape((*my_sizes, *spatial))
+    lifted = source.reshape((*[declared.get(name, 1) for name in names], *spatial))
+    return np.ascontiguousarray(np.broadcast_to(lifted, (*sizes, *spatial)))
 
 
 def _band_dims_of(nc: NetCDF) -> list[str]:
