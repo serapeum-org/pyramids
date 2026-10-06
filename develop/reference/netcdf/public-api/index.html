@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -6449,7 +6449,7 @@
 
 
 <h1 id="netcdf-public-api"><a class="toclink" href="#netcdf-public-api"><code>NetCDF</code> — public API</a><a class="headerlink" href="#netcdf-public-api" title="Permanent link">#</a></h1>
-<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 119 in all: 84 methods, 27 properties,
+<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 123 in all: 88 methods, 27 properties,
 7 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
 <code>__len__</code>). <code>concat</code> and <code>merge</code> are counted among the methods: each is callable on the class
 (<code>NetCDF.concat([a, b], dim)</code>) and on a cube (<code>a.concat([b], dim)</code>, which joins the
@@ -6885,6 +6885,22 @@ A variable with no raster plane is the exception — see each member's docstring
 <tr>
 <td><code>drop_dims()</code></td>
 <td>Drops band dims and the variables along them (container) — <code>errors</code>.</td>
+</tr>
+<tr>
+<td><code>broadcast_like()</code></td>
+<td>Takes another cube's band layout, repeating cells along the added axes.</td>
+</tr>
+<tr>
+<td><code>broadcast_equals()</code></td>
+<td>Whether two cubes agree once broadcast against each other.</td>
+</tr>
+<tr>
+<td><code>set_coords()</code></td>
+<td>Marks variables as CF auxiliary coordinates (container); leaves <code>data_vars</code>.</td>
+</tr>
+<tr>
+<td><code>reset_coords()</code></td>
+<td>Demotes auxiliary coordinates back to data variables (container).</td>
 </tr>
 </tbody>
 </table>
