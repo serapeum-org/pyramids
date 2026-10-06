@@ -483,11 +483,12 @@ class TestACubeWithMorePlanesThanTrackedDimensions:
             `ValueError: cannot reshape array of size 12 into shape (2,2)`.
         """
         degraded = self._degraded()
+        donor = _cube([("time", TIMES)])
         assert degraded.band_count == 3, "precondition: several planes"
         assert tuple(degraded._band_dim_names) == (), "precondition: no tracked dims"
 
         with pytest.raises(ValueError, match="holds 3 planes"):
-            degraded.broadcast_like(_cube([("time", TIMES)]))
+            degraded.broadcast_like(donor)
 
     def test_broadcast_equals_lets_it_surface(self):
         """An operand's own broken layout is not an inequality, so it is not `False`.
@@ -497,9 +498,10 @@ class TestACubeWithMorePlanesThanTrackedDimensions:
             H3 lesson applied: only genuine incomparability answers `False`.
         """
         degraded = self._degraded()
+        donor = _cube([("time", TIMES)])
 
         with pytest.raises(ValueError, match="holds 3 planes"):
-            degraded.broadcast_equals(_cube([("time", TIMES)]))
+            degraded.broadcast_equals(donor)
 
 
 class TestBroadcastLikeOnAContainer:
@@ -578,10 +580,11 @@ class TestAContainerWithNoGriddedVariable:
             refuses with `AlignmentError` instead of picking an arbitrary array.
         """
         container = Container(_store_with_no_gridded_variable())
+        donor = _cube([("time", TIMES)])
         assert container._spatial_variable_names() == [], "precondition: none gridded"
 
         with pytest.raises(AlignmentError, match="different"):
-            container.broadcast_like(_cube([("time", TIMES)]))
+            container.broadcast_like(donor)
 
     def test_such_a_container_is_refused_as_the_donor_too(self):
         """The donor side resolves its reference through the same helper.
@@ -592,9 +595,10 @@ class TestAContainerWithNoGriddedVariable:
             hands the container back rather than picking one of its 1-D arrays.
         """
         container = Container(_store_with_no_gridded_variable())
+        receiver = _cube([("time", TIMES)])
 
         with pytest.raises(AlignmentError, match="different"):
-            _cube([("time", TIMES)]).broadcast_like(container)
+            receiver.broadcast_like(container)
 
 
 class TestBroadcastEqualsRefusesAContainer:
