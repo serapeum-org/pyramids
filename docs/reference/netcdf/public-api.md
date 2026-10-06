@@ -100,56 +100,56 @@ A variable with no raster plane is the exception — see each member's docstring
 
 ## Reading and selecting
 
-| Member             | What it does                                                                         |
-|--------------------|--------------------------------------------------------------------------------------|
-| `read_array()`     | Reads eagerly, or lazily into dask with `chunks=`. Needs `variable=` on a Container. |
-| `chunk()`          | A lazy, dask-backed `LazyNetCDF` view of the cube — `compute`/`chunks`/`persist`.    |
-| `subset()`         | Reads a windowed `(variable, time, bbox)` slice without materialising the cube.      |
-| `sel()`            | Selects bands by coordinate value, date label, or `method="nearest"`.                |
-| `isel()`           | Selects bands by position along one or more band dims; works without coordinates.    |
-| `drop_sel()`       | Drops bands by coordinate value — the complement of `sel`; `errors`.                 |
-| `drop_isel()`      | Drops bands by position — the complement of `isel`.                                  |
-| `head()`           | Keeps the first `n` steps along a band dim; five along every one by default.         |
-| `tail()`           | Keeps the last `n` steps along a band dim; five along every one by default.          |
-| `thin()`           | Keeps every `n`-th step along a band dim, from the first.                            |
-| `sortby()`         | Reorders a band dim by its own coordinates, each plane with its stamp — `ascending`. |
-| `drop_duplicates()` | Drops the steps whose stamp repeats — what `concat` can leave — `keep`.             |
-| `squeeze()`        | Drops the band dims of length one; never a spatial axis.                             |
-| `expand_dims()`    | Adds a length-one band dim, outermost — lifts a raster into a cube before `concat`.  |
-| `open_mfdataset()` | Stacks one variable across many files into a single lazy dask array.                 |
-| `reduce()`         | Reduces a container or a variable along `dim` — `how`, `q`, `groupby`, `skipna`.     |
-| `coarsen()`        | Reduces fixed-size windows along `dim` — `window`, `boundary`, `how`.                |
-| `groupby_bins()`   | Reduces `dim` binned into value intervals — `bins`, `right`, `include_lowest`, `how`. |
-| `rolling()`        | Reduces a moving window along `dim`, keeping its length — `center`, `min_periods`.   |
-| `diff()`           | Differences neighbouring steps along `dim` — `n`, `label`.                           |
-| `interp()`         | Interpolates band `dim`(s) onto new coordinate values — `method`, `**coords`.        |
-| `interp_like()`    | Interpolates shared band dims onto another cube's coordinates — `other`, `method`.   |
-| `rank()`           | Ranks each pixel's values along band `dim`, ties averaged — `pct`.                   |
-| `pad()`            | Pads band or spatial dims with a constant fill — `mode`, `constant_values`.          |
-| `transpose()`      | Reorders band dims (spatial plane stays trailing) — `*dims`.                         |
-| `cumsum()`         | Totals the values along `dim`, step by step — `skipna`.                              |
-| `cumprod()`        | Multiplies the values along `dim`, step by step — `skipna`.                          |
-| `shift()`          | Moves the values along `dim`, filling the vacated steps — `periods`, `fill_value`.   |
-| `ffill()`          | Carries the last valid value along `dim` into the gaps after it — `limit`.           |
-| `bfill()`          | Carries the next valid value along `dim` back into the gaps before it — `limit`.     |
-| `dropna()`         | Removes the steps of `dim` whose cells are missing — `how`, `thresh`.                |
-| `interpolate_na()` | Fills the interior gaps along `dim` from both sides — `method`, `limit`.             |
-| `to_dataframe()`   | The cube as a pandas frame, indexed by its dimensions — `variables`, `dropna`.       |
-| `to_dask_dataframe()` | The lazy sibling of `to_dataframe` — a tidy `dask.dataframe`, read lazily.         |
-| `concat()`         | Joins cubes end to end along `dim` (classmethod).                                    |
-| `merge()`          | Puts several cubes' variables on one grid (classmethod) — `compat`.                  |
-| `argmin()`         | The position along `dim` of the smallest value; `-1` where there is none.            |
-| `argmax()`         | The position along `dim` of the largest value; `-1` where there is none.             |
-| `idxmin()`         | The coordinate along `dim` of the smallest value; NaN where there is none.           |
-| `idxmax()`         | The coordinate along `dim` of the largest value; NaN where there is none.            |
-| `weighted()`       | Weighted statistics over the spatial axes or a band dim — `"area"`, `how`.           |
-| `rename_dims()`    | Renames band dims — `{old: new}` / `old=new`; never a spatial axis.                  |
-| `assign_coords()`  | Restamps an existing band dim's coordinates — `dim=values`.                          |
-| `drop_dims()`      | Drops band dims and the variables along them (container) — `errors`.                 |
-| `broadcast_like()` | Takes another cube's band layout, repeating cells along the added axes.              |
-| `broadcast_equals()` | Whether two cubes agree once broadcast against each other.                        |
-| `set_coords()`     | Marks variables as CF auxiliary coordinates (container); leaves `data_vars`.         |
-| `reset_coords()`   | Demotes auxiliary coordinates back to data variables (container).                    |
+| Member                | What it does                                                                          |
+|-----------------------|---------------------------------------------------------------------------------------|
+| `read_array()`        | Reads eagerly, or lazily into dask with `chunks=`. Needs `variable=` on a Container.  |
+| `chunk()`             | A lazy, dask-backed `LazyNetCDF` view of the cube — `compute`/`chunks`/`persist`.     |
+| `subset()`            | Reads a windowed `(variable, time, bbox)` slice without materialising the cube.       |
+| `sel()`               | Selects bands by coordinate value, date label, or `method="nearest"`.                 |
+| `isel()`              | Selects bands by position along one or more band dims; works without coordinates.     |
+| `drop_sel()`          | Drops bands by coordinate value — the complement of `sel`; `errors`.                  |
+| `drop_isel()`         | Drops bands by position — the complement of `isel`.                                   |
+| `head()`              | Keeps the first `n` steps along a band dim; five along every one by default.          |
+| `tail()`              | Keeps the last `n` steps along a band dim; five along every one by default.           |
+| `thin()`              | Keeps every `n`-th step along a band dim, from the first.                             |
+| `sortby()`            | Reorders a band dim by its own coordinates, each plane with its stamp — `ascending`.  |
+| `drop_duplicates()`   | Drops the steps whose stamp repeats — what `concat` can leave — `keep`.               |
+| `squeeze()`           | Drops the band dims of length one; never a spatial axis.                              |
+| `expand_dims()`       | Adds a length-one band dim, outermost — lifts a raster into a cube before `concat`.   |
+| `open_mfdataset()`    | Stacks one variable across many files into a single lazy dask array.                  |
+| `reduce()`            | Reduces a container or a variable along `dim` — `how`, `q`, `groupby`, `skipna`.      |
+| `coarsen()`           | Reduces fixed-size windows along `dim` — `window`, `boundary`, `how`.                 |
+| `groupby_bins()`      | Reduces `dim` binned into value intervals — `bins`, `right`, `include_lowest`, `how`. |
+| `rolling()`           | Reduces a moving window along `dim`, keeping its length — `center`, `min_periods`.    |
+| `diff()`              | Differences neighbouring steps along `dim` — `n`, `label`.                            |
+| `interp()`            | Interpolates band `dim`(s) onto new coordinate values — `method`, `**coords`.         |
+| `interp_like()`       | Interpolates shared band dims onto another cube's coordinates — `other`, `method`.    |
+| `rank()`              | Ranks each pixel's values along band `dim`, ties averaged — `pct`.                    |
+| `pad()`               | Pads band or spatial dims with a constant fill — `mode`, `constant_values`.           |
+| `transpose()`         | Reorders band dims (spatial plane stays trailing) — `*dims`.                          |
+| `cumsum()`            | Totals the values along `dim`, step by step — `skipna`.                               |
+| `cumprod()`           | Multiplies the values along `dim`, step by step — `skipna`.                           |
+| `shift()`             | Moves the values along `dim`, filling the vacated steps — `periods`, `fill_value`.    |
+| `ffill()`             | Carries the last valid value along `dim` into the gaps after it — `limit`.            |
+| `bfill()`             | Carries the next valid value along `dim` back into the gaps before it — `limit`.      |
+| `dropna()`            | Removes the steps of `dim` whose cells are missing — `how`, `thresh`.                 |
+| `interpolate_na()`    | Fills the interior gaps along `dim` from both sides — `method`, `limit`.              |
+| `to_dataframe()`      | The cube as a pandas frame, indexed by its dimensions — `variables`, `dropna`.        |
+| `to_dask_dataframe()` | The lazy sibling of `to_dataframe` — a tidy `dask.dataframe`, read lazily.            |
+| `concat()`            | Joins cubes end to end along `dim` (classmethod).                                     |
+| `merge()`             | Puts several cubes' variables on one grid (classmethod) — `compat`.                   |
+| `argmin()`            | The position along `dim` of the smallest value; `-1` where there is none.             |
+| `argmax()`            | The position along `dim` of the largest value; `-1` where there is none.              |
+| `idxmin()`            | The coordinate along `dim` of the smallest value; NaN where there is none.            |
+| `idxmax()`            | The coordinate along `dim` of the largest value; NaN where there is none.             |
+| `weighted()`          | Weighted statistics over the spatial axes or a band dim — `"area"`, `how`.            |
+| `rename_dims()`       | Renames band dims — `{old: new}` / `old=new`; never a spatial axis.                   |
+| `assign_coords()`     | Restamps an existing band dim's coordinates — `dim=values`.                           |
+| `drop_dims()`         | Drops band dims and the variables along them (container) — `errors`.                  |
+| `broadcast_like()`    | Takes another cube's band layout, repeating cells along the added axes.               |
+| `broadcast_equals()`  | Whether two cubes agree once broadcast against each other.                            |
+| `set_coords()`        | Marks variables as CF auxiliary coordinates (container); leaves `data_vars`.          |
+| `reset_coords()`      | Demotes auxiliary coordinates back to data variables (container).                     |
 
 ## Spatial operations
 

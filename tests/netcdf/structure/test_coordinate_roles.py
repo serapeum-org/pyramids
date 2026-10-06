@@ -274,6 +274,18 @@ class TestSetCoordsRefusals:
         with pytest.raises(ValueError, match="not a variable of this container"):
             cube.set_coords("nope")
 
+    def test_a_non_sequence_name_is_refused_by_type(self):
+        """A numpy-level `TypeError` named neither the member nor the expectation.
+
+        Test scenario:
+            `set_coords(3)` raises a message naming what a name must be — it used to
+            read `TypeError: 'int' object is not iterable`.
+        """
+        cube = _container(t2m=1.0, expver=5.0)
+
+        with pytest.raises(TypeError, match="must be a string"):
+            cube.set_coords(3)
+
     def test_a_dimension_is_refused(self):
         """A dimension's coordinate is its same-named array, which this cannot assign.
 

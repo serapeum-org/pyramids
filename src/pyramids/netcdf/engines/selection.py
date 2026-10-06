@@ -3155,10 +3155,10 @@ class Selection(_Engine["NetCDF"]):
             NetCDF: A new container in which those variables are auxiliary coordinates.
 
         Raises:
-            ValueError: The receiver is a single variable; a name is not a variable of this
-                container; a name is a dimension (already a coordinate by CF convention);
-                or no remaining data variable spans the promoted variable's dimensions, so
-                nothing can reference it.
+            ValueError: The receiver is a single variable or a `get_group` view; a name is
+                not a variable of this container; a name is a dimension (already a
+                coordinate by CF convention); or no remaining data variable spans the
+                promoted variable's dimensions, so nothing can reference it.
 
         Examples:
             - Promote a per-cell experiment flag out of the data variables:
@@ -3264,8 +3264,9 @@ class Selection(_Engine["NetCDF"]):
             NetCDF: A new container in which those variables are data variables again.
 
         Raises:
-            ValueError: The receiver is a single variable; a name is not an auxiliary
-                coordinate of this container; or a name is a dimension coordinate.
+            ValueError: The receiver is a single variable or a `get_group` view; a name is
+                not an auxiliary coordinate of this container; or a name is a dimension
+                coordinate.
 
         Examples:
             - Promote and then demote, which returns the original roles:
@@ -3452,14 +3453,7 @@ class Selection(_Engine["NetCDF"]):
         """
         nc = self._ds
         donor = _donor_band_layout(other, caller="broadcast_like")
-        # Variable to variable: a container's own raster is a 512x512 placeholder, so
-        # comparing the containers themselves refuses every container broadcast.
-        if not _same_spatial_grid(_grid_reference(nc), _grid_reference(other)):
-            raise AlignmentError(
-                "broadcast_like() does not resample: the two cubes are on different "
-                "spatial grids, so there is no cell-for-cell correspondence to repeat. "
-                "Put them on one grid first (`other = other.align(self)`)."
-            )
+        _assert_broadcast_grids(nc, other)
 
         def _fn(var: NetCDF) -> tuple:
             out_names, out_sizes, values_map = _broadcast_layout(var, donor)
@@ -5298,15 +5292,26 @@ def _assert_coordinate_partition(nc: NetCDF, *, caller: str) -> None:
 
 
 def _requested_names(names: str | Sequence[str]) -> list[str]:
-    """One or several variable names, as a list, in the order given.
+    """One or several variable names, as a list, de-duplicated in first-seen order.
 
     Args:
         names: A single name or a sequence of them.
 
     Returns:
         list[str]: The names, de-duplicated with their first-seen order kept.
+
+    Raises:
+        TypeError: `names` is neither a string nor a sequence of them.
     """
-    requested = [names] if isinstance(names, str) else list(names)
+    if isinstance(names, str):
+        requested = [names]
+    elif isinstance(names, Sequence):
+        requested = list(names)
+    else:
+        raise TypeError(
+            f"a variable name must be a string, or a sequence of them, not "
+            f"{type(names).__name__}."
+        )
     return list(dict.fromkeys(requested))
 
 
@@ -5581,6 +5586,40 @@ def _donor_band_layout(
             for name in names
         }
     return [(name, sizes[name], stamps.get(name)) for name in names if name in sizes]
+
+
+def _assert_broadcast_grids(nc: NetCDF, other: Any) -> None:
+    """Refuse a broadcast whose operands are not cell-for-cell on one grid.
+
+    Compared variable to variable: a root container's own raster is a 512x512 placeholder,
+    so comparing the containers themselves refuses every container broadcast. **Every**
+    gridded variable of the receiver is checked, not just the first — `_fn` rebuilds each
+    one with its own geotransform, so a container holding variables on two grids would
+    otherwise be only partly validated and the result would mix them.
+
+    Args:
+        nc: The cube being broadcast.
+        other: The donor.
+
+    Raises:
+        AlignmentError: A variable of `nc` is not on the donor's grid.
+    """
+    donor_grid = _grid_reference(other)
+    sources = (
+        [nc]
+        if _reduces_as_a_variable(nc)
+        else [
+            cast("NetCDF", nc.get_variable(name))
+            for name in nc._spatial_variable_names()
+        ]
+    )
+    for variable in sources or [nc]:
+        if not _same_spatial_grid(variable, donor_grid):
+            raise AlignmentError(
+                "broadcast_like() does not resample: the two cubes are on different "
+                "spatial grids, so there is no cell-for-cell correspondence to repeat. "
+                "Put them on one grid first (`other = other.align(self)`)."
+            )
 
 
 def _broadcast_changed_dims(
