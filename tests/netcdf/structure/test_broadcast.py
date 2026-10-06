@@ -11,10 +11,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
+from osgeo import gdal, osr
 
 from pyramids.base._errors import AlignmentError
 from pyramids.dataset import Dataset
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+from pyramids.netcdf.netcdf import Container
 
 pytestmark = pytest.mark.core
 
@@ -52,6 +54,35 @@ def _cube(dims: list[tuple[str, list]], name: str = "v") -> NetCDF:
         dims=ExtraDimensions(dims=[(dim, list(stamps)) for dim, stamps in dims]),
     )
     return container.get_variable(name)
+
+
+def _store_without_time_coordinate() -> gdal.Dataset:
+    """A store whose `time` dimension has no coordinate array of any kind.
+
+    Built through GDAL directly because `from_array` always writes the CF same-named
+    array, and the point here is a dimension `coords` cannot stamp. The spatial
+    coordinates are cell *centres*, which is what GDAL derives the geotransform from, so
+    the store lands on the same grid as `_geo_ref()`.
+
+    Returns:
+        gdal.Dataset: An in-memory multidimensional store holding `v(time, y, x)`.
+    """
+    store = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
+    root = store.GetRootGroup()
+    f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    time = root.CreateDimension("time", gdal.DIM_TYPE_TEMPORAL, "", 3)
+    y = root.CreateDimension("y", gdal.DIM_TYPE_HORIZONTAL_Y, "NORTH", NY)
+    x = root.CreateDimension("x", gdal.DIM_TYPE_HORIZONTAL_X, "EAST", NX)
+    for dim, values in ((y, [1.5, 0.5]), (x, [0.5, 1.5])):
+        coordinate = root.CreateMDArray(dim.GetName(), [dim], f64)
+        coordinate.Write(np.array(values))
+        dim.SetIndexingVariable(coordinate)
+    data = root.CreateMDArray("v", [time, y, x], f64)
+    data.Write(np.arange(3.0 * NY * NX).reshape(3, NY, NX))
+    reference = osr.SpatialReference()
+    reference.ImportFromEPSG(4326)
+    data.SetSpatialRef(reference)
+    return store
 
 
 def _flat(fill: float = 5.0, name: str = "mask") -> NetCDF:
@@ -255,6 +286,53 @@ class TestBroadcastLikeRefusals:
 
         with pytest.raises(TypeError, match="NetCDF cube"):
             _flat().broadcast_like(plain)
+
+
+class TestBroadcastLikeAgainstAContainerDonor:
+    """A container can be the donor: its layout comes from the store, not a variable."""
+
+    def test_a_container_donor_lends_its_dimensions_and_stamps(self):
+        """The donor's sizes come from the store's dimensions and its stamps from the
+        indexing arrays, which is a different code path from a variable donor.
+
+        Test scenario:
+            A flat mask broadcast against a 3-step *container* gains `time` of length 3
+            with the container's own coordinate values.
+        """
+        donor = NetCDF.from_array(
+            np.arange(12.0).reshape(3, NY, NX),
+            geo_ref=_geo_ref(),
+            variable_name="t",
+            dims=ExtraDimensions(name="time", values=TIMES),
+        )
+
+        lifted = _flat(5.0).broadcast_like(donor)
+
+        assert lifted._band_dim_names == ("time",)
+        assert lifted._band_dim_sizes == (3,)
+        assert lifted._band_dim_values_map["time"] == TIMES
+        assert_array_equal(
+            np.asarray(lifted.read_array(squeeze=True)), np.full((3, NY, NX), 5.0)
+        )
+
+    def test_a_container_donor_axis_without_coordinates_lends_none(self):
+        """A dimension the store cannot stamp is added unlabelled, not invented.
+
+        Test scenario:
+            The donor's `time` dimension carries no coordinate array at all, so
+            `coords` omits it. The broadcast result gains the axis at the right length
+            with no stamps, rather than inventing positional ones.
+        """
+        donor = Container(_store_without_time_coordinate())
+
+        lifted = _flat(5.0).broadcast_like(donor)
+
+        assert lifted._band_dim_names == ("time",)
+        assert lifted._band_dim_sizes == (3,)
+        assert lifted._band_dim_values_map["time"] is None
+        assert_array_equal(
+            np.asarray(lifted.read_array(squeeze=True)), np.full((3, NY, NX), 5.0)
+        )
 
 
 class TestBroadcastLikeOnAContainer:

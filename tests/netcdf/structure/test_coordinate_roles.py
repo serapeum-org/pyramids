@@ -306,6 +306,26 @@ class TestResetCoords:
 
         assert after == before
 
+    def test_a_receiver_that_never_referenced_it_is_left_alone(self):
+        """A data variable added after the promotion carries no reference, and that is fine.
+
+        Test scenario:
+            A container is promoted, then gains a second data variable, which therefore
+            has no `coordinates` attribute. Demoting must leave that variable's
+            attributes untouched rather than writing an empty reference onto it, and
+            still bring the coordinate back.
+        """
+        promoted = _container(t2m=1.0, expver=5.0).set_coords("expver")
+        latecomer = NetCDF.from_array(
+            np.full((NY, NX), 9.0), geo_ref=_geo_ref(), variable_name="sst"
+        ).get_variable("sst")
+        promoted.set_variable("sst", latecomer)
+
+        demoted = promoted.reset_coords("expver")
+
+        assert sorted(demoted.variable_names) == ["expver", "sst", "t2m"]
+        assert _roles(demoted)["expver"] == "data"
+
     def test_the_variable_is_never_deleted(self):
         """Demotion changes a role, not the store's contents.
 
