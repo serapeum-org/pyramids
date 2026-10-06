@@ -5303,13 +5303,16 @@ def _donor_band_layout(
             f"{caller}() takes the band layout from another NetCDF cube, not from "
             f"{type(other).__name__}."
         )
-    names = _band_dims_of(other)
-    if _reduces_as_a_variable(other):
-        sizes = dict(zip(other._band_dim_names, other._band_dim_sizes))
-        stamps = {name: other._band_dim_values_map.get(name) for name in names}
+    # The `hasattr` above is the real check -- a plain `Dataset` has no band surface -- so
+    # the cast carries that for the type checker rather than widening the signature.
+    cube = cast("NetCDF", other)
+    names = _band_dims_of(cube)
+    if _reduces_as_a_variable(cube):
+        sizes = dict(zip(cube._band_dim_names, cube._band_dim_sizes))
+        stamps = {name: cube._band_dim_values_map.get(name) for name in names}
     else:
-        declared = dict(other.dimension_sizes or {})
-        coordinates = other.coords
+        declared = dict(cube.dimension_sizes or {})
+        coordinates = cube.coords
         sizes = {name: int(declared[name]) for name in names if name in declared}
         stamps = {
             name: (list(coordinates[name]) if name in coordinates else None)
@@ -5353,11 +5356,14 @@ def _broadcast_layout(
         ours = my_sizes.get(name)
         theirs = donor_sizes.get(name)
         _assert_axes_stretch(name, ours, theirs)
-        from_donor = ours is None or (ours == 1 and theirs not in (None, 1))
-        stamps = (
-            donor_stamps.get(name) if from_donor else var._band_dim_values_map.get(name)
-        )
-        sizes.append(theirs if from_donor else ours)
+        # Indexed, not `.get`: taking a size from the donor means the name came from the
+        # donor, so it has one there -- and the index says so to the type checker too.
+        if ours is None or (ours == 1 and theirs not in (None, 1)):
+            sizes.append(donor_sizes[name])
+            stamps = donor_stamps.get(name)
+        else:
+            sizes.append(ours)
+            stamps = var._band_dim_values_map.get(name)
         values_map[name] = list(stamps) if stamps is not None else None
     return names, sizes, values_map
 
