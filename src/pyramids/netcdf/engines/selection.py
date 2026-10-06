@@ -5414,19 +5414,30 @@ def _grid_reference(nc: NetCDF) -> NetCDF:
 
     A root multidimensional container's raster is a placeholder — GDAL reports it as
     512x512 whatever the store holds — so a grid check against the container itself fails
-    for every container. Its first variable carries the real rows, columns and transform,
-    which is the same reference `_assert_donors_fit` uses for `update`.
+    for every container, and one of its variables has to stand in.
+
+    The variable is taken from `_spatial_variable_names`, the **gridded** inventory that
+    `_apply_per_variable` itself fans out over, not from `variable_names`. Those two are
+    not the same list and their order is unrelated: on a real CF store `variable_names[0]`
+    is often a 1-D array (`hyai` on a hybrid-level store), which `get_variable` answers
+    with a `LabeledArray` that has no `epsg`, `rows` or geotransform at all. Reading a grid
+    off it raised `AttributeError` from inside a public member.
+
+    A container with no gridded variable has no grid to compare, so it is handed back
+    as-is and the caller's own grid check reports the mismatch.
 
     Args:
         nc: A variable or a container.
 
     Returns:
-        NetCDF: The variable to compare grids with — `nc` itself when it is a variable, or
-        an empty container with no variable to stand in for it.
+        NetCDF: The variable to compare grids with — `nc` itself when it is a variable or a
+        container with no gridded variable, else that container's first gridded variable.
     """
     reference = nc
-    if not _reduces_as_a_variable(nc) and nc.variable_names:
-        reference = cast("NetCDF", nc.get_variable(nc.variable_names[0]))
+    if not _reduces_as_a_variable(nc):
+        gridded = nc._spatial_variable_names()
+        if gridded:
+            reference = cast("NetCDF", nc.get_variable(gridded[0]))
     return reference
 
 

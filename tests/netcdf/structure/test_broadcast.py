@@ -8,6 +8,8 @@ rather than joined, since there is no index to join on.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
@@ -20,6 +22,12 @@ from pyramids.netcdf.netcdf import Container
 
 pytestmark = pytest.mark.core
 
+NON_GRIDDED_FIRST = (
+    Path(__file__).resolve().parents[2]
+    / "data"
+    / "netcdf"
+    / "cf__48v__1d17-3d21-4d10__y-asc.nc"
+)
 GEO = (0.0, 1.0, 0.0, 2.0, 0.0, -1.0)
 TIMES = [0.0, 6.0, 12.0]
 LEVELS = [1000.0, 850.0, 500.0]
@@ -334,6 +342,55 @@ class TestBroadcastLikeAgainstAContainerDonor:
         assert_array_equal(
             np.asarray(lifted.read_array(squeeze=True)), np.full((3, NY, NX), 5.0)
         )
+
+
+class TestAContainerWhoseFirstVariableIsNotGridded:
+    """`variable_names[0]` is not necessarily a raster, so it cannot be the grid reference."""
+
+    def test_broadcast_like_takes_the_grid_from_a_gridded_variable(self):
+        """A 1-D array first in the inventory must not be asked for a geotransform.
+
+        Test scenario:
+            On a real CF store whose first variable is the 1-D `hyai`, broadcasting
+            against one of its own gridded variables must run. Taking the reference from
+            `variable_names[0]` raised `AttributeError: 'LabeledArray' object has no
+            attribute 'epsg'` instead.
+        """
+        nc = NetCDF.read_file(str(NON_GRIDDED_FIRST), open_as_multi_dimensional=True)
+        assert nc.variable_names[0] == "hyai", "precondition: the first variable is 1-D"
+        donor = nc.get_variable("U")
+
+        lifted = nc.broadcast_like(donor)
+
+        assert "U" in lifted.variable_names
+
+    def test_broadcast_equals_does_not_raise_on_such_a_container(self):
+        """The predicate must answer, not raise an internal attribute error.
+
+        Test scenario:
+            The same store as a `broadcast_equals` receiver returns a bool rather than
+            propagating `AttributeError` (which the blanket `except` never caught).
+        """
+        nc = NetCDF.read_file(str(NON_GRIDDED_FIRST), open_as_multi_dimensional=True)
+        donor = nc.get_variable("U")
+
+        answer = nc.broadcast_equals(donor)
+
+        assert answer in (True, False)
+
+    def test_such_a_container_works_as_the_donor_too(self):
+        """The donor side resolves its grid the same way.
+
+        Test scenario:
+            A healthy gridded variable broadcast against this store as donor must run —
+            previously the donor's own `variable_names[0]` broke a healthy receiver.
+        """
+        nc = NetCDF.read_file(str(NON_GRIDDED_FIRST), open_as_multi_dimensional=True)
+        receiver = nc.get_variable("U")
+
+        lifted = receiver.broadcast_like(nc)
+
+        assert lifted.band_count >= receiver.band_count
 
 
 class TestBroadcastLikeOnAContainer:
