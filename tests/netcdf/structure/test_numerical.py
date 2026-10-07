@@ -585,12 +585,12 @@ class TestTheSharedGate:
             variable.differentiate("level")
 
 
-class TestTheNarrowingGuards:
-    """Two guards the public members make unreachable, exercised at their own level.
+class TestTheNarrowingGuard:
+    """The guard the public members make unreachable, exercised at its own level.
 
-    Both mirror the guard `_InterpTo.apply` already carries: the runner validates first, and
-    the operation keeps its own check so it cannot be reached directly with a shape it cannot
-    read. Testing them through the member is impossible by design, so they are tested here.
+    It mirrors the guard `_InterpTo.apply` already carries: the runner validates first, and the
+    operation keeps its own check so it cannot be reached directly with a layout it cannot
+    read. Testing it through a member is impossible by design, so it is tested here.
     """
 
     def test_an_operation_reached_directly_refuses_a_coordinate_less_axis(self):
@@ -607,30 +607,6 @@ class TestTheNarrowingGuards:
 
         with pytest.raises(ValueError, match="no coordinates for 'level'"):
             _Differentiate().apply(variable, variable, "level")
-
-    def test_the_time_attribute_writer_creates_what_is_not_there(self):
-        """The delete-then-create write has to handle "not there yet" too.
-
-        Every public route reaches it with both attributes already present, so the create-only
-        path needs its own test; without it a store that declared neither would be the one case
-        the writer had never run against.
-
-        Test scenario:
-            A cube whose band axis carries no `units` / `calendar` gets both written, and reads
-            them back.
-        """
-        planes = np.stack([np.full((NY, NX), value) for value in (1.0, 2.0)])
-        cube = NetCDF.from_array(
-            planes,
-            geo_ref=_geo_ref(),
-            variable_name="t",
-            dims=ExtraDimensions(name="time", values=[0.0, 1.0]),
-        )
-
-        written = cube._with_time_attrs("time", "days since 2001-01-01", "noleap")
-
-        pair = written.get_variable("t")._resolved_band_dim_time_attrs()["time"]
-        assert pair == ("days since 2001-01-01", "noleap")
 
 
 class TestAContainerOfSeveralVariables:

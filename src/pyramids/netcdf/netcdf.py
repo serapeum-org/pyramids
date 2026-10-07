@@ -25,7 +25,7 @@ import pandas as pd
 from osgeo import gdal, osr
 
 from pyramids import _io
-from pyramids.base._axes import AXIS_NAMES
+from pyramids.base._axes import AXIS_NAMES, X_AXIS_NAMES, Y_AXIS_NAMES
 from pyramids.base._file_manager import discard_path_handles
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
@@ -121,6 +121,9 @@ if TYPE_CHECKING:
     from cleopatra.styling.scaling import ColorScaling
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
+
+_SPATIAL_DIM_NAMES = {name.lower() for name in (*X_AXIS_NAMES, *Y_AXIS_NAMES)}
+"""Dimension names that are a horizontal axis rather than a band one."""
 
 # Guards the per-container `_lazy_managers` WeakSet against a concurrent lazy `read_array` (which adds)
 # and `close()` (which snapshots) on the same container from different threads.
@@ -10081,6 +10084,27 @@ class NetCDF(Dataset):
         carried = getattr(owner, "_band_dim_time_attrs", {}).get(var_name)
         return carried if carried is not None and is_cf_time_units(carried[0]) else None
 
+    def _resolvable_time_dim_names(self) -> tuple[str, ...]:
+        """The dimensions :meth:`_resolved_band_dim_time_attrs` looks for CF time units on.
+
+        A **variable** tracks its own non-spatial axes, so those are the ones to ask about. A
+        **container** tracks none — `_band_dim_names` is empty on one — so asking it the same
+        question used to answer `{}` however much the store declared, and a caller reading a
+        container's calendar had to reach through one of its variables to find it. Here a
+        container falls back to its own non-spatial dimensions, which is the same set its
+        variables span.
+
+        Returns:
+            tuple[str, ...]: The dimension names to resolve units for.
+        """
+        if self._band_dim_names:
+            return tuple(self._band_dim_names)
+        return tuple(
+            name
+            for name in (self.dimension_names or [])
+            if name.lower() not in _SPATIAL_DIM_NAMES
+        )
+
     def _resolved_band_dim_time_attrs(self) -> dict[str, tuple[str, str]]:
         """The nearest `(units, calendar)` of each band dimension that has one.
 
@@ -10114,7 +10138,7 @@ class NetCDF(Dataset):
               ```
         """
         resolved: dict[str, tuple[str, str]] = {}
-        for name in self._band_dim_names:
+        for name in self._resolvable_time_dim_names():
             nearest = next(iter(self._time_attr_candidates(name)), None)
             if nearest is not None:
                 resolved[name] = nearest
@@ -12123,37 +12147,6 @@ class NetCDF(Dataset):
             updated = [*kept, *[ref for ref in add if ref not in kept]]
             if updated != current:
                 NetCDF._write_coordinate_refs(array, updated)
-        return Container(dataset)
-
-    def _with_time_attrs(self, dim: str, units: str, calendar: str) -> NetCDF:
-        """Declare `(units, calendar)` on `dim`'s coordinate array, on a copy of the store.
-
-        The write side of the CF time attributes pyramids already reads. It has to reach the
-        **store**, not just the carried `_band_dim_time_attrs`: `_time_attr_candidates` ranks
-        what the store *declares* above what a derived object *carries*, so setting only the
-        carried pair leaves the old calendar winning and a conversion silently answering the
-        calendar it started from.
-
-        As :meth:`_write_coordinate_refs`, each attribute is **deleted before** it is created,
-        because `CreateAttribute` refuses a name the array already carries and
-        `write_attributes_to_md_array` logs and skips that refusal rather than raising — and a
-        time axis being converted always already declares both.
-
-        Args:
-            dim: The time dimension whose coordinate array to write on.
-            units: The CF time units to declare.
-            calendar: The CF calendar to declare.
-
-        Returns:
-            NetCDF: A new cube whose store declares the pair.
-        """
-        dataset, group = self._writable_root_group()
-        array = group.OpenMDArray(dim)
-        existing = {attr.GetName() for attr in array.GetAttributes()}
-        for name in ("units", "calendar"):
-            if name in existing:
-                array.DeleteAttribute(name)
-        write_attributes_to_md_array(array, {"units": units, "calendar": calendar})
         return Container(dataset)
 
     @staticmethod

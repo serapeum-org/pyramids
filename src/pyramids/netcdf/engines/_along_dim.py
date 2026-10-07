@@ -106,6 +106,13 @@ class _AlongDim(ABC):
     verb: ClassVar[str] = ""
     keeps_length: ClassVar[bool] = False
     change_noun: ClassVar[str] = "reduced"
+    # The CF `(units, calendar)` the result's dimensions declare, for an operation that changes
+    # what the stamps *mean* — a calendar conversion. `None` keeps the source's, which is right
+    # for every operation that only moves cells, so almost all of them leave this alone.
+    #
+    # It lives on the operation rather than in `_Applied` because `_Applied` is unpacked
+    # positionally in several places, so widening it is a breaking change at each one.
+    declares: dict[str, tuple[str, str]] | None = None
     # Set False by the lazy cube (#1237) so `apply` returns a dask array that stays deferred until
     # the cube's `compute()`. A plain class attribute, not a dataclass field: instances flip it in
     # place. The eager path (default True) materialises each op's result as before.
@@ -1714,46 +1721,76 @@ class _PolyFit(_AlongDim):
 
 @dataclass
 class _TakeSteps(_AlongDim):
-    """`convert_calendar`: keep some steps of a band dimension and restamp it.
+    """Keep some steps of a band dimension, optionally restamping or collapsing it.
 
-    The selection half of a calendar conversion. `isel` would express it on a variable but not
-    on a container, and going through an operation along the dimension gets the container's
-    auxiliary-variable handling for free: the axis keeps its length when every step survives, so
-    the auxiliaries are carried over, and loses it when a date had no counterpart in the target
-    calendar, so they are dropped with the usual warning.
+    Positional selection along one band dimension, which serves two callers:
+
+    - **`isel` on a container.** `_subset_along_dim` expresses the same cut on a *variable*, by
+      reading that variable's own band layout; a container has none of its own. Going through an
+      operation along the dimension reaches every variable that spans it, carries the ones that
+      do not, and gets the auxiliary-variable handling for free.
+    - **`convert_calendar`.** A conversion is the same cut — keep the dates the target calendar
+      has a day for — plus a restamp onto that calendar.
+
+    The axis keeps its length when every step survives, so a container's auxiliaries are carried
+    over, and loses it when some were dropped, so they go with the usual warning.
 
     Attributes:
         kept: The indices of the steps that survive, in order.
-        stamps: The surviving steps' coordinates in the target calendar, one per kept index.
+        stamps: The surviving steps' coordinates, one per kept index, for a caller that
+            *changes* them — a calendar conversion. `None`, the default, keeps the source's own
+            coordinates at those positions, which is what a positional cut means.
+        squeeze: Whether to collapse the dimension out of the layout instead of keeping it at
+            its new length. `isel(dim=<scalar>, drop=True)` is the caller; only valid when one
+            step was kept.
+        whole: Whether every step survived.
     """
 
     kept: tuple[int, ...]
-    stamps: tuple[float, ...]
+    stamps: tuple[float, ...] | None = None
+    squeeze: bool = False
     whole: bool = True
     caller: str = "convert_calendar"
     verb: ClassVar[str] = "convert"
 
     @property
     def keeps_length(self) -> bool:  # type: ignore[override]
-        """Whether every step survived, which is what decides the auxiliaries' fate."""
-        return self.whole
+        """Whether the axis comes out as it went in, which decides the auxiliaries' fate."""
+        return self.whole and not self.squeeze
 
     def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
-        """Keep `kept` of one variable's steps along `dim`, restamped.
+        """Keep `kept` of one variable's steps along `dim`.
 
         Args:
-            nc: The object `convert_calendar` was called on.
+            nc: The object the member was called on.
             var: The variable.
-            dim: The dimension being converted.
+            dim: The dimension being cut.
 
         Returns:
-            _Applied: The surviving steps, `dim` restamped onto the target calendar and the
-            values and no-data value untouched — a conversion restamps, it does not compute.
+            _Applied: The surviving steps. The values and the no-data value are untouched — a
+            positional cut selects, it does not compute — and the dimension carries either the
+            caller's `stamps` or the source's own coordinates at the kept positions. With
+            `squeeze` the dimension leaves the layout entirely.
         """
         arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
         axis = band_names.index(dim)
-        values = np.take(np.asarray(arr), np.asarray(self.kept, dtype=int), axis=axis)
-        values_map[dim] = [float(stamp) for stamp in self.stamps]
+        indices = np.asarray(self.kept, dtype=int)
+        values = np.take(np.asarray(arr), indices, axis=axis)
+        coords = values_map.get(dim)
+        if self.stamps is not None:
+            selected: Any = [float(stamp) for stamp in self.stamps]
+        elif coords is None:
+            # An unlabelled axis stays unlabelled: numbering it here would let `sel` match
+            # positions as if they were stamps.
+            selected = None
+        else:
+            selected = [coords[index] for index in self.kept]
+        if self.squeeze:
+            values = np.squeeze(values, axis=axis)
+            band_names = [name for name in band_names if name != dim]
+            values_map.pop(dim, None)
+        else:
+            values_map[dim] = selected
         return _Applied(values, band_names, values_map, ndv)
 
 
@@ -1804,7 +1841,7 @@ def _apply_to_variable(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
     """
     _assert_band_dimension(nc, dim, caller=op.caller)
     op.start()
-    return _variable_from_applied(nc, op.apply(nc, nc, dim))
+    return _variable_from_applied(nc, op.apply(nc, nc, dim), declares=op.declares)
 
 
 def _stamped(nc: NetCDF, geotransform: tuple) -> NetCDF:
@@ -1842,7 +1879,10 @@ def _stamped(nc: NetCDF, geotransform: tuple) -> NetCDF:
 
 
 def _variable_from_applied(
-    nc: NetCDF, applied: _Applied, geotransform: tuple | None = None
+    nc: NetCDF,
+    applied: _Applied,
+    geotransform: tuple | None = None,
+    declares: dict[str, tuple[str, str]] | None = None,
 ) -> NetCDF:
     """Rebuild a variable from what an operation made of it.
 
@@ -1851,6 +1891,10 @@ def _variable_from_applied(
         applied: The values and band layout the operation produced.
         geotransform: The result's geotransform; `nc`'s when `None`, which every operation
             along a band dimension keeps.
+        declares: CF `(units, calendar)` the operation declares for the result's dimensions,
+            overriding the source's. Needed because the rebuild declares the source's units on
+            the new store and `_time_attr_candidates` ranks a declared pair above a carried
+            one, so an operation that invalidated those units cannot correct them afterwards.
 
     Returns:
         NetCDF: The rebuilt variable, named after `nc` or `"variable"` when `nc` has no name of
@@ -1868,6 +1912,7 @@ def _variable_from_applied(
         band_names,
         values_map,
         source=nc,
+        time_attrs=declares,
     )
     grid = nc.geotransform if geotransform is None else geotransform
     _stamped(container, grid)
@@ -1956,6 +2001,15 @@ def _apply_to_container(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
         else:
             arr = nc._materialize_variable_array(var)
 
+        # What the source said, then what the operation says instead. An operation only
+        # declares units when it changed what the stamps *mean* (a calendar conversion); every
+        # other one leaves this `None` and the source's units travel unchanged.
+        carried = {
+            name: attrs
+            for name, attrs in var._resolved_band_dim_time_attrs().items()
+            if name in band_names
+        }
+        carried.update(op.declares or {})
         grid = var.geotransform if grid is None else grid
         result = nc._stack_reduced_variable(
             result,
@@ -1967,16 +2021,14 @@ def _apply_to_container(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
             band_names,
             values_map,
             source=var,
+            # Passed so the rebuilt *store* declares them: `_time_attr_candidates` ranks a
+            # declared pair above a carried one, so correcting only the carried dict below
+            # would leave the source's units winning on every read.
+            time_attrs=carried or None,
         )
         # The rebuilt container has no store to read time units from; carry the source
         # variables' so a variable taken from it still decodes its stamps.
-        time_attrs.update(
-            {
-                name: attrs
-                for name, attrs in var._resolved_band_dim_time_attrs().items()
-                if name in band_names
-            }
-        )
+        time_attrs.update(carried)
 
     if not found:
         raise ValueError(

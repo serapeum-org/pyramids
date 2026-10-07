@@ -779,12 +779,17 @@ class Selection(_Engine["NetCDF"]):
                 no meaningful stride.
 
         Returns:
-            NetCDF: A variable holding the selected bands, with `_band_dim_sizes` and the
+            NetCDF: A container for a container and a variable for a variable. On a container
+            every variable spanning the named dimension is cut and the rest are carried over,
+            as with every other member that runs along a dimension; on a variable, one holding
+            the selected bands, with `_band_dim_sizes` and the
             coordinate map narrowed to match. A dimension with no coordinates keeps none.
             With `drop=True`, the axes a scalar selector collapsed are removed.
 
         Raises:
-            ValueError: No indexers were given, the variable tracks no band dimensions, a
+            ValueError: No indexers were given, a name is not a band dimension of the
+                receiver (or is a spatial axis of a container), the variable tracks no band
+                dimensions, a
                 named dimension is not one of them, or a selector keeps no position — an
                 empty `list` or `tuple` as much as a `slice` whose bounds cross.
             IndexError: An index is outside the dimension's range.
@@ -863,6 +868,12 @@ class Selection(_Engine["NetCDF"]):
               ```
 
         Notes:
+            On a **container** the cut goes through the shared along-dimension route, so a
+            variable that does not span the named dimension is carried over untouched and an
+            auxiliary variable spanning it follows the usual rule — carried when the length is
+            unchanged, dropped with a warning when it is not. `sel` and `squeeze` remain
+            variable-only; take a variable with `get_variable` for those.
+
             Where this parts company with xarray's `isel`, which indexes fancily:
 
             - A **list** is sorted and deduplicated before it is applied, so a list can
@@ -896,6 +907,8 @@ class Selection(_Engine["NetCDF"]):
             raise ValueError(
                 "isel() requires at least one keyword argument, e.g. isel(time=0)."
             )
+        if not _reduces_as_a_variable(nc):
+            return _container_isel(nc, indexers, drop=drop)
 
         # Resolve every keyword before cutting anything. Validating inside the loop meant a
         # typo in the second keyword raised only after the first cut had been read from
@@ -6580,17 +6593,6 @@ def _cf_time_units(nc: NetCDF, dim: str, *, caller: str) -> tuple[str, str]:
         ValueError: `dim` declares no CF time `units`, so its offsets cannot be decoded.
     """
     attrs = nc._resolved_band_dim_time_attrs() or {}
-    if dim not in attrs and not _reduces_as_a_variable(nc):
-        # A container resolves no band-dimension time attributes of its own: the pair lives on
-        # the store's coordinate array and surfaces on each variable that spans it. Every
-        # variable on one store shares that dimension, so the first one that reports it answers
-        # for the container.
-        for name in nc.variable_names:
-            variable = cast("NetCDF", nc.get_variable(name))
-            carried = variable._resolved_band_dim_time_attrs() or {}
-            if dim in carried:
-                attrs = carried
-                break
     pair = attrs.get(dim)
     units = (pair[0] if pair else "") or ""
     if not units:
@@ -6706,42 +6708,59 @@ def _carried_to_calendar(
     return carried, kept
 
 
-def _declared_time_attrs_on(nc: NetCDF, dim: str, units: str, calendar: str) -> NetCDF:
-    """`nc` declaring `(units, calendar)` on `dim`, wherever this receiver is read from.
+def _container_isel(nc: NetCDF, indexers: dict[str, Any], *, drop: bool) -> NetCDF:
+    """`isel` on a container: cut every variable that spans each named dimension.
 
-    Both carriers are set because `_time_attr_candidates` ranks what the **store declares**
-    above what a derived object **carries**: setting only the carried pair would leave the
-    calendar the cube started from winning, and a conversion silently answering it.
+    A container tracks no band layout of its own, so the variable route
+    (`_subset_along_dim`, which reads `_band_dim_names` / `_band_dim_sizes`) has nothing to
+    read. This takes the sizes from the **store's** dimensions instead and applies the cut
+    through `_apply_to_container`, which is the route every container-capable member along a
+    dimension already uses — so a variable that does not span the dimension is carried over,
+    and the auxiliaries follow the usual keep-or-drop rule.
+
+    Every keyword is resolved before anything is cut, as on the variable route, so a typo in
+    the second keyword does not leave the first cut applied.
 
     Args:
-        nc: The converted container or variable.
-        dim: The time dimension.
-        units: The CF time units to declare.
-        calendar: The CF calendar to declare.
+        nc: The container.
+        indexers: The `dim=selector` pairs, exactly as `isel` accepts them.
+        drop: Whether a scalar selector collapses its dimension out of the layout.
 
     Returns:
-        NetCDF: The cube declaring the pair.
+        NetCDF: A container holding the selected steps.
+
+    Raises:
+        ValueError: A name is not a dimension of the container, is a spatial axis, or its
+            selector does not resolve to a position along it.
     """
-    # `dim` was validated by the caller before anything was read, so it is a dimension of
-    # whichever shape arrives here; the receiver shape is the only thing left to branch on.
-    # Nothing is skipped silently: a missing parent raises rather than quietly leaving the
-    # source calendar in place, which is the failure this function exists to prevent.
-    if _reduces_as_a_variable(nc):
-        # A rebuilt variable's parent store declares the *source* units, copied there by the
-        # shared rebuild path, and a declared pair outranks a carried one — so the rewrite has
-        # to happen on that parent, and the variable be taken from it again.
-        parent = cast("NetCDF", nc._parent_nc)
-        rewritten = parent._with_time_attrs(dim, units, calendar)
-        # `_variable_from_applied` names an unnamed variable "variable"; match it, so the
-        # re-take asks for the name the rebuild actually used.
-        name = nc._source_var_name or "variable"
-        result = cast("NetCDF", rewritten.get_variable(name))
-    else:
-        result = nc._with_time_attrs(dim, units, calendar)
-    result._band_dim_time_attrs = {
-        **(result._resolved_band_dim_time_attrs() or {}),
-        dim: (units, calendar),
-    }
+    sizes = dict(nc.dimension_sizes or {})
+    resolved: list[tuple[str, list[int], bool]] = []
+    for dim_name, selector in indexers.items():
+        if dim_name not in sizes:
+            raise ValueError(
+                f"isel() got {dim_name!r}, which is not a dimension of this container; its "
+                f"dimensions are {sorted(sizes)}."
+            )
+        if dim_name.lower() in _SPATIAL_AXIS_NAMES:
+            raise ValueError(
+                f"isel() selects along band (non-spatial) dimensions; {dim_name!r} is a "
+                "spatial axis. Use crop() or a windowed read for the horizontal plane."
+            )
+        indices = _resolve_positional_indices(selector, sizes[dim_name], dim_name)
+        # A scalar selector is dimension-reducing, as it is on the variable route and in
+        # xarray; a list / tuple / slice is not, even when it keeps a single step.
+        scalar = not isinstance(selector, (slice, list, tuple))
+        resolved.append((dim_name, indices, scalar))
+
+    result = nc
+    for dim_name, indices, scalar in resolved:
+        op = _TakeSteps(
+            kept=tuple(indices),
+            squeeze=bool(drop and scalar),
+            whole=len(indices) == sizes[dim_name],
+            caller="isel",
+        )
+        result = _apply_to_container(result, dim_name, op)
     return result
 
 
@@ -6788,11 +6807,15 @@ def _run_convert_calendar(
         stamps=tuple(offsets),
         whole=len(kept) == len(instants),
     )
+    # `_AlongDim` is not a dataclass, so `declares` is a class attribute instances set in
+    # place rather than a constructor argument — the same way the lazy cube flips
+    # `materialize`.
+    op.declares = {dim: (units, calendar)}
     if _reduces_as_a_variable(nc):
-        converted = _apply_to_variable(nc, dim, op)
+        result = _apply_to_variable(nc, dim, op)
     else:
-        converted = _apply_to_container(nc, dim, op)
-    return _declared_time_attrs_on(converted, dim, units, calendar)
+        result = _apply_to_container(nc, dim, op)
+    return result
 
 
 def _run_interp_calendar(nc: NetCDF, target: NetCDF, *, dim: str) -> NetCDF:
@@ -6826,24 +6849,25 @@ def _run_interp_calendar(nc: NetCDF, target: NetCDF, *, dim: str) -> NetCDF:
             f"{caller}() needs at least 2 steps along {dim!r} to interpolate between, but it "
             f"has {source_scale.size}."
         )
-    on_scale = nc.assign_coords({dim: [float(value) for value in source_scale]})
-    # `interp()` takes `method` first and `**coords` after, so a dimension named at runtime
-    # cannot go through it; this is the runner that member dispatches to.
-    interpolated = _run_interp(
-        on_scale,
-        dim,
-        [float(value) for value in target_scale],
-        _resolve_interp_kind("linear"),
-        caller=caller,
-    )
     offsets = [
         float(value)
         for value in cftime.date2num(
             list(target_instants), target_units, target_calendar
         )
     ]
-    restamped = interpolated.assign_coords({dim: offsets})
-    return _declared_time_attrs_on(restamped, dim, target_units, target_calendar)
+    # Interpolate on the common scale, then let the operation declare the target's units for
+    # the axis it restamps — one rebuild, and the stamps and the calendar they are counted on
+    # are set together rather than one after the other.
+    on_scale = nc.assign_coords({dim: [float(value) for value in source_scale]})
+    interpolated = _run_interp(
+        on_scale,
+        dim,
+        [float(value) for value in target_scale],
+        _resolve_interp_kind("linear"),
+        caller=caller,
+        declares={dim: (target_units, target_calendar)},
+    )
+    return interpolated.assign_coords({dim: offsets})
 
 
 def _run_numerical(
@@ -6965,7 +6989,12 @@ class CumulativeAccessor:
 
 
 def _run_interp(
-    nc: NetCDF, dim: str, target: Any, kind: str, caller: str = "interp"
+    nc: NetCDF,
+    dim: str,
+    target: Any,
+    kind: str,
+    caller: str = "interp",
+    declares: dict[str, tuple[str, str]] | None = None,
 ) -> NetCDF:
     """Interpolate one band dimension of `nc` onto `target`, container or variable.
 
@@ -6976,6 +7005,9 @@ def _run_interp(
         kind: The resolved `interp1d` kind.
         caller: The member the user called (`"interp"` / `"interp_like"`), threaded into every
             refusal and the dropped-auxiliary warning so they name the real entry point.
+        declares: CF `(units, calendar)` for the result's dimensions, for a caller that changes
+            what the stamps mean — `interp_calendar` taking the target's calendar. `None` for
+            `interp` / `interp_like`, which only move the stamps within one calendar.
 
     Returns:
         NetCDF: The interpolated container or variable.
@@ -6990,6 +7022,7 @@ def _run_interp(
         )
     targets = _interp_targets(target, dim, caller=caller)
     op = _InterpTo(target=targets, kind=kind, caller=caller)
+    op.declares = declares
     if _reduces_as_a_variable(nc):
         return _apply_to_variable(nc, dim, op)
     return _apply_to_container(nc, dim, op)

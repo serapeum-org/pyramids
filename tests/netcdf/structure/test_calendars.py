@@ -518,3 +518,117 @@ class TestThePairDividesTheWork:
 
         assert _series(cube.convert_calendar("noleap")) == [0.0, 10.0, 20.0]
         assert _series(cube.interp_calendar(onto)) != [0.0, 10.0, 20.0]
+
+
+class TestContainerIsel:
+    """`isel` on a container, the gap `convert_calendar` ran into first.
+
+    `_subset_along_dim` expresses a positional cut on a *variable*, by reading that variable's
+    own band layout, and a container has none — so a container used to be refused with a message
+    that read as though it were a malformed variable. It now goes through the same
+    along-dimension route as every other container-capable member.
+    """
+
+    def _pair(self) -> NetCDF:
+        """A container of two variables on one 3-step axis, plus one without it.
+
+        Returns:
+            NetCDF: The container.
+        """
+        cube = _cube([0.0, 1.0, 2.0], "standard", values=[1.0, 2.0, 3.0])
+        donor = _cube([0.0, 1.0, 2.0], "standard", values=[10.0, 20.0, 30.0], name="u")
+        cube.set_variable("u", donor.get_variable("u"))
+        return cube
+
+    def test_a_list_selects_those_steps_from_every_variable(self):
+        """The cut reaches each variable that spans the dimension.
+
+        Test scenario:
+            Selecting steps 0 and 2 leaves both variables two steps long, holding their own
+            first and last values.
+        """
+        container = self._pair()
+
+        cut = container.isel(time=[0, 2])
+
+        assert _series(cut, "t") == [1.0, 3.0]
+        assert _series(cut, "u") == [10.0, 30.0]
+
+    def test_the_surviving_stamps_come_from_the_source(self):
+        """A positional cut keeps the coordinates it selected, it does not renumber them.
+
+        Test scenario:
+            Steps 0 and 2 of `[0, 1, 2]` come back stamped `[0, 2]`.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard")
+
+        assert _stamps(container.isel(time=[0, 2])) == [0.0, 2.0]
+
+    def test_a_scalar_keeps_the_axis_and_drop_collapses_it(self):
+        """`drop=` matches the variable route and xarray: only a scalar is a candidate.
+
+        Test scenario:
+            `time=1` leaves a length-one axis; the same call with `drop=True` removes it.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard")
+
+        assert container.isel(time=1).get_variable("t")._band_dim_sizes == (1,)
+        assert container.isel(time=1, drop=True).get_variable("t")._band_dim_names == ()
+
+    def test_a_slice_selects_a_range(self):
+        """The third selector form, for completeness.
+
+        Test scenario:
+            `slice(1, None)` keeps the last two steps.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard", values=[1.0, 2.0, 3.0])
+
+        assert _series(container.isel(time=slice(1, None))) == [2.0, 3.0]
+
+    def test_the_calendar_survives_the_cut(self):
+        """A positional cut changes no stamp's meaning.
+
+        Test scenario:
+            A `360_day` container cut by `isel` is still `360_day`.
+        """
+        container = _cube([0.0, 1.0, 2.0], "360_day")
+
+        assert _calendar_of(container.isel(time=[0, 1])) == "360_day"
+
+    def test_an_unknown_dimension_names_the_containers_own_dimensions(self):
+        """The refusal has to be actionable, which the old one was not.
+
+        Test scenario:
+            A name that is not a dimension is refused, and the message lists the ones that are
+            rather than claiming the receiver tracks no band dimensions.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard")
+
+        with pytest.raises(ValueError, match="not a dimension of this container"):
+            container.isel(nope=0)
+
+    def test_a_spatial_axis_is_refused(self):
+        """The horizontal plane is pinned by the geotransform.
+
+        Test scenario:
+            `isel(y=0)` is refused and points at the operations that do cut the grid.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard")
+
+        with pytest.raises(ValueError, match="spatial axis"):
+            container.isel(y=0)
+
+    def test_a_variable_receiver_is_unchanged(self):
+        """The variable route must keep behaving exactly as it did.
+
+        Test scenario:
+            The same cut on a variable answers a variable with the same values.
+        """
+        variable = _cube(
+            [0.0, 1.0, 2.0], "standard", values=[1.0, 2.0, 3.0]
+        ).get_variable("t")
+
+        cut = variable.isel(time=[0, 2])
+
+        assert cut.variable_names == []
+        assert _series(cut) == [1.0, 3.0]
