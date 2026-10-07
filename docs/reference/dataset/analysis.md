@@ -74,6 +74,7 @@ canopy = surface - bare
 | Result dtype?                            | Whatever `func` returns; `int / int` gives floats, not a truncation |
 | Integer overflow?                        | Wraps, as numpy does — see the warning below                        |
 | Band count?                              | All bands by default; `band=` picks one from each operand           |
+| Band counts differ?                      | A single band broadcasts across the other; any other pair raises    |
 
 !!! warning "Integer arithmetic wraps"
 
@@ -259,8 +260,9 @@ the operators to build masks, never to order rasters.
 `pyramids calc "(A - B) / (A + B)" a.tif b.tif out.tif` is the same operation for N
 rasters from a shell. It shares the grid rule — the inputs must already share a grid
 — but not the domain semantics: `calc` evaluates over the raw arrays, so no-data
-cells take part in the arithmetic, and it broadcasts mismatched band counts instead
-of refusing them.
+cells take part in the arithmetic, and it broadcasts the bound names against each
+other with numpy's full rules — the spatial axes included — where `combine` stretches
+a single **band** only and leaves the grid alone.
 
 ### Memory
 
@@ -298,8 +300,11 @@ dem.equals(dem.copy())                       # True — a method, not `==`
 
 `where`'s condition may be a boolean array, another raster on the same grid (which is what a comparison
 such as `dem > 500` produces), or a callable handed the physical values. A condition cell that is itself
-no-data reads as **false**, which is xarray's answer too. `drop=True` trims by the *condition*, so `other`
-does not save a row and a cell that was already missing is kept if the condition selected it.
+no-data reads as **false**, which is xarray's answer too. A **one-band condition covers every band** of the
+raster, but a condition carrying *more* bands than the raster is refused rather than broadcast the other
+way: `where` answers in the receiver's shape, so there is nowhere to put the extra planes. `drop=True`
+trims by the *condition*, so `other` does not save a row and a cell that was already missing is kept if
+the condition selected it.
 
 `equals` and `identical` read the values and the grid, not the declared sentinel or the band type: two
 rasters marking the same gaps with `-9999.0` and `-1.0` are identical, as are a `float64` raster and its

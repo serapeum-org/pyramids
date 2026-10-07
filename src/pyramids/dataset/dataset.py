@@ -2441,7 +2441,8 @@ class Dataset(RasterBase):
             AlignmentError: `other` is a raster that does not share this one's
                 grid and CRS. :meth:`combine` refuses rather than resampling;
                 :meth:`align` is the explicit step.
-            ValueError: `other` is a raster with a different band count, or the
+            ValueError: `other` is a raster whose band count neither agrees with
+                this one's nor broadcasts against it (a single band does), or the
                 values `op` produced have a dtype GDAL has no band type for —
                 both raised by :meth:`combine`.
 

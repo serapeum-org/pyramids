@@ -9403,6 +9403,26 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.expand_dims <pyramids.netcdf.engines.selection.Selection.expand_dims>`."""
         return self.selection.expand_dims(dim, value)
 
+    def set_coords(self, names: str | Sequence[str]) -> NetCDF:
+        """Facade — :meth:`Selection.set_coords <pyramids.netcdf.engines.selection.Selection.set_coords>`."""
+        return self.selection.set_coords(names)
+
+    def reset_coords(self, names: str | Sequence[str] | None = None) -> NetCDF:
+        """Facade — :meth:`Selection.reset_coords
+        <pyramids.netcdf.engines.selection.Selection.reset_coords>`.
+        """
+        return self.selection.reset_coords(names)
+
+    def broadcast_like(self, other: Any) -> NetCDF:
+        """Facade — :meth:`Selection.broadcast_like <pyramids.netcdf.engines.selection.Selection.broadcast_like>`."""
+        return self.selection.broadcast_like(other)
+
+    def broadcast_equals(self, other: Any) -> bool:
+        """Facade — :meth:`Selection.broadcast_equals
+        <pyramids.netcdf.engines.selection.Selection.broadcast_equals>`.
+        """
+        return self.selection.broadcast_equals(other)
+
     def rename_dims(
         self, dims: Mapping[str, str] | None = None, **dims_kwargs: str
     ) -> NetCDF:
@@ -12023,6 +12043,79 @@ class NetCDF(Dataset):
             cube._scale = None
             cube._offset = None
 
+    def _with_coordinate_refs(
+        self,
+        receivers: Sequence[str],
+        *,
+        add: tuple[str, ...] = (),
+        remove: tuple[str, ...] = (),
+    ) -> NetCDF:
+        """Rewrite the CF `coordinates` attribute of `receivers`, on a copy of the store.
+
+        The write side of the auxiliary-coordinate role pyramids already reads: CF says a
+        variable is a coordinate of another by naming it in that other's `coordinates`
+        attribute, `cf.classify_variables` parses exactly that, and `variable_names`
+        filters itself by the roles it reports. So moving a name in or out of this
+        attribute is what promotes or demotes it — nothing else has to be taught the
+        partition.
+
+        Non-mutating, like the rest of the structural members: `_writable_root_group`
+        hands back an independent in-memory copy of the store, the attributes are rewritten
+        on that, and the copy is wrapped as a new cube. The receiver this was called on is
+        untouched.
+
+        The root container is the only receiver that reaches here: both callers run
+        `_assert_coordinate_partition` first, which refuses a `get_group` view because a CF
+        reference is a relative name while a sub-group's arrays classify under
+        group-qualified ones. So there is no view to re-derive on the way out.
+
+        Each receiver keeps the references it already had: a name is appended only when it
+        is not already there (so a repeated promotion is idempotent) and removed only when
+        it is, and the attribute is deleted outright rather than left as an empty string
+        when nothing is left to reference.
+
+        Args:
+            receivers: The data variables whose `coordinates` attribute to rewrite.
+            add: Names to reference.
+            remove: Names to stop referencing.
+
+        Returns:
+            NetCDF: A new cube whose store carries the rewritten references.
+        """
+        dataset, group = self._writable_root_group()
+        for name in receivers:
+            array = group.OpenMDArray(name)
+            current = str(_read_attributes(array).get("coordinates") or "").split()
+            kept = [ref for ref in current if ref not in remove]
+            updated = [*kept, *[ref for ref in add if ref not in kept]]
+            if updated != current:
+                NetCDF._write_coordinate_refs(array, updated)
+        return Container(dataset)
+
+    @staticmethod
+    def _write_coordinate_refs(array: gdal.MDArray, refs: list[str]) -> None:
+        """Put `refs` in `array`'s CF `coordinates` attribute, or take the attribute away.
+
+        The existing attribute is **deleted before** the new one is created. `CreateAttribute`
+        refuses a name the array already carries, and `write_attributes_to_md_array` logs and
+        skips a refusal rather than raising — so writing over an existing `coordinates` was a
+        silent no-op on the MEM driver (the netCDF driver happens to allow it). That broke
+        exactly the cases where the attribute is edited rather than created: demoting one of
+        several coordinates, and promoting a second one.
+
+        An empty reference list is written as *no attribute* rather than as an empty string:
+        `coordinates = ""` would still declare the attribute, and a store that has nothing to
+        say about coordinates should not say it.
+
+        Args:
+            array: The data variable to write on.
+            refs: The coordinate variable names it should reference.
+        """
+        if "coordinates" in {attr.GetName() for attr in array.GetAttributes()}:
+            array.DeleteAttribute("coordinates")
+        if refs:
+            write_attributes_to_md_array(array, {"coordinates": " ".join(refs)})
+
     def _writable_root_group(self) -> tuple[gdal.Dataset, gdal.Group]:
         """Return a ``(dataset, working_group)`` pair that is safe to mutate.
 
@@ -12169,6 +12262,34 @@ class NetCDF(Dataset):
         as every other case does. A coordinate-less dimension on either side is not compared.
         The check runs only when `band` is `None` and the two grids and band counts agree.
 
+        A **broadcast** pair is the exception to all of the above: when one operand carries a
+        single band it applies to every band of the other, so the layouts are not compared at
+        all. The multi-band operand owns the result's dimensions, names, sizes and coordinates,
+        whichever side it is on, and the one-band operand lends nothing — its single stamp
+        cannot describe the result's planes. `cube * mask` and `mask * cube` therefore come
+        back with the same layout.
+
+        Two consequences of that rule are worth stating, because both used to be a
+        band-count `ValueError` and now succeed:
+
+        - A band dimension only the **one-band** operand has is **dropped**:
+          `cube(time=3) * level_slice(level=1)` comes back tracking `time` alone. The
+          result's three planes are the cube's three steps; the single `level` plane was
+          applied to each of them and is not an axis of the answer.
+        - When the multi-band operand is a plain raster — or a classic-mode container — it
+          has no band dimensions to lend, so the result tracks **none**, even if the
+          one-band operand had some. `mask(time=1) * scene(3 bands)` is three bands with no
+          band dimensions, so `isel`, `sel`, `coords` and `to_xarray` do not apply to it,
+          `concat` refuses it, and `broadcast_like` refuses it too. The alternative would be
+          to keep `time` at length three, which would claim three time steps where the
+          operands held one; an unlabelled result is the honest answer.
+
+          Such a result **cannot be labelled afterwards** — `expand_dims` only adds a
+          length-one axis and `assign_coords` needs an existing dimension — so broadcast
+          the operands before combining them if the layout matters. And note what `to_file`
+          does with it: it succeeds, writing **one variable per plane** (`Band1`, `Band2`,
+          …), so a three-step cube reopens as three unrelated single-plane variables.
+
         Args:
             other: The second operand, on this variable's grid.
             func: Binary callable applied to the operands' matching cells.
@@ -12189,7 +12310,8 @@ class NetCDF(Dataset):
             ValueError: `band` is `None`, both operands carry band dimensions, their grids
                 and band counts agree, and their dimension names or sizes differ. Differing
                 coordinate values are not refused. Operands whose band counts differ skip the
-                check and are refused by `Dataset.combine` with its own message.
+                check — a single band against *n* broadcasts, and any other pair is refused by
+                `Dataset.combine` with its own message.
             AlignmentError: The operands do not share a grid, raised by `Dataset.combine`.
                 A grid mismatch is reported as this whether or not the band layouts also
                 disagree, since the layouts are only compared on a shared grid.
@@ -12312,6 +12434,9 @@ class NetCDF(Dataset):
                 and other is not self
                 and isinstance(other, NetCDF)
                 and bool(other._band_dim_names)
+                # A broadcast partner holds one plane; its single stamp cannot label the
+                # result's n, so a broadcast result takes its labels from its owner alone.
+                and other.band_count == self.band_count
             )
             layout = (layout_source, disagreeing, other if paired else None)
         return layout
@@ -12405,10 +12530,12 @@ class NetCDF(Dataset):
                 band dimensions.
 
         Returns:
-            tuple[NetCDF | None, list[str]]: This variable when it carries band dimensions, else
-            `other` when it is a `NetCDF` that does, else `None`; and the dimensions whose
+            tuple[NetCDF | None, list[str]]: The operand whose dimensions describe the result
+            (`_band_layout_owner` — this variable when the counts agree and it has them, the
+            multi-band operand when they broadcast, else `None`); and the dimensions whose
             coordinate values the two operands disagree on (empty unless both carry band
-            dimensions on a shared grid with the same band count).
+            dimensions on a shared grid with the same band count, so a broadcast pair
+            reports none).
 
         Raises:
             ValueError: Both operands carry band dimensions, share a grid and a band count,
@@ -12433,7 +12560,45 @@ class NetCDF(Dataset):
                     f"before combining them."
                 )
             disagreeing = NetCDF._disagreeing_coordinates(self, other)
-        return (mine if mine is not None else theirs), disagreeing
+        return self._band_layout_owner(other, mine, theirs), disagreeing
+
+    def _band_layout_owner(
+        self, other: Any, mine: NetCDF | None, theirs: NetCDF | None
+    ) -> NetCDF | None:
+        """Which operand's band dimensions describe the combined result.
+
+        With band counts that agree, this variable's layout wins when it has one, so the
+        result keeps the left operand's dimensions and `other` only fills labels they lack.
+        A **broadcast** pair is different: one operand holds a single plane, and a single
+        plane's name, size and stamp cannot describe the *n* planes the result carries. So
+        the operand that owns those planes owns the layout, whichever side it is on, and a
+        one-band mask never relabels the scene it is applied to.
+
+        Args:
+            other: The right operand, or `None` for a fold (no second layout).
+            mine: This variable when it carries band dimensions, else `None`.
+            theirs: `other` when it is a `NetCDF` carrying band dimensions, else `None`.
+
+        Returns:
+            NetCDF | None: The operand describing the result, or `None` when neither does
+            — including a broadcast whose multi-band side is a plain raster, which has no
+            band dimensions to lend.
+        """
+        # Bare inequality, deliberately. `_check_combinable` is the one member that
+        # reports a band-count mismatch, and `_band_layout_source` is documented to *skip*
+        # its comparison for such a pair so that message is the one the caller sees —
+        # a test pins that ordering. Conjoining `_broadcastable_bands` here reads as a
+        # safety net but is not one: a 2-vs-3 pair that somehow arrived without the gate
+        # would merely fall into the counts-agree branch instead. Raising here was worse
+        # still, because it took the mismatch report away from `_check_combinable`.
+        broadcast = isinstance(other, Dataset) and other.band_count != self.band_count
+        if not broadcast:
+            owner = mine if mine is not None else theirs
+        elif self.band_count > other.band_count:
+            owner = mine
+        else:
+            owner = theirs
+        return owner
 
     @staticmethod
     def _band_layout_difference(left: NetCDF, right: NetCDF) -> str | None:

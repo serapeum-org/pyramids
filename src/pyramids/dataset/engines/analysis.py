@@ -1436,6 +1436,13 @@ class Analysis(_Engine["Dataset"]):
         the `Dataset` and the georeferencing cannot be rebuilt wrongly on the
         way out.
 
+        Only the **band** axis broadcasts: when one operand carries a single band it
+        applies to every band of the other, which is how a land mask, a per-cell
+        climatology or a DEM-derived factor reaches a whole stack. The result's bands,
+        band names and (on a `NetCDF`) band dimensions are the multi-band operand's,
+        whichever side it is on, and the single band is read once and stretched as a
+        view rather than tiled. The *spatial* axes never broadcast.
+
         The operands must already share a grid. `combine` does **not** resample:
         :meth:`Dataset.align <pyramids.dataset.Dataset.align>` is the explicit
         step for that, and applying it implicitly here would silently resample
@@ -1480,9 +1487,11 @@ class Analysis(_Engine["Dataset"]):
                 of the same length.
             band (int, optional):
                 Zero-based band to combine, producing a single-band result. The
-                default `None` combines every band, which then requires both
-                rasters to carry the same band count. Note this differs from
-                :meth:`apply`, which defaults to band `0`.
+                default `None` combines every band, which then requires the two
+                band counts to agree or one of them to be a single band — that
+                one broadcasts across the other's, so a one-band mask or
+                climatology applies to every band of a stack. Note this differs
+                from :meth:`apply`, which defaults to band `0`.
             no_data_value (Any, optional):
                 Sentinel for the result, one value across every band. Left
                 unset it is derived from the result's dtype, and for an integer
@@ -1517,7 +1526,8 @@ class Analysis(_Engine["Dataset"]):
         Raises:
             TypeError: `other` is not a Dataset, or `func` is not callable.
             AlignmentError: The two rasters do not share a grid/CRS.
-            ValueError: `band` is `None` and the band counts differ; `band` is
+            ValueError: `band` is `None` and the band counts neither agree nor
+                broadcast — neither of them being a single band; `band` is
                 out of range for either operand (raised by the read, which names
                 the band but not which side); an explicit `no_data_value=` does
                 not fit the result dtype, or no sentinel is free to mark what
@@ -1819,6 +1829,10 @@ class Analysis(_Engine["Dataset"]):
         else:
             domain = left_domain & right_domain
 
+        # After the domain, so each operand's mask is taken against its own bands'
+        # sentinels, and before `func`, so everything downstream -- the expected cell
+        # count, the result's shape, its band count -- reads the broadcast shape.
+        left, right = self._broadcast_band_axis(left, right)
         values, boolean = self._computed_values(func, left, right, domain)
         sentinel = (
             self._resolve_combined_no_data(
@@ -1860,13 +1874,76 @@ class Analysis(_Engine["Dataset"]):
         # Band identity is half the reason to keep the operation inside the
         # Dataset: an NDVI or change-detection stack whose bands come back as
         # `Band_1`, `Band_2` has lost what told the caller which is which.
-        combined.band_names = (
-            [self._ds.band_names[band]]
-            if band is not None
-            else list(self._ds.band_names)
+        combined.band_names = self._combined_band_names(
+            other, band, combined.band_count
         )
         self._ds._label_combined(combined, layout_source)
         return combined
+
+    @staticmethod
+    def _broadcast_band_axis(
+        left: np.typing.NDArray, right: np.typing.NDArray
+    ) -> tuple[np.typing.NDArray, np.typing.NDArray]:
+        """Stretch a single-band operand across the other's bands, without copying it.
+
+        `_operand_arrays` reads one band as a 2-D array and several as
+        `(bands, rows, cols)`, so a one-band operand against an *n*-band one arrives
+        with one axis fewer and NumPy's own rule lines them up. The stretch is a
+        `np.broadcast_to` view, so the band is **read** once — one `read_array` instead
+        of *n*, which is the saving on offer here.
+
+        It is not a peak-memory saving, and this docstring used to claim one. The very
+        next step, `_computed_values`, does `left[domain]` (or `left.ravel()` when masking
+        is off) on the view, and neither can work in place on a `np.broadcast_to` result —
+        both materialise a full *n*-band copy. The I/O is saved; the memory is not.
+
+        Only the band axis can differ by the time this runs -- `_check_combinable` has
+        refused any other band-count pair and `Spatial.same_grid` has matched the rows
+        and columns exactly -- so the broadcast cannot silently stretch a spatial axis.
+
+        Only the operand that needs stretching is wrapped. An operand already on the
+        common shape is handed back as the same object, which keeps the `right is left`
+        identity a folded call relies on to select its cells once, and keeps a writeable
+        array writeable rather than swapping in a read-only broadcast view for nothing.
+
+        Args:
+            left: The left operand's physical array.
+            right: The right operand's physical array.
+
+        Returns:
+            tuple: The two arrays on their common shape.
+        """
+        shape = np.broadcast_shapes(left.shape, right.shape)
+        pair = (
+            left if left.shape == shape else np.broadcast_to(left, shape),
+            right if right.shape == shape else np.broadcast_to(right, shape),
+        )
+        return pair
+
+    def _combined_band_names(
+        self, other: Dataset, band: int | None, count: int
+    ) -> list[str]:
+        """The band names for a combined result, from whichever operand owns its bands.
+
+        Band identity should not depend on the order the operands were written in: when a
+        one-band mask broadcasts across a 12-band scene, the result's bands are the
+        scene's and so are their names, whether the scene was on the left or the right.
+
+        Args:
+            other: The second operand.
+            band: The single band combined, or `None` for every band.
+            count: The result's band count.
+
+        Returns:
+            list[str]: One name per band of the result.
+        """
+        if band is not None:
+            names = [self._ds.band_names[band]]
+        elif len(self._ds.band_names) == count:
+            names = list(self._ds.band_names)
+        else:
+            names = list(other.band_names)
+        return names
 
     def _check_combinable(self, other: Dataset, func: Any, band: int | None) -> None:
         """Refuse a pair :meth:`combine` cannot run, before reading any pixels.
@@ -1879,7 +1956,8 @@ class Analysis(_Engine["Dataset"]):
         Raises:
             TypeError: `func` is not callable.
             AlignmentError: The rasters do not share a grid/CRS.
-            ValueError: `band` is `None` and the band counts differ.
+            ValueError: `band` is `None` and the band counts neither agree nor
+                broadcast (one of them being a single band).
         """
         if not callable(func):
             raise TypeError(f"`func` must be callable, got {type(func).__name__}")
@@ -1890,16 +1968,39 @@ class Analysis(_Engine["Dataset"]):
                 "(`other = other.align(self)`) and combine the result"
             )
         # Before either read: the message is already written in terms of
-        # `band_count`, which is a header field, and combining a 12-band scene
-        # with a 1-band mask should not pull gigabytes off disk to refuse on a
+        # `band_count`, which is a header field, so a 9-band scene against a
+        # 12-band one refuses without pulling gigabytes off disk for a
         # comparison that needed no pixels. `cli.py` orders its own grid check
-        # the same way.
-        if band is None and self._ds.band_count != other.band_count:
+        # the same way. A single band is not a mismatch -- it broadcasts across
+        # the other operand's bands.
+        if band is None and not Analysis._broadcastable_bands(
+            self._ds.band_count, other.band_count
+        ):
             raise ValueError(
                 f"the operands carry a different number of bands "
-                f"({self._ds.band_count} and {other.band_count}); pass `band=` to "
+                f"({self._ds.band_count} and {other.band_count}); only a single band "
+                "broadcasts across the other operand's bands, so pass `band=` to "
                 "combine one band from each"
             )
+
+    @staticmethod
+    def _broadcastable_bands(left: int, right: int) -> bool:
+        """Whether two band counts combine, by agreeing or by one of them being single.
+
+        The band axis is the only one `combine` broadcasts: a one-band operand — a land
+        mask, a per-cell climatology, a DEM-derived factor — applies to every band of the
+        other, which is NumPy's rule for a length-one axis. The spatial axes are *not*
+        broadcast; `Spatial.same_grid` keeps them an exact match, since stretching a single
+        cell over a scene is the implicit resample `combine` refuses to do.
+
+        Args:
+            left: The left operand's band count.
+            right: The right operand's band count.
+
+        Returns:
+            bool: `True` when the counts agree, or either is one.
+        """
+        return left == right or left == 1 or right == 1
 
     @classmethod
     def _computed_values(
@@ -2344,6 +2445,12 @@ class Analysis(_Engine["Dataset"]):
                 raster's cells; a raster on the same grid, which a comparison such as
                 `raster > 5` produces and whose own no-data cells read as false; or a
                 callable handed this raster's physical values and returning either.
+
+                A **single-band** raster condition broadcasts across this raster's
+                bands, so one mask covers a whole stack. The reverse is refused: the
+                result answers in this raster's shape, so a condition with *more* bands
+                than this raster has nowhere to put them, and the band counts are named
+                rather than reported later as an internal broadcast shape.
             other: What an unselected cell holds. Left out, it is the raster's declared
                 no-data value, or NaN when it declares none. An explicit `None` is NaN
                 whatever the raster declares — the two are not the same argument. A
@@ -2853,6 +2960,31 @@ class Analysis(_Engine["Dataset"]):
         )
         return self._identified(self._rebuilt(flags, None))
 
+    @staticmethod
+    def _condition_planes(cond: Any) -> int | None:
+        """How many planes a `where` condition carries, or `None` when it has no shape.
+
+        A raster answers with its band count and a 3-D array with its leading axis. A 2-D
+        array, a callable and a scalar have no plane count to compare — a callable's result
+        is only known once it has run, and `_where_condition` checks that shape itself.
+
+        The band-count refusal reads this rather than only a raster's `band_count`, so an
+        array condition with more planes than the raster gets the same named message
+        instead of a downstream report about an internal broadcast shape.
+
+        Args:
+            cond: The condition as the caller gave it.
+
+        Returns:
+            int | None: The condition's plane count, or `None` when it has none.
+        """
+        planes: int | None = None
+        if isinstance(cond, RasterBase):
+            planes = int(cast("Dataset", cond).band_count)
+        elif isinstance(cond, np.ndarray) and cond.ndim == 3:
+            planes = int(cond.shape[0])
+        return planes
+
     def _where_layout_source(self, cond: Any) -> Any:
         """Check a raster condition's grid and band layout, and say what labels the result.
 
@@ -2861,13 +2993,34 @@ class Analysis(_Engine["Dataset"]):
         hook that lets a `NetCDF` refuse band dimensions that do not pair up. Anything else
         is an array and has neither.
 
+        The band-count rule here is **asymmetric**, unlike `combine`'s. A single-band
+        condition broadcasts across this raster's bands, which is how one mask covers a
+        whole stack. The reverse does not: `where` answers in *this* raster's shape, so an
+        *n*-band condition on a one-band raster has nowhere to put its extra planes and is
+        refused with the band-count message. Letting it through the shared gate only moved
+        the failure to `_where_condition`, which reported an internal broadcast shape
+        instead of naming the band counts.
+
         Args:
             cond: The condition as the caller gave it.
 
         Returns:
             Any: What `_label_combined` should label the result from, or `None`.
+
+        Raises:
+            ValueError: The condition carries several bands and this raster carries one.
         """
         self._refuse_a_container("where")
+        planes = Analysis._condition_planes(cond)
+        if planes is not None and planes > self._ds.band_count:
+            raise ValueError(
+                f"the operands carry a different number of bands "
+                f"({self._ds.band_count} and {planes}): a single-band condition "
+                f"broadcasts across this raster's bands, but a {planes}-band condition "
+                f"has nowhere to go on a {self._ds.band_count}-band raster, since "
+                f"`where` answers in this raster's shape. Select one band of the "
+                f"condition, or apply it to a raster with as many bands."
+            )
         if isinstance(cond, RasterBase):
             raster = cast("Dataset", cond)
             self._check_combinable(raster, np.logical_and, None)

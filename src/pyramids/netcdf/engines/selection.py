@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 import operator
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, cast
@@ -3117,6 +3117,543 @@ class Selection(_Engine["NetCDF"]):
 
         return _apply_per_variable(nc, _fn, caller="transpose")
 
+    def set_coords(self, names: str | Sequence[str]) -> NetCDF:
+        """Mark existing variables as CF auxiliary coordinates.
+
+        xarray's `set_coords`, expressed the way CF and GDAL already express it: a variable
+        is a coordinate of another because that other names it in its `coordinates`
+        attribute. pyramids already *reads* that — `cf.classify_variables` assigns the
+        auxiliary-coordinate role from it, and `variable_names` / `data_vars` filter
+        themselves by the roles — so this is the write side, and the partition needs no new
+        model. A promoted variable therefore leaves `data_vars`, as it does in xarray, and
+        everything that iterates variables (`merge`, `concat`, `apply`, `reduce`,
+        `to_dataframe`, `to_xarray`) follows without being told.
+
+        What it does **not** do is promote to a *dimension* coordinate. The netCDF driver
+        skips GDAL's `SetIndexingVariable`, so a dimension's coordinate is the same-named
+        1-D array by CF convention and cannot be reassigned; `rename_variable` is the only
+        honest way to make an array a dimension's coordinate. Naming a dimension here is
+        refused rather than silently doing nothing.
+
+        A **container** operation: a single variable has no sibling to carry the reference,
+        and promoting the only variable would leave a cube with no data at all.
+        Non-mutating, like `rename_dims` / `assign_coords` / `drop_dims` — the receiver is
+        untouched and a new cube comes back. The variable itself is never moved or copied:
+        only its role changes, and `get_variable` still reads it.
+
+        The reference is written onto **every** gridded data variable whose non-spatial
+        dimensions cover the promoted one's, which is what CF's `coordinates` attribute
+        means ("these variables label my cells"). The spatial axes are not compared: every
+        gridded variable spans them by definition. A promoted array whose own axes no
+        variable has — a 1-D array on an interface level, say, in a store whose variables
+        all sit on mid-levels — is refused rather than referenced invalidly.
+
+        So one promotion on a wide store rewrites one attribute per spanning variable, and
+        a variable promoted later keeps the copy it was given earlier. That is why
+        :meth:`reset_coords` sweeps every classified array rather than just the data
+        variables: it is the only way the two stay symmetric.
+
+        It also means the promotion lives on the receivers, not on the promoted array, so
+        `remove_variable` on the last variable holding the reference silently un-promotes
+        it — the array reappears in `data_vars`. That is CF's model rather than a quirk of
+        this implementation, but it is worth knowing before removing variables from a cube
+        whose roles you have set.
+
+        Args:
+            names: A variable name, or a sequence of them, to promote.
+
+        Returns:
+            NetCDF: A new container in which those variables are auxiliary coordinates.
+
+        Raises:
+            ValueError: The receiver is a single variable or a `get_group` view; a name is
+                not a variable of this container; a name is a dimension (already a
+                coordinate by CF convention); or no remaining data variable spans the
+                promoted variable's dimensions, so nothing can reference it.
+
+        Examples:
+            - Promote a per-cell experiment flag out of the data variables:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326)
+              >>> cube = NetCDF.from_array(
+              ...     np.full((2, 2), 1.0), geo_ref=geo, variable_name="t2m"
+              ... )
+              >>> flag = NetCDF.from_array(
+              ...     np.full((2, 2), 5.0), geo_ref=geo, variable_name="expver"
+              ... ).get_variable("expver")
+              >>> cube.set_variable("expver", flag)
+              >>> sorted(cube.variable_names)
+              ['expver', 't2m']
+              >>> promoted = cube.set_coords("expver")
+              >>> promoted.variable_names
+              ['t2m']
+              >>> promoted.get_variable("expver").band_count
+              1
+
+              ```
+
+            - Promote two at once, leaving one data variable behind:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> cube = NetCDF.from_array(
+              ...     np.full((1, 1), 1.0), geo_ref=geo, variable_name="t2m"
+              ... )
+              >>> for label in ("expver", "angle"):
+              ...     extra = NetCDF.from_array(
+              ...         np.full((1, 1), 2.0), geo_ref=geo, variable_name=label
+              ...     ).get_variable(label)
+              ...     cube.set_variable(label, extra)
+              >>> cube.set_coords(["expver", "angle"]).variable_names
+              ['t2m']
+
+              ```
+
+            - A dimension is already its own coordinate, so naming one is refused:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> cube = NetCDF.from_array(
+              ...     np.full((1, 1), 1.0), geo_ref=geo, variable_name="t2m"
+              ... )
+              >>> cube.set_coords("x")
+              Traceback (most recent call last):
+                  ...
+              ValueError: set_coords(): 'x' is a dimension of this cube, so it is already ...
+
+              ```
+
+        See Also:
+            NetCDF.reset_coords: Demotes them back to data variables.
+            NetCDF.rename_variable: Renames an array, the only way to make one a
+                dimension's coordinate.
+        """
+        nc = self._ds
+        _assert_coordinate_partition(nc, caller="set_coords")
+        requested = _requested_names(names)
+        promoted = _validated_promotions(nc, requested)
+        receivers = _promotion_receivers(nc, promoted)
+        return (
+            nc._with_coordinate_refs(receivers, add=tuple(promoted))
+            if promoted
+            else nc.copy()
+        )
+
+    def reset_coords(self, names: str | Sequence[str] | None = None) -> NetCDF:
+        """Demote auxiliary coordinates back to data variables.
+
+        The inverse of :meth:`set_coords`, and the reason that one is not a one-way door.
+        It removes the named variables from every data variable's CF `coordinates`
+        attribute — deleting the attribute outright when nothing is left in it — so
+        `cf.classify_variables` stops reporting them as coordinates and they reappear in
+        `variable_names` / `data_vars`.
+
+        It matters for files that over-declare. A store that lists a per-cell experiment
+        flag or a scan angle as a coordinate keeps it out of the data-variable role, so
+        anything driven by the roles treats it as a label rather than as data a caller may
+        want to analyse. This is how to get it back.
+
+        The variable is never deleted — only its role changes. `remove_variable` and
+        `drop_dims` are the members that remove data.
+
+        A **container** operation and non-mutating, as :meth:`set_coords` is. A
+        **dimension** coordinate cannot be demoted: it is a coordinate because it shares
+        its dimension's name, so naming one here is refused.
+
+        Args:
+            names: A variable name, or a sequence of them, to demote. `None` (default)
+                demotes every auxiliary coordinate in the container.
+
+        Returns:
+            NetCDF: A new container in which those variables are data variables again.
+
+        Raises:
+            ValueError: The receiver is a single variable or a `get_group` view; a name is
+                not an auxiliary coordinate of this container; or a name is a dimension
+                coordinate.
+
+        Examples:
+            - Promote and then demote, which returns the original roles:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=4326)
+              >>> cube = NetCDF.from_array(
+              ...     np.full((2, 2), 1.0), geo_ref=geo, variable_name="t2m"
+              ... )
+              >>> flag = NetCDF.from_array(
+              ...     np.full((2, 2), 5.0), geo_ref=geo, variable_name="expver"
+              ... ).get_variable("expver")
+              >>> cube.set_variable("expver", flag)
+              >>> promoted = cube.set_coords("expver")
+              >>> promoted.variable_names
+              ['t2m']
+              >>> sorted(promoted.reset_coords().variable_names)
+              ['expver', 't2m']
+
+              ```
+
+            - Demote one of two coordinates by name, leaving the other a coordinate:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> cube = NetCDF.from_array(
+              ...     np.full((1, 1), 1.0), geo_ref=geo, variable_name="t2m"
+              ... )
+              >>> for label in ("expver", "angle"):
+              ...     extra = NetCDF.from_array(
+              ...         np.full((1, 1), 2.0), geo_ref=geo, variable_name=label
+              ...     ).get_variable(label)
+              ...     cube.set_variable(label, extra)
+              >>> promoted = cube.set_coords(["expver", "angle"])
+              >>> sorted(promoted.reset_coords("angle").variable_names)
+              ['angle', 't2m']
+
+              ```
+
+        See Also:
+            NetCDF.set_coords: The promotion this undoes.
+        """
+        nc = self._ds
+        _assert_coordinate_partition(nc, caller="reset_coords")
+        demoted = _validated_demotions(nc, names)
+        return (
+            nc._with_coordinate_refs(_demotion_receivers(nc), remove=tuple(demoted))
+            if demoted
+            else nc.copy()
+        )
+
+    def broadcast_like(self, other: Any) -> NetCDF:
+        """Give this cube `other`'s band layout, repeating cells along the added axes.
+
+        xarray's `broadcast_like`, restricted to what a georeferenced cube can mean: the
+        `(y, x)` plane is pinned by the geotransform, so only the band (non-spatial) axes
+        are broadcast and the grids must already match. There is no alignment and no join —
+        a dimension the two share at different lengths is refused rather than outer-joined,
+        because pyramids has no index to join on.
+
+        What happens to each band dimension:
+
+        - one `other` has and this cube lacks is **added**, with `other`'s size and
+          coordinate values, and the cells repeated along it;
+        - one both carry, at length one here against `other`'s *n*, is **stretched** the
+          same way and takes `other`'s coordinates;
+        - one both carry at the same length is left alone, keeping its own coordinates;
+        - one this cube has and `other` lacks is kept as it is.
+
+        The result's dimensions are this cube's, in their own order, followed by `other`'s
+        that it did not have — xarray's ordering, and the reason `mask.broadcast_like(cube)`
+        comes back with exactly `cube`'s layout when the mask has no band dimensions of its
+        own.
+
+        Unlike xarray's lazy view this **materialises** the repeats: a mask broadcast over
+        twelve steps holds twelve times the cells. For arithmetic you do not need it — a
+        single-band operand already broadcasts inside `combine`, without materialising
+        anything (`cube * mask`). Reach for this when you need the broadcast result *as a
+        cube*: to write it to a file, `concat` it, or hand it to `to_xarray`.
+
+        The repeats are not the only cost on a **container**. Like `transpose` and the
+        spatial `pad`, this goes through `_apply_per_variable`, which rebuilds the
+        variables and does not carry the store's global attributes or the variables' own
+        (`units`, `standard_name`); an auxiliary array indexed by a dimension whose length
+        changed is dropped with a warning. That attribute loss is shared, long-standing
+        behaviour of that path rather than something this member adds, but it is worth
+        knowing before broadcasting a container you then write to a file.
+
+        One consequence is worth naming on its own, because it collides with
+        :meth:`set_coords`: the CF `coordinates` attribute is one of the attributes not
+        carried, so a container broadcast **discards the coordinate partition**. Every
+        auxiliary coordinate comes back a data variable, and
+        `nc.set_coords("expver").broadcast_like(other)` throws the promotion away. Promote
+        after broadcasting, not before.
+
+        Args:
+            other: The cube whose band layout to take, on this cube's grid.
+
+        Returns:
+            NetCDF: This cube on the broadcast layout.
+
+        Raises:
+            TypeError: `other` is not a `NetCDF`.
+            AlignmentError: `other` is on a different spatial grid.
+            ValueError: A band dimension the two share has different lengths and neither is
+                one, so there is nothing to stretch and a join would be needed; or this
+                cube holds more planes than its band dimensions account for, which is the
+                state an unlabelled broadcast result is in (see `NetCDF.combine`) and
+                leaves nothing to repeat the extra planes along.
+
+        Examples:
+            - Lift a plain raster to a cube's `time` axis:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(3.0).reshape(3, 1, 1),
+              ...     geo_ref=geo,
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> mask = NetCDF.from_array(
+              ...     np.full((1, 1), 2.0), geo_ref=geo, variable_name="m"
+              ... ).get_variable("m")
+              >>> lifted = mask.broadcast_like(cube)
+              >>> lifted._band_dim_names, lifted._band_dim_sizes
+              (('time',), (3,))
+              >>> np.asarray(lifted.read_array(squeeze=True)).ravel().tolist()
+              [2.0, 2.0, 2.0]
+
+              ```
+
+            - Stretch an axis that is one step long, taking the donor's stamps for it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> levels = [("time", [0.0, 6.0]), ("level", [1000.0, 850.0, 500.0])]
+              >>> donor = NetCDF.from_array(
+              ...     np.zeros((2, 3, 1, 1)),
+              ...     geo_ref=geo,
+              ...     variable_name="d",
+              ...     dims=ExtraDimensions(dims=levels),
+              ... ).get_variable("d")
+              >>> one_level = NetCDF.from_array(
+              ...     np.arange(2.0).reshape(2, 1, 1, 1),
+              ...     geo_ref=geo,
+              ...     variable_name="v",
+              ...     dims=ExtraDimensions(dims=[("time", [0.0, 6.0]), ("level", [1000.0])]),
+              ... ).get_variable("v")
+              >>> stretched = one_level.broadcast_like(donor)
+              >>> stretched._band_dim_sizes
+              (2, 3)
+              >>> stretched._band_dim_values_map["level"]
+              [1000.0, 850.0, 500.0]
+              >>> stretched.band_count
+              6
+
+              ```
+
+            - Two real lengths cannot be reconciled, since broadcasting never joins axes:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> two = NetCDF.from_array(
+              ...     np.zeros((2, 1, 1)),
+              ...     geo_ref=geo,
+              ...     variable_name="a",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... ).get_variable("a")
+              >>> three = NetCDF.from_array(
+              ...     np.zeros((3, 1, 1)),
+              ...     geo_ref=geo,
+              ...     variable_name="b",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("b")
+              >>> try:
+              ...     two.broadcast_like(three)
+              ... except ValueError as refusal:
+              ...     print(str(refusal)[:49])
+              broadcast_like(): dimension 'time' is 2 long here
+
+              ```
+
+        See Also:
+            NetCDF.combine: Broadcasts a single band without materialising it, which is
+                what the arithmetic operators use.
+            NetCDF.expand_dims: Adds one band dimension of length one.
+            NetCDF.broadcast_equals: Compares two cubes after broadcasting.
+        """
+        nc = self._ds
+        donor = _donor_band_layout(other, caller="broadcast_like")
+        # Resolved once and shared: the grid check and the changed-dimension scan both need
+        # every gridded variable, and opening them separately walked the inventory twice
+        # over before a pixel was read.
+        sources = _broadcast_sources(nc)
+        _assert_broadcast_grids(sources, other)
+
+        def _fn(var: NetCDF) -> tuple:
+            out_names, out_sizes, values_map = _broadcast_layout(var, donor)
+            values = np.asarray(nc._materialize_variable_array(var, lazy=True))
+            return (
+                _broadcast_values(
+                    values,
+                    list(var._band_dim_names),
+                    list(var._band_dim_sizes),
+                    out_names,
+                    out_sizes,
+                ),
+                out_names,
+                values_map,
+                _read_no_data(var),
+                var.geotransform,
+            )
+
+        return _apply_per_variable(
+            nc,
+            _fn,
+            caller="broadcast_like",
+            # Every dimension this stretches or adds changes a length, so an auxiliary
+            # array indexed by one cannot be carried verbatim: it would keep the source
+            # length while the gridded variables take the donor's. `_carry_auxiliaries`
+            # drops those with a warning, which the empty default silently skipped.
+            dropped=_broadcast_changed_dims(sources, donor),
+            noun="broadcast",
+            # A classic-mode raster has real bands and an empty variable list, so the
+            # container branch would refuse it as "an empty container" although `equals`,
+            # `combine` and the operators all accept it.
+            as_variable=_reduces_as_a_variable(nc) or not nc.variable_names,
+        )
+
+    def broadcast_equals(self, other: Any) -> bool:
+        """Whether two cubes hold the same values once broadcast against each other.
+
+        xarray's `broadcast_equals`: the weaker of the two equality questions. `equals`
+        compares the layouts as they are, so a `(y, x)` mask and the `(time, y, x)` cube
+        whose every step holds that mask are not equal; this asks whether they describe the
+        same values at a common rank, which they do.
+
+        Both operands are put on their common layout with `broadcast_like` and then handed
+        to `equals`, so the grid, band dimensions, coordinates and cells are all compared by
+        one implementation rather than a second copy of the rules. The right operand is
+        reordered onto the left's dimension order first, so the answer does not depend on
+        which side it was asked from.
+
+        A pair that cannot be broadcast — a shared dimension at two lengths, a different
+        grid, or an operand that is not a cube — answers `False` rather than raising: this
+        is a predicate, and `equals` already answers `False` for operands it cannot line
+        up. Only those three cases are swallowed; anything else surfaces, so a defect is
+        never reported as inequality.
+
+        A **container** on *either* side is refused rather than answered, for the same
+        reason `equals` refuses one: a container has no cells of its own, so there is nothing to
+        compare. (Before this was explicit, `equals`' own refusal was caught and turned
+        into `False`, which made a container not broadcast-equal to *itself*.) "Container"
+        here means what it means to `equals` — a cube that has variables and no band
+        dimensions. A **classic-mode** raster is not one: it carries real bands and an
+        empty variable list, and it is compared like any other raster.
+
+        Args:
+            other: The cube to compare with.
+
+        Returns:
+            bool: `True` when the two agree after broadcasting.
+
+        Raises:
+            ValueError: The receiver is a container; or a cube holds more planes than its
+                band dimensions account for. That second one is deliberately *not*
+                answered `False`: it is a fact about the operand's own layout rather than
+                a mismatch between the two, and reporting it as inequality is the bug H3
+                was.
+
+        Examples:
+            - A mask and the cube whose every step holds it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> mask = NetCDF.from_array(
+              ...     np.full((1, 1), 2.0), geo_ref=geo, variable_name="m"
+              ... ).get_variable("m")
+              >>> cube = NetCDF.from_array(
+              ...     np.full((3, 1, 1), 2.0),
+              ...     geo_ref=geo,
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> mask.equals(cube), mask.broadcast_equals(cube)
+              (False, True)
+
+              ```
+
+            - Lining the shapes up does not make the cells agree, and a pair that cannot
+              be broadcast at all answers `False` rather than raising:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> mask = NetCDF.from_array(
+              ...     np.full((1, 1), 2.0), geo_ref=geo, variable_name="m"
+              ... ).get_variable("m")
+              >>> rising = NetCDF.from_array(
+              ...     np.arange(3.0).reshape(3, 1, 1),
+              ...     geo_ref=geo,
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... ).get_variable("t")
+              >>> mask.broadcast_equals(rising)
+              False
+              >>> two_steps = NetCDF.from_array(
+              ...     np.zeros((2, 1, 1)),
+              ...     geo_ref=geo,
+              ...     variable_name="s",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... ).get_variable("s")
+              >>> two_steps.broadcast_equals(rising)
+              False
+
+              ```
+
+        See Also:
+            NetCDF.broadcast_like: The broadcast this is built on.
+            Analysis.equals: The comparison it ends in.
+        """
+        nc = self._ds
+        # The same predicate `equals` uses (`Analysis._refuse_a_container`): a cube is a
+        # container only when it *has* variables and no band dimensions of its own.
+        # `_reduces_as_a_variable` is wider — it is false for a classic-mode raster too,
+        # which has real cells, an empty `variable_names`, and which `equals` accepts.
+        if nc.variable_names and not nc._band_dim_names:
+            raise ValueError(
+                "broadcast_equals() compares one raster with another, and this is a "
+                "container, which has no cells of its own to compare — the same reason "
+                "`equals` refuses one. Pick the variables to compare with "
+                "`get_variable`, or compare the containers variable by variable."
+            )
+        if (
+            isinstance(other, Dataset)
+            and getattr(other, "variable_names", None)
+            and not getattr(other, "_band_dim_names", ())
+        ):
+            raise ValueError(
+                "broadcast_equals() compares one raster with another, and `other` is a "
+                "container, which has no cells of its own to compare. Pick the variable "
+                "to compare against with `other.get_variable(...)`."
+            )
+        answer = False
+        try:
+            left = nc.broadcast_like(other)
+            right = other.broadcast_like(nc)
+            ordered = (
+                right
+                if tuple(right._band_dim_names) == tuple(left._band_dim_names)
+                else right.transpose(*left._band_dim_names)
+            )
+            answer = bool(left.equals(ordered))
+        except (AlignmentError, TypeError, _NotBroadcastable):
+            # Only the three ways two cubes can be *incomparable* are answered `False`:
+            # a different grid, an operand that is not a cube, and axes that cannot be
+            # reconciled. Anything else is a defect and must surface, not be reported as
+            # inequality -- catching plain `ValueError` here hid both a container
+            # refusal and a reshape bug.
+            answer = False
+        return answer
+
     def rename_dims(
         self, dims: Mapping[str, str] | None = None, **dims_kwargs: str
     ) -> NetCDF:
@@ -4765,6 +5302,576 @@ def _resolve_interp_kind(method: str, caller: str = "interp") -> str:
             f"{caller}() method must be one of {list(_INTERP_KINDS)}, got {method!r}."
         )
     return method
+
+
+def _assert_coordinate_partition(nc: NetCDF, *, caller: str) -> None:
+    """Refuse the coordinate-role members on a single variable.
+
+    CF marks a coordinate by naming it in *another* variable's `coordinates` attribute, so
+    a lone variable has no sibling to carry the reference — and promoting the only variable
+    there is would leave a cube with no data variables at all.
+
+    A `get_group` view is refused as well, and for a sharper reason: the CF `coordinates`
+    attribute names its references *relatively* (`expver`), while `classify_variables`
+    reports a sub-group's arrays under their group-qualified names (`inner/expver`), so a
+    reference written inside a group is never matched back to the array it names. The write
+    would succeed and the role would not change — a silent no-op, which is worse than a
+    refusal.
+
+    The **root container of a grouped store** is refused for the same reason, and has to be
+    checked separately: its `_group_path` is empty, so the clause above does not catch it,
+    yet its `variable_names` are group-qualified. Neither spelling of a name works there —
+    the qualified one cannot be opened from the root group (which used to surface as a raw
+    GDAL `RuntimeError: Array inner/a does not exist`) and the relative one is not a
+    variable of the container. So these two members apply to a root container whose own
+    arrays are at the top level, which is where the roles can both be written and read.
+
+    Args:
+        nc: The receiver.
+        caller: The member the user called, named in the refusal.
+
+    Raises:
+        ValueError: `nc` is a single variable, or a `get_group` view.
+    """
+    if _reduces_as_a_variable(nc):
+        raise ValueError(
+            f"{caller}() changes which of a container's variables are coordinates, and "
+            f"this is a single variable: CF marks a coordinate by naming it in another "
+            f"variable's `coordinates` attribute, so there is nothing here to name it. "
+            f"Call it on the container this variable came from."
+        )
+    if nc._group_path:
+        raise ValueError(
+            f"{caller}() is not supported on a get_group() view ({nc._group_path!r}). A CF "
+            f"`coordinates` reference is a relative name, while a sub-group's arrays are "
+            f"classified under their group-qualified names, so a reference written here "
+            f"would never be matched back and the role would silently not change. Open the "
+            f"store without get_group() and set the roles on the root container."
+        )
+    qualified = sorted(name for name in nc.variable_names if "/" in name)
+    if qualified:
+        raise ValueError(
+            f"{caller}() is not supported on a store whose variables live in sub-groups "
+            f"({qualified[:3]}{' …' if len(qualified) > 3 else ''}). Their names are "
+            f"group-qualified while a CF `coordinates` reference is a relative name, so "
+            f"there is no spelling that both identifies the array and reads back as a "
+            f"reference — the qualified name cannot be opened from the root group, and the "
+            f"relative one is not a variable of this container. The roles have to be set "
+            f"in the file itself for a store shaped like this."
+        )
+
+
+def _requested_names(names: str | Iterable[str]) -> list[str]:
+    """One or several variable names, as a list, de-duplicated in first-seen order.
+
+    Any non-string iterable is accepted — a `set` is the natural input when the caller
+    computed the names (`set(nc.variable_names) - keep`), and a generator is as valid.
+    Narrowing this to `Sequence` to give `set_coords(3)` a named message took those away.
+
+    The element check is separate from the container check so that `bytes`, which is
+    iterable and yields integers, is reported as the integers it actually produced rather
+    than passing the outer gate and failing later as an unknown variable name.
+
+    Args:
+        names: A single name or an iterable of them.
+
+    Returns:
+        list[str]: The names, de-duplicated with their first-seen order kept.
+
+    Raises:
+        TypeError: `names` is neither a string nor an iterable, or it yields a non-string.
+    """
+    if isinstance(names, str):
+        requested = [names]
+    elif isinstance(names, Iterable):
+        requested = list(names)
+    else:
+        raise TypeError(
+            f"a variable name must be a string, or an iterable of them, not "
+            f"{type(names).__name__}."
+        )
+    if any(not isinstance(name, str) for name in requested):
+        offenders = sorted(
+            {type(n).__name__ for n in requested if not isinstance(n, str)}
+        )
+        raise TypeError(
+            f"every variable name must be a string; got {', '.join(offenders)}."
+        )
+    return list(dict.fromkeys(requested))
+
+
+def _cf_roles(nc: NetCDF) -> dict[str, str]:
+    """The CF role `classify_variables` gives each of the store's arrays.
+
+    Args:
+        nc: The container.
+
+    Returns:
+        dict[str, str]: Array name to role, empty when the store declares no CF roles.
+    """
+    cf = nc.meta_data.cf
+    return dict(cf.classifications or {}) if cf is not None else {}
+
+
+def _auxiliary_coordinates(nc: NetCDF) -> list[str]:
+    """The container's auxiliary-coordinate variables, in the store's own order.
+
+    Args:
+        nc: The container.
+
+    Returns:
+        list[str]: The names CF classifies as auxiliary coordinates.
+    """
+    roles = _cf_roles(nc)
+    return [name for name, role in roles.items() if role == "auxiliary_coordinate"]
+
+
+def _validated_promotions(nc: NetCDF, requested: list[str]) -> list[str]:
+    """The names `set_coords` will promote, refusing the ones it cannot.
+
+    A name that is *already* an auxiliary coordinate is dropped rather than refused, so
+    promoting twice is idempotent — but a dimension coordinate is refused, because it is a
+    coordinate by name convention and asking for it signals a different intent than this
+    member can serve.
+
+    Args:
+        nc: The container.
+        requested: The names the caller asked to promote.
+
+    Returns:
+        list[str]: The subset that needs promoting.
+
+    Raises:
+        ValueError: A name is a dimension, or is not a variable of this container.
+    """
+    dimensions = set(nc.dimension_names or [])
+    existing = set(_auxiliary_coordinates(nc))
+    variables = list(nc.variable_names)
+    promoted: list[str] = []
+    for name in requested:
+        if name in dimensions:
+            raise ValueError(
+                f"set_coords(): {name!r} is a dimension of this cube, so it is already "
+                f"its dimension's coordinate by CF name convention — a coordinate this "
+                f"member cannot assign, because the netCDF driver does not support "
+                f"reassigning a dimension's indexing variable. Only non-dimension "
+                f"(auxiliary) coordinates are set here."
+            )
+        if name not in existing:
+            if name not in variables:
+                raise ValueError(
+                    f"set_coords(): {name!r} is not a variable of this container; its "
+                    f"variables are {sorted(variables)}."
+                )
+            promoted.append(name)
+    return promoted
+
+
+def _band_axes_of(nc: NetCDF, name: str) -> set[str]:
+    """The non-spatial dimensions of one of a container's arrays, read from the store.
+
+    Read from the **store**, not from `_band_dim_names`. A container's inventory is not all
+    rasters: a 1-D or otherwise non-gridded array comes back from `get_variable` as a
+    `LabeledArray`, which carries no band surface at all. Reading `_band_dim_names` off one
+    raised `AttributeError`; answering an empty set for it instead was worse, because it
+    made `_promotion_receivers`' containment test vacuous — every receiver trivially covers
+    nothing — so a 1-D array was referenced by variables that do not span its dimension,
+    which is not a valid CF `coordinates` reference.
+
+    Args:
+        nc: The container.
+        name: The array to inspect.
+
+    Returns:
+        set[str]: The array's dimension names minus the spatial pair, empty when it spans
+        none or cannot be opened.
+    """
+    declared = nc._variable_dim_names(nc._raster.GetRootGroup(), name)
+    return {dim for dim in declared if dim.lower() not in _SPATIAL_AXIS_NAMES}
+
+
+def _promotion_receivers(nc: NetCDF, promoted: list[str]) -> list[str]:
+    """The data variables that will reference the promoted coordinates.
+
+    CF's `coordinates` attribute means "these variables label *my* cells", so only a data
+    variable spanning the promoted variable's own band dimensions can carry the reference.
+    The promoted names themselves are excluded: a coordinate does not reference itself.
+
+    Only **gridded** variables are offered the reference. A non-gridded array has no cells
+    on the grid to label, and `_spatial_variable_names` is the same inventory the rest of
+    the fan-out machinery uses; asking a non-gridded one for its band dimensions is what
+    raised `AttributeError` on real CF stores.
+
+    Args:
+        nc: The container.
+        promoted: The names being promoted.
+
+    Returns:
+        list[str]: The receiving data variables, in the container's order.
+
+    Raises:
+        ValueError: Nothing is left to reference the promotion.
+    """
+    gridded = nc._spatial_variable_names()
+    receivers = [
+        name for name in nc.variable_names if name not in promoted and name in gridded
+    ]
+    needed: set[str] = set()
+    for name in promoted:
+        needed |= _band_axes_of(nc, name)
+    spanning = [name for name in receivers if needed <= _band_axes_of(nc, name)]
+    if promoted and not spanning:
+        why = (
+            "none of the other variables span its dimensions"
+            if receivers
+            else "it has no other gridded variable"
+        )
+        raise ValueError(
+            f"set_coords(): no data variable is left to reference {sorted(promoted)} — "
+            f"{why}. CF marks a coordinate by naming it in the `coordinates` attribute "
+            f"of the variables it labels, so a promotion nothing can reference would "
+            f"take the variable out of `data_vars` and leave it unreachable as a label."
+        )
+    return spanning
+
+
+def _demotion_receivers(nc: NetCDF) -> list[str]:
+    """Every array that can be holding a `coordinates` reference to demote.
+
+    The store's whole classified inventory, minus the dimension coordinates. Two narrower
+    attempts were both wrong, and silently so:
+
+    - `variable_names` alone is **role-filtered**, so it excludes arrays that are
+      themselves auxiliary coordinates. `set_coords` writes the reference onto every
+      spanning data variable, so a receiver promoted later keeps its copy out of reach and
+      `reset_coords()` needed a second call to converge.
+    - data variables **plus** auxiliary coordinates still misses the rest.
+      `cf._classify_one` ranks `grid_mapping`, `bounds`, `cell_measure` and `ancillary`
+      *above* `auxiliary_coordinate`, so an array in one of those roles is in neither
+      list — and stores do put a `coordinates` attribute on an ancillary array. With that
+      copy left in place the demotion never converged at all, however many times it ran.
+
+    Writing to an array that holds no reference is a no-op — `_with_coordinate_refs` only
+    rewrites when the list actually changes — so sweeping wide costs nothing and is the
+    only way to be exhaustive. Dimension coordinates are left out: they are coordinates by
+    name convention and carry no `coordinates` attribute of their own.
+
+    Args:
+        nc: The container.
+
+    Returns:
+        list[str]: Every classified array except the dimension coordinates, after the data
+        variables, de-duplicated with the store's order kept.
+    """
+    classified = [name for name, role in _cf_roles(nc).items() if role != "coordinate"]
+    return list(dict.fromkeys([*nc.variable_names, *classified]))
+
+
+def _validated_demotions(nc: NetCDF, names: str | Sequence[str] | None) -> list[str]:
+    """The names `reset_coords` will demote, refusing the ones it cannot.
+
+    Args:
+        nc: The container.
+        names: The names the caller asked to demote, or `None` for every auxiliary
+            coordinate.
+
+    Returns:
+        list[str]: The names to demote.
+
+    Raises:
+        ValueError: A name is a dimension coordinate, or is not an auxiliary coordinate of
+            this container.
+    """
+    auxiliary = _auxiliary_coordinates(nc)
+    dimensions = set(nc.dimension_names or [])
+    # With `names=None` the list *is* the auxiliary set, so both checks below pass
+    # trivially -- a dimension's coordinate is classified "coordinate", never "auxiliary".
+    requested = list(auxiliary) if names is None else _requested_names(names)
+    for name in requested:
+        if name in dimensions:
+            raise ValueError(
+                f"reset_coords(): {name!r} is a dimension of this cube, and a dimension's "
+                f"coordinate is its same-named array by CF convention, not a reference "
+                f"that can be removed. Rename the array (`rename_variable`) if it should "
+                f"stop being that dimension's coordinate."
+            )
+        if name not in auxiliary:
+            raise ValueError(
+                f"reset_coords(): {name!r} is not an auxiliary coordinate of this "
+                f"container; its auxiliary coordinates are {sorted(auxiliary)}."
+            )
+    return requested
+
+
+class _NotBroadcastable(ValueError):
+    """Two band layouts that cannot be reconciled by repeating a length-one axis.
+
+    A `ValueError` subclass, so `broadcast_like` keeps raising exactly what its `Raises:`
+    section documents, while `broadcast_equals` can catch *this* and nothing else. Catching
+    plain `ValueError` there turned two real defects into a confident `False`: a container
+    receiver, which `equals` refuses, and a reshape mismatch inside `_broadcast_values`.
+    """
+
+
+def _donor_band_layout(
+    other: Any, *, caller: str
+) -> list[tuple[str, int, list | None]]:
+    """The band dimensions a broadcast donor offers, as `(name, size, values)`.
+
+    A variable carries its own band bookkeeping; a container's dimensions come from the
+    store, minus the spatial axes, with their coordinates read from the indexing arrays. A
+    donor with no band dimensions offers nothing, which makes a broadcast against it a
+    no-op rather than an error.
+
+    Args:
+        other: The donor cube.
+        caller: The member the user called, named in the refusal.
+
+    Returns:
+        list[tuple[str, int, list | None]]: One entry per band dimension, in the donor's
+        order, each with its size and coordinate values (`None` when it has none).
+
+    Raises:
+        TypeError: `other` is not a cube carrying the NetCDF band surface.
+    """
+    if not isinstance(other, Dataset) or not hasattr(other, "_band_dim_names"):
+        raise TypeError(
+            f"{caller}() takes the band layout from another NetCDF cube, not from "
+            f"{type(other).__name__}."
+        )
+    # The `hasattr` above is the real check -- a plain `Dataset` has no band surface -- so
+    # the cast carries that for the type checker rather than widening the signature.
+    cube = cast("NetCDF", other)
+    names = _band_dims_of(cube)
+    if _reduces_as_a_variable(cube):
+        sizes = dict(zip(cube._band_dim_names, cube._band_dim_sizes))
+        stamps = {name: cube._band_dim_values_map.get(name) for name in names}
+    else:
+        declared = dict(cube.dimension_sizes or {})
+        coordinates = cube.coords
+        sizes = {name: int(declared[name]) for name in names if name in declared}
+        stamps = {
+            name: (list(coordinates[name]) if name in coordinates else None)
+            for name in names
+        }
+    return [(name, sizes[name], stamps.get(name)) for name in names if name in sizes]
+
+
+def _broadcast_sources(nc: NetCDF) -> list[NetCDF]:
+    """The cubes a broadcast will rebuild: a variable itself, or a container's gridded set.
+
+    Resolved once per call and passed on, because the grid check, the changed-dimension
+    scan and the rebuild all need the same list; opening it per helper walked a 31-variable
+    store three times before reading a pixel.
+
+    Args:
+        nc: The cube being broadcast.
+
+    Returns:
+        list[NetCDF]: `[nc]` for a single raster, else its gridded variables. Empty when a
+        container has none, which `_apply_per_variable` then refuses by name.
+    """
+    if _reduces_as_a_variable(nc) or not nc.variable_names:
+        resolved = [nc]
+    else:
+        resolved = [
+            cast("NetCDF", nc.get_variable(name))
+            for name in nc._spatial_variable_names()
+        ]
+    return resolved
+
+
+def _assert_broadcast_grids(sources: list[NetCDF], other: Any) -> None:
+    """Refuse a broadcast whose operands are not cell-for-cell on one grid.
+
+    Compared variable to variable: a root container's own raster is a 512x512 placeholder,
+    so comparing the containers themselves refuses every container broadcast. **Every**
+    gridded variable is checked on **both** sides — `_fn` rebuilds each receiver variable
+    with its own geotransform, and a donor container can likewise hold variables on two
+    grids, so validating either side on its first variable alone leaves a result that
+    mixes grids.
+
+    Args:
+        sources: The receiver's cubes, from `_broadcast_sources`.
+        other: The donor.
+
+    Raises:
+        AlignmentError: A receiver variable is not on a donor variable's grid.
+    """
+    # `or [other]` matters: a donor container with no gridded variable resolves to an
+    # empty list, and an empty inner loop would check nothing and accept it silently.
+    # Falling back to the container itself compares against its placeholder raster, which
+    # is what reports the mismatch.
+    fallback = [cast("NetCDF", other)]
+    donor_grids = (
+        _broadcast_sources(cast("NetCDF", other)) or fallback
+        if isinstance(other, Dataset) and hasattr(other, "variable_names")
+        else fallback
+    )
+    for variable in sources:
+        for donor_grid in donor_grids:
+            if not _same_spatial_grid(variable, donor_grid):
+                raise AlignmentError(
+                    "broadcast_like() does not resample: the two cubes are on different "
+                    "spatial grids, so there is no cell-for-cell correspondence to "
+                    "repeat. Put them on one grid first "
+                    "(`other = other.align(self)`)."
+                )
+
+
+def _broadcast_changed_dims(
+    sources: list[NetCDF], donor: list[tuple[str, int, list | None]]
+) -> tuple[str, ...]:
+    """The band dimensions a broadcast against `donor` changes the length of.
+
+    Collected over every variable the rebuild will touch — a container's gridded inventory,
+    or the single variable itself — because a dimension stretched for one variable and
+    untouched for another still changes length in the result. Both the added dimensions and
+    the stretched length-one ones count; a dimension kept at its own length does not.
+
+    Args:
+        sources: The receiver's cubes, from `_broadcast_sources`.
+        donor: The donor's layout from `_donor_band_layout`.
+
+    Returns:
+        tuple[str, ...]: The affected dimension names, in the donor's order.
+    """
+    changed: set[str] = set()
+    for variable in sources:
+        own = dict(zip(variable._band_dim_names, variable._band_dim_sizes))
+        names, sizes, _ = _broadcast_layout(variable, donor)
+        changed |= {name for name, size in zip(names, sizes) if own.get(name) != size}
+    return tuple(name for name, _, _ in donor if name in changed)
+
+
+def _broadcast_layout(
+    var: NetCDF, donor: list[tuple[str, int, list | None]]
+) -> tuple[list[str], list[int], dict[str, list | None]]:
+    """The band layout `var` takes when broadcast against `donor`.
+
+    This variable's own dimensions keep their order and come first, then the donor's that
+    it lacks — xarray's ordering, which makes a broadcast against a donor whose dimensions
+    are a superset come back in exactly the donor's order.
+
+    A dimension is taken from the donor when this variable does not have it at all, or has
+    it at length one against the donor's longer axis. Otherwise this variable's own length
+    and coordinates win, so a donor's length-one axis never shortens anything.
+
+    Args:
+        var: The variable being broadcast.
+        donor: The donor's layout from `_donor_band_layout`.
+
+    Returns:
+        tuple: The result's dimension names, their sizes, and their coordinate values.
+
+    Raises:
+        _NotBroadcastable: A shared dimension has different lengths on the two sides and
+            neither is one, so neither can be stretched onto the other. It is a `ValueError`
+            subclass, which `broadcast_equals` catches to answer `False`.
+    """
+    mine = list(var._band_dim_names)
+    my_sizes = dict(zip(mine, var._band_dim_sizes))
+    donor_sizes = {name: size for name, size, _ in donor}
+    donor_stamps = {name: values for name, _, values in donor}
+    names = [*mine, *[name for name, _, _ in donor if name not in mine]]
+    sizes: list[int] = []
+    values_map: dict[str, list | None] = {}
+    for name in names:
+        ours = my_sizes.get(name)
+        theirs = donor_sizes.get(name)
+        _assert_axes_stretch(name, ours, theirs)
+        # Indexed, not `.get`: taking a size from the donor means the name came from the
+        # donor, so it has one there -- and the index says so to the type checker too.
+        if ours is None or (ours == 1 and theirs not in (None, 1)):
+            sizes.append(donor_sizes[name])
+            stamps = donor_stamps.get(name)
+        else:
+            sizes.append(ours)
+            stamps = var._band_dim_values_map.get(name)
+        values_map[name] = list(stamps) if stamps is not None else None
+    return names, sizes, values_map
+
+
+def _assert_axes_stretch(name: str, ours: int | None, theirs: int | None) -> None:
+    """Refuse a shared band dimension neither side can be stretched onto.
+
+    Broadcasting has no index to join on, so two axes of different lengths are only
+    reconcilable when one of them is a single step to repeat.
+
+    Args:
+        name: The dimension's name.
+        ours: Its length here, or `None` when this cube does not have it.
+        theirs: Its length on the donor, or `None` when the donor does not have it.
+
+    Raises:
+        _NotBroadcastable: Both sides have it, at different lengths, and neither is one. A
+            `ValueError` subclass, so `broadcast_like`'s documented contract is unchanged
+            while `broadcast_equals` can catch exactly this and answer `False`.
+    """
+    if (
+        ours is not None
+        and theirs is not None
+        and ours != theirs
+        and 1 not in (ours, theirs)
+    ):
+        raise _NotBroadcastable(
+            f"broadcast_like(): dimension {name!r} is {ours} long here and {theirs} long "
+            f"on the other cube, and neither is length one, so there is nothing to "
+            f"stretch. Broadcasting never joins two axes — select or interpolate one of "
+            f"them onto the other's steps first."
+        )
+
+
+def _broadcast_values(
+    values: np.ndarray,
+    mine: list[str],
+    my_sizes: list[int],
+    names: list[str],
+    sizes: list[int],
+) -> np.typing.NDArray:
+    """Repeat `values` onto the broadcast layout.
+
+    The result's own dimensions lead `names`, so the source's band axes already sit in the
+    right order and only the added ones have to be inserted — as length-one axes, which
+    `np.broadcast_to` then stretches. The declared sizes drive the reshape rather than the
+    array's own, so a materialised read carrying a spare leading axis is normalised here.
+    The stretched view is made contiguous at the end: the repeats have to be real cells in
+    the rebuilt variable, which is the cost this method is documented to have.
+
+    Args:
+        values: The source cells, with the band axes outermost and `(rows, columns)` last.
+        mine: The source's band dimension names, outermost first.
+        my_sizes: The source's band dimension sizes, aligned to `mine`.
+        names: The result's band dimension names.
+        sizes: The result's band dimension sizes, aligned to `names`.
+
+    Returns:
+        np.ndarray: The cells on the broadcast shape, contiguous.
+    """
+    spatial = values.shape[-2:]
+    declared = dict(zip(mine, my_sizes))
+    if list(names) == list(mine) and list(sizes) == list(my_sizes):
+        # Nothing to stretch or add: the donor's layout is already this cube's. Returning
+        # the cells untouched skips the reshape entirely, which matters because a cube may
+        # legitimately hold several planes it tracks no dimensions for — a classic-mode
+        # raster is exactly that — and reshaping by the declared sizes would refuse it for
+        # a state it is entitled to be in.
+        return np.ascontiguousarray(values)
+    planes = int(values.size // max(int(np.prod(spatial)), 1))
+    accounted = int(np.prod(my_sizes)) if my_sizes else 1
+    if planes != accounted:
+        raise ValueError(
+            f"broadcast_like(): this cube holds {planes} planes but its band dimensions "
+            f"{list(mine)} account for {accounted}, so there is no way to tell what the "
+            f"extra planes are and nothing to repeat them along. A cube reaches this "
+            f"state when a broadcast dropped its layout — see `NetCDF.combine` — and it "
+            f"cannot be labelled after the fact: `expand_dims` only adds a length-one "
+            f"axis and `assign_coords` needs a dimension that already exists. Broadcast "
+            f"the operands *before* combining them instead."
+        )
+    source = values.reshape((*my_sizes, *spatial))
+    lifted = source.reshape((*[declared.get(name, 1) for name in names], *spatial))
+    return np.ascontiguousarray(np.broadcast_to(lifted, (*sizes, *spatial)))
 
 
 def _band_dims_of(nc: NetCDF) -> list[str]:

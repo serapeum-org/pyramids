@@ -1740,21 +1740,32 @@ def _apply_per_variable(
     *,
     caller: str,
     dropped: tuple[str, ...] = (),
+    noun: str = "reduced",
+    as_variable: bool | None = None,
 ) -> NetCDF:
     """Rebuild a variable, or every gridded variable of a container, through `fn`.
 
     `fn(var)` returns `(values, band_names, values_map, no_data, geotransform)`. Unlike
     `_apply_to_container`, which runs only on the variables spanning one named dimension, this runs
-    on every gridded variable, so it serves the whole-variable operations `transpose` (reorders
-    band axes) and the spatial `pad` (grows the grid). Auxiliary variables are carried; any named in
-    `dropped` are dropped with a warning (none, for these two — transpose keeps every length and a
-    spatial pad touches no band dimension).
+    on every gridded variable, so it serves the whole-variable operations — `transpose` (reorders
+    band axes), the spatial `pad` (grows the grid), `coarsen` and `broadcast_like`. Auxiliary
+    variables are carried; any named in `dropped` are dropped with a warning. `transpose` and `pad`
+    name none (transpose keeps every length and a spatial pad touches no band dimension);
+    `broadcast_like` is the caller that does, since stretching an axis changes its length.
 
     Args:
         nc: The container or variable.
         fn: Builds each result variable's `(values, band_names, values_map, no_data, geotransform)`.
         caller: The member the user called, named in refusals/warnings.
         dropped: Band dimensions whose length changed, for the auxiliary-drop decision.
+        noun: How the drop warning names that change — `"reduced"` by default, which suits a
+            shortening operation; `broadcast_like` passes `"broadcast"` because it stretches.
+        as_variable: Whether to treat `nc` as a single raster rather than fan out over its
+            variables. `None` (the default) asks `_reduces_as_a_variable`, which is what
+            every caller wanted until `broadcast_like`: a **classic-mode** raster answers
+            `False` there while having real bands and an empty variable list, so it reached
+            the container branch and was refused as "an empty container". Pass `True` to
+            route such a raster down the single-variable path.
 
     Returns:
         NetCDF: The rebuilt variable or container.
@@ -1762,16 +1773,21 @@ def _apply_per_variable(
     Raises:
         ValueError: The container has no data variables.
     """
-    if _reduces_as_a_variable(nc):
+    single = _reduces_as_a_variable(nc) if as_variable is None else as_variable
+    if single:
         values, band_names, values_map, ndv, geo = fn(nc)
         out: NetCDF = _variable_from_applied(
             nc, _Applied(values, band_names, values_map, ndv), geotransform=geo
         )
     else:
-        if not nc.variable_names:
-            raise ValueError(f"Cannot {caller} an empty container (no data variables).")
         rg = nc._working_group()
         spatial_vars = nc._spatial_variable_names(rg)
+        # The *gridded* inventory, not `variable_names`: a container can hold variables and
+        # still have nothing to fan out over (every array 1-D). The loop below then leaves
+        # `result` and `grid` as `None` and `_stamped` fails with
+        # `TypeError: 'NoneType' object is not iterable`, which is not a refusal.
+        if not spatial_vars:
+            raise ValueError(f"Cannot {caller} an empty container (no data variables).")
         aux_vars = nc._carryable_aux_names(rg, spatial_vars)
         result: NetCDF | None = None
         grid: tuple | None = None
@@ -1801,7 +1817,7 @@ def _apply_per_variable(
         _stamped(cast("NetCDF", result), cast(tuple, grid))
         cast("NetCDF", result)._band_dim_time_attrs = time_attrs
         _carry_auxiliaries(
-            nc, cast("NetCDF", result), rg, aux_vars, list(dropped), caller
+            nc, cast("NetCDF", result), rg, aux_vars, list(dropped), caller, noun
         )
         out = cast("NetCDF", result)
     return out

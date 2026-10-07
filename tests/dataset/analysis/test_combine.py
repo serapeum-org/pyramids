@@ -349,16 +349,17 @@ class TestCombine:
         assert (np.asarray(result.read_array()) == 1).all()
 
     def test_mismatched_band_counts_are_refused(self):
-        """Combining every band needs the same band count on both sides.
+        """Combining every band needs band counts that agree or broadcast.
 
         Test scenario:
-            A 1-band minus a 3-band raster on the same grid raises, naming `band=`.
+            A 2-band minus a 3-band raster on the same grid raises, naming `band=`.
+            Neither side is single, so neither can broadcast.
         """
-        single_band = _raster(np.full((5, 5), 1.0, "float32"))
+        two_band = _raster(np.full((2, 5, 5), 1.0, "float32"))
         three_band = _raster(np.full((3, 5, 5), 1.0, "float32"))
 
         with pytest.raises(ValueError, match="different number of bands"):
-            single_band - three_band
+            two_band - three_band
 
     def test_a_grid_mismatch_is_refused_rather_than_broadcast(self):
         """Rasters on different grids never combine silently onto the left one's grid.
@@ -673,10 +674,10 @@ class TestCombine:
             mocker: pytest-mock fixture, used to prove no read happened.
 
         Test scenario:
-            A 1-band and a 3-band operand on one grid raise without `read_array` being
+            A 2-band and a 3-band operand on one grid raise without `read_array` being
             called on either side.
         """
-        left = _raster(np.full((4, 4), 1.0, "float32"))
+        left = _raster(np.full((2, 4, 4), 1.0, "float32"))
         right = _raster(np.full((3, 4, 4), 1.0, "float32"))
         spy = mocker.spy(left.io, "read_array")
 
@@ -910,6 +911,181 @@ class TestCombine:
         array = np.asarray(result.read_array())
         assert np.issubdtype(array.dtype, np.floating), "division must not truncate"
         assert np.allclose(array, 2.5)
+
+
+class TestSingleBandBroadcast:
+    """A one-band operand applies to every band of the other (#1250)."""
+
+    def test_a_one_band_mask_applies_to_every_band(self):
+        """The single band is reused for each band of the multi-band operand.
+
+        Test scenario:
+            A 3-band stack times a 1-band mask of 2.0 doubles all three bands.
+        """
+        stack = _raster(np.arange(12.0, dtype="float32").reshape(3, 2, 2))
+        mask = _raster(np.full((2, 2), 2.0, "float32"))
+
+        result = stack * mask
+
+        assert result.band_count == 3
+        np.testing.assert_allclose(
+            np.asarray(result.read_array()),
+            np.arange(12.0, dtype="float32").reshape(3, 2, 2) * 2.0,
+        )
+
+    def test_the_broadcast_is_symmetric(self):
+        """`mask * stack` carries the stack's bands, as `stack * mask` does.
+
+        Test scenario:
+            The one-band operand on the left still yields a 3-band result with the
+            same values, so band identity does not depend on operand order.
+        """
+        stack = _raster(np.arange(12.0, dtype="float32").reshape(3, 2, 2))
+        mask = _raster(np.full((2, 2), 2.0, "float32"))
+
+        left_first = np.asarray((stack * mask).read_array())
+        right_first = np.asarray((mask * stack).read_array())
+
+        assert (mask * stack).band_count == 3
+        np.testing.assert_allclose(left_first, right_first)
+
+    def test_the_result_takes_the_multi_band_operand_s_band_names(self):
+        """Band names come from the operand that owns the result's bands.
+
+        Test scenario:
+            A named 3-band stack broadcast against a 1-band mask keeps its names,
+            whichever side the mask is on.
+        """
+        stack = _raster(np.ones((3, 2, 2), "float32"))
+        stack.band_names = ["red", "green", "blue"]
+        mask = _raster(np.full((2, 2), 1.0, "float32"))
+
+        assert (stack + mask).band_names == ["red", "green", "blue"]
+        assert (mask + stack).band_names == ["red", "green", "blue"]
+
+    def test_a_comparison_broadcasts_too(self):
+        """The comparisons share `combine`, so they broadcast as the arithmetic does.
+
+        Test scenario:
+            A 3-band stack compared against a 1-band threshold raster yields a
+            3-band Byte mask of 1/0.
+        """
+        stack = _raster(np.arange(3.0, dtype="float32").reshape(3, 1, 1))
+        threshold = _raster(np.full((1, 1), 1.0, "float32"))
+
+        result = stack >= threshold
+
+        assert result.band_count == 3
+        np.testing.assert_array_equal(
+            np.asarray(result.read_array()).ravel(), np.array([0, 1, 1], "uint8")
+        )
+
+    def test_no_data_on_the_single_band_masks_every_band(self):
+        """The one-band operand's gaps propagate to each band of the result.
+
+        Test scenario:
+            A mask whose first cell is its sentinel leaves that cell no-data in all
+            three result bands, while the other cells combine.
+        """
+        stack = _raster(np.full((3, 1, 2), 4.0, "float32"))
+        values = np.full((1, 2), 2.0, "float32")
+        values[0, 0] = -9999.0
+        mask = Dataset.from_array(values, geo_ref=GEO_REF, no_data_value=-9999.0)
+
+        result = np.asarray((stack / mask).read_array())
+
+        assert result.shape == (3, 1, 2)
+        assert np.isnan(result[:, 0, 0]).all(), "the masked cell is a gap in every band"
+        np.testing.assert_allclose(result[:, 0, 1], np.full(3, 2.0))
+
+    def test_the_single_band_is_read_once(self, mocker):
+        """Broadcasting must not read the one-band operand once per result band.
+
+        Args:
+            mocker: pytest-mock fixture, used to count the reads.
+
+        Test scenario:
+            A 12-band stack times a 1-band mask reads the mask exactly once.
+        """
+        stack = _raster(np.ones((12, 4, 4), "float32"))
+        mask = _raster(np.full((4, 4), 1.0, "float32"))
+        spy = mocker.spy(mask.io, "read_array")
+
+        result = stack * mask
+
+        assert result.band_count == 12
+        assert spy.call_count == 1, "the single band must be read once, not per band"
+
+    def test_the_stretch_is_a_view_not_a_copy(self):
+        """`_broadcast_band_axis` stretches with a view, so no memory is spent tiling.
+
+        Test scenario:
+            A `(4, 4)` array broadcast against a `(12, 4, 4)` one comes back sharing
+            the original's memory, and an already-matching pair comes back untouched
+            so a folded call keeps its `right is left` identity.
+        """
+        single = np.ones((4, 4), "float32")
+        stack = np.ones((12, 4, 4), "float32")
+
+        left, right = Analysis._broadcast_band_axis(stack, single)
+
+        assert right.shape == (12, 4, 4)
+        assert np.shares_memory(right, single), "the stretch must not copy"
+        assert left is stack, "the multi-band operand is untouched"
+
+        same = np.ones((3, 2, 2), "float32")
+        untouched = Analysis._broadcast_band_axis(same, same)
+        assert untouched[0] is same, (
+            "an already-shaped left operand must be handed back"
+        )
+        assert untouched[1] is same, (
+            "an already-shaped right operand must be handed back"
+        )
+
+    def test_a_single_band_pair_still_combines(self):
+        """Two one-band rasters are unaffected by the broadcast path.
+
+        Test scenario:
+            1-band plus 1-band stays a single band — the shapes already agree, so
+            nothing is broadcast.
+        """
+        left = _raster(np.full((2, 2), 1.0, "float32"))
+        right = _raster(np.full((2, 2), 2.0, "float32"))
+
+        result = left + right
+
+        assert result.band_count == 1
+        np.testing.assert_allclose(
+            np.asarray(result.read_array()), np.full((2, 2), 3.0)
+        )
+
+    def test_a_grid_mismatch_is_not_rescued_by_broadcasting(self):
+        """Only the band axis broadcasts; the spatial axes stay an exact match.
+
+        Test scenario:
+            A 1-cell raster against a 2x2 stack on a different grid is refused, so a
+            single cell is never stretched over a scene.
+        """
+        stack = _raster(np.ones((3, 2, 2), "float32"))
+        one_cell = _raster(
+            np.full((1, 1), 2.0, "float32"),
+            geo_ref=GeoReference(top_left_corner=(0.0, 5.0), cell_size=0.5, epsg=4326),
+        )
+
+        with pytest.raises(AlignmentError, match="grid/CRS"):
+            stack * one_cell
+
+    def test_broadcastable_bands_is_the_rule(self):
+        """The predicate behind the gate: equal counts, or either one single.
+
+        Test scenario:
+            The three accepting shapes and one rejecting pair, asserted directly so
+            the rule is readable in one place.
+        """
+        assert Analysis._broadcastable_bands(3, 3) is True
+        assert Analysis._broadcastable_bands(1, 12) is True
+        assert Analysis._broadcastable_bands(12, 1) is True
+        assert Analysis._broadcastable_bands(2, 3) is False
 
 
 class TestSummingRasters:

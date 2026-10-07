@@ -194,6 +194,7 @@ nav:
       - NetCDF:
           - Plotting NetCDF data: tutorials/netcdf-plotting.md
           - Editing dimensions & variables (rename, restamp, drop, update): examples/netcdf/editing-dimensions-and-variables.ipynb
+          - Broadcasting & coordinate roles (broadcast_like, set_coords): examples/netcdf/broadcasting-and-coordinate-roles.ipynb
           - Dask (ERA5 on AWS): examples/netcdf/dask-lazy-netcdf.ipynb
           - Dask — NetCDF (complete cookbook): examples/netcdf/lazy-netcdf-complete.ipynb
           - UGRID:
