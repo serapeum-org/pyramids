@@ -1520,6 +1520,268 @@ def _reduced_array(
     return arr, band_names, values_map, result_ndv
 
 
+
+@dataclass
+class _Differentiate(_AlongDim):
+    """`differentiate`: the derivative along a band dimension, by its coordinate spacing.
+
+    `numpy.gradient` over the band axis, with the dimension's own coordinates as the sample
+    positions, which is what xarray's `differentiate` answers. A central difference inside the
+    axis and a one-sided difference at each end, so the dimension keeps its length and its
+    stamps and a container's auxiliary variables are all carried over.
+
+    Uneven spacing is honoured: on `[1000, 925, 850, 700]` the last interval is twice the
+    others and the derivative says so, where `diff` would report the same kind of step for
+    both.
+    """
+
+    caller: str = "differentiate"
+    verb: ClassVar[str] = "differentiate"
+    keeps_length: ClassVar[bool] = True
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Differentiate one variable along `dim`.
+
+        Args:
+            nc: The object `differentiate` was called on.
+            var: The variable.
+            dim: The dimension to differentiate along.
+
+        Returns:
+            _Applied: The derivative, the band layout unchanged. Float64 declaring the
+            variable's no-data value, or NaN when it declares none: a gap has no derivative,
+            and because a central difference reads both neighbours a single gap makes its two
+            neighbouring steps gaps as well.
+        """
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        axis = band_names.index(dim)
+        positions = _axis_positions(values_map, dim, self.caller)
+        data = _gaps_as_nan(arr, ndv)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            gradient = np.gradient(data, positions, axis=axis)
+        fill: Any = np.nan if ndv is None else ndv
+        values = np.where(np.isnan(gradient), fill, gradient)
+        return _Applied(np.asarray(values), band_names, values_map, fill)
+
+
+@dataclass
+class _Integrate(_AlongDim):
+    """`integrate`: the trapezoidal integral along a band dimension, which it consumes.
+
+    `numpy.trapezoid` over the band axis, weighted by the dimension's own coordinate spacing —
+    xarray's `integrate`. The dimension is **consumed**, exactly as a full `reduce` collapses
+    one, so a container's auxiliary variables spanning it are dropped with the usual warning.
+
+    The sign follows the coordinates rather than being normalised away: a descending axis
+    (`[1000, 925, 850, 700]`) integrates negative, because that is what integrating from
+    1000 to 700 means. Reverse the axis first, or negate the result, if the magnitude is what
+    you want.
+    """
+
+    caller: str = "integrate"
+    verb: ClassVar[str] = "integrate"
+    keeps_length: ClassVar[bool] = False
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Integrate one variable along `dim`.
+
+        Args:
+            nc: The object `integrate` was called on.
+            var: The variable.
+            dim: The dimension to integrate along.
+
+        Returns:
+            _Applied: The integral with `dim` gone from the layout. Float64 declaring the
+            variable's no-data value, or NaN when it declares none — a series holding a gap
+            integrates to a gap, since a trapezoid touching it has no area.
+        """
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        axis = band_names.index(dim)
+        positions = _axis_positions(values_map, dim, self.caller)
+        data = _gaps_as_nan(arr, ndv)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            integral = np.trapezoid(data, positions, axis=axis)
+        fill: Any = np.nan if ndv is None else ndv
+        values = np.where(np.isnan(integral), fill, integral)
+        remaining = [name for name in band_names if name != dim]
+        kept = {name: values_map[name] for name in remaining}
+        return _Applied(np.asarray(values), remaining, kept, fill)
+
+
+@dataclass
+class _CumulativeIntegrate(_AlongDim):
+    """`cumulative_integrate`: the running trapezoidal integral along a band dimension.
+
+    :class:`_Integrate`'s length-preserving twin — the integral *up to* each step rather than
+    over the whole axis — and xarray's `cumulative_integrate`. The dimension keeps its length
+    and its stamps, so a container's auxiliary variables are all carried over.
+
+    The **first step is zero**: no interval has been traversed yet. That is a real asymmetry
+    with `cumsum`, whose first step holds the first value, and it is xarray's answer too.
+    """
+
+    caller: str = "cumulative_integrate"
+    verb: ClassVar[str] = "accumulate"
+    keeps_length: ClassVar[bool] = True
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Accumulate one variable's integral along `dim`.
+
+        Args:
+            nc: The object `cumulative_integrate` was called on.
+            var: The variable.
+            dim: The dimension to accumulate along.
+
+        Returns:
+            _Applied: The running integral, the band layout unchanged, float64 declaring the
+            variable's no-data value or NaN when it declares none. A gap makes every step from
+            it onwards a gap, since the running total cannot skip an interval it never measured.
+        """
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        axis = band_names.index(dim)
+        positions = _axis_positions(values_map, dim, self.caller)
+        data = _gaps_as_nan(arr, ndv)
+        moved = np.moveaxis(data, axis, 0)
+        widths = np.diff(positions).reshape(-1, *([1] * (moved.ndim - 1)))
+        areas = widths * (moved[1:] + moved[:-1]) / 2.0
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            running = np.cumsum(areas, axis=0)
+        leading = np.zeros((1, *moved.shape[1:]), dtype="float64")
+        stacked = np.moveaxis(np.concatenate([leading, running], axis=0), 0, axis)
+        fill: Any = np.nan if ndv is None else ndv
+        values = np.where(np.isnan(stacked), fill, stacked)
+        return _Applied(np.asarray(values), band_names, values_map, fill)
+
+
+@dataclass
+class _PolyFit(_AlongDim):
+    """`polyfit`: least-squares polynomial coefficients per cell along a band dimension.
+
+    `numpy.polyfit`, which is vectorised over trailing columns, so the whole cube fits in one
+    call. The fitted dimension is **replaced** by a `degree` dimension of length `deg + 1`,
+    stamped with the powers **highest first** — numpy's own order, which xarray reverses. We
+    follow the library we call and say so rather than quietly reconciling the two.
+
+    Attributes:
+        deg: The polynomial degree.
+        coord_name: The dimension the coefficients land on.
+    """
+
+    deg: int
+    coord_name: str = "degree"
+    caller: str = "polyfit"
+    verb: ClassVar[str] = "fit"
+    keeps_length: ClassVar[bool] = False
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Fit one variable along `dim`.
+
+        Args:
+            nc: The object `polyfit` was called on.
+            var: The variable.
+            dim: The dimension to fit along.
+
+        Returns:
+            _Applied: The coefficients, with `dim` replaced by `degree` of length `deg + 1`.
+            Float64 declaring NaN: `numpy.polyfit` has no gap concept, so a cell whose series
+            holds a gap answers all-NaN coefficients rather than a fit over a shorter series.
+        """
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        axis = band_names.index(dim)
+        positions = _axis_positions(values_map, dim, self.caller)
+        data = _gaps_as_nan(arr, ndv)
+        moved = np.moveaxis(data, axis, 0)
+        columns = moved.reshape(moved.shape[0], -1).astype("float64")
+        # `polyfit` answers garbage rather than NaN for a column holding gaps, so the gappy
+        # columns are fitted anyway (one call stays vectorised) and masked out afterwards.
+        finite = np.isfinite(columns).all(axis=0)
+        filled = np.where(np.isfinite(columns), columns, 0.0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", np.exceptions.RankWarning)
+            fitted = np.polyfit(positions, filled, deg=self.deg)
+        coefficients = np.where(finite[None, :], fitted, np.nan)
+        shaped = coefficients.reshape(self.deg + 1, *moved.shape[1:])
+        values = np.moveaxis(shaped, 0, axis)
+        names = list(band_names)
+        names[axis] = self.coord_name
+        kept = {name: values_map[name] for name in band_names if name != dim}
+        kept[self.coord_name] = [float(power) for power in range(self.deg, -1, -1)]
+        return _Applied(np.asarray(values), names, kept, np.nan)
+
+
+
+@dataclass
+class _TakeSteps(_AlongDim):
+    """`convert_calendar`: keep some steps of a band dimension and restamp it.
+
+    The selection half of a calendar conversion. `isel` would express it on a variable but not
+    on a container, and going through an operation along the dimension gets the container's
+    auxiliary-variable handling for free: the axis keeps its length when every step survives, so
+    the auxiliaries are carried over, and loses it when a date had no counterpart in the target
+    calendar, so they are dropped with the usual warning.
+
+    Attributes:
+        kept: The indices of the steps that survive, in order.
+        stamps: The surviving steps' coordinates in the target calendar, one per kept index.
+    """
+
+    kept: tuple[int, ...]
+    stamps: tuple[float, ...]
+    whole: bool = True
+    caller: str = "convert_calendar"
+    verb: ClassVar[str] = "convert"
+
+    @property
+    def keeps_length(self) -> bool:  # type: ignore[override]
+        """Whether every step survived, which is what decides the auxiliaries' fate."""
+        return self.whole
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Keep `kept` of one variable's steps along `dim`, restamped.
+
+        Args:
+            nc: The object `convert_calendar` was called on.
+            var: The variable.
+            dim: The dimension being converted.
+
+        Returns:
+            _Applied: The surviving steps, `dim` restamped onto the target calendar and the
+            values and no-data value untouched — a conversion restamps, it does not compute.
+        """
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        axis = band_names.index(dim)
+        values = np.take(np.asarray(arr), np.asarray(self.kept, dtype=int), axis=axis)
+        values_map[dim] = [float(stamp) for stamp in self.stamps]
+        return _Applied(values, band_names, values_map, ndv)
+
+def _axis_positions(values_map: dict[str, Any], dim: str, caller: str) -> np.ndarray:
+    """The sample positions a numerical operation reads `dim`'s coordinates as.
+
+    `Selection` validates the coordinates before the operation runs, so this is the narrowing
+    guard rather than the check — it stays here so an operation reached directly cannot read a
+    coordinate-less axis as if it were indexed.
+
+    Args:
+        values_map: The band dimensions' coordinates.
+        dim: The dimension being operated along.
+        caller: The member the user called, named in the refusal.
+
+    Returns:
+        np.ndarray: The coordinates as float64.
+
+    Raises:
+        ValueError: `dim` carries no coordinate values.
+    """
+    coords = values_map.get(dim)
+    if coords is None:
+        raise ValueError(
+            f"{caller}() has no coordinates for {dim!r} to measure the spacing from."
+        )
+    return np.asarray([float(value) for value in coords], dtype="float64")
+
 def _apply_to_variable(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
     """Run `op` along `dim` of a single variable and hand back a variable.
 

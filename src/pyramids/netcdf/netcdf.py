@@ -96,7 +96,7 @@ from pyramids.netcdf.engines._along_dim import _read_no_data
 from pyramids.netcdf.engines.combine import concat as _concat
 from pyramids.netcdf.engines.combine import merge as _merge
 from pyramids.netcdf.engines.interop import Interop
-from pyramids.netcdf.engines.selection import Selection
+from pyramids.netcdf.engines.selection import CumulativeAccessor, Selection
 from pyramids.netcdf.engines.variables import Variables
 from pyramids.netcdf.labeled import LabeledArray
 from pyramids.netcdf.metadata import get_metadata
@@ -7938,6 +7938,39 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.interp_like <pyramids.netcdf.engines.selection.Selection.interp_like>`."""
         return self.selection.interp_like(other, method=method)
 
+    def convert_calendar(
+        self, calendar: str, *, dim: str = "time", align_on: str = "date"
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.convert_calendar
+        <pyramids.netcdf.engines.selection.Selection.convert_calendar>`."""
+        return self.selection.convert_calendar(calendar, dim=dim, align_on=align_on)
+
+    def interp_calendar(self, target: NetCDF, *, dim: str = "time") -> NetCDF:
+        """Facade — :meth:`Selection.interp_calendar
+        <pyramids.netcdf.engines.selection.Selection.interp_calendar>`."""
+        return self.selection.interp_calendar(target, dim=dim)
+
+    def differentiate(self, dim: str) -> NetCDF:
+        """Facade — :meth:`Selection.differentiate <pyramids.netcdf.engines.selection.Selection.differentiate>`."""
+        return self.selection.differentiate(dim)
+
+    def integrate(self, dim: str) -> NetCDF:
+        """Facade — :meth:`Selection.integrate <pyramids.netcdf.engines.selection.Selection.integrate>`."""
+        return self.selection.integrate(dim)
+
+    def cumulative_integrate(self, dim: str) -> NetCDF:
+        """Facade — :meth:`Selection.cumulative_integrate
+        <pyramids.netcdf.engines.selection.Selection.cumulative_integrate>`."""
+        return self.selection.cumulative_integrate(dim)
+
+    def polyfit(self, dim: str, deg: int) -> NetCDF:
+        """Facade — :meth:`Selection.polyfit <pyramids.netcdf.engines.selection.Selection.polyfit>`."""
+        return self.selection.polyfit(dim, deg)
+
+    def cumulative(self, dim: str) -> CumulativeAccessor:
+        """Facade — :meth:`Selection.cumulative <pyramids.netcdf.engines.selection.Selection.cumulative>`."""
+        return self.selection.cumulative(dim)
+
     def cumsum(self, dim: str, *, skipna: bool = True) -> NetCDF:
         """Facade — :meth:`Selection.cumsum <pyramids.netcdf.engines.selection.Selection.cumsum>`."""
         return self.selection.cumsum(dim, skipna=skipna)
@@ -12090,6 +12123,37 @@ class NetCDF(Dataset):
             updated = [*kept, *[ref for ref in add if ref not in kept]]
             if updated != current:
                 NetCDF._write_coordinate_refs(array, updated)
+        return Container(dataset)
+
+    def _with_time_attrs(self, dim: str, units: str, calendar: str) -> NetCDF:
+        """Declare `(units, calendar)` on `dim`'s coordinate array, on a copy of the store.
+
+        The write side of the CF time attributes pyramids already reads. It has to reach the
+        **store**, not just the carried `_band_dim_time_attrs`: `_time_attr_candidates` ranks
+        what the store *declares* above what a derived object *carries*, so setting only the
+        carried pair leaves the old calendar winning and a conversion silently answering the
+        calendar it started from.
+
+        As :meth:`_write_coordinate_refs`, each attribute is **deleted before** it is created,
+        because `CreateAttribute` refuses a name the array already carries and
+        `write_attributes_to_md_array` logs and skips that refusal rather than raising — and a
+        time axis being converted always already declares both.
+
+        Args:
+            dim: The time dimension whose coordinate array to write on.
+            units: The CF time units to declare.
+            calendar: The CF calendar to declare.
+
+        Returns:
+            NetCDF: A new cube whose store declares the pair.
+        """
+        dataset, group = self._writable_root_group()
+        array = group.OpenMDArray(dim)
+        existing = {attr.GetName() for attr in array.GetAttributes()}
+        for name in ("units", "calendar"):
+            if name in existing:
+                array.DeleteAttribute(name)
+        write_attributes_to_md_array(array, {"units": units, "calendar": calendar})
         return Container(dataset)
 
     @staticmethod
