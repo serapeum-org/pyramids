@@ -1520,7 +1520,6 @@ def _reduced_array(
     return arr, band_names, values_map, result_ndv
 
 
-
 @dataclass
 class _Differentiate(_AlongDim):
     """`differentiate`: the derivative along a band dimension, by its coordinate spacing.
@@ -1713,7 +1712,6 @@ class _PolyFit(_AlongDim):
         return _Applied(np.asarray(values), names, kept, np.nan)
 
 
-
 @dataclass
 class _TakeSteps(_AlongDim):
     """`convert_calendar`: keep some steps of a band dimension and restamp it.
@@ -1758,6 +1756,7 @@ class _TakeSteps(_AlongDim):
         values_map[dim] = [float(stamp) for stamp in self.stamps]
         return _Applied(values, band_names, values_map, ndv)
 
+
 def _axis_positions(values_map: dict[str, Any], dim: str, caller: str) -> np.ndarray:
     """The sample positions a numerical operation reads `dim`'s coordinates as.
 
@@ -1782,6 +1781,7 @@ def _axis_positions(values_map: dict[str, Any], dim: str, caller: str) -> np.nda
             f"{caller}() has no coordinates for {dim!r} to measure the spacing from."
         )
     return np.asarray([float(value) for value in coords], dtype="float64")
+
 
 def _apply_to_variable(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
     """Run `op` along `dim` of a single variable and hand back a variable.

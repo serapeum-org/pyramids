@@ -71,13 +71,13 @@ from pyramids.netcdf.engines._along_dim import (
     _CumulativeIntegrate,
     _Diff,
     _Differentiate,
-    _Integrate,
-    _PolyFit,
     _DropNa,
     _Extremum,
+    _Integrate,
     _Interpolate,
     _InterpTo,
     _Pad,
+    _PolyFit,
     _Push,
     _Rank,
     _read_no_data,
@@ -4506,7 +4506,11 @@ class Selection(_Engine["NetCDF"]):
               ```
         """
         return _run_numerical(
-            self._ds, dim, _Differentiate(), caller="differentiate", verb="differentiates"
+            self._ds,
+            dim,
+            _Differentiate(),
+            caller="differentiate",
+            verb="differentiates",
         )
 
     def integrate(self, dim: str) -> NetCDF:
@@ -6701,9 +6705,7 @@ def _carried_to_calendar(
     return carried, kept
 
 
-def _declared_time_attrs_on(
-    nc: NetCDF, dim: str, units: str, calendar: str
-) -> NetCDF:
+def _declared_time_attrs_on(nc: NetCDF, dim: str, units: str, calendar: str) -> NetCDF:
     """`nc` declaring `(units, calendar)` on `dim`, wherever this receiver is read from.
 
     Both carriers are set because `_time_attr_candidates` ranks what the **store declares**

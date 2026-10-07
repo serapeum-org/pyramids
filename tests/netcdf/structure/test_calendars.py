@@ -106,7 +106,9 @@ def _series(nc: NetCDF, name: str = "t") -> list[float]:
     """
     var = nc if nc.variable_names == [] else nc.get_variable(name)
     cells = np.asarray(var.read_array(squeeze=True), dtype="float64")
-    flat = cells.reshape(cells.shape[0], -1) if cells.ndim == 3 else cells.reshape(1, -1)
+    flat = (
+        cells.reshape(cells.shape[0], -1) if cells.ndim == 3 else cells.reshape(1, -1)
+    )
     return [float(step[0]) for step in flat]
 
 
@@ -133,7 +135,10 @@ class TestConvertCalendarRestampsTheAxis:
 
         converted = cube.convert_calendar("noleap")
 
-        assert converted.get_variable("t")._resolved_band_dim_time_attrs()["time"][0] == UNITS
+        assert (
+            converted.get_variable("t")._resolved_band_dim_time_attrs()["time"][0]
+            == UNITS
+        )
 
     def test_the_cells_are_untouched(self):
         """A conversion restamps; it does not compute.
