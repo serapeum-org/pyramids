@@ -6586,7 +6586,8 @@ def _cf_time_units(nc: NetCDF, dim: str, *, caller: str) -> tuple[str, str]:
         # variable on one store shares that dimension, so the first one that reports it answers
         # for the container.
         for name in nc.variable_names:
-            carried = nc.get_variable(name)._resolved_band_dim_time_attrs() or {}
+            variable = cast("NetCDF", nc.get_variable(name))
+            carried = variable._resolved_band_dim_time_attrs() or {}
             if dim in carried:
                 attrs = carried
                 break
@@ -6820,15 +6821,23 @@ def _run_interp_calendar(nc: NetCDF, target: NetCDF, *, dim: str) -> NetCDF:
             f"{caller}() needs at least 2 steps along {dim!r} to interpolate between, but it "
             f"has {source_scale.size}."
         )
-    on_scale = nc.assign_coords(**{dim: [float(value) for value in source_scale]})
-    interpolated = on_scale.interp(**{dim: [float(value) for value in target_scale]})
+    on_scale = nc.assign_coords({dim: [float(value) for value in source_scale]})
+    # `interp()` takes `method` first and `**coords` after, so a dimension named at runtime
+    # cannot go through it; this is the runner that member dispatches to.
+    interpolated = _run_interp(
+        on_scale,
+        dim,
+        [float(value) for value in target_scale],
+        _resolve_interp_kind("linear"),
+        caller=caller,
+    )
     offsets = [
         float(value)
         for value in cftime.date2num(
             list(target_instants), target_units, target_calendar
         )
     ]
-    restamped = interpolated.assign_coords(**{dim: offsets})
+    restamped = interpolated.assign_coords({dim: offsets})
     return _declared_time_attrs_on(restamped, dim, target_units, target_calendar)
 
 
