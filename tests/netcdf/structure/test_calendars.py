@@ -352,6 +352,21 @@ class TestConvertCalendarRefusals:
         with pytest.raises(ValueError, match="nope"):
             cube.convert_calendar("noleap", dim="nope")
 
+    def test_units_that_look_like_cf_time_but_do_not_parse_are_refused(self):
+        """The gap between "looks like CF time" and "cftime can read it".
+
+        `is_cf_time_units` accepts anything shaped `<unit> since <something>`, so a cube can
+        declare units that pass that filter and still be undecodable. The refusal names the
+        member, the dimension and the pair rather than letting cftime's own error surface.
+
+        Test scenario:
+            A cube declaring `"days since banana"` is refused when converted.
+        """
+        cube = _cube([0.0, 1.0], "standard", units="days since banana")
+
+        with pytest.raises(ValueError, match="could not decode 'time'"):
+            cube.convert_calendar("noleap")
+
 
 class TestInterpCalendar:
     """The lossless counterpart: the steps survive, the values move."""
