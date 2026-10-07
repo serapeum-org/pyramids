@@ -1549,9 +1549,10 @@ class _Differentiate(_AlongDim):
 
         Returns:
             _Applied: The derivative, the band layout unchanged. Float64 declaring the
-            variable's no-data value, or NaN when it declares none: a gap has no derivative,
-            and because a central difference reads both neighbours a single gap makes its two
-            neighbouring steps gaps as well.
+            variable's no-data value, or NaN when it declares none. A gap spoils the steps
+            that **read** it rather than its own: a central difference at step `i` reads
+            `i-1` and `i+1`, so a single gap makes its two neighbours gaps while the step
+            holding it still answers from the pair around it.
         """
         arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
         axis = band_names.index(dim)

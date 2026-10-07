@@ -4453,6 +4453,10 @@ class Selection(_Engine["NetCDF"]):
         The dimension keeps its length and its stamps, so a container's auxiliary variables are
         all carried over, those spanning `dim` included.
 
+        A gap spoils the steps that **read** it, not its own: a central difference at step `i`
+        reads `i-1` and `i+1` and never `i`, so a single gap makes its two neighbours gaps while
+        the step holding it still answers from the pair around it.
+
         Works on a container, differentiating every variable that has `dim`, and on a single
         variable, returning a variable.
 
