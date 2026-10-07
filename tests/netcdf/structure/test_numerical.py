@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+from pyramids.netcdf.engines._along_dim import _Differentiate
 
 NY, NX = 2, 3
 GEO = (0.0, 1.0, 0.0, 2.0, 0.0, -1.0)
@@ -582,6 +583,54 @@ class TestTheSharedGate:
 
         with pytest.raises(ValueError, match="differentiate"):
             variable.differentiate("level")
+
+
+class TestTheNarrowingGuards:
+    """Two guards the public members make unreachable, exercised at their own level.
+
+    Both mirror the guard `_InterpTo.apply` already carries: the runner validates first, and
+    the operation keeps its own check so it cannot be reached directly with a shape it cannot
+    read. Testing them through the member is impossible by design, so they are tested here.
+    """
+
+    def test_an_operation_reached_directly_refuses_a_coordinate_less_axis(self):
+        """`_axis_positions` is the narrowing guard, not the check.
+
+        Test scenario:
+            `_Differentiate.apply` is handed a layout whose dimension has no coordinates --
+            which `_run_numerical` would have refused -- and raises naming the member rather
+            than failing somewhere inside numpy.
+        """
+        cube = _cube([1.0, 2.0, 3.0])
+        variable = cube.get_variable("t")
+        variable._band_dim_values_map["level"] = None
+
+        with pytest.raises(ValueError, match="no coordinates for 'level'"):
+            _Differentiate().apply(variable, variable, "level")
+
+    def test_the_time_attribute_writer_creates_what_is_not_there(self):
+        """The delete-then-create write has to handle "not there yet" too.
+
+        Every public route reaches it with both attributes already present, so the create-only
+        path needs its own test; without it a store that declared neither would be the one case
+        the writer had never run against.
+
+        Test scenario:
+            A cube whose band axis carries no `units` / `calendar` gets both written, and reads
+            them back.
+        """
+        planes = np.stack([np.full((NY, NX), value) for value in (1.0, 2.0)])
+        cube = NetCDF.from_array(
+            planes,
+            geo_ref=_geo_ref(),
+            variable_name="t",
+            dims=ExtraDimensions(name="time", values=[0.0, 1.0]),
+        )
+
+        written = cube._with_time_attrs("time", "days since 2001-01-01", "noleap")
+
+        pair = written.get_variable("t")._resolved_band_dim_time_attrs()["time"]
+        assert pair == ("days since 2001-01-01", "noleap")
 
 
 class TestAContainerOfSeveralVariables:

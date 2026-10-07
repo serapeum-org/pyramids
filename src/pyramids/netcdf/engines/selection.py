@@ -6722,17 +6722,19 @@ def _declared_time_attrs_on(nc: NetCDF, dim: str, units: str, calendar: str) -> 
     Returns:
         NetCDF: The cube declaring the pair.
     """
-    result = nc
-    if _reduces_as_a_variable(result):
+    # `dim` was validated by the caller before anything was read, so it is a dimension of
+    # whichever shape arrives here; the receiver shape is the only thing left to branch on.
+    # Nothing is skipped silently: a missing parent raises rather than quietly leaving the
+    # source calendar in place, which is the failure this function exists to prevent.
+    if _reduces_as_a_variable(nc):
         # A rebuilt variable's parent store declares the *source* units, copied there by the
         # shared rebuild path, and a declared pair outranks a carried one — so the rewrite has
         # to happen on that parent, and the variable be taken from it again.
-        parent = getattr(result, "_parent_nc", None)
-        name = result._source_var_name
-        if parent is not None and name and dim in (parent.dimension_names or []):
-            result = parent._with_time_attrs(dim, units, calendar).get_variable(name)
-    elif dim in (result.dimension_names or []):
-        result = result._with_time_attrs(dim, units, calendar)
+        parent = cast("NetCDF", nc._parent_nc)
+        rewritten = parent._with_time_attrs(dim, units, calendar)
+        result = cast("NetCDF", rewritten.get_variable(nc._source_var_name))
+    else:
+        result = nc._with_time_attrs(dim, units, calendar)
     result._band_dim_time_attrs = {
         **(result._resolved_band_dim_time_attrs() or {}),
         dim: (units, calendar),
