@@ -3024,16 +3024,6 @@ class Analysis(_Engine["Dataset"]):
         if isinstance(cond, RasterBase):
             raster = cast("Dataset", cond)
             self._check_combinable(raster, np.logical_and, None)
-            if raster.band_count > self._ds.band_count:
-                raise ValueError(
-                    f"the operands carry a different number of bands "
-                    f"({self._ds.band_count} and {raster.band_count}): a single-band "
-                    f"condition broadcasts across this raster's bands, but a "
-                    f"{raster.band_count}-band condition has nowhere to go on a "
-                    f"{self._ds.band_count}-band raster, since `where` answers in this "
-                    f"raster's shape. Select one band of the condition, or apply it to a "
-                    f"raster with as many bands."
-                )
             return self._ds._combine_layout_source(raster, None)
         # An array or a callable brings no layout of its own, which is the shape a fold
         # has: one operand, nothing to compare it with or fill labels from. Asking the
