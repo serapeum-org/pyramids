@@ -6732,7 +6732,10 @@ def _declared_time_attrs_on(nc: NetCDF, dim: str, units: str, calendar: str) -> 
         # to happen on that parent, and the variable be taken from it again.
         parent = cast("NetCDF", nc._parent_nc)
         rewritten = parent._with_time_attrs(dim, units, calendar)
-        result = cast("NetCDF", rewritten.get_variable(nc._source_var_name))
+        # `_variable_from_applied` names an unnamed variable "variable"; match it, so the
+        # re-take asks for the name the rebuild actually used.
+        name = nc._source_var_name or "variable"
+        result = cast("NetCDF", rewritten.get_variable(name))
     else:
         result = nc._with_time_attrs(dim, units, calendar)
     result._band_dim_time_attrs = {
