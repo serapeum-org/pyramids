@@ -14,7 +14,11 @@ import numpy as np
 import pytest
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
-from pyramids.netcdf.engines._along_dim import _Differentiate
+from pyramids.netcdf.engines._along_dim import (
+    _apply_to_variable,
+    _Differentiate,
+    _PolyFit,
+)
 
 NY, NX = 2, 3
 GEO = (0.0, 1.0, 0.0, 2.0, 0.0, -1.0)
@@ -583,6 +587,80 @@ class TestTheSharedGate:
 
         with pytest.raises(ValueError, match="differentiate"):
             variable.differentiate("level")
+
+
+class TestPolyFitsCoefficientAxis:
+    """`polyfit` is the one along-dim operation that **renames** a dimension.
+
+    Everything else either keeps the axis, shortens it, or drops it; this one replaces it with
+    an axis of a different name and length. Both halves of that are pinned here, since the
+    layout bookkeeping is where a rename can go wrong without any value being wrong.
+    """
+
+    def test_the_coefficient_axis_can_be_named(self):
+        """The axis name is the operation's, not a hard-coded string.
+
+        `Selection.polyfit` always asks for `degree`, so the field's only other value is
+        reachable at the operation's level — where a future caller wanting `power` would set
+        it, and where a hard-coded name would be caught.
+
+        Test scenario:
+            `_PolyFit(deg=1, coord_name="power")` lands the coefficients on `power`.
+        """
+        variable = _cube(
+            [1.0, 3.0, 5.0, 7.0], stamps=[0.0, 1.0, 2.0, 3.0]
+        ).get_variable("t")
+
+        fitted = _apply_to_variable(
+            variable, "level", _PolyFit(deg=1, coord_name="power")
+        )
+
+        assert fitted._band_dim_names == ("power",), (
+            f"the axis should take the given name, got {fitted._band_dim_names!r}"
+        )
+        assert fitted._band_dim_sizes == (2,), (
+            f"degree 1 gives two coefficients, got {fitted._band_dim_sizes!r}"
+        )
+
+    def test_the_replaced_dimension_is_gone_from_the_layout(self):
+        """A rename must remove the old name, not leave both.
+
+        Test scenario:
+            After fitting along `level`, the result's band dimensions hold `degree` and not
+            `level`.
+        """
+        cube = _cube([1.0, 3.0, 5.0, 7.0], stamps=[0.0, 1.0, 2.0, 3.0])
+
+        names = cube.polyfit("level", 1).get_variable("t")._band_dim_names
+
+        assert "level" not in names, f"the fitted axis should be gone, got {names!r}"
+        assert names == ("degree",), f"expected only 'degree', got {names!r}"
+
+    def test_a_second_band_dimension_is_left_alone(self):
+        """Only the fitted axis is replaced; the others keep their names and lengths.
+
+        Test scenario:
+            A `(time: 2, level: 4)` cube fitted along `level` comes back `(time: 2, degree: 2)`
+            — `time` untouched beside the new axis.
+        """
+        planes = np.arange(2.0 * 4 * NY * NX).reshape(2, 4, NY, NX)
+        cube = NetCDF.from_array(
+            planes,
+            geo_ref=_geo_ref(),
+            variable_name="t",
+            dims=ExtraDimensions(
+                dims=[("time", [0.0, 6.0]), ("level", [0.0, 1.0, 2.0, 3.0])]
+            ),
+        )
+
+        fitted = cube.polyfit("level", 1).get_variable("t")
+
+        assert fitted._band_dim_names == ("time", "degree"), (
+            f"time should survive beside degree, got {fitted._band_dim_names!r}"
+        )
+        assert fitted._band_dim_sizes == (2, 2), (
+            f"expected (2, 2), got {fitted._band_dim_sizes!r}"
+        )
 
 
 class TestTheNarrowingGuard:
