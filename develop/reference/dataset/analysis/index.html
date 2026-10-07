@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -3123,6 +3123,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../../examples/netcdf/calculus-and-calendars/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calculus along a band axis, and calendars
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../../examples/netcdf/dask-lazy-netcdf/" class="md-nav__link">
         
   
@@ -3190,10 +3218,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11_7" >
         
           
-          <label class="md-nav__link" for="__nav_3_11_6" id="__nav_3_11_6_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3_11_7" id="__nav_3_11_7_label" tabindex="0">
             
   
   
@@ -3211,8 +3239,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_3_11_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_11_6">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_3_11_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_11_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -7325,6 +7353,10 @@ scalar before applying it if it came from a computation.</p>
 <td>Band count?</td>
 <td>All bands by default; <code>band=</code> picks one from each operand</td>
 </tr>
+<tr>
+<td>Band counts differ?</td>
+<td>A single band broadcasts across the other; any other pair raises</td>
+</tr>
 </tbody>
 </table>
 <div class="admonition warning">
@@ -7481,8 +7513,9 @@ the operators to build masks, never to order rasters.</p>
 <p><code>pyramids calc "(A - B) / (A + B)" a.tif b.tif out.tif</code> is the same operation for N
 rasters from a shell. It shares the grid rule — the inputs must already share a grid
 — but not the domain semantics: <code>calc</code> evaluates over the raw arrays, so no-data
-cells take part in the arithmetic, and it broadcasts mismatched band counts instead
-of refusing them.</p>
+cells take part in the arithmetic, and it broadcasts the bound names against each
+other with numpy's full rules — the spatial axes included — where <code>combine</code> stretches
+a single <strong>band</strong> only and leaves the grid alone.</p>
 <h3 id="memory"><a class="toclink" href="#memory">Memory</a><a class="headerlink" href="#memory" title="Permanent link">#</a></h3>
 <p><code>combine</code> is a whole-array operation — both operands are read in full, and peak
 usage is several times one band. There is no tiled or lazy path yet, so for
@@ -7538,8 +7571,11 @@ habit transfers. All six are on <code>Dataset</code>, so a <code>NetCDF</code> v
 </code></pre></div>
 <p><code>where</code>'s condition may be a boolean array, another raster on the same grid (which is what a comparison
 such as <code>dem &gt; 500</code> produces), or a callable handed the physical values. A condition cell that is itself
-no-data reads as <strong>false</strong>, which is xarray's answer too. <code>drop=True</code> trims by the <em>condition</em>, so <code>other</code>
-does not save a row and a cell that was already missing is kept if the condition selected it.</p>
+no-data reads as <strong>false</strong>, which is xarray's answer too. A <strong>one-band condition covers every band</strong> of the
+raster, but a condition carrying <em>more</em> bands than the raster is refused rather than broadcast the other
+way: <code>where</code> answers in the receiver's shape, so there is nowhere to put the extra planes. <code>drop=True</code>
+trims by the <em>condition</em>, so <code>other</code> does not save a row and a cell that was already missing is kept if
+the condition selected it.</p>
 <p><code>equals</code> and <code>identical</code> read the values and the grid, not the declared sentinel or the band type: two
 rasters marking the same gaps with <code>-9999.0</code> and <code>-1.0</code> are identical, as are a <code>float64</code> raster and its
 <code>float32</code> copy. Compare <code>no_data_value</code> and <code>dtype</code> yourself when those matter.</p>

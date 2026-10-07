@@ -16,7 +16,7 @@
         <link rel="prev" href="../editing-dimensions-and-variables/">
       
       
-        <link rel="next" href="../dask-lazy-netcdf/">
+        <link rel="next" href="../calculus-and-calendars/">
       
       
         
@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -3265,6 +3265,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../calculus-and-calendars/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calculus along a band axis, and calendars
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../dask-lazy-netcdf/" class="md-nav__link">
         
   
@@ -3332,10 +3360,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11_7" >
         
           
-          <label class="md-nav__link" for="__nav_3_11_6" id="__nav_3_11_6_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3_11_7" id="__nav_3_11_7_label" tabindex="0">
             
   
   
@@ -3353,8 +3381,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_3_11_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_11_6">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_3_11_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_11_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -7211,7 +7239,8 @@ one-cell raster is never stretched over a scene. Only the band (non-spatial) axe
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">GeoReference</span> <span class="k">as</span> <span class="n">DatasetGeoReference</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">GeoReference</span> <span class="k">as</span> <span class="n">DatasetGeoReference</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExtraDimensions</span><span class="p">,</span> <span class="n">GeoReference</span><span class="p">,</span> <span class="n">NetCDF</span>
 
 <span class="n">SAMPLES</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s1">'../../../examples/data/netcdf/samples'</span><span class="p">)</span>
@@ -7223,7 +7252,8 @@ one-cell raster is never stretched over a scene. Only the band (non-spatial) axe
 
 import numpy as np
 
-from pyramids.dataset import Dataset, GeoReference as DatasetGeoReference
+from pyramids.dataset import Dataset
+from pyramids.dataset import GeoReference as DatasetGeoReference
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
 
 SAMPLES = Path('../../../examples/data/netcdf/samples')
@@ -7324,17 +7354,17 @@ t2m.dimension_names, t2m.shape, t2m._band_dim_names</div>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">geo</span> <span class="o">=</span> <span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="n">nc</span><span class="o">.</span><span class="n">geotransform</span><span class="p">,</span> <span class="n">epsg</span><span class="o">=</span><span class="n">nc</span><span class="o">.</span><span class="n">epsg</span><span class="p">)</span>
 <span class="n">mask_cells</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">73</span> <span class="o">*</span> <span class="mi">144</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">73</span><span class="p">,</span> <span class="mi">144</span><span class="p">)</span> <span class="o">%</span> <span class="mi">3</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
-<span class="n">mask</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
-    <span class="n">mask_cells</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">geo</span><span class="p">,</span> <span class="n">variable_name</span><span class="o">=</span><span class="s1">'mask'</span>
-<span class="p">)</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'mask'</span><span class="p">)</span>
+<span class="n">mask</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span><span class="n">mask_cells</span><span class="p">,</span> <span class="n">geo_ref</span><span class="o">=</span><span class="n">geo</span><span class="p">,</span> <span class="n">variable_name</span><span class="o">=</span><span class="s1">'mask'</span><span class="p">)</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span>
+    <span class="s1">'mask'</span>
+<span class="p">)</span>
 
 <span class="n">mask</span><span class="o">.</span><span class="n">dimension_names</span><span class="p">,</span> <span class="n">mask</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">mask</span><span class="o">.</span><span class="n">_band_dim_names</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-3">geo = GeoReference(geo=nc.geotransform, epsg=nc.epsg)
 mask_cells = (np.arange(73 * 144).reshape(73, 144) % 3 != 0).astype(float)
-mask = NetCDF.from_array(
-    mask_cells, geo_ref=geo, variable_name='mask'
-).get_variable('mask')
+mask = NetCDF.from_array(mask_cells, geo_ref=geo, variable_name='mask').get_variable(
+    'mask'
+)
 
 mask.dimension_names, mask.shape, mask._band_dim_names</div>
 </div>
@@ -7770,8 +7800,8 @@ stretched._band_dim_sizes, np.asarray(stretched.coords['time']).tolist()[:4]</di
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p>A shared axis at <strong>two real lengths</strong> - 3 against 5, neither of them one - is refused rather than
-joined. That is the alignment pyramids does not do, and the error says so.</p>
+<p>A shared axis at <strong>two real lengths</strong> - neither of them one, so there is nothing to stretch - is
+refused rather than joined. That is the alignment pyramids does not do, and the error says so.</p>
 <p>Note the cost, and one gotcha. The repeats are real cells: a mask broadcast over twelve steps holds
 twelve times the data. And on a <em>container</em>, <code>broadcast_like</code> goes through the same rebuild as
 <code>transpose</code> and <code>pad</code>, which does not carry variable attributes - including the CF <code>coordinates</code>
@@ -8302,13 +8332,13 @@ tour of the class, the <code>NetCDF</code> anatomy notebook.</p>
         
         
           
-          <a href="../dask-lazy-netcdf/" class="md-footer__link md-footer__link--next" aria-label="Next: Lazy NetCDF reads + kerchunk + multi-file stacks with">
+          <a href="../calculus-and-calendars/" class="md-footer__link md-footer__link--next" aria-label="Next: Calculus along a band axis, and calendars">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Lazy NetCDF reads + kerchunk + multi-file stacks with
+                Calculus along a band axis, and calendars
               </div>
             </div>
             <div class="md-footer__button md-icon">

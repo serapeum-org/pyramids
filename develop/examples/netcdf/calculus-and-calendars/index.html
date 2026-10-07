@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://serapeum-org.github.io/pyramids/develop/examples/dask/netcdf/">
+        <link rel="canonical" href="https://serapeum-org.github.io/pyramids/develop/examples/netcdf/calculus-and-calendars/">
       
       
-        <link rel="prev" href="../feature/">
+        <link rel="prev" href="../broadcasting-and-coordinate-roles/">
       
       
-        <link rel="next" href="../../conversions/geotiff-netcdf/">
+        <link rel="next" href="../dask-lazy-netcdf/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Dask quickstart — - pyramids</title>
+        <title>Calculus along a band axis, and calendars - pyramids</title>
       
     
     
@@ -83,7 +83,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#dask-quickstart" class="md-skip">
+        <a href="#calculus-along-a-band-axis-and-calendars" class="md-skip">
           Skip to content
         </a>
       
@@ -122,7 +122,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Dask quickstart —
+              Calculus along a band axis, and calendars
             
           </span>
         </div>
@@ -763,8 +763,6 @@
                 
   
   
-    
-  
   
   
     
@@ -775,11 +773,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
         
           
           <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
@@ -800,7 +798,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1014,7 +1012,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../overview/" class="md-nav__link">
+      <a href="../../dask/overview/" class="md-nav__link">
         
   
   
@@ -1042,7 +1040,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../dataset/" class="md-nav__link">
+      <a href="../../dask/dataset/" class="md-nav__link">
         
   
   
@@ -1070,7 +1068,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../collection/" class="md-nav__link">
+      <a href="../../dask/collection/" class="md-nav__link">
         
   
   
@@ -1098,7 +1096,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../feature/" class="md-nav__link">
+      <a href="../../dask/feature/" class="md-nav__link">
         
   
   
@@ -1123,37 +1121,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Dask quickstart —
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../dask/netcdf/" class="md-nav__link">
         
   
   
@@ -1169,92 +1140,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#setup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Setup
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#eager-vs-lazy-variable-reads" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Eager vs lazy variable reads
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#reduce-over-the-leading-axis" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reduce over the leading axis
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#multi-file-stacks" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Multi-file stacks —
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#kerchunk-manifests-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Kerchunk manifests (optional)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#where-to-next" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Where to next
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -3106,6 +2991,8 @@
                 
   
   
+    
+  
   
   
     
@@ -3116,11 +3003,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11" checked>
         
           
           <label class="md-nav__link" for="__nav_3_11" id="__nav_3_11_label" tabindex="0">
@@ -3141,7 +3028,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_11_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_11_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3_11">
             <span class="md-nav__icon md-icon"></span>
             
@@ -3187,7 +3074,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../netcdf/editing-dimensions-and-variables/" class="md-nav__link">
+      <a href="../editing-dimensions-and-variables/" class="md-nav__link">
         
   
   
@@ -3215,7 +3102,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../netcdf/broadcasting-and-coordinate-roles/" class="md-nav__link">
+      <a href="../broadcasting-and-coordinate-roles/" class="md-nav__link">
         
   
   
@@ -3240,10 +3127,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../netcdf/calculus-and-calendars/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calculus along a band axis, and calendars
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -3259,6 +3173,125 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-cube-and-why-the-spacing-matters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The cube, and why the spacing matters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-rate-not-a-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        — a rate, not a step
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#an-area-and-the-axis-is-consumed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        — an area, and the axis is consumed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-running-integral" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        — the running integral
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#a-per-cell-trend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        — a per-cell trend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-accessor-spelling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        — the accessor spelling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#calendars" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Calendars
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recap
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -3271,7 +3304,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../netcdf/dask-lazy-netcdf/" class="md-nav__link">
+      <a href="../dask-lazy-netcdf/" class="md-nav__link">
         
   
   
@@ -3299,7 +3332,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../netcdf/lazy-netcdf-complete/" class="md-nav__link">
+      <a href="../lazy-netcdf-complete/" class="md-nav__link">
         
   
   
@@ -3377,7 +3410,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../netcdf/ugrid/ugrid-mesh-exploration/" class="md-nav__link">
+      <a href="../ugrid/ugrid-mesh-exploration/" class="md-nav__link">
         
   
   
@@ -3405,7 +3438,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../netcdf/ugrid/ugrid-river-channel/" class="md-nav__link">
+      <a href="../ugrid/ugrid-river-channel/" class="md-nav__link">
         
   
   
@@ -3433,7 +3466,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../netcdf/ugrid/dask-lazy-ugrid/" class="md-nav__link">
+      <a href="../ugrid/dask-lazy-ugrid/" class="md-nav__link">
         
   
   
@@ -6307,10 +6340,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#eager-vs-lazy-variable-reads" class="md-nav__link">
+  <a href="#the-cube-and-why-the-spacing-matters" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Eager vs lazy variable reads
+        The cube, and why the spacing matters
       
     </span>
   </a>
@@ -6318,10 +6351,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#reduce-over-the-leading-axis" class="md-nav__link">
+  <a href="#a-rate-not-a-step" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Reduce over the leading axis
+        — a rate, not a step
       
     </span>
   </a>
@@ -6329,10 +6362,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#multi-file-stacks" class="md-nav__link">
+  <a href="#an-area-and-the-axis-is-consumed" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Multi-file stacks —
+        — an area, and the axis is consumed
       
     </span>
   </a>
@@ -6340,10 +6373,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#kerchunk-manifests-optional" class="md-nav__link">
+  <a href="#the-running-integral" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Kerchunk manifests (optional)
+        — the running integral
       
     </span>
   </a>
@@ -6351,10 +6384,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#where-to-next" class="md-nav__link">
+  <a href="#a-per-cell-trend" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where to next
+        — a per-cell trend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-accessor-spelling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        — the accessor spelling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#calendars" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Calendars
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recap
       
     </span>
   </a>
@@ -6378,7 +6444,7 @@
 
 
   
-    <a href="https://github.com/serapeum-org/pyramids/edit/master/docs/examples/dask/netcdf.ipynb" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/serapeum-org/pyramids/edit/master/docs/examples/netcdf/calculus-and-calendars.ipynb" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -6387,7 +6453,7 @@
     
       
     
-    <a href="https://github.com/serapeum-org/pyramids/raw/master/docs/examples/dask/netcdf.ipynb" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/serapeum-org/pyramids/raw/master/docs/examples/netcdf/calculus-and-calendars.ipynb" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
@@ -7115,32 +7181,71 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </style>
 <!-- End of mermaid configuration --><div class="jupyter-wrapper">
 <div class="jp-Notebook" data-jp-theme-light="true" data-jp-theme-name="JupyterLab Light">
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c7df3393">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=9a3e5ffb">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="dask-quickstart-netcdf">Dask quickstart — <code>NetCDF</code><a class="anchor-link" href="#dask-quickstart-netcdf">¶</a></h1><p>Read one variable lazily, across time and across files. <code>read_array(variable, chunks=...)</code>
-returns a <code>dask.array</code>; <code>open_mfdataset</code> stacks many files into one. Kerchunk manifests
-(zero-copy byte-range indexes) need the <code>[lazy]</code> extra. For the full surface see
-<code>lazy-netcdf-complete</code>.</p>
+<h1 id="calculus-along-a-band-axis-and-calendars">Calculus along a band axis, and calendars<a class="anchor-link" href="#calculus-along-a-band-axis-and-calendars">¶</a></h1><p>Seven members, in two groups. What unites the first five is that they measure a variable against a
+band dimension's <strong>own coordinates</strong>, not against its step count — which is exactly what separates
+them from the members that only count steps.</p>
+<table>
+<thead>
+<tr>
+<th>Member</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>differentiate</code></td>
+<td>the derivative along a band axis, by its coordinate spacing</td>
+</tr>
+<tr>
+<td><code>integrate</code></td>
+<td>the trapezoidal integral along a band axis, which it consumes</td>
+</tr>
+<tr>
+<td><code>cumulative_integrate</code></td>
+<td>the running integral, keeping the axis</td>
+</tr>
+<tr>
+<td><code>polyfit</code></td>
+<td>per-cell least-squares coefficients along a band axis</td>
+</tr>
+<tr>
+<td><code>cumulative</code></td>
+<td>the accessor form of the running total / product</td>
+</tr>
+<tr>
+<td><code>convert_calendar</code></td>
+<td>restamp a time axis onto another CF calendar</td>
+</tr>
+<tr>
+<td><code>interp_calendar</code></td>
+<td>interpolate the values onto another calendar's stamps</td>
+</tr>
+</tbody>
+</table>
+<p>On an <strong>evenly</strong> spaced axis a wrong implementation that ignores the coordinates still looks right,
+so every example below uses an uneven axis wherever the spacing can change the answer.</p>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=f437aae9">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3877d0f3">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="setup">Setup<a class="anchor-link" href="#setup">¶</a></h2>
+<h2 id="setup">Setup<a class="anchor-link" href="#setup">¶</a></h2><p>One notebook-relative data path. The sample files ship in the repo's <code>examples/data/netcdf/</code> folder.</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=a9a9e30e">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs" id="cell-id=13eeb8c7">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7158,49 +7263,47 @@ returns a <code>dask.array</code>; <code>open_mfdataset</code> stacks many files
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="o">%</span><span class="n">matplotlib</span> <span class="n">inline</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
-<span class="n">DATA</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s1">'../../../examples/data'</span><span class="p">)</span>
-<span class="n">DATA</span><span class="o">.</span><span class="n">is_dir</span><span class="p">()</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">ExtraDimensions</span><span class="p">,</span> <span class="n">GeoReference</span><span class="p">,</span> <span class="n">NetCDF</span>
+
+<span class="n">SAMPLES</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="s1">'../../../examples/data/netcdf/samples'</span><span class="p">)</span>
+
+<span class="c1"># A COARDS cube: one variable, `rhum`, on a 12-step time axis and a 4-step pressure axis.</span>
+<span class="n">LEVELS</span> <span class="o">=</span> <span class="n">SAMPLES</span> <span class="o">/</span> <span class="s1">'coards__5v__1d4-4d1__y-desc.nc'</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-1">%matplotlib inline
+<div class="clipboard-copy-txt" id="cell-1">from pathlib import Path
 
-from pathlib import Path
+import numpy as np
 
-DATA = Path('../../../examples/data')
-DATA.is_dir()</div>
-</div>
-</div>
-</div>
-</div>
-<div class="jp-Cell-outputWrapper">
-<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
-</div>
-<div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child jp-OutputArea-executeResult">
-<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[1]:</div>
-<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>True</pre>
+from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+
+SAMPLES = Path('../../../examples/data/netcdf/samples')
+
+# A COARDS cube: one variable, `rhum`, on a 12-step time axis and a 4-step pressure axis.
+LEVELS = SAMPLES / 'coards__5v__1d4-4d1__y-desc.nc'</div>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=325f3e87">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=18d1b1f7">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="eager-vs-lazy-variable-reads">Eager vs lazy variable reads<a class="anchor-link" href="#eager-vs-lazy-variable-reads">¶</a></h2>
+<h2 id="the-cube-and-why-the-spacing-matters">The cube, and why the spacing matters<a class="anchor-link" href="#the-cube-and-why-the-spacing-matters">¶</a></h2><p><code>rhum</code> sits on <code>(time, level, lat, lon)</code>. Look at the <code>level</code> axis: the gaps are <strong>not</strong> equal, and
+the last one is twice the others. Any member that treats this axis as unit steps is simply wrong
+about it.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=f29f1eda">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=5972ee49">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7218,15 +7321,17 @@ DATA.is_dir()</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.netcdf</span><span class="w"> </span><span class="kn">import</span> <span class="n">NetCDF</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">LEVELS</span><span class="p">))</span>
+<span class="n">rhum</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'rhum'</span><span class="p">)</span>
 
-<span class="n">nc</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">DATA</span> <span class="o">/</span> <span class="s1">'netcdf'</span> <span class="o">/</span> <span class="s1">'cf__4v__1d3-3d1__proj__y-desc.nc'</span><span class="p">)</span>
-<span class="n">nc</span><span class="o">.</span><span class="n">variable_names</span>
+<span class="n">levels</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">rhum</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s1">'level'</span><span class="p">])</span>
+<span class="n">rhum</span><span class="o">.</span><span class="n">dimension_names</span><span class="p">,</span> <span class="n">levels</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="n">np</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">levels</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-2">from pyramids.netcdf import NetCDF
+<div class="clipboard-copy-txt" id="cell-2">nc = NetCDF.read_file(str(LEVELS))
+rhum = nc.get_variable('rhum')
 
-nc = NetCDF.read_file(DATA / 'netcdf' / 'cf__4v__1d3-3d1__proj__y-desc.nc')
-nc.variable_names</div>
+levels = np.asarray(rhum.coords['level'])
+rhum.dimension_names, levels.tolist(), np.diff(levels).tolist()</div>
 </div>
 </div>
 </div>
@@ -7235,37 +7340,33 @@ nc.variable_names</div>
 <div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:13224: RuntimeWarning: dimension #0 (bands) is not a Time or Vertical dimension.
-  return _gdal.Open(*args)
-</pre>
-</div>
-</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[2]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>['values']</pre>
+<pre>(['time', 'level', 'lat', 'lon'],
+ [1000.0, 925.0, 850.0, 700.0],
+ [-75.0, -75.0, -150.0])</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=918a5d12">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=10c92cd1">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p><code>nc</code> is a concrete <code>NetCDF</code>. Plotting its <code>values</code> variable shows the cube that the lazy
-<code>read_array(..., chunks=...)</code> calls below read one step at a time.</p>
+<h2 id="differentiate-a-rate-not-a-step"><code>differentiate</code> — a rate, not a step<a class="anchor-link" href="#differentiate-a-rate-not-a-step">¶</a></h2><p><code>diff</code> subtracts neighbouring steps and shortens the axis. <code>differentiate</code> divides by the real
+distance between the coordinates, so it answers a <em>rate</em> and keeps the axis.</p>
+<p>A straight line makes the difference obvious. Values <code>0, 10, 30</code> at positions <code>0, 1, 3</code> lie on one
+line of slope 10, so the derivative is 10 everywhere — while the raw differences are 10 and 20.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=2e4a680a">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=db47adbf">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7283,9 +7384,31 @@ nc.variable_names</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">nc</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">variable</span><span class="o">=</span><span class="s1">'values'</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="s2">"cf__4v__1d3-3d1__proj__y-desc — values"</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">geo</span> <span class="o">=</span> <span class="n">GeoReference</span><span class="p">(</span><span class="n">geo</span><span class="o">=</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">),</span> <span class="n">epsg</span><span class="o">=</span><span class="mi">4326</span><span class="p">)</span>
+<span class="n">line</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">10.0</span><span class="p">,</span> <span class="mf">30.0</span><span class="p">])</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">geo</span><span class="p">,</span>
+    <span class="n">variable_name</span><span class="o">=</span><span class="s1">'v'</span><span class="p">,</span>
+    <span class="n">dims</span><span class="o">=</span><span class="n">ExtraDimensions</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">'level'</span><span class="p">,</span> <span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">]),</span>
+<span class="p">)</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'v'</span><span class="p">)</span>
+
+<span class="p">(</span>
+    <span class="n">line</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="s1">'level'</span><span class="p">)</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+    <span class="n">line</span><span class="o">.</span><span class="n">differentiate</span><span class="p">(</span><span class="s1">'level'</span><span class="p">)</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+<span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-3">nc.plot(variable='values', title="cf__4v__1d3-3d1__proj__y-desc — values")</div>
+<div class="clipboard-copy-txt" id="cell-3">geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+line = NetCDF.from_array(
+    np.array([0.0, 10.0, 30.0]).reshape(3, 1, 1),
+    geo_ref=geo,
+    variable_name='v',
+    dims=ExtraDimensions(name='level', values=[0.0, 1.0, 3.0]),
+).get_variable('v')
+
+(
+    line.diff('level').read_array().ravel().tolist(),
+    line.differentiate('level').read_array().ravel().tolist(),
+)</div>
 </div>
 </div>
 </div>
@@ -7294,31 +7417,28 @@ nc.variable_names</div>
 <div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/matplotlib/colors.py:824: RuntimeWarning: overflow encountered in multiply
-  xa *= self.N
-</pre>
-</div>
-</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[3]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>&lt;cleopatra.glyphs.gridded.array_glyph.ArrayGlyph at 0x7f38f8d16e40&gt;</pre>
+<pre>([10.0, 20.0], [10.0, 10.0, 10.0])</pre>
 </div>
 </div>
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedImage jp-OutputArea-output" tabindex="0">
-<img alt="No description has been provided for this image" class="" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAowAAAIWCAYAAADdztzzAAAAOnRFWHRTb2Z0d2FyZQBNYXRwbG90bGliIHZlcnNpb24zLjExLjEsIGh0dHBzOi8vbWF0cGxvdGxpYi5vcmcvctoD+AAAAAlwSFlzAAAPYQAAD2EBqD+naQAAZ4lJREFUeJzt3Xd4FFX7//HPpgKBBEgooROq1FAEQZAiRYooIE2lCjawYgGVIvoI9vrFikpVEFAEEUQBUVFEiSJdgUDoPQkEQsr5/cEvA0smS3YTskt4v65rrufZM/eZPTO7Zm/OmXPGYYwxAgAAALLg5+0GAAAAwLeRMAIAAMAlEkYAAAC4RMIIAAAAl0gYAQAA4BIJIwAAAFwiYQQAAIBLJIwAAABwiYTxKpGSkqLXX39dHTp0UMOGDRUdHa2tW7d6u1lXhRMnTig6Olp9+vTxdlPcdiW3Pa9lXKs77rjD2025LDp27Kjo6GhvNwMXmDlzpqKjozVz5kxvNwVXgQBvNwB546677tL06dOdyk6fPp2nbZgyZYrefvttSdK4cePUvXv3PH1/d5w8eVIrVqzQd999p99++00pKSl6/PHHPUoGUlNT9ffff9vu27Rpk+bNm6d//vlHu3fvVnBwsGrVqqU+ffqodevWHrU9N4/pqu25eY3yg4xrFRCQP/+sbty4UXv37vV2M3CBw4cP6++//9bhw4e93RRcBfLnXzY4OXDggGbOnKnChQvrvffe0zXXXCM/Pz/VqFEjz9qwZ88ePfLII0pMTJQkHT16NM/e210rV65Uhw4dlJKS4lSe23+UJ0yYoHHjxmUqX7Vqld577z31799fn376qfz8sj8QcDmOaSevrtGVpFixYoqJiVGhQoW83RQAyHUkjFeB9evXKz09XTfffLPXen/uv/9+BQUF6YYbbtCqVau80obsOnnypIKDg9WxY0d16NBBixcv1pIlS3L9fRITE9W0aVN169ZNtWrVUmRkpA4fPqwFCxZoypQpmj59ulq1aqW77rrLq8e0k1fX6Eri7+/PkC2AfIuE8SqQ0atXvHhxr7z/nDlztHDhQk2dOlVff/21V9rgjjZt2ujYsWMKDAyUJP3555+X5X3Gjx+vkJCQTOVdu3ZVoUKF9NZbb2nJkiVuJXeX45h28uoaAQB8A5NermCrVq3S8OHD1aZNGzVv3lz9+/fX7NmzlZaWJknat2+foqOj9dhjj0mSZs+erejoaEVHR+uRRx7JkzYeP35cDz74oNq3b68BAwZkGderVy9FR0dr+/bttvtTUlLUokULNWnSRKdOnbpczZUkhYSEWImQO06dOqWXXnpJ7du3V7NmzTRgwACtXr3a5ftkpVq1apKkwoULu9UGT4/pSds9uUaXw4MPPmhN4lq/fr3uvvtuXX/99WrTpo3GjRun48ePu6yzefNmPfDAA2rVqpUaNGhg/fcjSTt37tTo0aN14403qkmTJrr55pv1xhtv6OTJk5mOmZeTXn7//XdFR0frvvvuyzJm1qxZio6O1quvvprt46anp+uTTz7RzTffrKZNm6pnz56aN2/eJett3LhRI0eOdLpOb775pu11ks797Ro2bJjatWun66+/XnfccYfefffdLP/b3rRpk5588km1b99e1113nXr37q133nlHSUlJ2T63vPTMM88oOjpaixcvzjJmwIABio6O1oYNG6yyXbt26YUXXlCvXr103XXXqU2bNnrkkUe0ceNGt97/6aefVnR0tP744w/b/e3atVPjxo1t913uzxJXMIMrztmzZ02/fv2MJNtt2LBhxhhjdu7cmWXMLbfckidtHTJkiClUqJDZsWOHMcaYnj17Gknmww8/dIp74YUXjCQzevRo2+PMmzfPSDI9e/a87G2+2MCBA40k8/rrr2cZc/DgQVOrVq1M19nPz8+89NJLRpKpX79+tt4vJibGREVFGUnm+++/z5VzcHXM3Gh7dq7R5dKlSxcjyfzvf/8zQUFBmc6jXLly5t9//7WtM3HiRFOgQAGn+OTkZGOMMXPmzMm0L2OrVKmS2bZtm9MxDx8+bCSZRo0aXfZzTktLM1WqVDH+/v5m165dtjHR0dHG4XCYTZs2ZeuYZ8+eNZ06dbI930ceecSULVvW2P1kPP/888bhcNjWq1Klitm5c6dT/MMPP5zl36VatWplOv6ECROMn5+fbfy1116brXPLa4sXLzaSTKdOnWz3//fff8bhcJiqVaua9PR0Y4wx3333XZbXMTAw0MyaNSvTcV5//XXb/+7uuOMOI8msWLHC9v1LlSpl/P39M5Vf7s8SVzYSxivQAw88YCSZgIAAc//995v58+ebX375xcyYMcP06dPHDBw40BhjTHJysomJiTEvv/yykWT69OljYmJiTExMjJXAXU7Lly83kswrr7xilWWVMO7fv98EBASYyMhIk5qamulYnTt3NpLMt99+e9nbfbHsJEPdu3c3kkx4eLh58803zapVq8wXX3xh2rVrZ/z9/V0mXd98842pX7++qVu3rilVqpSRZCpUqGD7A5Fd7hwzJ23P4AsJo7+/v2ncuLGZNWuW+fnnn837779vypUrZ5tYXFinefPm5rPPPjO///67iYmJMenp6Wbbtm1WstiqVSsze/Zs89NPP5l3333XlClTxkgyderUMWlpadYx8zJhNMaYN954I8t/ZP3yyy8uExY7zz77rJFkgoODzZgxY8wPP/xgFi1aZAYNGmRdq4sTxhkzZhhJplSpUmbChAlm6dKl5rfffjNffPGFuemmm4wk06xZMyv+wIEDxuFwmICAADN69Gjz/fffm99++818/vnn5oEHHjB16tRxOv6UKVOsBKRHjx7ms88+M6tXrzZffPGFGTFihGnSpImbVy1vpKWlmQoVKhg/Pz8TFxeXaf9TTz1l/YMlw5dffmlq1qxpJk2aZBYsWGB+++03s3DhQnPvvfcah8NhQkJCzNGjR52Ok5sJ4+X+LHHlI2G8whw4cMAEBAQYPz8/8+OPP9rGJCUlOb3+4osvjCQzfPjwvGiiMcaY06dPm6pVq5pGjRo5JYBZJYzGGHPLLbcYSebrr792Kt+zZ4/x9/c3FSpUcPqBziuXSoZiY2ONw+EwgYGBZvPmzU770tPTTceOHV0mXdOnT7ftAf711189bnN2j5nTtmfwhYSxfv36JiUlxWnf/v37TWhoqJFkfvrpp0x1mjVrZvudevDBB40k065dO6sHKMO+fftMWFiYkWQWLVpkled1wpiQkGBCQ0NNiRIlzJkzZ5z23X777UaS+e6777J1rLS0NBMREWEkmXnz5mXa/8QTT1jfowtFRUWZ4OBgExsbm6lOenq6ufHGG40ks379emOMMVu2bDGSzM0332zbjlOnTjm9Ll++vJFk3n77bdv4i//W+ZJx48YZSWbChAlO5ampqaZMmTImICDA7N+/3yp3dS4Z13/69OlO5bmZMF7uzxJXPu5hvMKsXLlSqamp6tixo2644QbbmIIFC+ZxqzIbP368YmNj9dFHH8nf3z9bdYYOHSpJ+uijj5zKP/nkE6WlpWnw4ME5Xg7mcvjll19kjFHXrl1Vs2ZNp30Oh0OPP/64y/pdunRRTEyM1q5dqwULFmjYsGFavHixbrjhBi1dutSKmzRpknUPasbWsmXLHB0zp233JY888kimNRBLly5t3Tv7888/Z6rzwAMP2H6nMmKffPJJORwOp32RkZEaMmSIJOmnn37KlbZ7okiRIho8eLAOHz6sL774wio/fPiw5s6dq9q1a6t9+/aSpC+//DLTdyc6Olr79u2TJG3ZskVHjhxR5cqV1aNHj0zv9cQTT2Qq2759u3bs2CF/f3/17NlTjRs3VqNGjdSoUSM1bNhQDRs21D///CNJ2rx5sySpatWqqlq1qlatWqWZM2fqxIkTTse8cEmirVu3Ki4uTmXLltXw4cNtr4Ev/K3LypAhQ+Tn56ePP/5Yxhir/Ntvv9W+ffvUpUsXlS5d2iovWLCgdu/erQkTJlj3kGZ8TrNnz5Yk/ffff5elrZf7s0T+wCzpK8zBgwclSddcc42XW5K1v//+W6+++qpGjhzp1jIjnTp1Urly5bR48WLt379fkZGRMsbok08+kZ+fn/Uj7Wsy1h6sWrWq7f6MySZZKVasmIoVK2a97tatm5o1a6YhQ4boscceU8eOHSWdW8vy4kW0w8LCcnTMnLbdl2TV1ozyQ4cOZdpXpUoV2zoZsdWrV7fdn7GGqd0x89IDDzygt99+W//3f/+nO++8U5L04Ycf6uzZs04T244ePWq7APvZs2clXfp7EB4ermLFijlNIMpINpOSki45Sz5jcoq/v7++/fZbPfzwwxo0aJDS0tIUFRWla6+9Vt26ddNtt91mTabK+FtXo0aNTEm7u7788ks9++yzOTpGhoEDB2Zr0mCFChXUoUMHLVmyRN9//72VvE+ZMkXS+X8gZ1i8eLF69uypM2fOZHnMyzWR5HJ/lsgfSBivMBmzYI8dO+bllmRtypQpSk1N1YIFCzKtzRcbGyvp3ALT77zzjvr27atRo0ZJOvcHaNCgQXr++ec1depUjRo1SitWrNCOHTvUsWNHVahQIa9PJVsy/iWd1WLknixm3adPHw0ZMkSbNm3S2bNnFRQUpNGjR2f6kclu721Wx7wcbfeWI0eO2JZnnINdj0dQUJBtnYzYw4cP237vXB0zL1WpUkVdu3bV119/rXXr1ik6OloffPCBSpQo4TRbu0ePHrazYsuUKSPp0t/hs2fPKiEhwamsQIECks4l1Rk9YFm58BpWrVpVixYtUkJCgn7//Xf99ddfWr58ue644w698cYbWrlypQoWLJirf+uySpg94c7TboYOHaolS5ZoypQpat++vQ4ePKhFixapbNmy6tSpkxWXnp6uoUOH6syZM+rXr5+6d++usmXLqmDBgnI4HPr66681btw4p55KVzIS7Atn/GcwxmSa8Xy5P0vkDySMV5iGDRtKkr755hslJCQoNDTUyy3KLD09XdK5Ya6sxMXFKS4uTi1atHAqv+uuu/S///1PU6ZM0ahRo7L817gvqVOnjiTp+++/15kzZ6w/vhkWLlzo9jF37NghSQoMDLT+lV62bFmVLVvW43baHfNytN1bFi5cqG7dujmVpaenW0ubZJxrdtSpU0fbtm3TV199pUaNGmU65oIFC9w+5uXy0EMP6euvv9bkyZPVrVs37dq1S2PHjnX6LIsXL+5yHdaaNWvK399fGzZsUGxsrCpVquS0f/HixZmSj1q1aik4OFj//fefChYs6PaTo0JDQ9WuXTu1a9dOjz32mB5++GG9+eab+uKLLzRgwADr+OvXr9eGDRtydK2zSpg9UbJkyWzHduvWTSVLltRXX32lo0ePatq0aUpNTdWgQYOc/rEXFxen/fv3Kzo6WrNmzcp0nHfeecetNmaMPOzYsUM33nij0741a9bo1KlTTu9/uT9L5BPevIESnrn22mutmZ9r1661ytPS0sySJUsy3SCe15Ne9uzZY83Gvnhr166dkWTGjh1rYmJizJ49ezLVb9++vZFkvvzyS1OgQAFTokQJc/bs2Txpu51LTehIS0uzlqzp06ePOX78uLVv5syZpmDBgpkmjqSmppqhQ4eaNWvWOE26SEtLM0uXLjU1a9Y0kkz37t2z3U5PjulJ2+34wqQXPz8/89Zbb1nnfurUKXPfffcZSSYsLMwkJCRkqhMTE2N7zIxlnIKDg80nn3xiTXxJTEw0w4YNM5JMwYIFzaFDh6w6eT3p5UJ169Y1BQsWNM2aNTNBQUHmwIEDbh8jY9LZdddd57SKwk8//WQtqXPxT0bGtYiKijLffPON0wSh5ORks2TJEnP33XdbZWvWrDGjR482GzZscIo9cuSIueGGGzKtqjB06FAjyVSsWNEsXLjQqc4ff/xhnnnmGbfPM689/vjj1n8bNWrUMA6HI9MqFRnfnbCwMPPnn39a5UlJSeaFF16wlroZOXKkU72sJr18+OGHRpKpXr260ySWNWvWmGrVqlmz3i90uT9LXPlIGK9AmzdvNiVKlLD+gIeFhZnq1aub4OBgI8nccccdTvHemCWdFVezpDPMnj3bSDLFihWz/SOZF+rXr29tGe0oU6aMVda7d2+n+KVLl5qAgADrD3GVKlVMkSJFjCTTunXrTElXSkqK9fkFBgaaSpUqmapVq5qQkBCrvFy5cpnWPXPF02O623ZPr9HlkpH8tWrVykgyhQoVMlWrVjWBgYHWeU+dOtW2TlYJY3p6uvVdlWQKFy5sqlatal0nSeb99993quPNhPGjjz6y2jVo0CCPjvHff/9Zn6P+/zJMGX9nateubc2ivlB8fLxp2LChVadQoUKmevXqpmzZstbaiWFhYVb8t99+a8UWKFDAVKtWzVpPMuM6X5hMHT9+3NStW9eqU7BgQVO9enXr+1m7dm2PzjUvbd261env2Y033mgbl7EiQca1r1q1qrWuaMY/tLObMJ44ccJaTisgIMBUqVLF+iwbN25sihcvnilhvNyfJa58JIxXqN27d5v+/fs7JQP+/v6mc+fOZs2aNU6xV1rCmJyc7JQQX7zcS17IeO+sNrsE6sJevIzeqbvuusvExsba1vn0009N+/btnRIbSaZ06dLmwQcfdOq9yi5Pj+lu2z29RpdDRvL3+++/m8cff9zpv4mKFSuazz//PMs6WSWMxpxLwJ977jnrhzdjq1u3rvnqq68yxWckjI0bN87N08uW06dPm+LFixtJ5q+//vL4OBs2bDAtW7a0ztXPz8906tTJ7NmzJ8uFu0+fPm3Gjx9vLYFz4Xeoc+fOZs6cOVbssWPHzKRJk0y9evWcFogODAw0PXr0sG17YmKiGTlypAkPD7fiHQ6Hufbaa20/B1+U0eMmyXz22We2MUeOHDEDBgywEi5Jpnz58mbKlCnms88+cythNMaYdevWmejoaOtYAQEBpk+fPubIkSNZLtx9uT9LXNkcxmTzLlr4pJSUFO3evVvGGFWsWNF2Vlp8fLx27typEiVK5OgeuNwQGxurEydOqEKFCi7vqdqxY4cSEhIUEBDglfvE/vrrL5f7Xd3ns2fPHp08eVLly5dXSEiI0tLS9M8//2RZJz093aoTHh6uUqVK5bj9nh7Tnbbn5Brlpq5du+qbb75RTEyMoqOjdebMGe3evVtBQUGZ7sXLsHPnTsXHx6tGjRqXvCnfGKO4uDidPHlSJUuWVEREhG3cjh07VKVKFbVs2VKrVq3K6Wm55cCBA6pYsaKuv/56LV++PMfHO3z4sI4cOaLIyEgVLVpUkqzJUq5WPjh48KCOHj2q4sWLq1SpUi5nN2d8TgULFlRkZGSmJZEulvE5JCUlqWLFilfUZIr9+/dbs75r167tcvZwcnKydu3apUKFCqls2bJyOBw6ceKEYmNjVbJkSWuiknTuc9q7d6/Kli2rEiVKZPneJ06cUNmyZa173jdu3KjU1FTVr18/y3Zczs8SVyYSRgBXtIsTRm+ZPHmyhg8frjvvvFPTp0/Ps/dNTU3VbbfdpgULFmj27Nnq3bt3nr03gKuH762CDABXkJkzZyoqKspaXLp79+558r5z585V/fr1VapUKS1YsEA1a9ZUz5498+S9AVx96De+SvXp00dbt27NVmylSpWs9RMv5YcfflB4eHgOWnZpV3Lbr0b5/fM6fPiwdu7cqcDAQD300EPWk1LWrFmje+65J1vHiI6OvuQQf4YuXbrof//7n44cOaL169dLOrc4+eeff+7WupwA4A4SxqvU1q1bs72QbWpqqjZu3Jit2JSUlJw0K1uu5LZfjS735/X222/r+eefz5P7Je3ccccdat++vSpWrKjChQtb5YmJidk+7/Dw8GzHZtzT26tXL1133XUKCwtTxYoVffKxmQDyD+5hvEpt3bpVp0+fzlZsYGBgtpOpOnXqXPYbnq/ktl+NrtbP6+TJk9l+9m9wcLCSk5OzFVu8eHGffeoRgPyLhBEAAAAuMYYBAAAAl0gYAQAA4BIJYz6wbt06lS5dWg0bNvQoZv369erUqZPKlSunRo0aadq0aV6N8UXz5s1TRESE+vTp41T+/vvvKyIiwmkrXbp0pvrLli1Ty5YtVbZsWbVs2VLLli3zaowvmjRpkiIiIvTMM89k2rd3717dfffdqlq1qurVq6d33nlHF99NM23aNDVq1EjlypVTp06drBnE3orxRXfddZciIiI0depUq2z//v2ZvsMZ20cffWTFGWP04osvqnbt2qpQoYL69eunPXv2OB0/L2N8UWpqqm688UZFRETol19+cdq3adMm9enTR9WqVVOVKlXUvXt3xcTEOMWcPn1aI0eOVNWqVVW5cmUNHz5cCQkJXosBnOT9w2WQmxITE02NGjXMDTfcYCpWrOh2zP79+02xYsXM3XffbbZu3Wo+/vhjExAQYGbPnu2VGF8UGxtrypUrZxo3bmw6duzotO/11183NWvWNIcPH7a2I0eOOMWsXbvWBAYGmueff95s27bNPPfccyYwMND88ccfXonxRb/88ouJiooyUVFR5qGHHnLat2/fPlO2bFnTo0cPs379evPff/+Zhx9+2KxatcqKmT17tgkMDDSffPKJ2bJlixk6dKgpXry4OXDggFdifNGnn35qmjVrZoKCgsy7775rlaelpTl9fw8fPmxeffVV43A4nJ47/uyzz5pixYqZb775xmzYsMF07NjR1KxZ0yQnJ3slxheNGjXKev76ihUrrPJTp06ZUqVKmdtuu81s3rzZ/Pvvv2bAgAGmaNGiTn8v+vXrZ6pWrWpWr15t1q5da+rUqWM6d+7s9B55GQNciITxCte/f38zcuRIM27cuCwTRlcxY8eONaVLlzZpaWlW2ZAhQ0y9evW8EuNrUlJSTLNmzcyHH35o+vTpY5sw1q5d2+UxevfubW644QansubNm5vevXt7JcbXHDt2zFSuXNmsXLnS1K9fP1PCOHjwYFO9enWTkpLiVJ6enm79/3r16pm7777bep2ammpKlixpxo4d65UYX7N161YTGRlptm/fboKDg50SRjvNmzc3HTp0sF6fOXPGFClSxLz22mtW2YEDB4yfn5+ZNWtWnsf4omXLlpkqVaqYv//+O1PCGBMTk+nZ5Tt27DCSzMqVK40xxmzfvt1IMosXL7ZiVq1aZSSZdevW5XkMcDGGpK9gU6dO1fr16/XCCy94HLNq1Sq1bdvWaQ23Dh06aP369dbwRF7G+JoxY8aodOnSGjp0aJYxO3fuVFRUlGrUqKE77rgj01Iqq1atUrt27ZzKOnTooJ9++skrMb5m6NCh6tu3r1q1apVpnzFG8+fP1+23355pCZ2MZ9vGx8dr/fr1Tuft7++vtm3bWuedlzG+Jjk5WX369NGkSZMUFRV1yfgtW7Zo9erVGjZsmFX2119/KTEx0em8S5UqpXr16lnnnZcxvubQoUMaNGiQpk2bZj2v+UI1a9ZUlSpVNGvWLKWmpiotLU3Tp09X2bJl1aBBA0nSTz/9JIfDobZt21r1rr/+ehUqVMg677yMAS5GwniF2rZtmx577DHNmjVLQUFBHsfs27dPpUqVcirLeL1///48j/ElP/zwg6ZPn64PP/wwy5jChQvrueee05IlS/TZZ5/p9OnTaty4sXW/VXp6ug4ePGh73gcOHJAxJk9jfM3kyZO1a9cuPfvss7b7Dx06pPj4eIWHh+vWW29V+fLl1bRpU02ePNk6n3379kmS7Xlf+N3Lqxhf8/jjj6t69eoaMGBAtuKnTJmikiVL6pZbbrHKuMZZM8ZowIABuuuuu9S8eXPbmAIFCmjZsmX6+uuvFRISokKFCumTTz7RsmXLrARz3759Klq0qIKDg616fn5+KlGihNO1yasY4GK+u+otspSSkqK+fftq3LhxqlWrlscx0rk/dhc/TiyjJyc9PT3PY3zFkSNHNGDAAH3yyScuHz93cc/j559/rmrVqumtt97SSy+9JHPutg/b885I8qSsr01ux/jSo+M2bNigMWPGaPXq1QoMDLSNSUtLkyQ99dRTeu+99/TWW29pzZo1GjRokJKSkvTYY49ZiaPdeV94XfIqxpcsWrRIX331VbafIpOSkqJp06Zp4MCBTp8J1zhrr776qk6cOKExY8ZkGXPy5El16tRJdevW1fz58xUQEKCJEyeqc+fO+vPPP1W8eHHb/3alzNcmr2KAi9HDeAU6ePCgYmJiNH78eGs240svvaS4uDhFRERo4cKF2YqRpBIlSujw4cNOx894XaJEiTyP8RV//fWXDhw4oNtvv926fl9++aWWL1+uiIgIbdmyxbZeUFCQ6tWrZ+339/dX8eLFbc87PDxc/v7+eRrjS1auXKnExERdf/311jXesGGDNfM8LS3NanefPn10++23q0KFCurVq5cGDx6s6dOnSzr/3bE77wu/e3kV40uWLFmiw4cPq1q1atY1Tk5O1mOPPaYmTZpkil+0aJEOHTqU6R9CXOOsLVmyRBs2bFDp0qUVERFhrURxyy236I477pAkzZ07V//9958+/fRT1apVS9WrV9cHH3ygI0eOOH2Pjx07Zv0jKcPF1yavYoCLkTBegcqUKaPDhw9ry5Yt1jZixAiVLVtWW7ZsUceOHbMVI0lNmzbVzz//7HT8H3/8UVFRUYqIiMjzGF/RqlUrHTx40On6denSRS1bttSWLVtUrVo123rGGP33339Of3SzOu+mTZt6JcZXDB06VPv27XO6xtdcc40GDhyoLVu2yN/fX8HBwWrQoIEKFizoVLdQoULWIwRLlCihypUrZzrvVatWWeedlzG+5MUXX1RcXJzTNQ4ODtazzz6rpUuXZor/6KOP1KpVK1WvXt2pPDo6WsHBwU7nnZCQoL///ts677yM8SXz589XbGysdX1/+OEHSeeWXnr33XclnVtuJ+P7nCEwMFCBgYFKTU2VdO6/3fT0dP36669WzF9//aWEhATrvPMyBsjksk+rQZ5wNUvaVcyWLVtMUFCQeeWVV0xKSor59ddfTWhoqHn99de9EuPL7GZJDx8+3Pz9998mLS3NJCYmmscee8z4+/ubX375xYpZvHixCQgIMPPmzTNpaWnmiy++MP7+/ubbb7/1Sowvs5slPWvWLFO8eHFr9ub69etNyZIlzdNPP23FvP766yYsLMz89ttvJiUlxbz44osmKCjIbN261SsxviyrWdJ79uwx/v7+ZubMmbb17rnnHhMVFWW2b99ukpKSzN13321Klixp4uPjvRLjq3bu3JlplvT27dtNgQIFzBNPPGGSk5NNSkqKee6550xAQID5+++/rbhWrVqZ66+/3hw5csQcP37ctG/f3jRo0MBpZYm8jAEuRMKYT3iaMBpjzMKFC02lSpVMYGCgKVy4sBk9erTTkiV5HeOr7BLGJUuWmCZNmpiQkBBToEAB06RJE/PDDz9kqvvuu++aiIgIExgYaCIiImx/sPMyxlfZJYzGGPPaa6+Z8PBwU7BgQVOsWDHz+OOPm7Nnz1r709PTzejRo03hwoVNYGCgqVSpklm0aJHTMfIyxpdllTA+//zzpnjx4ub06dO29ZKSkszAgQNNUFCQCQwMNPXr18+0vmdexvgqu4TRGGO+/fZbU7duXRMcHGwKFChgatasaebNm+cUc+DAAdOpUycTEBBgAgICTNu2bc2uXbu8FgNcyGGMD06dhNuSkpKUnJysYsWKeRyTmJiokJAQp2VvvBnjaxITE2WMsV02Izk5WYGBgS7PxxijxMREFSlSxFoSxpsxvujEiRMKDAxUSEhIpn3GGJ06dUqFCxfOsn56erpOnTqlIkWK+ESMLzp69KhCQkJUoEABp3JX3+8LpaSk6OzZs7afkTdifE16erqOHTumsLAw28lcKSkpMsZkuXKFdO7viTEm02fkrRhAkkgYAQAA4NKV070DAAAAryBhBAAAgEskjAAAAHCJhBEAAAAukTACAADAJRJGAAAAuBTgTvCPP/6oZcuWOZUVLFhQTz/9tFPZ+vXrtWrVKqWkpOjaa69VixYtMh0rKSlJc+fO1a5du1StWjX17Nkz05pVeRmDzJKTkzVx4kSNHj3a6ZFWyD1c48uPa3z5cY0vP64xvM2tdRiff/55vf/++7rnnnussgIFCuixxx6zXvfu3Vvbtm1TixYt5O/vr+nTp6tz586aPn26tYDwsWPH1KJFCwUHB6tt27ZatGiRihcvruXLl1vPjM3LGNhLSEhQWFiY4uPjL7mYLzzDNb78uMaXH9f48uMaw+vceSzMc889Z5o2beoyZtWqVU6vY2JijCSzdOlSq+zRRx81VapUMSdPnjTGGHPo0CFTrFgx8/LLL3slBvbi4+ONpCvi+a1XKq7x5cc1vvy4xpcf1xje5vY9jEeOHNGLL76oN998U7/++mum/S1btnR6Xa9ePQUFBWnXrl1W2fz589W7d2/rcU8lSpTQzTffrPnz53slBgAAAFlz6x5G6dw9i4cOHdKJEyf01FNPqWfPnpo2bVqW8XPnzlVKSoqaNWsm6dx9GLGxsapatapTXLVq1bRo0aI8j7GTnJys5ORk63XGs0HDw8OvqOfy5lRCQoLT/yL3cY0vP67x5cc1vvy4xp4zxigxMVFlypSRnx9zfT3lVsLYt29fPf3001bSNHz4cDVt2lQ33XSTbr/99kzxW7du1b333qsHH3xQderUkXRuAoqkTPdghIWF6dSpU3keY2fixIl69tlns9x/tSlfvry3m5DvcY0vP67x5cc1vvy4xp6Li4tTuXLlvN2MK5ZbCePFPXUNGzZUo0aNtHLlykwJ444dO9SuXTt17NhRr776qlUeEhIih8Oh+Ph4p/gTJ06ocOHCeR5jZ/To0Xr00Uet1/Hx8apQoYLi4uK42RgAgCtIQkKCypcvryJFini7KVc0t4ekL5aenq7Tp087le3cuVOtW7dW8+bNNWPGDPn7+1v7goKCVLlyZW3bts2pzrZt21SzZs08j7ETHBxsu2xBaGgoCSMAAFegq+mWssvBrcH8iye5rFmzRuvWrdONN95olcXGxqp169Zq1qyZZs6c6ZQsZujZs6fmzJmjxMRESdKBAwe0cOFC3XbbbV6JAQAAQNbcWoexZ8+eOnz4sBo0aKAjR45o/vz56tevnz788EMrMaxevbr279+vESNGOCWLbdu2Vdu2bSWdGxJu1aqV0tLS1KpVKy1ZskTlypXTd999Z/Xs5WXMpbD+FQAAVyZ+w3OHWwmjJK1du1Zr1qxRoUKFdO2116pu3bpO+ydNmqTU1NRM9W644QbdcMMN1uszZ85owYIF2r17t6pVq6abb745U29kXsa4wpcNAIArE7/hucPthPFqxJcNAIArE7/huYMFiQAAAOASCSMAAABcImEEAACASySMAAAAcImEEQAAAC6RMAIAAMAlEkYAAAC4RMIIAAAAl0gYAQAA4BIJIwAAAFwiYQQAAIBLJIwAAABwiYQRAAAALpEwAgAAwCUSRgAAALhEwggAAACXSBgBAADgEgkjAAAAXCJhBAAAgEskjAAAAHCJhBEAAAAukTACAADAJRJGAAAAuETCCAAAAJdIGAEAAOASCSMAAABcImEEAACASySMAAAAcImEEQAAAC4FeLsBAPLGooAa3m4Csqlr6lZvNwEAnNDDCAAAAJdIGAEAAOASCSMAAABcImEEAACASySMAAAAcImEEQAAAC6RMAIAAMAlEkYAAAC4RMIIAAAAl0gYAQAA4BIJIwAAAFwiYQQAAIBLJIwAAABwiYQRAAAALpEwAgAAwCUSRgAAALhEwggAAOADvvnmG/Xo0UPXXnutOnbsqLffflupqalux1xs+/btGjBggBo3bqybb75ZP/zwg9ttI2EEAADwsq+//lrdunXTddddp8mTJ2vQoEF69tln9eSTT7oVc7HDhw/r+uuv19mzZ/Xaa6/p2muv1U033aSVK1e61T6HMcZ4enJXi4SEBIWFhSk+Pl6hoaHebg7gkUUBNbzdBGRT19St3m4CkG9cKb/h9913n9atW6c1a9ZYZU888YQWLVqkTZs2ZTvmYuPGjdMHH3yguLg4BQQESJJ69OihY8eOuZU00sMIAADgZddff722bdum2NhYSdKpU6f0888/q2XLlm7FXGzFihXq0KGDlSxKUpcuXfTLL7/o7Nmz2W5fwKVDAAAAri5nzpxxK6GyY4yRw+FwKgsODlZwcHCm2DvvvFMnTpxQ7dq1FRkZqYMHD+q2227TO++841bMxeLi4tS8eXOnssjISKWmpurAgQOqUKFCts6FhBEAAOACZ86cUWjRskpJPpaj4xQuXFgnT550Khs3bpzGjx+fKXb58uUaPXq0xowZo7Zt22rbtm167LHH9MYbb+jxxx/PdszFUlNTFRQU5FSWkbCmpKRk+1xIGAEAAC5w9uxZpSQf07Xt58o/IMSjY6SlntLaZbcpLi7O6d5Ju95FSRo/fry6du2qUaNGSZKaNGmikydP6qGHHtKDDz6o4ODgbMVcLDw8XEePHnUqy3gdERGR7fMhYQQAALDhHxCigEDPEsYMoaGh2Zpsk5iYmCmBK1GihM6ePaszZ84oODg4WzEXa9SokdMkGUlavXq1qlSporCwsGyfB5NeAAAAbDj8HDna3NG2bVt98cUX2r59u6Rzs7vfeecdNWzY0ErsshOzbNky1alTRwcPHpQkDRs2TDExMZo7d64kacuWLZo2bZruuecet9pHwggAAGDD4fDL0eaOCRMmqH379qpVq5aioqIUGRmps2fPatasWW7FxMfHa+PGjdb9idddd53ee+89DRkyRGXLllX9+vXVu3dvPfroo+5dC9ZhvLQrZQ0nwBXWYbxysA4jkHs8+Q3PqHN9t2UeD0mnppzSL1+3dzt3OHPmjPbu3auIiIgsh4xdxSQkJGj37t2qWbOm01I6Z86cUVxcnEqUKKGiRYu6fT7cwwgAAOAjChQooCpVqngcExoaqjp16tjWqVatmsftImEEAACw4fDzk8PPs7v3PK3nq0gYAQAAbPj5SX5uTl65sG5+QsIIAABgw5PJKxfWzU/y19kAAAAg19HDCAAAYMOT9RQvrJufkDACAADYcDhyMOklnw1JkzACVwn/Qr71xystKd3bTbAUKBXo7SYA8EH0MJ7nW78gAAAA8Dn0MAIAANjwc/jJz8OhZU/r+SoSRgAAADs5GJJWPhuSJmEEAACwwT2M5+Wv/lIAAADkOnoYAQAAbPCkl/NIGAEAAGwwJH1e/kp/AQAAkOvoYQQAALDh5+cnPw+f9OJpPV9FwggAAGDD4XDI4fBwSNrDer6KhBEAAMAG9zCel7/6SwEAAJDr3OphnDdvnj777DOnspCQEE2dOtWp7ODBg5oyZYrWrVunhx56SC1btsx0rLi4OL377rvatWuXqlWrphEjRigiIsJrMQAAABdy+HneU5jPVtVxr4dx8+bNWr9+vfr27WttPXv2dIqZMWOGGjdurISEBM2bN0+7du3KdJzY2Fg1bNhQmzdvVuvWrfXTTz+pcePGOnr0qFdiAAAALuYnP+t50m5v+WwQ1+2zKV68uG677TZr69atm9P+1q1ba/v27Zo0aVKWx3juuedUrlw5zZs3T8OGDdM333yj1NRUvf76616JAQAAuFjGPYyebvmJ2wljXFycBg8erPvuu0+ffPKJ0tLSnPaXK1dOQUFBLo+xePFi9ejRw5pyXqBAAd18881avHixV2IAAAC8KTY2Vn/99VembdOmTZliT548qS1btujkyZPZPv7x48e1Y8cOpaametQ+txJGh8Oh6667Ts2bN1dUVJTGjRunli1bKiUlJdvHOH36tA4cOKAKFSo4lVeoUEE7duzI8xg7ycnJSkhIcNoAAMDVJS97GP/v//5PgwYNctqaNWumfv36WTHx8fHq06ePSpYsqZtvvlmRkZF6+umnXR73+++/V7NmzVSlShW1a9dO4eHhevnll92+Fm5Nern//vtVrFgx63WfPn10zTXX6IMPPtDw4cOzdYzk5GRJUqFChZzKCxcurDNnzuR5jJ2JEyfq2Wefzdb5AACA/Ckv12G8OIk7evSoypYtqwEDBlhlI0eO1Lp167Rjxw6VLl1aO3bssJLBIUOG2B533bp1evPNN9WkSRNJ0pIlS9S1a1dVq1ZNt956a7bb51YP44XJonSup65hw4Zau3Ztto9RuHBh+fv76/jx407lR48eVdGiRfM8xs7o0aMVHx9vbXFxcdk+PwAAkD/4+TlytOXEjBkzZIxxShiXLl2q/v37q3Tp0pKkqKgo9ezZU++9916Wx3niiSesZFGSbrrpJtWpU0crVqxwqz05nsITHx8vf3//bMcHBATommuu0fr1653K169fr3r16uV5jJ3g4GCFhoY6bQAAAHllypQpuvXWW1WiRAmrLDQ0VIcOHXKKO3TokGJiYrJ9b2JiYqJiY2NVsWJFt9rjVsI4bdo0p0kun3/+uf755x/dcsstbr3pnXfeqTlz5mjPnj2SpI0bN+rbb7/VnXfe6ZUYAACAizn8/HK0Sco0JyLjdjlXfv/9d/3zzz8aNmyYU/l9992njz76SG+//bZWr16tF154QcuWLVNqaqri4+OzdU7Dhw9XoUKFNGjQILeuhVv3MG7atElVqlRRjRo1dOTIEW3dulUvvvii09I6//zzj9P9f2+99Za++uortWvXTvfee68k6ZFHHtHq1atVv359RUdHa+3aterXr5/69+9v1cvLGAAAgIvlxj2M5cuXdyofN26cxo8f77LulClTVLlyZd14441O5SNGjFDJkiU1a9YszZw5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93//p1KlSjntS0pK0pdffqkxY8aoQYMGKlq0qB566CHVqFFDb731lhX3yiuvqEuXLhoyZIhKlCihJ554QvXr19frr7/ulRgAAIBMMu5h9HTLgT///FO///67OnXq5FR++vRpValSRRUrVlTXrl21du1al8e5OJlMT09XUlKSChYs6FZ73E4YH3jgAbVq1Uo333xzpn3GGKWnp8vPz/mw/v7++vnnn62Y1atXq02bNk4xN954o1avXp3nMQAAAHYyltXxdJOkhIQEpy05OdnlexYtWlQFCxbUtddeqwcffFBDhgyx9gUFBWns2LH65ptvtHTpUlWqVEnNmzd3a3j5jTfe0KFDh9S3b1+3roVbs6Q/++wzrV69WuvWrbPdHxISog4dOmjixIlq0KCBKlWqpBkzZuiPP/6wxtcTExN16tQplSxZ0qluiRIldODAgTyPsZOcnOz0gSYkJGQZCwAA8iljcjBL+lzCWL58eaficePGafz48VlWi42NVVJSkpYvX6777rtP4eHhGj58uCSpc+fO6ty5sxX7zjvvaN26dZo0aZK++OKLSzZpwYIFevLJJ/Xee+/pmmuucet0st3DGBsbqwceeEAzZ85UoUKFsoybPn26GjRooJYtWyosLExff/217r77bpfj65Lk5+cnc4lFLvMqZuLEiQoLC7O2iz9sAACA7IiLi1N8fLy1jR492mV80aJFVaZMGd15550aPny4XnnlFZfxjRs31tatWy/Zjm+++UZ9+vTR66+/rrvuusutc5Dc6GH866+/dPToUTVt2tQqS08/l3UHBARo+/btqlixokqUKKGpU6c61e3Zs6eioqIkSUWKFFGhQoV0+PBhp5hDhw5Z90TmZYyd0aNH69FHH7VeJyQkkDQCAHC1yYVnSYeGhio0NNSjQwQEBCglJcVlzJYtWzKNpF5s8eLF6tmzp1566SWNGDHCo7Zku4fxlltuUUpKis6cOWNtnTp1Uvfu3XXmzBlVrFjRtt6xY8f03Xff6ZZbbpF07ubL6667Tj/++KNT3PLly9W8efM8j7ETHBxsfcA5+aABAMCVy6EcrMMo94ayn3jiCf3yyy86e/as0tLS9N1332ny5Mm6/fbbrZgnn3xSq1at0tmzZ3X69Gm98sorWrZsme69914r5uuvv3Zam3Hp0qXq2bOnXn75ZT344IMeX4tsJ4wOh0MBAQFOm8PhsMozfPLJJ/riiy+UlJSk7du3q3fv3oqKitL9999vxTz66KP6+uuvNWvWLCUmJurtt9/WunXr9NBDD3klBgAAIJOMHkZPNzf07t1bzz33nCIiIhQSEqL7779fo0eP1sSJE51iXnjhBYWHh6t48eKaMWOG5s+fr9tuu82KOXv2rOLj461R4GeeeUbJyckaM2aM01I8AwcOdKt9uf5owK5du+qRRx7RkCFDFBQUpB49emj27NkqUKCAFdOlSxe9//77evrpp9W/f39Vq1ZNc+bM0bXXXuuVGAAAAG9q3LixlixZYq1v7e/vnymmUaNGVozD4ci0Ko10bkT4+PHjCgsLkyStWLFCqampmeKCgoLcap/DXGqGiAsZ2atdg/OThIQEhYWFKT4+3ieGpxcF1PB2E5z4F8rfn39ONLi3sbebYClSM8rbTXCyr9VgbzfB8l+DTpcOykNpSb71DNrGjzbxdhMspV+a7u0m4ArjyW94Rp19y2YqNCTrib4uj3EqSWXa3+EzuUNO5aiHMb8nigAA4CqWkwW4c7hwt6/J9SFpAACA/ODCBbg9qZuf0EUIAAAAl+hhBAAAsJOefm7ztG4+QsIIAABgJxcW7s4vGJIGAACAS/QwAgAA2GGWtIWEEQAAwAazpM8jYQQAALBDD6OFexgBAADgEj2MAAAAdozJQQ8jQ9KAz6rRs6q3m+Bk7+/bvd0Ey/7Xfvd2E5wUKDXP202wlPrjZ283wcmxMyHeboKTPxrW93YTLE2DfOcZ5JLkF+g7P6O/PrfK201w0jV1q7ebkGPcw3ie73zTAQAAfAkLd1u4hxEAAAAu0cMIAABghye9WEgYAQAA7LCsjoWEEQAAwA49jBbuYQQAAIBL9DACAADYMTmYJc2QNAAAwFWAexgtJIwAAAB2uIfRwj2MAAAAcIkeRgAAADt5/KSX9PR0bdu2TceOHVP16tUVERFhG2eM0caNG5WYmKgGDRqoQIEC2Tq+MUbff/+9ChYsqBYtWrjVNnoYAQAA7GQMSXu6uWHOnDmqWbOmbr31Vj322GOqWLGiRo4cmSlu/fr1qlOnjjp16qSnnnpK9evX16pV2XuO+EsvvaROnTpp6NChbrVNImEEAACwZ8z5iS9ub+4ljPHx8Vq6dKm2bNmi1atX68cff9Q777yjmTNnWjFHjx5Vhw4ddP311ys2NlYrVqzQTz/9pKSkpEsef82aNXr33Xc1ePBgty+DRMIIAADgdcOGDVPlypWt140bN1atWrW0Zs0aq+z999/X6dOn9cYbb8jf31+SVLJkSd10000ujx0fH6/bb79dH330kcLDwz1qHwkjAACAnXSTs01SQkKC05acnJyttz5y5Ii2bdumGjVqWGUrVqxQq1at5O/vr59//ll//fVXto53991369Zbb1W7du08uw5i0gsAAIC9XFiHsXz58k7F48aN0/jx411WTU9P1+DBgxUZGamBAwda5QcOHFBkZKTq1aun8PBwHT58WKdPn9aMGTPUunVr22N98MEH2rJli6ZNm+bZefx/JIwAAACXSVxcnEJDQ63XwcHBLuONMRo2bJjWrl2rlStXqnDhwta+oKAgrVixQj///LOaNm0qY4zuvfde9e3bV3v37rWGqTMcOXJEDz/8sCZMmKAVK1ZIknbu3KlTp05pyZIlatSokUqUKJGt8yBhBAAAsJMLy+qEhoY6JYyuGGN0zz33aNGiRVqxYoVq1qzptL9y5cpKTk5W06ZNJUkOh0P9+/fXBx98oO3bt6t69epO8SkpKbrhhhv0/fff6/vvv5ckbdu2TcePH9cbb7yhCRMmkDACAADkSB4+6SWjt3DBggVavny5atWqlSmmc+fOWrlypc6cOWOtvbhz5045HA6VLl1aknTw4EHFxMSoTZs2ioyM1JIlS5yOMWrUKH311VeZyi+FhBEAAMBOHj5L+oknntBHH32kl156SXFxcYqLi5MklS5dWtHR0ZKk/v37691339Wtt96qu+66SwcPHtSECRP08MMPW72YP/30k3r16qW4uDiVK1fOs7bbIGEEAADwsuTkZLVv317Lli3TsmXLrPKWLVtaCWNgYKBWrFiht956S7NmzVKxYsX0f//3f+rVq5cVX7p0aXXs2DHLp7/UqFFDLVu2dLt9JIwAAAB2Llgex6O6bnjrrbeyFVe4cGE99dRTWe5v0aKFy+HmwYMHe7R4NwkjAACADWPSZTwckva0nq8iYQQAALBjctDD6OlkGR/Fk14AAADgEj2MAAAAdvJwlrSvI2EEAACwYdLTZTxcuNvTer6KhBEAAMBOHi7c7eu4hxEAAAAu0cMIAABgJ93k4FnS+auHkYQRAADADkPSFhJGAAAAG0x6OY97GAEAAOASPYwAAAB28vBZ0r6O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"/>
 </div>
 </div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=34f80f16">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>On the real cube it keeps every dimension, so the result is still a cube you can <code>sel</code> into:</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=cf9078ba">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=100d8e31">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7336,13 +7456,13 @@ nc.variable_names</div>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">eager</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="s1">'values'</span><span class="p">)</span>  <span class="c1"># numpy</span>
-<span class="n">lazy</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">read_array</span><span class="p">(</span><span class="s1">'values'</span><span class="p">,</span> <span class="n">chunks</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span>  <span class="c1"># dask — one chunk per leading step</span>
-<span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">eager</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span> <span class="n">eager</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">lazy</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span> <span class="n">lazy</span><span class="o">.</span><span class="n">chunks</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">rate</span> <span class="o">=</span> <span class="n">rhum</span><span class="o">.</span><span class="n">differentiate</span><span class="p">(</span><span class="s1">'level'</span><span class="p">)</span>
+
+<span class="n">rate</span><span class="o">.</span><span class="n">dimension_names</span><span class="p">,</span> <span class="n">rate</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">rhum</span><span class="o">.</span><span class="n">shape</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-4">eager = nc.read_array('values')  # numpy
-lazy = nc.read_array('values', chunks=(1, -1, -1))  # dask — one chunk per leading step
-(type(eager).__name__, eager.shape), (type(lazy).__name__, lazy.chunks)</div>
+<div class="clipboard-copy-txt" id="cell-4">rate = rhum.differentiate('level')
+
+rate.dimension_names, rate.shape == rhum.shape</div>
 </div>
 </div>
 </div>
@@ -7354,25 +7474,29 @@ lazy = nc.read_array('values', chunks=(1, -1, -1))  # dask — one chunk per lea
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[4]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>(('ndarray', (3, 13, 14)), ('Array', ((1, 1, 1), (13,), (14,))))</pre>
+<pre>(['time', 'level', 'lat', 'lon'], True)</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=df3d26a6">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=c310f8bd">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="reduce-over-the-leading-axis">Reduce over the leading axis<a class="anchor-link" href="#reduce-over-the-leading-axis">¶</a></h2>
+<p>One thing worth knowing about gaps: a gap spoils the steps that <strong>read</strong> it, not its own. A central
+difference at step <em>i</em> reads <em>i-1</em> and <em>i+1</em> and never <em>i</em>, so the step holding the gap is the one
+step the gap does not spoil.</p>
+<h2 id="integrate-an-area-and-the-axis-is-consumed"><code>integrate</code> — an area, and the axis is consumed<a class="anchor-link" href="#integrate-an-area-and-the-axis-is-consumed">¶</a></h2><p><code>reduce(dim, how="sum")</code> adds the step values and ignores the spacing. <code>integrate</code> weights each
+trapezoid by its own gap, so widen the axis and the integral grows while the sum does not move.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=24225b12">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=4c3a52a4">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7390,13 +7514,29 @@ lazy = nc.read_array('values', chunks=(1, -1, -1))  # dask — one chunk per lea
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># No I/O until compute().</span>
-<span class="n">per_cell_mean</span> <span class="o">=</span> <span class="n">lazy</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
-<span class="n">per_cell_mean</span><span class="o">.</span><span class="n">compute</span><span class="p">()</span><span class="o">.</span><span class="n">shape</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">flat</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="mf">2.0</span><span class="p">),</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">geo</span><span class="p">,</span>
+    <span class="n">variable_name</span><span class="o">=</span><span class="s1">'v'</span><span class="p">,</span>
+    <span class="n">dims</span><span class="o">=</span><span class="n">ExtraDimensions</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">'level'</span><span class="p">,</span> <span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">10.0</span><span class="p">]),</span>
+<span class="p">)</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'v'</span><span class="p">)</span>
+
+<span class="p">(</span>
+    <span class="nb">float</span><span class="p">(</span><span class="n">flat</span><span class="o">.</span><span class="n">reduce</span><span class="p">(</span><span class="s1">'level'</span><span class="p">,</span> <span class="s1">'sum'</span><span class="p">)</span><span class="o">.</span><span class="n">read_array</span><span class="p">()[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]),</span>
+    <span class="nb">float</span><span class="p">(</span><span class="n">flat</span><span class="o">.</span><span class="n">integrate</span><span class="p">(</span><span class="s1">'level'</span><span class="p">)</span><span class="o">.</span><span class="n">read_array</span><span class="p">()[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]),</span>
+<span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-5"># No I/O until compute().
-per_cell_mean = lazy.mean(axis=0)
-per_cell_mean.compute().shape</div>
+<div class="clipboard-copy-txt" id="cell-5">flat = NetCDF.from_array(
+    np.full((3, 1, 1), 2.0),
+    geo_ref=geo,
+    variable_name='v',
+    dims=ExtraDimensions(name='level', values=[0.0, 1.0, 10.0]),
+).get_variable('v')
+
+(
+    float(flat.reduce('level', 'sum').read_array()[0, 0]),
+    float(flat.integrate('level').read_array()[0, 0]),
+)</div>
 </div>
 </div>
 </div>
@@ -7405,37 +7545,29 @@ per_cell_mean.compute().shape</div>
 <div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/numpy/_core/_methods.py:49: RuntimeWarning: overflow encountered in reduce
-  return umr_sum(a, axis, dtype, out, keepdims, initial, where)
-</pre>
-</div>
-</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[5]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>(13, 14)</pre>
+<pre>(6.0, 20.0)</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=759998b2">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=f3a0a2ff">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="multi-file-stacks-open_mfdataset">Multi-file stacks — <code>open_mfdataset</code><a class="anchor-link" href="#multi-file-stacks-open_mfdataset">¶</a></h2><p>One variable at a time; returns a <code>(n_files, *var_shape)</code> dask array. Here we reuse one
-file three times to stand in for a real multi-file cube.</p>
+<p>The integrated axis is <strong>consumed</strong>, exactly as a full <code>reduce</code> collapses one — a <code>(time, level)</code>
+cube integrated over <code>level</code> comes back on <code>time</code> alone:</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=56b04c62">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=ddfc7459">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7453,13 +7585,13 @@ file three times to stand in for a real multi-file cube.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">paths</span> <span class="o">=</span> <span class="p">[</span><span class="n">DATA</span> <span class="o">/</span> <span class="s1">'netcdf'</span> <span class="o">/</span> <span class="s1">'cf__4v__1d3-3d1__proj__y-desc.nc'</span><span class="p">]</span> <span class="o">*</span> <span class="mi">3</span>
-<span class="n">stack</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">open_mfdataset</span><span class="p">(</span><span class="n">paths</span><span class="p">,</span> <span class="n">variable</span><span class="o">=</span><span class="s1">'values'</span><span class="p">)</span>
-<span class="n">stack</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">stack</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">compute</span><span class="p">()</span><span class="o">.</span><span class="n">shape</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">column</span> <span class="o">=</span> <span class="n">rhum</span><span class="o">.</span><span class="n">integrate</span><span class="p">(</span><span class="s1">'level'</span><span class="p">)</span>
+
+<span class="n">rhum</span><span class="o">.</span><span class="n">_band_dim_names</span><span class="p">,</span> <span class="n">column</span><span class="o">.</span><span class="n">_band_dim_names</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-6">paths = [DATA / 'netcdf' / 'cf__4v__1d3-3d1__proj__y-desc.nc'] * 3
-stack = NetCDF.open_mfdataset(paths, variable='values')
-stack.shape, stack.mean(axis=0).compute().shape</div>
+<div class="clipboard-copy-txt" id="cell-6">column = rhum.integrate('level')
+
+rhum._band_dim_names, column._band_dim_names</div>
 </div>
 </div>
 </div>
@@ -7471,39 +7603,35 @@ stack.shape, stack.mean(axis=0).compute().shape</div>
 <div class="jp-OutputArea-child">
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/home/runner/work/pyramids/pyramids/src/pyramids/netcdf/_mfdataset.py:72: UserWarning: Reopening '../../../examples/data/netcdf/cf__4v__1d3-3d1__proj__y-desc.nc' while 1 lazy-read handle(s) for it were still parked; the parked handle(s) were released to avoid two live GDAL handles to one file (which can crash GDAL on Windows). A lazy array still referencing this file will re-open on its next chunk read -- drop it or call close() before reopening to avoid re-parking a second handle.
-  nc = NetCDF.read_file(path)
-/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/osgeo/gdal.py:13224: RuntimeWarning: dimension #0 (bands) is not a Time or Vertical dimension.
-  return _gdal.Open(*args)
-/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/numpy/_core/_methods.py:49: RuntimeWarning: overflow encountered in reduce
-  return umr_sum(a, axis, dtype, out, keepdims, initial, where)
+<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/dask/array/core.py:1735: FutureWarning: The `numpy.trapezoid` function is not implemented by Dask array. You may want to use the da.map_blocks function or something similar to silence this warning. Your code may stop working in a future release.
+  warnings.warn(
 </pre>
 </div>
 </div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>((3, 3, 13, 14), (3, 13, 14))</pre>
+<pre>(('time', 'level'), ('time',))</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=0cfa4d2f">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=dd12e97d">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="kerchunk-manifests-optional">Kerchunk manifests (optional)<a class="anchor-link" href="#kerchunk-manifests-optional">¶</a></h2><p><code>to_kerchunk</code> writes a JSON byte-range index so the file can be opened zero-copy by
-downstream tools. It needs the <code>[lazy]</code> extra — guard the call so the notebook
-still runs without it.</p>
+<p>The <strong>sign follows the coordinates</strong> rather than being normalised away. A pressure axis descends,
+so integrating down it is negative — that is what the coordinates say, and it is not second-guessed.
+Reverse the axis, or negate the result, when the magnitude is what you want.</p>
 </div>
 </div>
 </div>
 </div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
-<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=a2e722ec">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=485dd4c9">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -7521,25 +7649,13 @@ still runs without it.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
-
-<span class="n">manifest</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s1">'pyramids-nc-'</span><span class="p">))</span> <span class="o">/</span> <span class="s1">'single.json'</span>
-<span class="k">try</span><span class="p">:</span>
-    <span class="n">refs</span> <span class="o">=</span> <span class="n">nc</span><span class="o">.</span><span class="n">to_kerchunk</span><span class="p">(</span><span class="n">manifest</span><span class="p">)</span>
-    <span class="n">outcome</span> <span class="o">=</span> <span class="s1">'wrote manifest:'</span><span class="p">,</span> <span class="n">manifest</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>
-<span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-    <span class="n">outcome</span> <span class="o">=</span> <span class="s1">'lazy extra missing:'</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
-<span class="n">outcome</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="nb">float</span><span class="p">(</span><span class="n">column</span><span class="o">.</span><span class="n">read_array</span><span class="p">()[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">])</span> <span class="k">if</span> <span class="n">column</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">3</span> <span class="k">else</span> <span class="nb">float</span><span class="p">(</span>
+    <span class="n">column</span><span class="o">.</span><span class="n">read_array</span><span class="p">()[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>
+<span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7">import tempfile
-
-manifest = Path(tempfile.mkdtemp(prefix='pyramids-nc-')) / 'single.json'
-try:
-    refs = nc.to_kerchunk(manifest)
-    outcome = 'wrote manifest:', manifest.exists()
-except ImportError as exc:
-    outcome = 'lazy extra missing:', str(exc)
-outcome</div>
+<div class="clipboard-copy-txt" id="cell-7">float(column.read_array()[0, 0, 0]) if column.read_array().ndim == 3 else float(
+    column.read_array()[0, 0]
+)</div>
 </div>
 </div>
 </div>
@@ -7551,30 +7667,644 @@ outcome</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>('wrote manifest:', True)</pre>
+<pre>-14653.127800603397</pre>
 </div>
 </div>
 </div>
 </div>
 </div>
 </div>
-<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=ec490c60">
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3ab8246f">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h2 id="where-to-next">Where to next<a class="anchor-link" href="#where-to-next">¶</a></h2><p>Three tiers for <code>NetCDF</code> + Dask:</p>
+<h2 id="cumulative_integrate-the-running-integral"><code>cumulative_integrate</code> — the running integral<a class="anchor-link" href="#cumulative_integrate-the-running-integral">¶</a></h2><p><code>integrate</code>'s length-preserving twin: the integral <em>up to</em> each step. Its last step is what
+<code>integrate</code> answers for the whole axis.</p>
+<p>It starts at <strong>zero</strong>, because no interval has been traversed yet — a real asymmetry with <code>cumsum</code>,
+whose first step holds the first value.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=6f42bb9b">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [8]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-8">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">steady</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="mf">2.0</span><span class="p">),</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">geo</span><span class="p">,</span>
+    <span class="n">variable_name</span><span class="o">=</span><span class="s1">'v'</span><span class="p">,</span>
+    <span class="n">dims</span><span class="o">=</span><span class="n">ExtraDimensions</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">'level'</span><span class="p">,</span> <span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">]),</span>
+<span class="p">)</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'v'</span><span class="p">)</span>
+
+<span class="p">(</span>
+    <span class="n">steady</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="s1">'level'</span><span class="p">)</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+    <span class="n">steady</span><span class="o">.</span><span class="n">cumulative_integrate</span><span class="p">(</span><span class="s1">'level'</span><span class="p">)</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+    <span class="nb">float</span><span class="p">(</span><span class="n">steady</span><span class="o">.</span><span class="n">integrate</span><span class="p">(</span><span class="s1">'level'</span><span class="p">)</span><span class="o">.</span><span class="n">read_array</span><span class="p">()[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]),</span>
+<span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-8">steady = NetCDF.from_array(
+    np.full((4, 1, 1), 2.0),
+    geo_ref=geo,
+    variable_name='v',
+    dims=ExtraDimensions(name='level', values=[0.0, 1.0, 2.0, 3.0]),
+).get_variable('v')
+
+(
+    steady.cumsum('level').read_array().ravel().tolist(),
+    steady.cumulative_integrate('level').read_array().ravel().tolist(),
+    float(steady.integrate('level').read_array()[0, 0]),
+)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[8]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>([2.0, 4.0, 6.0, 8.0], [0.0, 2.0, 4.0, 6.0], 6.0)</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=a6fe847f">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="polyfit-a-per-cell-trend"><code>polyfit</code> — a per-cell trend<a class="anchor-link" href="#polyfit-a-per-cell-trend">¶</a></h2><p>The least-squares fit, vectorised over every cell. This is the first member that <strong>replaces</strong> a
+dimension with a differently-named one: fitting degree <em>n</em> over <em>k</em> steps answers <em>n+1</em>
+coefficients, so <code>level</code> becomes <code>degree</code> of length <code>deg + 1</code>.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=9d57122c">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [9]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-9">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">trend</span> <span class="o">=</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">,</span> <span class="mf">5.0</span><span class="p">,</span> <span class="mf">7.0</span><span class="p">])</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+    <span class="n">geo_ref</span><span class="o">=</span><span class="n">geo</span><span class="p">,</span>
+    <span class="n">variable_name</span><span class="o">=</span><span class="s1">'v'</span><span class="p">,</span>
+    <span class="n">dims</span><span class="o">=</span><span class="n">ExtraDimensions</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s1">'time'</span><span class="p">,</span> <span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">]),</span>
+<span class="p">)</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'v'</span><span class="p">)</span>
+
+<span class="n">fit</span> <span class="o">=</span> <span class="n">trend</span><span class="o">.</span><span class="n">polyfit</span><span class="p">(</span><span class="s1">'time'</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+<span class="p">(</span>
+    <span class="n">fit</span><span class="o">.</span><span class="n">_band_dim_names</span><span class="p">,</span>
+    <span class="n">fit</span><span class="o">.</span><span class="n">_band_dim_sizes</span><span class="p">,</span>
+    <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">fit</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">()],</span>
+<span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-9">trend = NetCDF.from_array(
+    np.array([1.0, 3.0, 5.0, 7.0]).reshape(4, 1, 1),
+    geo_ref=geo,
+    variable_name='v',
+    dims=ExtraDimensions(name='time', values=[0.0, 1.0, 2.0, 3.0]),
+).get_variable('v')
+
+fit = trend.polyfit('time', 1)
+(
+    fit._band_dim_names,
+    fit._band_dim_sizes,
+    [round(c, 6) for c in fit.read_array().ravel().tolist()],
+)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[9]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>(('degree',), (2,), [2.0, 1.0])</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3d95c3c2">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><code>[2.0, 1.0]</code> is <code>2x + 1</code> — <strong>highest power first</strong>, which is <code>numpy.polyfit</code>'s own order. xarray
+reverses it; pyramids follows the library it calls, and the <code>degree</code> stamps say which convention a
+result is in so there is never any doubt:</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=640654e7">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [10]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-10">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">trend</span><span class="o">.</span><span class="n">polyfit</span><span class="p">(</span><span class="s1">'time'</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s1">'degree'</span><span class="p">])</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-10">np.asarray(trend.polyfit('time', 2).coords['degree']).tolist()</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[10]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>[2.0, 1.0, 0.0]</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=6d757f9d">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>Two things to know. The fit uses the <strong>coordinates</strong> as sample positions, so an uneven axis fits
+correctly. And <code>numpy.polyfit</code> has no gap concept, so a cell whose series holds a gap answers
+all-NaN coefficients rather than a fit over the steps that remain — run <code>dropna</code> or
+<code>interpolate_na</code> first when a partial series should still fit.</p>
+<h2 id="cumulative-the-accessor-spelling"><code>cumulative</code> — the accessor spelling<a class="anchor-link" href="#cumulative-the-accessor-spelling">¶</a></h2><p>xarray spells the running total <code>cumulative(dim).sum()</code>. pyramids already answered it as <code>cumsum</code>,
+so this is the accessor <strong>over</strong> the shipped members: it forwards, and a test pins the equivalence
+so the two spellings cannot drift.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d2c8415f">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [11]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-11">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="p">(</span>
+    <span class="n">steady</span><span class="o">.</span><span class="n">cumulative</span><span class="p">(</span><span class="s1">'level'</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+    <span class="o">==</span> <span class="n">steady</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="s1">'level'</span><span class="p">)</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+    <span class="nb">repr</span><span class="p">(</span><span class="n">steady</span><span class="o">.</span><span class="n">cumulative</span><span class="p">(</span><span class="s1">'level'</span><span class="p">)),</span>
+<span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-11">(
+    steady.cumulative('level').sum().read_array().ravel().tolist()
+    == steady.cumsum('level').read_array().ravel().tolist(),
+    repr(steady.cumulative('level')),
+)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[11]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>(True, "CumulativeAccessor(dim='level')")</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=93040951">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="calendars">Calendars<a class="anchor-link" href="#calendars">¶</a></h2><p>Climate-model output rarely uses a real calendar: <code>360_day</code>, <code>noleap</code> and <code>all_leap</code> are
+bookkeeping calendars, and pyramids already <em>reads</em> them — <code>cftime</code> is a core dependency and the
+store's <code>calendar</code> attribute is parsed on the way in. These two members are the other half.</p>
+<p>They divide the work, and the division is the whole point:</p>
 <ul>
-<li><strong>Complete cookbook (offline)</strong> —
-<a href="../netcdf/lazy-netcdf-complete.ipynb">Lazy <code>NetCDF</code></a>: <code>unpack</code>, combined kerchunk
-manifests, handing arrays to xarray.</li>
-<li><strong>Cloud (live data)</strong> —
-<a href="../netcdf/dask-lazy-netcdf.ipynb">Dask on ERA5 (AWS)</a>: kerchunk over a decade of
-reanalysis.</li>
-<li><strong>Narrative guide</strong> — the <a href="../../tutorials/lazy/lazy-netcdf.md">Lazy NetCDF tutorial</a>.</li>
-<li><strong>All classes at a glance</strong> — <a href="overview.ipynb">the overview</a>.</li>
+<li><strong><code>convert_calendar</code> keeps the values</strong> and moves the stamps. A date the target calendar has no
+day for is dropped, and its step with it.</li>
+<li><strong><code>interp_calendar</code> keeps the steps</strong> and moves the values, interpolating onto the target's own
+stamps. Nothing is lost.</li>
 </ul>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=0e01bbb9">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [12]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-12">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">model_cube</span><span class="p">(</span><span class="n">offsets</span><span class="p">,</span> <span class="n">calendar</span><span class="p">,</span> <span class="n">values</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""A small cube on a model calendar."""</span>
+    <span class="n">planes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="nb">float</span><span class="p">(</span><span class="n">v</span><span class="p">))</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">values</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">NetCDF</span><span class="o">.</span><span class="n">from_array</span><span class="p">(</span>
+        <span class="n">planes</span><span class="p">,</span>
+        <span class="n">geo_ref</span><span class="o">=</span><span class="n">geo</span><span class="p">,</span>
+        <span class="n">variable_name</span><span class="o">=</span><span class="s1">'v'</span><span class="p">,</span>
+        <span class="n">dims</span><span class="o">=</span><span class="n">ExtraDimensions</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s1">'time'</span><span class="p">,</span>
+            <span class="n">values</span><span class="o">=</span><span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">o</span><span class="p">)</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">offsets</span><span class="p">],</span>
+            <span class="n">attrs</span><span class="o">=</span><span class="p">{</span><span class="s1">'time'</span><span class="p">:</span> <span class="p">{</span><span class="s1">'units'</span><span class="p">:</span> <span class="s1">'days since 2001-01-01'</span><span class="p">,</span> <span class="s1">'calendar'</span><span class="p">:</span> <span class="n">calendar</span><span class="p">}},</span>
+        <span class="p">),</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">get_variable</span><span class="p">(</span><span class="s1">'v'</span><span class="p">)</span>
+
+
+<span class="n">on_360</span> <span class="o">=</span> <span class="n">model_cube</span><span class="p">([</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">60.0</span><span class="p">],</span> <span class="s1">'360_day'</span><span class="p">,</span> <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">])</span>
+<span class="n">on_360</span><span class="o">.</span><span class="n">_resolved_band_dim_time_attrs</span><span class="p">()[</span><span class="s1">'time'</span><span class="p">]</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-12">def model_cube(offsets, calendar, values):
+    """A small cube on a model calendar."""
+    planes = np.stack([np.full((1, 1), float(v)) for v in values])
+    return NetCDF.from_array(
+        planes,
+        geo_ref=geo,
+        variable_name='v',
+        dims=ExtraDimensions(
+            name='time',
+            values=[float(o) for o in offsets],
+            attrs={'time': {'units': 'days since 2001-01-01', 'calendar': calendar}},
+        ),
+    ).get_variable('v')
+
+
+on_360 = model_cube([0.0, 60.0], '360_day', [1.0, 2.0])
+on_360._resolved_band_dim_time_attrs()['time']</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[12]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>('days since 2001-01-01', '360_day')</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=494b8d88">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><code>convert_calendar</code> restamps. Day 60 of a 360-day year is 1 March (three 30-day months); on a
+365-day calendar 1 March is day 59, so the offset moves by one while the values stay put:</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=cf8a28e0">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [13]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-13">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">moved</span> <span class="o">=</span> <span class="n">on_360</span><span class="o">.</span><span class="n">convert_calendar</span><span class="p">(</span><span class="s1">'noleap'</span><span class="p">)</span>
+
+<span class="p">(</span>
+    <span class="n">moved</span><span class="o">.</span><span class="n">_resolved_band_dim_time_attrs</span><span class="p">()[</span><span class="s1">'time'</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span>
+    <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">moved</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s1">'time'</span><span class="p">])</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+    <span class="n">moved</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span>
+<span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-13">moved = on_360.convert_calendar('noleap')
+
+(
+    moved._resolved_band_dim_time_attrs()['time'][1],
+    np.asarray(moved.coords['time']).tolist(),
+    moved.read_array().ravel().tolist(),
+)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[13]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>('noleap', [0.0, 59.0], [1.0, 2.0])</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=e4157ad8">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>When a date has no counterpart the step is <strong>dropped</strong>. Under <code>all_leap</code>, day 59 is 29 February —
+a day <code>noleap</code> does not have — so converting loses that step and the axis gets shorter.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=103fddc1">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [14]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-14">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">leap</span> <span class="o">=</span> <span class="n">model_cube</span><span class="p">([</span><span class="mf">58.0</span><span class="p">,</span> <span class="mf">59.0</span><span class="p">,</span> <span class="mf">60.0</span><span class="p">],</span> <span class="s1">'all_leap'</span><span class="p">,</span> <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">])</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+
+<span class="k">with</span> <span class="n">warnings</span><span class="o">.</span><span class="n">catch_warnings</span><span class="p">():</span>
+    <span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s1">'ignore'</span><span class="p">)</span>
+    <span class="n">dropped</span> <span class="o">=</span> <span class="n">leap</span><span class="o">.</span><span class="n">convert_calendar</span><span class="p">(</span><span class="s1">'noleap'</span><span class="p">)</span>
+
+<span class="n">leap</span><span class="o">.</span><span class="n">_band_dim_sizes</span><span class="p">,</span> <span class="n">dropped</span><span class="o">.</span><span class="n">_band_dim_sizes</span><span class="p">,</span> <span class="n">dropped</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-14">leap = model_cube([58.0, 59.0, 60.0], 'all_leap', [1.0, 2.0, 3.0])
+
+import warnings
+
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore')
+    dropped = leap.convert_calendar('noleap')
+
+leap._band_dim_sizes, dropped._band_dim_sizes, dropped.read_array().ravel().tolist()</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[14]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>((3,), (2,), [1.0, 3.0])</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=3f565ef0">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><code>align_on='year'</code> drops nothing instead, by keeping the <strong>position in the year</strong> rather than the
+calendar date — which is what you want when the dates are model bookkeeping rather than real days:</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=8e9a4fa7">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [15]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-15">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">kept</span> <span class="o">=</span> <span class="n">leap</span><span class="o">.</span><span class="n">convert_calendar</span><span class="p">(</span><span class="s1">'noleap'</span><span class="p">,</span> <span class="n">align_on</span><span class="o">=</span><span class="s1">'year'</span><span class="p">)</span>
+
+<span class="n">kept</span><span class="o">.</span><span class="n">_band_dim_sizes</span><span class="p">,</span> <span class="n">kept</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-15">kept = leap.convert_calendar('noleap', align_on='year')
+
+kept._band_dim_sizes, kept.read_array().ravel().tolist()</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[15]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>((3,), [1.0, 2.0, 3.0])</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=f821e40d">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p><code>interp_calendar</code> is the lossless route: it interpolates the values onto another cube's stamps over
+a calendar-independent decimal-year scale, so every target step is answered and the two cubes line
+up for <code>concat</code> or an operator.</p>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell jp-CodeCell jp-Notebook-cell" id="cell-id=d620babf">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [16]:</div><div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="CodeMirror cm-s-jupyter">
+<div class="zeroclipboard-container">
+<clipboard-copy ,="" aria-label="Copy to Clipboard" for="cell-16">
+<div>
+<span class="notice" hidden="">Copied!</span>
+<svg aria-hidden="true" class="clipboard-copy-icon" data-view-component="true" height="20" version="1.1" viewbox="0 0 16 16" width="20">
+<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+</clipboard-copy>
+</div>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">source</span> <span class="o">=</span> <span class="n">model_cube</span><span class="p">([</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">180.0</span><span class="p">,</span> <span class="mf">359.0</span><span class="p">],</span> <span class="s1">'360_day'</span><span class="p">,</span> <span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">10.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">])</span>
+<span class="n">onto</span> <span class="o">=</span> <span class="n">model_cube</span><span class="p">([</span><span class="mf">90.0</span><span class="p">,</span> <span class="mf">270.0</span><span class="p">],</span> <span class="s1">'noleap'</span><span class="p">,</span> <span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">])</span>
+
+<span class="n">aligned</span> <span class="o">=</span> <span class="n">source</span><span class="o">.</span><span class="n">interp_calendar</span><span class="p">(</span><span class="n">onto</span><span class="p">)</span>
+<span class="p">(</span>
+    <span class="n">aligned</span><span class="o">.</span><span class="n">_band_dim_sizes</span><span class="p">,</span>
+    <span class="n">aligned</span><span class="o">.</span><span class="n">_resolved_band_dim_time_attrs</span><span class="p">()[</span><span class="s1">'time'</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span>
+    <span class="p">[</span><span class="nb">round</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">aligned</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ravel</span><span class="p">()</span><span class="o">.</span><span class="n">tolist</span><span class="p">()],</span>
+<span class="p">)</span>
+</pre></div>
+<div class="clipboard-copy-txt" id="cell-16">source = model_cube([0.0, 180.0, 359.0], '360_day', [0.0, 10.0, 20.0])
+onto = model_cube([90.0, 270.0], 'noleap', [0.0, 0.0])
+
+aligned = source.interp_calendar(onto)
+(
+    aligned._band_dim_sizes,
+    aligned._resolved_band_dim_time_attrs()['time'][1],
+    [round(v, 3) for v in aligned.read_array().ravel().tolist()],
+)</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[16]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>((2,), 'noleap', [4.932, 14.821])</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell" id="cell-id=ffb05d91">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<h2 id="recap">Recap<a class="anchor-link" href="#recap">¶</a></h2><ul>
+<li><code>differentiate(dim)</code> is a <strong>rate</strong> — <code>diff</code> divided by the real coordinate spacing, axis kept.
+A gap spoils its neighbours, not its own step.</li>
+<li><code>integrate(dim)</code> is an <strong>area</strong> — the trapezoid rule, consuming the axis, signed as the
+coordinates say.</li>
+<li><code>cumulative_integrate(dim)</code> is the running integral, axis kept, <strong>first step zero</strong>.</li>
+<li><code>polyfit(dim, deg)</code> fits per cell and replaces the axis with <code>degree</code>, <strong>highest power first</strong>.</li>
+<li><code>cumulative(dim).sum()</code> / <code>.prod()</code> is the accessor over the shipped <code>cumsum</code> / <code>cumprod</code>.</li>
+<li><code>convert_calendar(cal)</code> keeps the values and may lose a step; <code>interp_calendar(other)</code> keeps
+every step and moves the values. Reach for the second when losing a step is unacceptable.</li>
+</ul>
+<p>All five numerical members read the dimension's <strong>coordinates</strong>, so they refuse an axis that carries
+none, a spatial axis, and an axis too short for the operation — rather than quietly treating step
+positions as measurements.</p>
 </div>
 </div>
 </div>
@@ -7621,7 +8351,7 @@ reanalysis.</li>
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../feature/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Dask quickstart —">
+          <a href="../broadcasting-and-coordinate-roles/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Broadcasting a band axis, and coordinate roles">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -7631,20 +8361,20 @@ reanalysis.</li>
                 Previous
               </span>
               <div class="md-ellipsis">
-                Dask quickstart —
+                Broadcasting a band axis, and coordinate roles
               </div>
             </div>
           </a>
         
         
           
-          <a href="../../conversions/geotiff-netcdf/" class="md-footer__link md-footer__link--next" aria-label="Next: Converting between GeoTIFF and NetCDF">
+          <a href="../dask-lazy-netcdf/" class="md-footer__link md-footer__link--next" aria-label="Next: Lazy NetCDF reads + kerchunk + multi-file stacks with">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Converting between GeoTIFF and NetCDF
+                Lazy NetCDF reads + kerchunk + multi-file stacks with
               </div>
             </div>
             <div class="md-footer__button md-icon">

@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -3123,6 +3123,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../../examples/netcdf/calculus-and-calendars/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Calculus along a band axis, and calendars
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../../examples/netcdf/dask-lazy-netcdf/" class="md-nav__link">
         
   
@@ -3190,10 +3218,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11_7" >
         
           
-          <label class="md-nav__link" for="__nav_3_11_6" id="__nav_3_11_6_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3_11_7" id="__nav_3_11_7_label" tabindex="0">
             
   
   
@@ -3211,8 +3239,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_3_11_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_11_6">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_3_11_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_11_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -6477,7 +6505,7 @@
 
 
 <h1 id="netcdf-public-api"><a class="toclink" href="#netcdf-public-api"><code>NetCDF</code> — public API</a><a class="headerlink" href="#netcdf-public-api" title="Permanent link">#</a></h1>
-<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 123 in all: 88 methods, 27 properties,
+<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 130 in all: 95 methods, 27 properties,
 7 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
 <code>__len__</code>). <code>concat</code> and <code>merge</code> are counted among the methods: each is callable on the class
 (<code>NetCDF.concat([a, b], dim)</code>) and on a cube (<code>a.concat([b], dim)</code>, which joins the
@@ -6727,6 +6755,14 @@ A variable with no raster plane is the exception — see each member's docstring
 <td><code>create_main_dimension()</code></td>
 <td>Creates a dimension with its indexing variable (static helper).</td>
 </tr>
+<tr>
+<td><code>convert_calendar()</code></td>
+<td>Restamps the time axis onto another CF calendar.</td>
+</tr>
+<tr>
+<td><code>interp_calendar()</code></td>
+<td>Interpolates onto another cube's calendar stamps.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="reading-and-selecting"><a class="toclink" href="#reading-and-selecting">Reading and selecting</a><a class="headerlink" href="#reading-and-selecting" title="Permanent link">#</a></h2>
@@ -6845,6 +6881,26 @@ A variable with no raster plane is the exception — see each member's docstring
 <tr>
 <td><code>cumprod()</code></td>
 <td>Multiplies the values along <code>dim</code>, step by step — <code>skipna</code>.</td>
+</tr>
+<tr>
+<td><code>cumulative()</code></td>
+<td>Accessor form of the two above — <code>.sum()</code> / <code>.prod()</code>.</td>
+</tr>
+<tr>
+<td><code>differentiate()</code></td>
+<td>Derivative along <code>dim</code>, by its coordinate spacing.</td>
+</tr>
+<tr>
+<td><code>integrate()</code></td>
+<td>Trapezoidal integral along <code>dim</code>, which it consumes.</td>
+</tr>
+<tr>
+<td><code>cumulative_integrate()</code></td>
+<td>Running trapezoidal integral along <code>dim</code>.</td>
+</tr>
+<tr>
+<td><code>polyfit()</code></td>
+<td>Per-cell least-squares coefficients along <code>dim</code>.</td>
 </tr>
 <tr>
 <td><code>shift()</code></td>
