@@ -709,23 +709,31 @@ class TestIselErrors:
             f"the message must list the dimensions there are, got: {by_index.value}"
         )
 
-    def test_a_variable_with_no_band_dimensions_is_refused_by_both(self):
-        """A root container tracks no band dims, and both selectors say so in the same way.
+    def test_a_container_selects_through_every_variable_that_spans_the_dimension(self):
+        """A container tracks no band dims of its own, and both selectors handle that now.
+
+        Both used to refuse a container, because the variable route reads the receiver's own
+        `_band_dim_names` and a container has none. They take the dimension from the **store**
+        instead and cut through the shared along-dimension route, so the container is a valid
+        receiver — which is what a caller reaching for the container first expects.
 
         Test scenario:
-            The container is the object a user reaches first, so calling `isel` on it instead
-            of on a variable is the likely mistake. The caller's name has to appear in the
-            message for the advice to make sense.
+            A root container, which tracks no band dimensions, is cut by position and by
+            label; both answer a container whose variables hold the selected step.
         """
         container = NetCDF.read_file(CF_PATH)
         assert container._band_dim_names == (), (
             f"a root container must track no band dims, got {container._band_dim_names!r}"
         )
 
-        with pytest.raises(ValueError, match=r"isel\(\) requires a variable"):
-            container.isel(time=0)
-        with pytest.raises(ValueError, match=r"sel\(\) requires a variable"):
-            container.sel(time=0)
+        by_position = container.isel(time=0)
+        by_label = container.sel(time=container.get_dimension_values("time")[0])
+
+        for cut in (by_position, by_label):
+            variable = cut.get_variable("temperature")
+            assert variable._band_dim_sizes[0] == 1, (
+                f"one step should survive, got {variable._band_dim_sizes!r}"
+            )
 
     def test_no_indexers_is_refused(self, cube):
         """``isel()`` names nothing to select, so it raises rather than returning the variable.

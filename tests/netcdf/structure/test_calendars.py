@@ -604,7 +604,7 @@ class TestContainerIsel:
         """
         container = _cube([0.0, 1.0, 2.0], "standard")
 
-        with pytest.raises(ValueError, match="not a dimension of this container"):
+        with pytest.raises(ValueError, match="not a band dimension of this container"):
             container.isel(nope=0)
 
     def test_a_spatial_axis_is_refused(self):
@@ -632,3 +632,140 @@ class TestContainerIsel:
 
         assert cut.variable_names == []
         assert _series(cut) == [1.0, 3.0]
+
+
+class TestContainerSelAndSqueeze:
+    """`sel` and `squeeze` on a container, the rest of the family `isel` opened.
+
+    All three used to refuse a container because the variable route reads the receiver's own
+    band layout. They now take the dimension from the store and cut through the shared
+    along-dimension route.
+    """
+
+    def test_sel_matches_a_label_exactly(self):
+        """Label selection resolves against the store's coordinates.
+
+        Test scenario:
+            A container stamped `[0, 1, 2]` selected at `1.0` keeps that one step.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard", values=[10.0, 20.0, 30.0])
+
+        assert _series(container.sel(time=1.0)) == [20.0]
+
+    def test_sel_takes_a_list_of_labels(self):
+        """Several labels at once, as on the variable route.
+
+        Test scenario:
+            Selecting `[0.0, 2.0]` keeps the first and last steps.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard", values=[10.0, 20.0, 30.0])
+
+        assert _series(container.sel(time=[0.0, 2.0])) == [10.0, 30.0]
+
+    def test_sel_snaps_with_nearest(self):
+        """`method="nearest"` works the same way it does on a variable.
+
+        Test scenario:
+            `1.2` snaps to the step stamped `1.0`.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard", values=[10.0, 20.0, 30.0])
+
+        assert _series(container.sel(time=1.2, method="nearest")) == [20.0]
+
+    def test_sel_takes_a_slice_of_labels(self):
+        """The label-range form.
+
+        Test scenario:
+            `slice(1.0, 2.0)` keeps the last two steps.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard", values=[10.0, 20.0, 30.0])
+
+        assert _series(container.sel(time=slice(1.0, 2.0))) == [20.0, 30.0]
+
+    def test_sel_reaches_every_variable_that_spans_the_dimension(self):
+        """A container answer must cover all of its variables.
+
+        Test scenario:
+            Two variables on one axis both come back cut to the selected step.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard", values=[1.0, 2.0, 3.0])
+        donor = _cube([0.0, 1.0, 2.0], "standard", values=[10.0, 20.0, 30.0], name="u")
+        container.set_variable("u", donor.get_variable("u"))
+
+        cut = container.sel(time=2.0)
+
+        assert _series(cut, "t") == [3.0]
+        assert _series(cut, "u") == [30.0]
+
+    def test_sel_refuses_a_label_that_matches_nothing(self):
+        """An unmatched label is a refusal, not an empty answer.
+
+        Test scenario:
+            A label no step carries is refused, and the message lists what is available.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard")
+
+        with pytest.raises(ValueError, match="No bands match"):
+            container.sel(time=999.0)
+
+    def test_sel_refuses_a_name_that_is_not_a_band_dimension(self):
+        """The refusal names the container's own band dimensions.
+
+        Test scenario:
+            An unknown name is refused with an actionable message.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard")
+
+        with pytest.raises(ValueError, match="not a band dimension of this container"):
+            container.sel(nope=1.0)
+
+    def test_squeeze_drops_a_length_one_dimension(self):
+        """The whole point of `squeeze`, now reachable on a container.
+
+        Test scenario:
+            A one-step axis is gone from the result's layout.
+        """
+        container = _cube([0.0], "standard", values=[7.0])
+
+        assert container.squeeze().get_variable("t")._band_dim_names == ()
+
+    def test_squeeze_takes_the_dimension_by_name(self):
+        """The named form agrees with the sweep.
+
+        Test scenario:
+            `squeeze("time")` drops the same axis.
+        """
+        container = _cube([0.0], "standard", values=[7.0])
+
+        assert container.squeeze("time").get_variable("t")._band_dim_names == ()
+
+    def test_squeeze_keeps_the_cells(self):
+        """Dropping a label must not disturb the data.
+
+        Test scenario:
+            The single step's value survives the squeeze.
+        """
+        container = _cube([0.0], "standard", values=[7.0])
+
+        assert _series(container.squeeze()) == [7.0]
+
+    def test_squeeze_refuses_a_longer_dimension(self):
+        """`squeeze` drops length one and nothing else.
+
+        Test scenario:
+            A three-step axis is refused, pointing at `isel` for the cut.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard")
+
+        with pytest.raises(ValueError, match="length one"):
+            container.squeeze("time")
+
+    def test_squeeze_with_nothing_to_drop_returns_the_receiver(self):
+        """A no-op must not pay for a rebuild of every variable.
+
+        Test scenario:
+            A container with no length-one band dimension comes back with its layout intact.
+        """
+        container = _cube([0.0, 1.0, 2.0], "standard")
+
+        assert container.squeeze().get_variable("t")._band_dim_names == ("time",)

@@ -1221,6 +1221,12 @@ class Selection(_Engine["NetCDF"]):
                 See Also:
                     `get_variable`: builds a variable subset and populates the
                         band-dim metadata that `sel()` consumes.
+
+        Note:
+            On a **container** the labels are resolved against the **store's** dimension
+            coordinates — a container carries no band layout of its own — and the cut goes
+            through the shared along-dimension route, so a variable that does not span the
+            dimension is carried over untouched and the auxiliaries follow the usual rule.
         """
         nc = self._ds
         if not kwargs:
@@ -1249,6 +1255,9 @@ class Selection(_Engine["NetCDF"]):
         # either way. An earlier version of this hoisted only the name check, on the stated
         # grounds that a preceding cut could narrow the coordinates a label needs — which
         # is not something any cut does.
+        if not _reduces_as_a_variable(nc):
+            return _container_sel(nc, kwargs, method, tolerance)
+
         resolved: list[tuple[str, list[int]]] = []
         for dim_name, selector in kwargs.items():
             resolved.append(
@@ -1862,11 +1871,19 @@ class Selection(_Engine["NetCDF"]):
 
               ```
 
+        On a **container** every variable spanning the dimension is rebuilt, because a
+        container has no single band layout to relabel. The cells are unchanged, but they are
+        read and written once — where the variable route only edits metadata and so is free.
+        Nothing of length one to drop is still a no-op on either shape.
+
         See Also:
-            NetCDF.expand_dims: The inverse — add a length-one dimension.
+            NetCDF.expand_dims: The inverse — add a length-one dimension. Still
+                variable-only: adding an axis to a container would have to invent its
+                position in every variable.
         """
         nc = self._ds
-        _refuse_a_container(nc, "squeeze")
+        if not _reduces_as_a_variable(nc):
+            return _container_squeeze(nc, dim)
         names = list(nc._band_dim_names)
         sizes = list(nc._band_dim_sizes)
         if dim is not None:
@@ -5812,6 +5829,10 @@ _INTERP_KINDS = (
 )
 """The `scipy.interpolate.interp1d` kinds `interp` / `interp_like` accept as `method`."""
 
+_UNSET = object()
+"""Tells `_resolve_one_dim` to read the receiver's own coordinates, where `None` is a
+real answer meaning the axis carries none."""
+
 _SPATIAL_AXIS_NAMES = {name.lower() for name in (*X_AXIS_NAMES, *Y_AXIS_NAMES)}
 """Axis names that identify the horizontal plane, which `interp` regrids through the warp path."""
 
@@ -6708,6 +6729,176 @@ def _carried_to_calendar(
     return carried, kept
 
 
+def _container_band_dimensions(nc: NetCDF, caller: str) -> dict[str, int]:
+    """The container's non-spatial dimensions and their lengths.
+
+    The container-side answer to `_band_dim_names` / `_band_dim_sizes`, which a container has
+    none of: its variables carry the band layout while the store carries the dimensions. The
+    `(y, x)` plane is excluded because it is pinned by the geotransform.
+
+    Args:
+        nc: The container.
+        caller: The member the user called, named in the refusal.
+
+    Returns:
+        dict[str, int]: Dimension name to length.
+
+    Raises:
+        ValueError: The container declares no non-spatial dimension at all.
+    """
+    sizes = {
+        name: size
+        for name, size in (nc.dimension_sizes or {}).items()
+        if name.lower() not in _SPATIAL_AXIS_NAMES
+    }
+    if not sizes:
+        raise ValueError(
+            f"{caller}() needs a non-spatial dimension, and this container declares none; "
+            f"its dimensions are {sorted(nc.dimension_sizes or {})}."
+        )
+    return sizes
+
+
+def _assert_container_dimension(
+    nc: NetCDF, dim_name: str, sizes: dict[str, int], caller: str
+) -> None:
+    """Refuse a name that is not one of the container's band dimensions.
+
+    Args:
+        nc: The container.
+        dim_name: The name the caller passed.
+        sizes: The container's band dimensions, from `_container_band_dimensions`.
+        caller: The member the user called, named in the refusal.
+
+    Raises:
+        ValueError: The name is a spatial axis, or not a dimension of the container at all.
+    """
+    if dim_name in sizes:
+        return
+    if dim_name.lower() in _SPATIAL_AXIS_NAMES:
+        raise ValueError(
+            f"{caller}() works along band (non-spatial) dimensions; {dim_name!r} is a "
+            "spatial axis. Use crop() or a windowed read for the horizontal plane."
+        )
+    raise ValueError(
+        f"{caller}() got {dim_name!r}, which is not a band dimension of this container; its "
+        f"band dimensions are {sorted(sizes)}."
+    )
+
+
+def _cut_container_along(
+    nc: NetCDF,
+    cuts: list[tuple[str, list[int], bool]],
+    sizes: dict[str, int],
+    caller: str,
+) -> NetCDF:
+    """Apply one positional cut per dimension to every variable that spans it.
+
+    Shared by the container routes of `isel`, `sel` and `squeeze`: each resolves its own
+    selectors to positions, and the cut itself is the same work.
+
+    Args:
+        nc: The container.
+        cuts: `(dimension, positions, collapse)` per dimension, in call order.
+        sizes: The container's band dimensions and lengths.
+        caller: The member the user called, named in refusals and warnings.
+
+    Returns:
+        NetCDF: A container holding the selected steps.
+    """
+    result = nc
+    for dim_name, indices, collapse in cuts:
+        op = _TakeSteps(
+            kept=tuple(indices),
+            squeeze=collapse,
+            whole=len(indices) == sizes[dim_name] and not collapse,
+            caller=caller,
+        )
+        result = _apply_to_container(result, dim_name, op)
+    return result
+
+
+def _container_sel(
+    nc: NetCDF,
+    kwargs: dict[str, Any],
+    method: str | None,
+    tolerance: float | None,
+) -> NetCDF:
+    """`sel` on a container: resolve each label against the store, then cut.
+
+    Args:
+        nc: The container.
+        kwargs: The `dim=label` pairs, exactly as `sel` accepts them.
+        method: `None` for an exact match, `"nearest"` to snap.
+        tolerance: The furthest a `"nearest"` snap may travel.
+
+    Returns:
+        NetCDF: A container holding the selected steps.
+
+    Raises:
+        ValueError: A name is not a band dimension of the container, the axis carries no
+            coordinates, or nothing matched.
+    """
+    sizes = _container_band_dimensions(nc, "sel")
+    cuts: list[tuple[str, list[int], bool]] = []
+    for dim_name, selector in kwargs.items():
+        _assert_container_dimension(nc, dim_name, sizes, "sel")
+        cuts.append(
+            (
+                dim_name,
+                _resolve_one_dim(
+                    nc,
+                    dim_name,
+                    selector,
+                    method,
+                    tolerance,
+                    coords=nc.get_dimension_values(dim_name),
+                ),
+                False,
+            )
+        )
+    return _cut_container_along(nc, cuts, sizes, "sel")
+
+
+def _container_squeeze(nc: NetCDF, dim: str | None) -> NetCDF:
+    """`squeeze` on a container: drop a length-one band dimension from every variable.
+
+    Unlike the variable route, which only relabels metadata and so is free, this rebuilds
+    each variable that spans the dimension — a container has no single band layout to
+    relabel. The cells are unchanged, but they are read and written once.
+
+    Args:
+        nc: The container.
+        dim: The dimension to drop, or `None` for every band dimension of length one.
+
+    Returns:
+        NetCDF: A container without those dimensions, or the receiver itself when there is
+        nothing of length one to drop.
+
+    Raises:
+        ValueError: `dim` is not a band dimension of the container, or is not length one.
+    """
+    sizes = _container_band_dimensions(nc, "squeeze")
+    if dim is not None:
+        _assert_container_dimension(nc, dim, sizes, "squeeze")
+        if sizes[dim] != 1:
+            raise ValueError(
+                f"squeeze() drops a dimension of length one, and {dim!r} has length "
+                f"{sizes[dim]}. Select one step first with isel({dim}=[0])."
+            )
+        gone = [dim]
+    else:
+        gone = [name for name, size in sizes.items() if size == 1]
+    if not gone:
+        # Nothing to drop, so nothing is rebuilt: the variable route returns a view here for
+        # the same reason, and rebuilding every variable for a call that changes nothing
+        # would copy the whole store.
+        return nc
+    return _cut_container_along(
+        nc, [(name, [0], True) for name in gone], sizes, "squeeze"
+    )
+
+
 def _container_isel(nc: NetCDF, indexers: dict[str, Any], *, drop: bool) -> NetCDF:
     """`isel` on a container: cut every variable that spans each named dimension.
 
@@ -6733,35 +6924,16 @@ def _container_isel(nc: NetCDF, indexers: dict[str, Any], *, drop: bool) -> NetC
         ValueError: A name is not a dimension of the container, is a spatial axis, or its
             selector does not resolve to a position along it.
     """
-    sizes = dict(nc.dimension_sizes or {})
-    resolved: list[tuple[str, list[int], bool]] = []
+    sizes = _container_band_dimensions(nc, "isel")
+    cuts: list[tuple[str, list[int], bool]] = []
     for dim_name, selector in indexers.items():
-        if dim_name not in sizes:
-            raise ValueError(
-                f"isel() got {dim_name!r}, which is not a dimension of this container; its "
-                f"dimensions are {sorted(sizes)}."
-            )
-        if dim_name.lower() in _SPATIAL_AXIS_NAMES:
-            raise ValueError(
-                f"isel() selects along band (non-spatial) dimensions; {dim_name!r} is a "
-                "spatial axis. Use crop() or a windowed read for the horizontal plane."
-            )
+        _assert_container_dimension(nc, dim_name, sizes, "isel")
         indices = _resolve_positional_indices(selector, sizes[dim_name], dim_name)
         # A scalar selector is dimension-reducing, as it is on the variable route and in
         # xarray; a list / tuple / slice is not, even when it keeps a single step.
         scalar = not isinstance(selector, (slice, list, tuple))
-        resolved.append((dim_name, indices, scalar))
-
-    result = nc
-    for dim_name, indices, scalar in resolved:
-        op = _TakeSteps(
-            kept=tuple(indices),
-            squeeze=bool(drop and scalar),
-            whole=len(indices) == sizes[dim_name],
-            caller="isel",
-        )
-        result = _apply_to_container(result, dim_name, op)
-    return result
+        cuts.append((dim_name, indices, bool(drop and scalar)))
+    return _cut_container_along(nc, cuts, sizes, "isel")
 
 
 def _run_convert_calendar(
@@ -8107,6 +8279,7 @@ def _resolve_one_dim(
     selector: Any,
     method: str | None,
     tolerance: float | None,
+    coords: Any = _UNSET,
 ) -> list[int]:
     """Resolve one `sel` keyword to positions, without cutting anything.
 
@@ -8115,12 +8288,17 @@ def _resolve_one_dim(
     `sel` refuse a wrong *value* in a later keyword as cheaply as a wrong name.
 
     Args:
-        nc: The variable the keyword is resolved against.
+        nc: The receiver the keyword is resolved against.
         dim_name: The dimension to narrow.
         selector: A coordinate value, a list of them, a boolean mask of the axis' own
             length, or a slice.
         method: `None` for an exact match, `"nearest"` to snap.
         tolerance: The furthest a `"nearest"` snap may travel.
+        coords: The axis' coordinate values to resolve against. Omitted for a **variable**,
+            which carries its own in `_band_dim_values_map`; passed for a **container**,
+            whose band layout lives on its variables while the coordinates live on the
+            store. Passing them also skips the band-dimension assertion, which a container
+            cannot answer — the caller has already checked the name against the store.
 
     Returns:
         list[int]: Positions along `dim_name` to keep.
@@ -8129,10 +8307,11 @@ def _resolve_one_dim(
         ValueError: The dimension is unknown, has no coordinates, or nothing matched.
         KeyError: A `"nearest"` request found nothing within `tolerance`.
     """
-    _assert_band_dimension(nc, dim_name, caller="sel")
+    if coords is _UNSET:
+        _assert_band_dimension(nc, dim_name, caller="sel")
+        coords = nc._band_dim_values_map.get(dim_name)
     selector = _as_a_sequence_of_labels(selector)
 
-    coords = nc._band_dim_values_map.get(dim_name)
     masked = _mask_positions(selector, coords, dim_name)
     if masked is not None:
         return masked
