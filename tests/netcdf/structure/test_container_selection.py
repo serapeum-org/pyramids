@@ -417,16 +417,29 @@ class TestAHierarchicalStoresRoot:
             "polyfit",
         ],
     )
-    def test_every_new_member_works_on_the_root(self, member: str):
-        """Each of them resolves the sub-group's dimensions rather than refusing.
+    def test_every_new_member_resolves_the_subgroups_dimensions(self, member: str):
+        """Each resolves the sub-group's dimensions instead of refusing the store.
+
+        The first version asserted `call() is not None`, which cannot fail — and it passed
+        while the result was unreadable (round 2, N5). What is verifiable here is the
+        *inventory*: the member reaches the sub-group's `time` and answers the same variable
+        set the pre-existing container members answer on the same store.
+
+        Note what this deliberately does **not** claim. A rebuilt grouped store's variables
+        cannot be resolved by name, and that is **pre-existing** — the test below pins it for
+        `reduce` and `cumsum`, neither touched by this PR. The round-1 commit's table said
+        these members moved to "ok", which overstated it: they stopped raising, and they share
+        the pre-existing limitation rather than escaping it.
 
         Args:
             member: The member under test.
 
         Test scenario:
-            Called on the root of a grouped store, each answers instead of raising.
+            Each member answers on the root with the same inventory as `cumsum`, the
+            pre-existing member closest to it.
         """
         root = Container(_grouped_store())
+        reference = Container(_grouped_store()).cumsum("time").variable_names
         call = {
             "isel": lambda: root.isel(time=0),
             "sel": lambda: root.sel(time=1.0),
@@ -437,7 +450,27 @@ class TestAHierarchicalStoresRoot:
             "polyfit": lambda: root.polyfit("time", 1),
         }[member]
 
-        assert call() is not None, f"{member} should answer on a hierarchical root"
+        assert call().variable_names == reference, (
+            f"{member} should answer the same inventory as cumsum on this store"
+        )
+
+    def test_the_unreadable_rebuild_is_pre_existing(self):
+        """Pins the boundary the test above relies on, so the note is not just prose.
+
+        Test scenario:
+            `reduce` and `cumsum` — neither touched by this PR — also produce a container whose
+            variables cannot be resolved by name on a grouped root. If that ever changes, this
+            fails and the note above needs revisiting.
+        """
+        for member in ("reduce", "cumsum"):
+            root = Container(_grouped_store())
+            result = (
+                root.reduce("time", "mean")
+                if member == "reduce"
+                else root.cumsum("time")
+            )
+            with pytest.raises(ValueError):
+                result.get_variable(result.variable_names[0])
 
     def test_cumulative_accepts_exactly_what_cumsum_accepts(self):
         """The accessor must not be stricter than the member it forwards to.

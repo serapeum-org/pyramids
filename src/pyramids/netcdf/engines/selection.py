@@ -4602,9 +4602,10 @@ class Selection(_Engine["NetCDF"]):
         The dimension keeps its length and its stamps, so a container's auxiliary variables are
         all carried over, those spanning `dim` included.
 
-        A gap spoils the steps that **read** it, not its own: a central difference at step `i`
-        reads `i-1` and `i+1` and never `i`, so a single gap makes its two neighbours gaps while
-        the step holding it still answers from the pair around it.
+        A gap spoils the steps that **read** it. In the interior that is its two neighbours and
+        not itself, because a central difference at step `i` reads `i-1` and `i+1` and never
+        `i`. At either **end** the formula is one-sided and does read the endpoint, so a gap at
+        the first step spoils the first two and a gap at the last spoils the last two.
 
         Works on a container, differentiating every variable that has `dim`, and on a single
         variable, returning a variable.
@@ -4835,10 +4836,10 @@ class Selection(_Engine["NetCDF"]):
         Raises:
             TypeError: `deg` is not an integer, or is a `bool`.
             ValueError: The container has no data variables; `dim` is a spatial axis, is not a
-                band dimension, carries no coordinate values, or is shorter than two steps;
-                `deg` is negative; `deg` leaves the fit underdetermined (`deg >= length`); or
-                the cube already carries a dimension named `degree`, which the coefficients
-                would collide with.
+                band dimension, or carries no coordinate values; `dim` is shorter than
+                `deg + 1` steps, which is the fewest a degree-`deg` fit is determined by;
+                `deg` is negative; or the cube already carries a dimension named `degree`,
+                which the coefficients would collide with.
 
         Examples:
             - A linear trend: slope first, then intercept:
@@ -6785,7 +6786,9 @@ def _decoded_instants(nc: NetCDF, dim: str, *, caller: str) -> tuple[Any, str, s
     Raises:
         ValueError: `dim` carries no coordinates or no CF units, or `cftime` refuses the pair.
     """
-    offsets = _numeric_band_coordinates(nc, dim, caller=caller)
+    offsets = _numeric_band_coordinates(
+        nc, dim, caller=caller, purpose="decode as dates"
+    )
     units, calendar = _cf_time_units(nc, dim, caller=caller)
     try:
         instants = cftime.num2date(
@@ -6856,8 +6859,10 @@ def _same_position_in_year(instant: Any, calendar: str) -> Any:
     source_length = _days_in_year(instant.year, instant.calendar)
     target_length = _days_in_year(instant.year, calendar)
     moved = int(round(target_length * instant.dayofyr / source_length))
-    # `round` can land on 0 for the first day of a shrinking year, and on length + 1 for the
-    # last day of a growing one; both are outside the year.
+    # A defensive clamp, not a reachable branch for any CF calendar pair: `dayofyr` runs 1..n
+    # and the ratio of two CF year lengths (360 / 365 / 366) never rounds day 1 down to 0 nor
+    # day n past the target length. It stays because this is arithmetic on a ratio, and a
+    # calendar of a very different length would otherwise build an invalid date.
     day = min(max(moved, 1), target_length)
     start = cftime.datetime(
         instant.year,
@@ -7381,7 +7386,9 @@ def _run_interp_calendar(nc: NetCDF, target: NetCDF, *, dim: str) -> NetCDF:
         NetCDF: The interpolated cube on `target`'s stamps.
 
     Raises:
-        ValueError: Either side cannot be decoded, or the source has fewer than two steps.
+        TypeError: `target` is not a cube.
+        ValueError: Either side cannot be decoded, the source has fewer than two steps, or the
+            two decimal-year spans do not overlap at all, so every step would be a gap.
     """
     caller = "interp_calendar"
     if not isinstance(target, Dataset) or not hasattr(target, "_band_dim_names"):

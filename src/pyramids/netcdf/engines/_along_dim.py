@@ -1559,9 +1559,10 @@ class _Differentiate(_AlongDim):
         Returns:
             _Applied: The derivative, the band layout unchanged. Float64 declaring the
             variable's no-data value, or NaN when it declares none. A gap spoils the steps
-            that **read** it rather than its own: a central difference at step `i` reads
-            `i-1` and `i+1`, so a single gap makes its two neighbours gaps while the step
-            holding it still answers from the pair around it.
+            that **read** it. In the interior that is its two neighbours and not itself — a
+            central difference at step `i` reads `i-1` and `i+1`, never `i`. At either **end**
+            the formula is one-sided and does read the endpoint, so a gap at step 0 spoils
+            step 0 and step 1, and a gap at the last step spoils the last two.
         """
         arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
         axis = band_names.index(dim)
@@ -1766,10 +1767,14 @@ class _TakeSteps(_AlongDim):
             step was kept.
         whole: Whether every step survived.
         reader: Reads **only** the kept bands of one variable, shaped to the result's layout.
-            `None` falls back to reading the whole variable and slicing it, which is what a
-            calendar conversion needs anyway (it keeps nearly every step). A positional cut
-            passes one, so `container.isel(time=0)` reads one plane rather than the whole cube
-            — the point of `isel`, which the full read defeated.
+            A positional cut passes one, so `container.isel(time=0)` reads one plane rather
+            than the whole cube — the point of `isel`, which the full read defeated.
+
+            `None` falls back to reading the whole variable and slicing it, and a calendar
+            conversion takes that path. The reason is not that it "keeps nearly every step" —
+            usually it keeps all of them — but that a conversion's cost is the per-step
+            `cftime` decode rather than the read, so the band-selected path would buy nothing
+            while adding a second representation to reason about.
     """
 
     kept: tuple[int, ...]
@@ -1862,10 +1867,15 @@ def _is_zero_sentinel(ndv: Any) -> bool:
     Returns:
         bool: `True` when it is numerically zero.
     """
+    # `isinstance` first: `float("0")` is `0.0`, so converting blindly made the *string*
+    # `"0"` a zero sentinel and contradicted the rule below. A sentinel has to be a number
+    # before it can collide with one.
+    if isinstance(ndv, bool) or not isinstance(ndv, (Real, np.number)):
+        return False
     try:
         return float(ndv) == 0.0
     except (TypeError, ValueError):
-        # A sentinel that is not a number cannot collide with a float result.
+        # A number that will not convert cannot collide with a float result either.
         return False
 
 

@@ -129,9 +129,9 @@ if TYPE_CHECKING:
 _SPATIAL_DIM_NAMES = _SPATIAL_AXIS_NAMES
 """Dimension names that are a horizontal axis rather than a band one.
 
-An alias rather than a third copy: `engines.selection` already derives exactly this set from
-`X_AXIS_NAMES` / `Y_AXIS_NAMES`, and two independently-built sets are two things to keep in
-step. Kept under this name because that is what this module's readers look for."""
+An alias of `engines.selection`'s set rather than a second copy built from the same two
+sources, so there is one definition to keep in step. Both this name and its only reader,
+`_resolvable_time_dim_names`, arrived with the calendar members."""
 
 # Guards the per-container `_lazy_managers` WeakSet against a concurrent lazy `read_array` (which adds)
 # and `close()` (which snapshots) on the same container from different threads.
