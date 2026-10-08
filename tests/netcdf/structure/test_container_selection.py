@@ -12,6 +12,7 @@ container operation shares, and the drop tests in `test_calendars.py` silence it
 assert values — silencing a warning in every test is how a warning stops being checked at all.
 """
 
+import gc
 import pathlib
 import warnings
 
@@ -633,4 +634,48 @@ class TestAPackedVariableKeepsItsUnits:
         assert finite.size and 150.0 < float(finite.mean()) < 400.0, (
             f"a 2-metre temperature field should read in kelvin, got mean "
             f"{float(finite.mean()) if finite.size else 'nothing'}"
+        )
+
+
+class TestANoOpSqueezeKeepsAViewsIdentity:
+    """`get_group(...).squeeze()` must stay in the group (round 2, H1).
+
+    Round 1 replaced a `weakref.proxy` return with a fresh `Container` — and dropped the three
+    fields `get_group` sets to identify a view, so the result was the **store root**: same type,
+    wrong group, and a `get_variable` that fails on the root's group-qualified inventory. Round
+    1's test used a flat container and could not see it.
+    """
+
+    def test_the_result_stays_inside_the_group(self):
+        """The view's group path, inventory and parent pin all survive.
+
+        Test scenario:
+            A view on `inner` whose dimensions are all longer than one is squeezed; the result
+            still reports the view's own single variable `t`, not the root's `inner/t`.
+        """
+        view = Container(_grouped_store()).get_group("inner")
+        assert view.variable_names == ["t"], "precondition: the view sees its own name"
+
+        result = view.squeeze()
+        gc.collect()
+
+        assert result._group_path == "inner", (
+            f"the group path must survive, got {result._group_path!r}"
+        )
+        assert result.variable_names == ["t"], (
+            f"the view's inventory must survive, got {result.variable_names}"
+        )
+
+    def test_the_result_is_still_usable(self):
+        """The symptom a caller actually hits.
+
+        Test scenario:
+            `get_variable('t')` works on the result, where before it raised about the root's
+            group-qualified inventory.
+        """
+        result = Container(_grouped_store()).get_group("inner").squeeze()
+        gc.collect()
+
+        assert result.get_variable("t")._band_dim_sizes == (3,), (
+            "the squeezed view's variable must still be reachable by its own name"
         )

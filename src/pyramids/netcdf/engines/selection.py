@@ -9353,7 +9353,17 @@ def _rewrapped_container(nc: NetCDF) -> NetCDF:
     # Local import breaks the netcdf.py <-> engines.selection cycle, as `_rewrapped` does.
     from pyramids.netcdf.netcdf import Container
 
-    return Container(nc._raster, access=nc._access)
+    fresh = Container(nc._raster, access=nc._access)
+    # A `get_group` view is identified by three fields `get_group` sets on an otherwise plain
+    # container, and none of them is derivable from the raster. Dropping them turned
+    # `view.squeeze()` into the **store root** — same type, same class name, wrong group, and a
+    # `get_variable('t')` that then fails on the root's group-qualified inventory. That is a
+    # worse outcome than the `ReferenceError` this function was written to remove, because it
+    # fails later and further away.
+    fresh._group_path = nc._group_path
+    fresh._parent_nc = getattr(nc, "_parent_nc", None)
+    fresh._open_options = getattr(nc, "_open_options", None)
+    return fresh
 
 
 def _rewrapped(nc: NetCDF) -> NetCDF:
