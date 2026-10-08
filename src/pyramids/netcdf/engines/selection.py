@@ -9450,9 +9450,9 @@ def _rewrapped_container(nc: NetCDF) -> NetCDF:
     # fails later and further away.
     fresh._group_path = nc._group_path
     fresh._parent_nc = getattr(nc, "_parent_nc", None)
-    carried = getattr(nc, "_open_options", None)
-    if carried is not None:
-        fresh._open_options = carried
+    # Assigned unconditionally: `_open_options` defaults to `()` on every container, so it is
+    # never absent and never `None` — the guard this replaces had an arm nothing could reach.
+    fresh._open_options = nc._open_options
     return fresh
 
 
