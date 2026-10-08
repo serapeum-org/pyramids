@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7187,9 +7187,10 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="calculus-along-a-band-axis-and-calendars">Calculus along a band axis, and calendars<a class="anchor-link" href="#calculus-along-a-band-axis-and-calendars">¶</a></h1><p>Seven members, in two groups. What unites the first five is that they measure a variable against a
+<h1 id="calculus-along-a-band-axis-and-calendars">Calculus along a band axis, and calendars<a class="anchor-link" href="#calculus-along-a-band-axis-and-calendars">¶</a></h1><p>Seven members, in two groups. What unites the first four is that they measure a variable against a
 band dimension's <strong>own coordinates</strong>, not against its step count — which is exactly what separates
-them from the members that only count steps.</p>
+them from the members that only count steps. (<code>cumulative</code> is the odd one out: it is an accessor
+over <code>cumsum</code> / <code>cumprod</code>, which read no coordinates at all.)</p>
 <table>
 <thead>
 <tr>
@@ -7228,8 +7229,10 @@ them from the members that only count steps.</p>
 </tr>
 </tbody>
 </table>
-<p>On an <strong>evenly</strong> spaced axis a wrong implementation that ignores the coordinates still looks right,
-so every example below uses an uneven axis wherever the spacing can change the answer.</p>
+<p>On an <strong>evenly</strong> spaced axis a wrong implementation that ignores the coordinates still looks
+right, so the examples that establish a member's contract use an uneven one. A few later
+examples keep an even axis deliberately, where the point is the shape of the answer rather
+than the spacing.</p>
 </div>
 </div>
 </div>
