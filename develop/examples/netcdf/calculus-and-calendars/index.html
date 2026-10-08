@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7831,9 +7831,10 @@ fit = trend.polyfit('time', 1)
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<p><code>[2.0, 1.0]</code> is <code>2x + 1</code> — <strong>highest power first</strong>, which is <code>numpy.polyfit</code>'s own order. xarray
-reverses it; pyramids follows the library it calls, and the <code>degree</code> stamps say which convention a
-result is in so there is never any doubt:</p>
+<p><code>[2.0, 1.0]</code> is <code>2x + 1</code> — <strong>highest power first</strong>, which is <code>numpy.polyfit</code>'s own order, and the
+same order xarray's <code>polyfit</code> stamps its <code>degree</code> axis with. The two agree, so a result moves
+between them without reindexing, and the <code>degree</code> stamps say which power each coefficient belongs
+to:</p>
 </div>
 </div>
 </div>
