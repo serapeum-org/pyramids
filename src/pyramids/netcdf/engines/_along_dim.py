@@ -1789,8 +1789,17 @@ class _TakeSteps(_AlongDim):
 
     @property
     def keeps_length(self) -> bool:  # type: ignore[override]
-        """Whether the axis comes out as it went in, which decides the auxiliaries' fate."""
-        return self.whole and not self.squeeze
+        """Whether the axis comes out **exactly** as it went in.
+
+        Not merely the same length: a negative-step slice keeps every index in *descending*
+        order, so the gridded variables and the dimension's stamps are reversed while an
+        auxiliary spanning that axis would be carried over untouched — `qc[0]` then describing
+        the step that used to be `qc[2]`. Comparing the kept positions to `range(n)` catches a
+        reversal and a reorder as well as a length change, so the auxiliary is dropped with the
+        usual warning rather than silently misaligned.
+        """
+        unchanged = tuple(self.kept) == tuple(range(len(self.kept)))
+        return self.whole and unchanged and not self.squeeze
 
     def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
         """Keep `kept` of one variable's steps along `dim`.

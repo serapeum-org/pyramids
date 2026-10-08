@@ -767,3 +767,61 @@ class TestTheBandInventoryIsReadFromTheDeclaration:
         assert _gridded_band_dimensions(root, "probe") == {"time": 3}, (
             f"expected {{'time': 3}}, got {_gridded_band_dimensions(root, 'probe')}"
         )
+
+
+class TestAReversingCutDoesNotMisalignAuxiliaries:
+    """A reversal changes the axis without changing its length (round 2, M1).
+
+    `keeps_length` compared lengths, and a negative-step slice keeps every index in descending
+    order — so the gridded variables and the stamps reversed while an auxiliary spanning the axis
+    was carried over untouched, `qc[0]` then describing the step that used to be `qc[2]`. Silent
+    misalignment, and the drop warning never fired because the length had not changed.
+    """
+
+    def test_a_reversal_drops_the_spanning_auxiliary_with_a_warning(self):
+        """The axis is not unchanged, so the auxiliary cannot be carried.
+
+        Test scenario:
+            `isel(time=slice(None, None, -1))` reverses the data and warns, and `qc` is gone
+            rather than silently misaligned.
+        """
+        container = Container(_store_with_an_auxiliary_on_time())
+
+        with pytest.warns(UserWarning):
+            reversed_cut = container.isel(time=slice(None, None, -1))
+
+        assert "qc" not in reversed_cut.variable_names, (
+            f"the auxiliary must not survive a reversal, got {reversed_cut.variable_names}"
+        )
+
+    def test_the_data_really_is_reversed(self):
+        """So the test above is about alignment and not about a failed cut.
+
+        Test scenario:
+            The gridded variable comes back in the opposite order.
+        """
+        container = Container(_store_with_an_auxiliary_on_time())
+
+        with pytest.warns(UserWarning):
+            reversed_cut = container.isel(time=slice(None, None, -1))
+
+        values = (
+            np.asarray(reversed_cut.get_variable("t").read_array()).ravel().tolist()
+        )
+        assert values[0] > values[-1], f"the axis should be reversed, got {values[:3]}"
+
+    def test_a_full_forward_cut_still_carries_the_auxiliary(self):
+        """The converse: an unchanged axis must not lose anything.
+
+        Test scenario:
+            Selecting every step in order is a no-op for the auxiliary, and nothing warns.
+        """
+        container = Container(_store_with_an_auxiliary_on_time())
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            whole = container.isel(time=[0, 1, 2])
+
+        assert "qc" in whole.variable_names, (
+            f"an unchanged axis should keep the auxiliary, got {whole.variable_names}"
+        )
