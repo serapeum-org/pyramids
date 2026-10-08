@@ -867,6 +867,26 @@ class Selection(_Engine["NetCDF"]):
 
               ```
 
+            - On a **container**, every variable spanning the dimension is cut and the rest
+              are carried over — no `get_variable` first:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(3.0).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... )
+              >>> cut = cube.isel(time=[0, 2])
+              >>> cut.get_variable("t")._band_dim_sizes
+              (2,)
+              >>> np.asarray(cut.get_variable("t").coords["time"]).tolist()
+              [0.0, 12.0]
+
+              ```
+
         Notes:
             On a **container** the cut goes through the shared along-dimension route, so a
             variable that does not span the named dimension is carried over untouched and an
@@ -1221,6 +1241,25 @@ class Selection(_Engine["NetCDF"]):
                 See Also:
                     `get_variable`: builds a variable subset and populates the
                         band-dim metadata that `sel()` consumes.
+
+            - On a **container**, the labels resolve against the store's own coordinates:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(3.0).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... )
+              >>> picked = cube.sel(time=6.0)
+              >>> picked.get_variable("t")._band_dim_sizes
+              (1,)
+              >>> picked.get_variable("t").read_array().ravel().tolist()
+              [1.0]
+
+              ```
 
         Note:
             On a **container** the labels are resolved against the **store's** dimension
@@ -1868,6 +1907,24 @@ class Selection(_Engine["NetCDF"]):
               Traceback (most recent call last):
                   ...
               ValueError: squeeze() drops a dimension of length one, and 'time' has length 4...
+
+              ```
+
+            - On a **container**, the length-one axis leaves every variable that spanned it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(1.0).reshape(1, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0]),
+              ... )
+              >>> cube.get_variable("t")._band_dim_names
+              ('time',)
+              >>> cube.squeeze().get_variable("t")._band_dim_names
+              ()
 
               ```
 
@@ -4466,6 +4523,42 @@ class Selection(_Engine["NetCDF"]):
               'noleap'
               >>> [round(value, 3) for value in variable.read_array().ravel().tolist()]
               [4.932, 14.821]
+
+              ```
+            - Why it exists, beside :meth:`convert_calendar`: 29 February has no counterpart
+              on `noleap`, so a conversion drops that step while this keeps every one of the
+              target's:
+
+              ```python
+              >>> import warnings
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> def cube(stamps, calendar, values):
+              ...     return NetCDF.from_array(
+              ...         np.array(values, dtype="float64").reshape(len(stamps), 1, 1),
+              ...         geo_ref=geo,
+              ...         variable_name="t",
+              ...         dims=ExtraDimensions(
+              ...             name="time",
+              ...             values=list(stamps),
+              ...             attrs={
+              ...                 "time": {
+              ...                     "units": "days since 2001-01-01",
+              ...                     "calendar": calendar,
+              ...                 }
+              ...             },
+              ...         ),
+              ...     )
+              >>> leap = cube([58.0, 59.0, 60.0], "all_leap", [1.0, 2.0, 3.0])
+              >>> onto = cube([58.0, 59.0, 60.0], "noleap", [0.0, 0.0, 0.0])
+              >>> with warnings.catch_warnings():
+              ...     warnings.simplefilter("ignore")
+              ...     converted = leap.convert_calendar("noleap")
+              >>> converted.get_variable("t")._band_dim_sizes
+              (2,)
+              >>> leap.interp_calendar(onto).get_variable("t")._band_dim_sizes
+              (3,)
 
               ```
         """
@@ -7121,9 +7214,55 @@ class CumulativeAccessor:
     the members that already answer them — :meth:`Selection.cumsum` and
     :meth:`Selection.cumprod` — so the accessor adds a spelling, never a second implementation.
 
+    The dimension is validated when `cumulative` builds the accessor, not when a reducer is
+    called, so an accessor in hand is always one that will work.
+
     Attributes:
         cube: The container or variable `cumulative` was called on.
         dim: The band dimension to accumulate along, already validated.
+
+    Examples:
+        - Build one and read what it will accumulate along:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+          >>> cube = NetCDF.from_array(
+          ...     np.array([1.0, 2.0, 3.0]).reshape(3, 1, 1),
+          ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+          ...     variable_name="t",
+          ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0]),
+          ... )
+          >>> accessor = cube.cumulative("time")
+          >>> accessor.dim
+          'time'
+          >>> accessor
+          CumulativeAccessor(dim='time')
+
+          ```
+        - The two reducers answer the running total and the running product of the same series:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+          >>> cube = NetCDF.from_array(
+          ...     np.array([1.0, 2.0, 3.0]).reshape(3, 1, 1),
+          ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+          ...     variable_name="t",
+          ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0]),
+          ... )
+          >>> accessor = cube.cumulative("time")
+          >>> accessor.sum().get_variable("t").read_array().ravel().tolist()
+          [1.0, 3.0, 6.0]
+          >>> accessor.prod().get_variable("t").read_array().ravel().tolist()
+          [1.0, 2.0, 6.0]
+
+          ```
+
+    See Also:
+        Selection.cumulative: Builds this accessor and validates the dimension.
+        Selection.cumsum: The member `sum` forwards to.
+        Selection.cumprod: The member `prod` forwards to.
     """
 
     cube: NetCDF
@@ -7137,6 +7276,42 @@ class CumulativeAccessor:
 
         Returns:
             NetCDF: Exactly what `cumsum(dim, skipna=skipna)` answers.
+
+        Examples:
+            - Each step holds the total of itself and every step before it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.array([1.0, 2.0, 3.0, 4.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... )
+              >>> cube.cumulative("time").sum().get_variable("t").read_array().ravel().tolist()
+              [1.0, 3.0, 6.0, 10.0]
+
+              ```
+            - It is the same answer `cumsum` gives, which is the point of the accessor:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.array([2.0, 4.0]).reshape(2, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... )
+              >>> accessor = cube.cumulative("time").sum()
+              >>> direct = cube.cumsum("time")
+              >>> accessor.get_variable("t").read_array().ravel().tolist()
+              [2.0, 6.0]
+              >>> direct.get_variable("t").read_array().ravel().tolist()
+              [2.0, 6.0]
+
+              ```
         """
         return self.cube.cumsum(self.dim, skipna=skipna)
 
@@ -7148,6 +7323,38 @@ class CumulativeAccessor:
 
         Returns:
             NetCDF: Exactly what `cumprod(dim, skipna=skipna)` answers.
+
+        Examples:
+            - Each step holds the product of itself and every step before it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.array([1.0, 2.0, 3.0, 4.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... )
+              >>> cube.cumulative("time").prod().get_variable("t").read_array().ravel().tolist()
+              [1.0, 2.0, 6.0, 24.0]
+
+              ```
+            - A series holding one leaves the product unchanged at that step:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.array([3.0, 1.0, 2.0]).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... )
+              >>> cube.cumulative("time").prod().get_variable("t").read_array().ravel().tolist()
+              [3.0, 3.0, 6.0]
+
+              ```
         """
         return self.cube.cumprod(self.dim, skipna=skipna)
 

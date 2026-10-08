@@ -47,9 +47,7 @@ def _cube(stamps: list[float], *, name: str = "v") -> NetCDF:
     Returns:
         NetCDF: The container.
     """
-    planes = np.stack(
-        [np.full((NY, NX), float(index)) for index in range(len(stamps))]
-    )
+    planes = np.stack([np.full((NY, NX), float(index)) for index in range(len(stamps))])
     return NetCDF.from_array(
         planes,
         geo_ref=_geo_ref(),

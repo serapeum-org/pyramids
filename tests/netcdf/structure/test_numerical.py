@@ -672,7 +672,7 @@ class TestTheNarrowingGuard:
     """
 
     def test_an_operation_reached_directly_refuses_a_coordinate_less_axis(self):
-        """`_axis_positions` is the narrowing guard, not the check.
+        """`_required_axis_positions` is the narrowing guard, not the check.
 
         Test scenario:
             `_Differentiate.apply` is handed a layout whose dimension has no coordinates --

@@ -1562,7 +1562,7 @@ class _Differentiate(_AlongDim):
         """
         arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
         axis = band_names.index(dim)
-        positions = _axis_positions(values_map, dim, self.caller)
+        positions = _required_axis_positions(values_map, dim, self.caller)
         data = _gaps_as_nan(arr, ndv)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
@@ -1605,7 +1605,7 @@ class _Integrate(_AlongDim):
         """
         arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
         axis = band_names.index(dim)
-        positions = _axis_positions(values_map, dim, self.caller)
+        positions = _required_axis_positions(values_map, dim, self.caller)
         data = _gaps_as_nan(arr, ndv)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
@@ -1648,7 +1648,7 @@ class _CumulativeIntegrate(_AlongDim):
         """
         arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
         axis = band_names.index(dim)
-        positions = _axis_positions(values_map, dim, self.caller)
+        positions = _required_axis_positions(values_map, dim, self.caller)
         data = _gaps_as_nan(arr, ndv)
         moved = np.moveaxis(data, axis, 0)
         widths = np.diff(positions).reshape(-1, *([1] * (moved.ndim - 1)))
@@ -1698,7 +1698,7 @@ class _PolyFit(_AlongDim):
         """
         arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
         axis = band_names.index(dim)
-        positions = _axis_positions(values_map, dim, self.caller)
+        positions = _required_axis_positions(values_map, dim, self.caller)
         data = _gaps_as_nan(arr, ndv)
         moved = np.moveaxis(data, axis, 0)
         columns = moved.reshape(moved.shape[0], -1).astype("float64")
@@ -1794,12 +1794,20 @@ class _TakeSteps(_AlongDim):
         return _Applied(values, band_names, values_map, ndv)
 
 
-def _axis_positions(values_map: dict[str, Any], dim: str, caller: str) -> np.ndarray:
+def _required_axis_positions(
+    values_map: dict[str, Any], dim: str, caller: str
+) -> np.ndarray:
     """The sample positions a numerical operation reads `dim`'s coordinates as.
 
     `Selection` validates the coordinates before the operation runs, so this is the narrowing
     guard rather than the check — it stays here so an operation reached directly cannot read a
     coordinate-less axis as if it were indexed.
+
+    Distinct from :meth:`_Interpolate._axis_positions`, which answers the same question for
+    `interpolate_na` and takes the **opposite** view of a coordinate-less axis: that one falls
+    back to the step index (`use_coordinate=False` is a documented mode there), while a
+    derivative or an integral has no meaning without real spacing and refuses instead. The
+    names were one word apart, which is why this one says `required`.
 
     Args:
         values_map: The band dimensions' coordinates.
