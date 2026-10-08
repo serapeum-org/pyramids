@@ -9413,7 +9413,9 @@ def _rewrapped_container(nc: NetCDF) -> NetCDF:
     # fails later and further away.
     fresh._group_path = nc._group_path
     fresh._parent_nc = getattr(nc, "_parent_nc", None)
-    fresh._open_options = getattr(nc, "_open_options", None)
+    carried = getattr(nc, "_open_options", None)
+    if carried is not None:
+        fresh._open_options = carried
     return fresh
 
 
