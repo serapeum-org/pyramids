@@ -4787,9 +4787,9 @@ class Selection(_Engine["NetCDF"]):
         spanning `dim` are therefore dropped with a warning.
 
         The coefficients are stamped with the powers **highest first** — `numpy.polyfit`'s own
-        order, so `polyfit(dim, 1)` gives `[slope, intercept]`. xarray reverses this; we follow
-        the library we call rather than quietly reconciling the two, and the `degree` stamps say
-        which convention a result is in.
+        order, so `polyfit(dim, 1)` gives `[slope, intercept]`. xarray's `polyfit` stamps its
+        `degree` axis the same way, so the two agree and a result moves between them without
+        reindexing; the `degree` stamps say which power each coefficient belongs to either way.
 
         Gaps have no fit: `numpy.polyfit` has no gap concept, so a cell whose series holds one
         answers **all-NaN** coefficients rather than a fit over the steps that remain. Use

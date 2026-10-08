@@ -1669,8 +1669,9 @@ class _PolyFit(_AlongDim):
 
     `numpy.polyfit`, which is vectorised over trailing columns, so the whole cube fits in one
     call. The fitted dimension is **replaced** by a `degree` dimension of length `deg + 1`,
-    stamped with the powers **highest first** — numpy's own order, which xarray reverses. We
-    follow the library we call and say so rather than quietly reconciling the two.
+    stamped with the powers **highest first** — the order numpy returns them in, and the same
+    one xarray's `polyfit` stamps its own `degree` axis with, so a result transfers between the
+    two without reindexing.
 
     Attributes:
         deg: The polynomial degree.
