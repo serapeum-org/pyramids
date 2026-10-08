@@ -30,6 +30,7 @@ import cftime
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from osgeo import gdal
 from shapely import box, contains_xy
 
 from pyramids.base._axes import X_AXIS_NAMES, Y_AXIS_NAMES
@@ -6663,7 +6664,9 @@ def _numeric_band_coordinates(
     else:
         # Through the working group, so the root of a hierarchical store resolves the
         # dimensions its sub-groups declare rather than reporting none.
-        names = sorted(_gridded_band_dimensions(nc)) or list(nc.dimension_names or [])
+        names = sorted(_gridded_band_dimensions(nc, caller)) or list(
+            nc.dimension_names or []
+        )
         if dim not in names:
             raise ValueError(
                 f"{caller}() got {dim!r}, which is not a dimension of this container; its "
@@ -6951,7 +6954,29 @@ def _assert_degree(deg: Any) -> None:
         raise ValueError(f"polyfit() needs a degree of 0 or more, but got {deg!r}.")
 
 
-def _gridded_band_dimensions(nc: NetCDF) -> dict[str, int]:
+def _declared_dimensions(nc: NetCDF, group: Any, name: str) -> list[Any]:
+    """The GDAL dimension objects variable `name` declares, read without building a raster.
+
+    Args:
+        nc: The container, used only to resolve a group-qualified name.
+        group: The working group the name is relative to.
+        name: The variable's name, possibly group-qualified on a hierarchical root.
+
+    Returns:
+        list: The `gdal.Dimension` objects, or `[]` when the array cannot be opened.
+    """
+    target, _, leaf = name.rpartition("/")
+    owner = group
+    if target:
+        for step in target.split("/"):
+            owner = owner.OpenGroup(step) or owner
+    array = owner.OpenMDArray(leaf)
+    return list(array.GetDimensions()) if array is not None else []
+
+
+def _gridded_band_dimensions(
+    nc: NetCDF, caller: str = "this operation"
+) -> dict[str, int]:
     """A container's band dimensions and lengths, read through its **working group**.
 
     `nc.dimension_sizes` answers `{}` on the root of a store whose arrays live in a sub-group,
@@ -6969,10 +6994,36 @@ def _gridded_band_dimensions(nc: NetCDF) -> dict[str, int]:
     """
     group = nc._working_group()
     sizes: dict[str, int] = {}
+    conflicts: dict[str, set[int]] = {}
     for name in nc._spatial_variable_names(group):
-        variable = nc._require_raster_variable(name)
-        for dim, size in zip(variable._band_dim_names, variable._band_dim_sizes):
-            sizes.setdefault(dim, int(size))
+        # The **declaration**, not a built raster: `_require_raster_variable`'s own docstring
+        # warns that going to `get_variable` "would read the whole array only to reject it",
+        # and this is a gate that runs before every cut. `GetDimensions()` carries both the
+        # size and the horizontal/band split (`GetType()`), so nothing has to be read.
+        for dim in _declared_dimensions(nc, group, name):
+            if dim.GetType() in (
+                gdal.DIM_TYPE_HORIZONTAL_X,
+                gdal.DIM_TYPE_HORIZONTAL_Y,
+            ):
+                continue
+            label = dim.GetName()
+            if label.lower() in _SPATIAL_AXIS_NAMES:
+                continue
+            size = int(dim.GetSize())
+            conflicts.setdefault(label, set()).add(size)
+            sizes.setdefault(label, size)
+    # Two sub-groups may each declare a dimension of one name at different lengths. Taking the
+    # first silently bounded the whole container by it, so a legitimate selection on the longer
+    # variable was refused with a message naming the shorter axis.
+    disagreeing = {
+        label: sorted(seen) for label, seen in conflicts.items() if len(seen) > 1
+    }
+    if disagreeing:
+        raise ValueError(
+            f"{caller}() cannot treat this container as one cube: its variables declare "
+            f"{disagreeing} for the same dimension name(s). Call it on the group or variable "
+            f"you mean, with get_group(...) / get_variable(...)."
+        )
     return sizes
 
 
@@ -6993,7 +7044,7 @@ def _container_band_dimensions(nc: NetCDF, caller: str) -> dict[str, int]:
     Raises:
         ValueError: The container declares no non-spatial dimension at all.
     """
-    sizes = _gridded_band_dimensions(nc)
+    sizes = _gridded_band_dimensions(nc, caller)
     if not sizes:
         # Nothing gridded to read dimensions from; fall back to what the store declares so the
         # refusal can at least name the dimensions it does have.
@@ -7438,7 +7489,7 @@ def _assert_accumulable_dimension(nc: NetCDF, dim: str) -> None:
     # Resolved through the working group, as `cumsum` / `cumprod` resolve it inside
     # `_apply_to_container`. Reading the store's own names instead made the accessor stricter
     # than what it forwards to, which is the one thing it must never be.
-    gridded = _gridded_band_dimensions(nc)
+    gridded = _gridded_band_dimensions(nc, "cumulative")
     if dim not in gridded:
         raise ValueError(
             f"cumulative() got {dim!r}, which is not a band dimension of any gridded variable; "

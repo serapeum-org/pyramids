@@ -23,6 +23,7 @@ from osgeo import gdal, osr
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
 from pyramids.netcdf.cf import write_attributes_to_md_array
 from pyramids.netcdf.engines._along_dim import _TakeSteps
+from pyramids.netcdf.engines.selection import _gridded_band_dimensions
 from pyramids.netcdf.netcdf import Container
 
 NY, NX = 2, 3
@@ -678,4 +679,91 @@ class TestANoOpSqueezeKeepsAViewsIdentity:
 
         assert result.get_variable("t")._band_dim_sizes == (3,), (
             "the squeezed view's variable must still be reachable by its own name"
+        )
+
+
+def _two_groups_disagreeing_on_time() -> gdal.Dataset:
+    """A root whose two sub-groups declare `time` at different lengths.
+
+    Reachable on any hierarchical store, and the shape that exposed round 2's M3: the
+    inventory took the first variable's length and silently bounded the whole container by it.
+
+    Returns:
+        gdal.Dataset: The in-memory multidimensional store.
+    """
+    store = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
+    root = store.GetRootGroup()
+    f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    reference = osr.SpatialReference()
+    reference.ImportFromEPSG(4326)
+    for name, steps, stamps in (
+        ("a", 3, [0.0, 1.0, 2.0]),
+        ("b", 5, [0.0, 10.0, 20.0, 30.0, 40.0]),
+    ):
+        group = root.CreateGroup(name)
+        lat = group.CreateDimension("lat", gdal.DIM_TYPE_HORIZONTAL_Y, "NORTH", NY)
+        lon = group.CreateDimension("lon", gdal.DIM_TYPE_HORIZONTAL_X, "EAST", NX)
+        time = group.CreateDimension("time", "", "", steps)
+        for dim, values in ((lat, [1.5, 0.5]), (lon, [0.5, 1.5, 2.5]), (time, stamps)):
+            coordinate = group.CreateMDArray(dim.GetName(), [dim], f64)
+            coordinate.Write(np.array(values, dtype="float64"))
+            dim.SetIndexingVariable(coordinate)
+        gridded = group.CreateMDArray(f"v{name}", [time, lat, lon], f64)
+        gridded.Write(np.zeros((steps, NY, NX)))
+        gridded.SetSpatialRef(reference)
+    return store
+
+
+class TestTheBandInventoryIsReadFromTheDeclaration:
+    """The gate must be cheap and must not collapse disagreeing variables (round 2, M2, M3)."""
+
+    def test_resolving_the_inventory_builds_no_raster(self):
+        """The gate runs before every cut, so it must not read what the cut then re-reads.
+
+        `_require_raster_variable`'s own docstring warns that reaching for `get_variable`
+        "would read the whole array only to reject it". The first version of this resolver did
+        exactly that for every gridded variable, which undid the perf fix it sits in front of.
+
+        Test scenario:
+            Resolving the inventory makes no `get_variable` call at all.
+        """
+        container = Container(_store_with_an_auxiliary_on_time())
+        calls: list[str] = []
+        original = NetCDF.get_variable
+
+        def spy(self, name, *args, **kwargs):
+            calls.append(name)
+            return original(self, name, *args, **kwargs)
+
+        NetCDF.get_variable = spy
+        try:
+            _gridded_band_dimensions(container, "probe")
+        finally:
+            NetCDF.get_variable = original
+
+        assert calls == [], f"the gate should read no variable, but built {calls}"
+
+    def test_disagreeing_lengths_are_refused_by_name(self):
+        """Taking the first variable's length refused legitimate selections on the others.
+
+        Test scenario:
+            A root whose groups declare `time` at 3 and 5 steps is refused, naming both
+            lengths, rather than silently bounding everything by 3 and reporting
+            "index 4 is out of range ... of length 3".
+        """
+        root = Container(_two_groups_disagreeing_on_time())
+
+        with pytest.raises(ValueError, match=r"\{'time': \[3, 5\]\}"):
+            root.isel(time=4)
+
+    def test_an_agreeing_hierarchical_store_still_resolves(self):
+        """The conflict check must not reject the ordinary grouped store.
+
+        Test scenario:
+            A root whose single group declares `time: 3` resolves to exactly that.
+        """
+        root = Container(_grouped_store())
+
+        assert _gridded_band_dimensions(root, "probe") == {"time": 3}, (
+            f"expected {{'time': 3}}, got {_gridded_band_dimensions(root, 'probe')}"
         )
