@@ -6853,12 +6853,16 @@ def _container_band_dimensions(nc: NetCDF, caller: str) -> dict[str, int]:
 
 
 def _assert_container_dimension(
-    nc: NetCDF, dim_name: str, sizes: dict[str, int], caller: str
+    dim_name: str, sizes: dict[str, int], caller: str
 ) -> None:
     """Refuse a name that is not one of the container's band dimensions.
 
+    Takes the resolved `sizes` rather than the container, because that is all the decision
+    needs: `_container_band_dimensions` has already read the store and filtered the spatial
+    axes out, so passing the container as well would be a second, unused route to the same
+    facts.
+
     Args:
-        nc: The container.
         dim_name: The name the caller passed.
         sizes: The container's band dimensions, from `_container_band_dimensions`.
         caller: The member the user called, named in the refusal.
@@ -6935,7 +6939,7 @@ def _container_sel(
     sizes = _container_band_dimensions(nc, "sel")
     cuts: list[tuple[str, list[int], bool]] = []
     for dim_name, selector in kwargs.items():
-        _assert_container_dimension(nc, dim_name, sizes, "sel")
+        _assert_container_dimension(dim_name, sizes, "sel")
         cuts.append(
             (
                 dim_name,
@@ -6973,7 +6977,7 @@ def _container_squeeze(nc: NetCDF, dim: str | None) -> NetCDF:
     """
     sizes = _container_band_dimensions(nc, "squeeze")
     if dim is not None:
-        _assert_container_dimension(nc, dim, sizes, "squeeze")
+        _assert_container_dimension(dim, sizes, "squeeze")
         if sizes[dim] != 1:
             raise ValueError(
                 f"squeeze() drops a dimension of length one, and {dim!r} has length "
@@ -7020,7 +7024,7 @@ def _container_isel(nc: NetCDF, indexers: dict[str, Any], *, drop: bool) -> NetC
     sizes = _container_band_dimensions(nc, "isel")
     cuts: list[tuple[str, list[int], bool]] = []
     for dim_name, selector in indexers.items():
-        _assert_container_dimension(nc, dim_name, sizes, "isel")
+        _assert_container_dimension(dim_name, sizes, "isel")
         indices = _resolve_positional_indices(selector, sizes[dim_name], dim_name)
         # A scalar selector is dimension-reducing, as it is on the variable route and in
         # xarray; a list / tuple / slice is not, even when it keeps a single step.
