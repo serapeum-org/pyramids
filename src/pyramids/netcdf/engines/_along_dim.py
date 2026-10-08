@@ -1568,7 +1568,10 @@ class _Differentiate(_AlongDim):
         positions = _required_axis_positions(values_map, dim, self.caller)
         data = _gaps_as_nan(arr, ndv)
         gradient = np.gradient(data, positions, axis=axis)
-        fill: Any = np.nan if ndv is None else ndv
+        # A derivative of zero is an ordinary answer — a flat series — so it must not be
+        # maskable. See `_is_zero_sentinel`: a sentinel of `0.0` would turn every flat stretch
+        # into a gap.
+        fill: Any = np.nan if ndv is None or _is_zero_sentinel(ndv) else ndv
         values = np.where(np.isnan(gradient), fill, gradient)
         return _Applied(np.asarray(values), band_names, values_map, fill)
 
@@ -1613,7 +1616,9 @@ class _Integrate(_AlongDim):
         # out of the caller's output.
         data = np.asarray(_gaps_as_nan(arr, ndv))
         integral = np.trapezoid(data, positions, axis=axis)
-        fill: Any = np.nan if ndv is None else ndv
+        # An integral of zero is an ordinary answer — a series that cancels, or a flat zero —
+        # so a sentinel of `0.0` must not claim it.
+        fill: Any = np.nan if ndv is None or _is_zero_sentinel(ndv) else ndv
         values = np.where(np.isnan(integral), fill, integral)
         remaining = [name for name in band_names if name != dim]
         kept = {name: values_map[name] for name in remaining}
@@ -1836,8 +1841,11 @@ class _TakeSteps(_AlongDim):
 def _is_zero_sentinel(ndv: Any) -> bool:
     """Whether `ndv` is a no-data value equal to zero.
 
-    Asked by :class:`_CumulativeIntegrate`, whose first step is a computed zero: a sentinel of
-    `0.0` would turn that real value into a gap for every reader downstream.
+    Asked by every kernel here whose output is *computed* rather than selected —
+    `differentiate` (a flat series differentiates to zero), `integrate` (a series that cancels
+    integrates to zero) and `cumulative_integrate` (its first step is always zero). A sentinel
+    of `0.0` would turn each of those real answers into a gap for every reader downstream.
+    `_PolyFit` needs no check: it declares NaN unconditionally.
 
     Args:
         ndv: The declared no-data value, which may be a non-numeric placeholder.

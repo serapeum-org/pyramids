@@ -969,3 +969,70 @@ class TestTheGuardsRound1Added:
         assert _is_zero_sentinel(0) is True
         assert _is_zero_sentinel(np.float32(0.0)) is True
         assert _is_zero_sentinel(-9999.0) is False
+
+
+class TestAZeroSentinelCannotMaskAComputedZero:
+    """The rule belongs to every computed kernel, not just one (round 2, H2).
+
+    Round 1 applied it to `cumulative_integrate` alone, so `differentiate` and `integrate` kept
+    the exposure: a flat series differentiates to zero and a cancelling series integrates to
+    zero, and with `no_data_value=0.0` both of those real answers read as gaps.
+    """
+
+    @pytest.mark.parametrize(
+        "member", ["differentiate", "integrate", "cumulative_integrate"]
+    )
+    def test_every_computed_kernel_replaces_a_zero_sentinel(self, member: str):
+        """Each of the three declares NaN rather than the colliding `0.0`.
+
+        Args:
+            member: The member under test.
+
+        Test scenario:
+            A source declaring `no_data_value=0.0` answers a result declaring NaN, so a
+            computed zero stays a value.
+        """
+        cube = _cube([1.0, 2.0, 3.0], stamps=[0.0, 1.0, 2.0], no_data_value=0.0)
+
+        result = getattr(cube, member)("level").get_variable("t")
+
+        assert np.isnan(result.no_data_value[0]), (
+            f"{member} must not declare a zero sentinel, got {result.no_data_value[0]!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "member", ["differentiate", "integrate", "cumulative_integrate"]
+    )
+    def test_a_non_colliding_sentinel_is_still_kept(self, member: str):
+        """Only a zero sentinel is replaced, so gaps still round-trip on all three.
+
+        Args:
+            member: The member under test.
+
+        Test scenario:
+            A source declaring `-9999.0` keeps it.
+        """
+        cube = _cube([1.0, 2.0, 3.0], stamps=[0.0, 1.0, 2.0], no_data_value=-9999.0)
+
+        result = getattr(cube, member)("level").get_variable("t")
+
+        assert result.no_data_value[0] == -9999.0, (
+            f"{member} should keep a sentinel that cannot collide, got "
+            f"{result.no_data_value[0]!r}"
+        )
+
+    def test_a_flat_series_differentiates_to_a_real_zero(self):
+        """The concrete case the rule exists for.
+
+        Test scenario:
+            A constant series has a derivative of zero everywhere, and with a `0.0` sentinel
+            those zeros must still count — `reduce(mean)` sees them rather than skipping them.
+        """
+        cube = _cube([5.0, 5.0, 5.0], stamps=[0.0, 1.0, 2.0], no_data_value=0.0)
+
+        rate = cube.differentiate("level")
+
+        assert _series(rate) == [0.0, 0.0, 0.0]
+        assert _series(rate.reduce("level", "mean")) == [0.0], (
+            "a derivative of zero is a value, so the mean of three of them is zero"
+        )
