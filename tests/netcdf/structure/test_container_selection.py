@@ -458,3 +458,74 @@ class TestAHierarchicalStoresRoot:
             f"the two spellings should answer the same inventory, got "
             f"{direct.variable_names} vs {through.variable_names}"
         )
+
+
+def _store_without_a_time_coordinate() -> gdal.Dataset:
+    """A store whose `time` dimension has **no** indexing variable at all.
+
+    So no gridded variable carries stamps for it, which is the one case
+    `_gridded_band_coordinates` falls through to `get_dimension_values` for.
+
+    Returns:
+        gdal.Dataset: The in-memory multidimensional store.
+    """
+    store = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
+    root = store.GetRootGroup()
+    f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    lat = root.CreateDimension("lat", gdal.DIM_TYPE_HORIZONTAL_Y, "NORTH", NY)
+    lon = root.CreateDimension("lon", gdal.DIM_TYPE_HORIZONTAL_X, "EAST", NX)
+    time = root.CreateDimension("time", "", "", 3)
+    for dim, values in ((lat, [1.5, 0.5]), (lon, [0.5, 1.5, 2.5])):
+        coordinate = root.CreateMDArray(dim.GetName(), [dim], f64)
+        coordinate.Write(np.array(values))
+        dim.SetIndexingVariable(coordinate)
+    reference = osr.SpatialReference()
+    reference.ImportFromEPSG(4326)
+    gridded = root.CreateMDArray("t", [time, lat, lon], f64)
+    gridded.Write(np.arange(3.0 * NY * NX).reshape(3, NY, NX))
+    gridded.SetSpatialRef(reference)
+    return store
+
+
+class TestAnAxisWithNoCoordinateArray:
+    """The fallback in `_gridded_band_coordinates`, and what the members do with it."""
+
+    def test_a_positional_cut_still_works_without_coordinates(self):
+        """`isel` indexes positions, so it needs no stamps.
+
+        Test scenario:
+            A container whose `time` has no coordinate array is cut by position.
+        """
+        container = Container(_store_without_a_time_coordinate())
+
+        cut = container.isel(time=[0, 2])
+
+        assert cut.get_variable("t")._band_dim_sizes == (2,), (
+            f"two steps should survive, got {cut.get_variable('t')._band_dim_sizes!r}"
+        )
+
+    def test_a_label_cut_is_refused_for_want_of_coordinates(self):
+        """`sel` matches stamps, and there are none — the fallback finds nothing either.
+
+        This is the path that reaches `_gridded_band_coordinates`' final
+        `get_dimension_values` fallback: no gridded variable carries stamps for the axis.
+
+        Test scenario:
+            `sel(time=...)` is refused, pointing at `isel` instead.
+        """
+        container = Container(_store_without_a_time_coordinate())
+
+        with pytest.raises(ValueError, match="isel"):
+            container.sel(time=1.0)
+
+    def test_a_numerical_member_is_refused_for_want_of_spacing(self):
+        """A derivative has no meaning without coordinates to measure spacing from.
+
+        Test scenario:
+            `differentiate` is refused, asking for coordinates rather than for interpolation —
+            the wording round 1's L4 corrected.
+        """
+        container = Container(_store_without_a_time_coordinate())
+
+        with pytest.raises(ValueError, match="measure the spacing from"):
+            container.differentiate("time")
