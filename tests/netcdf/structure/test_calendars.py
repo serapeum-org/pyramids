@@ -8,6 +8,7 @@ when two cubes disagree about what a year is.
 Both are only meaningful on a cube that declares CF time units, so every fixture here does.
 """
 
+import gc
 import warnings
 
 import cftime
@@ -15,6 +16,7 @@ import numpy as np
 import pytest
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+from pyramids.netcdf.netcdf import Container
 
 NY, NX = 2, 3
 GEO = (0.0, 1.0, 0.0, 2.0, 0.0, -1.0)
@@ -760,12 +762,26 @@ class TestContainerSelAndSqueeze:
         with pytest.raises(ValueError, match="length one"):
             container.squeeze("time")
 
-    def test_squeeze_with_nothing_to_drop_returns_the_receiver(self):
-        """A no-op must not pay for a rebuild of every variable.
+    def test_squeeze_with_nothing_to_drop_returns_a_live_container(self):
+        """A no-op must not rebuild, and must not hand back the engine's weak proxy.
+
+        The first version of this test held the receiver in a local for the whole assertion,
+        so the proxy stayed alive and resolved — it codified the defect instead of catching
+        it. Dropping the receiver first is what makes the difference visible.
 
         Test scenario:
-            A container with no length-one band dimension comes back with its layout intact.
+            The result of a no-op squeeze outlives the receiver and is a real container, and
+            the layout is untouched.
         """
-        container = _cube([0.0, 1.0, 2.0], "standard")
+        result = _cube([0.0, 1.0, 2.0], "standard").squeeze()
+        gc.collect()
 
-        assert container.squeeze().get_variable("t")._band_dim_names == ("time",)
+        assert isinstance(result, Container), (
+            f"a no-op squeeze must answer a container, got {type(result).__name__}"
+        )
+        assert result.variable_names == ["t"], (
+            "the result must still be readable once the receiver is gone"
+        )
+        assert result.get_variable("t")._band_dim_names == ("time",), (
+            "a no-op must leave the layout intact"
+        )

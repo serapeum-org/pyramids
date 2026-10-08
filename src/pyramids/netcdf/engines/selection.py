@@ -6969,8 +6969,9 @@ def _container_squeeze(nc: NetCDF, dim: str | None) -> NetCDF:
         dim: The dimension to drop, or `None` for every band dimension of length one.
 
     Returns:
-        NetCDF: A container without those dimensions, or the receiver itself when there is
-        nothing of length one to drop.
+        NetCDF: A container without those dimensions, or a fresh container over the same store
+        when there is nothing of length one to drop — never the receiver, which inside an
+        engine is a weak proxy.
 
     Raises:
         ValueError: `dim` is not a band dimension of the container, or is not length one.
@@ -6989,8 +6990,9 @@ def _container_squeeze(nc: NetCDF, dim: str | None) -> NetCDF:
     if not gone:
         # Nothing to drop, so nothing is rebuilt: the variable route returns a view here for
         # the same reason, and rebuilding every variable for a call that changes nothing
-        # would copy the whole store.
-        return nc
+        # would copy the whole store. It must still be a *fresh* wrapper rather than `nc` —
+        # `nc` is the engine's `weakref.proxy`, which dies with the receiver.
+        return _rewrapped_container(nc)
     return _cut_container_along(
         nc, [(name, [0], True) for name in gone], sizes, "squeeze"
     )
@@ -9094,6 +9096,30 @@ def _coordinates_of(nc: NetCDF, dim_name: str, caller: str) -> list:
             f"{caller}() reads {dim_name!r}'s coordinate values, and it has none."
         )
     return list(coords)
+
+
+def _rewrapped_container(nc: NetCDF) -> NetCDF:
+    """`nc` as a fresh container over the same store, reading nothing.
+
+    The container counterpart of :func:`_rewrapped`, and it exists for the same reason: inside
+    an engine `self._ds` is a `weakref.proxy` to the dataset, so handing it back as a result
+    gives the caller an object that dies with the receiver. The idiomatic one-liner is exactly
+    the case that breaks — `NetCDF.from_array(...).squeeze()` drops the receiver on the same
+    line, so the "result" is already dead when it is returned.
+
+    No cells are copied: the wrapper is built over `nc._raster`, so the result reads as
+    whatever `nc` reads as.
+
+    Args:
+        nc: The container.
+
+    Returns:
+        NetCDF: A fresh container over the same raster.
+    """
+    # Local import breaks the netcdf.py <-> engines.selection cycle, as `_rewrapped` does.
+    from pyramids.netcdf.netcdf import Container
+
+    return Container(nc._raster, access=nc._access)
 
 
 def _rewrapped(nc: NetCDF) -> NetCDF:
