@@ -6629,13 +6629,15 @@ def _numeric_band_coordinates(
         _assert_band_dimension(nc, dim, caller=caller)
         coords = nc._band_dim_values_map.get(dim)
     else:
-        names = list(nc.dimension_names or [])
+        # Through the working group, so the root of a hierarchical store resolves the
+        # dimensions its sub-groups declare rather than reporting none.
+        names = sorted(_gridded_band_dimensions(nc)) or list(nc.dimension_names or [])
         if dim not in names:
             raise ValueError(
                 f"{caller}() got {dim!r}, which is not a dimension of this container; its "
                 f"dimensions are {names}."
             )
-        coords = nc.get_dimension_values(dim)
+        coords = _gridded_band_coordinates(nc, dim)
     if coords is None:
         raise ValueError(
             f"{caller}() needs coordinate values on {dim!r} to interpolate from, but it carries "
@@ -6822,6 +6824,54 @@ def _carried_to_calendar(
     return carried, kept
 
 
+def _gridded_band_coordinates(nc: NetCDF, dim: str) -> Any:
+    """A container's coordinate values for `dim`, read through its **working group**.
+
+    The coordinate counterpart of :func:`_gridded_band_dimensions`, and it exists for the same
+    reason: on the root of a hierarchical store `get_dimension_values` finds nothing, because
+    the coordinate array is declared on the sub-group. Each gridded variable carries the stamps
+    for every dimension it spans, so the first one that spans `dim` answers for the container.
+
+    Args:
+        nc: The container.
+        dim: The band dimension to read.
+
+    Returns:
+        The coordinate values, or `None` when the axis carries none.
+    """
+    group = nc._working_group()
+    for name in nc._spatial_variable_names(group):
+        carried = nc._require_raster_variable(name)._band_dim_values_map.get(dim)
+        if carried is not None:
+            return carried
+    return nc.get_dimension_values(dim)
+
+
+def _gridded_band_dimensions(nc: NetCDF) -> dict[str, int]:
+    """A container's band dimensions and lengths, read through its **working group**.
+
+    `nc.dimension_sizes` answers `{}` on the root of a store whose arrays live in a sub-group,
+    because the dimensions are declared on the group rather than the root. Asking the gridded
+    variables instead gives the same answer on a flat store and the right one on a hierarchical
+    store — which is what `_apply_to_container` already does for every pre-existing member that
+    runs along a dimension, and why those work on a grouped root while a route reading
+    `dimension_sizes` refuses it.
+
+    Args:
+        nc: The container.
+
+    Returns:
+        dict[str, int]: Band dimension name to length, over every gridded variable.
+    """
+    group = nc._working_group()
+    sizes: dict[str, int] = {}
+    for name in nc._spatial_variable_names(group):
+        variable = nc._require_raster_variable(name)
+        for dim, size in zip(variable._band_dim_names, variable._band_dim_sizes):
+            sizes.setdefault(dim, int(size))
+    return sizes
+
+
 def _container_band_dimensions(nc: NetCDF, caller: str) -> dict[str, int]:
     """The container's non-spatial dimensions and their lengths.
 
@@ -6839,15 +6889,14 @@ def _container_band_dimensions(nc: NetCDF, caller: str) -> dict[str, int]:
     Raises:
         ValueError: The container declares no non-spatial dimension at all.
     """
-    sizes = {
-        name: size
-        for name, size in (nc.dimension_sizes or {}).items()
-        if name.lower() not in _SPATIAL_AXIS_NAMES
-    }
+    sizes = _gridded_band_dimensions(nc)
     if not sizes:
+        # Nothing gridded to read dimensions from; fall back to what the store declares so the
+        # refusal can at least name the dimensions it does have.
+        declared = sorted(nc.dimension_sizes or {})
         raise ValueError(
-            f"{caller}() needs a non-spatial dimension, and this container declares none; "
-            f"its dimensions are {sorted(nc.dimension_sizes or {})}."
+            f"{caller}() needs a non-spatial dimension, and no gridded variable of this "
+            f"container has one; the dimensions it declares are {declared}."
         )
     return sizes
 
@@ -6949,7 +6998,7 @@ def _container_sel(
                     selector,
                     method,
                     tolerance,
-                    coords=nc.get_dimension_values(dim_name),
+                    coords=_gridded_band_coordinates(nc, dim_name),
                 ),
                 False,
             )
@@ -7205,10 +7254,15 @@ def _assert_accumulable_dimension(nc: NetCDF, dim: str) -> None:
     """
     if _reduces_as_a_variable(nc):
         _assert_band_dimension(nc, dim, caller="cumulative")
-    elif dim not in _band_dims_of(nc):
+        return
+    # Resolved through the working group, as `cumsum` / `cumprod` resolve it inside
+    # `_apply_to_container`. Reading the store's own names instead made the accessor stricter
+    # than what it forwards to, which is the one thing it must never be.
+    gridded = _gridded_band_dimensions(nc)
+    if dim not in gridded:
         raise ValueError(
             f"cumulative() got {dim!r}, which is not a band dimension of any gridded variable; "
-            f"the band dimensions are {sorted(_band_dims_of(nc))}."
+            f"the band dimensions are {sorted(gridded)}."
         )
 
 

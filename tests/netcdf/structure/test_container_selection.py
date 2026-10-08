@@ -347,3 +347,114 @@ class TestTakeStepsOnAnUnlabelledAxis:
         assert applied.values.shape[0] == 2, (
             f"two steps should survive, got {applied.values.shape!r}"
         )
+
+
+def _grouped_store() -> gdal.Dataset:
+    """A store whose arrays live in a sub-group, so the ROOT declares no dimensions.
+
+    The shape that exposed review round 1's M4/M5: `nc.dimension_sizes` is `{}` on this root,
+    because `inner` declares the dimensions, while `_apply_to_container` resolves them through
+    `_working_group()` and finds them.
+
+    Returns:
+        gdal.Dataset: The in-memory multidimensional store.
+    """
+    store = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
+    inner = store.GetRootGroup().CreateGroup("inner")
+    f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    lat = inner.CreateDimension("lat", gdal.DIM_TYPE_HORIZONTAL_Y, "NORTH", NY)
+    lon = inner.CreateDimension("lon", gdal.DIM_TYPE_HORIZONTAL_X, "EAST", NX)
+    time = inner.CreateDimension("time", "", "", 3)
+    for dim, values in (
+        (lat, [1.5, 0.5]),
+        (lon, [0.5, 1.5, 2.5]),
+        (time, [0.0, 1.0, 2.0]),
+    ):
+        coordinate = inner.CreateMDArray(dim.GetName(), [dim], f64)
+        coordinate.Write(np.array(values))
+        dim.SetIndexingVariable(coordinate)
+    reference = osr.SpatialReference()
+    reference.ImportFromEPSG(4326)
+    gridded = inner.CreateMDArray("t", [time, lat, lon], f64)
+    gridded.Write(np.arange(3.0 * NY * NX).reshape(3, NY, NX))
+    gridded.SetSpatialRef(reference)
+    return store
+
+
+class TestAHierarchicalStoresRoot:
+    """The new routes must work where the pre-existing ones do (round 1, M4 and M5).
+
+    On a grouped store's root `dimension_sizes` is empty, because the dimensions belong to the
+    sub-group. The members added here first read that and so refused the store, claiming it
+    "declares no dimensions" — untrue of the store, and inconsistent with `reduce` / `cumsum` /
+    `diff` / `rolling`, which resolve the working group and work fine.
+    """
+
+    def test_the_root_really_declares_no_dimensions_of_its_own(self):
+        """The precondition, so a later failure reads as a regression and not a bad fixture.
+
+        Test scenario:
+            `dimension_sizes` on the root is empty while the gridded variable has `time`.
+        """
+        root = Container(_grouped_store())
+
+        assert root.dimension_sizes == {}, (
+            f"the root should declare nothing of its own, got {root.dimension_sizes}"
+        )
+
+    @pytest.mark.parametrize(
+        "member",
+        [
+            "isel",
+            "sel",
+            "squeeze",
+            "cumulative",
+            "differentiate",
+            "integrate",
+            "polyfit",
+        ],
+    )
+    def test_every_new_member_works_on_the_root(self, member: str):
+        """Each of them resolves the sub-group's dimensions rather than refusing.
+
+        Args:
+            member: The member under test.
+
+        Test scenario:
+            Called on the root of a grouped store, each answers instead of raising.
+        """
+        root = Container(_grouped_store())
+        call = {
+            "isel": lambda: root.isel(time=0),
+            "sel": lambda: root.sel(time=1.0),
+            "squeeze": lambda: root.squeeze(),
+            "cumulative": lambda: root.cumulative("time").sum(),
+            "differentiate": lambda: root.differentiate("time"),
+            "integrate": lambda: root.integrate("time"),
+            "polyfit": lambda: root.polyfit("time", 1),
+        }[member]
+
+        assert call() is not None, f"{member} should answer on a hierarchical root"
+
+    def test_cumulative_accepts_exactly_what_cumsum_accepts(self):
+        """The accessor must not be stricter than the member it forwards to.
+
+        Two docstring claims rest on this — "the two spellings cannot drift" and "an accessor
+        in hand is always one that will work" — and before the fix the accessor refused a
+        dimension `cumsum` accepted.
+
+        Test scenario:
+            On a grouped root, `cumsum` and `cumulative(...).sum()` both answer and agree on the
+            inventory they produce. The assertion stops at the inventory deliberately: how a
+            rebuilt grouped store names and nests its variables is pre-existing behaviour and
+            not what this finding was about.
+        """
+        root = Container(_grouped_store())
+
+        direct = root.cumsum("time")
+        through = root.cumulative("time").sum()
+
+        assert direct.variable_names == through.variable_names, (
+            f"the two spellings should answer the same inventory, got "
+            f"{direct.variable_names} vs {through.variable_names}"
+        )
