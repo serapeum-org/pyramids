@@ -779,17 +779,16 @@ class Selection(_Engine["NetCDF"]):
                 no meaningful stride.
 
         Returns:
-            NetCDF: A container for a container and a variable for a variable. On a container
-            every variable spanning the named dimension is cut and the rest are carried over,
-            as with every other member that runs along a dimension; on a variable, one holding
-            the selected bands, with `_band_dim_sizes` and the
+            NetCDF: A container for a container and a variable for a variable. On a container,
+            every variable spanning the named dimension is cut and the rest are carried over, as
+            with every other member that runs along a dimension. On a variable, one holding the
+            selected bands, with `_band_dim_sizes` and the
             coordinate map narrowed to match. A dimension with no coordinates keeps none.
             With `drop=True`, the axes a scalar selector collapsed are removed.
 
         Raises:
-            ValueError: No indexers were given, a name is not a band dimension of the
-                receiver (or is a spatial axis of a container), the variable tracks no band
-                dimensions, a
+            ValueError: No indexers were given; a name is not a band dimension of the receiver,
+                or is a spatial axis; the receiver tracks no band dimension at all; a
                 named dimension is not one of them, or a selector keeps no position — an
                 empty `list` or `tuple` as much as a `slice` whose bounds cross.
             IndexError: An index is outside the dimension's range.
@@ -891,8 +890,13 @@ class Selection(_Engine["NetCDF"]):
             On a **container** the cut goes through the shared along-dimension route, so a
             variable that does not span the named dimension is carried over untouched and an
             auxiliary variable spanning it follows the usual rule — carried when the length is
-            unchanged, dropped with a warning when it is not. `sel` and `squeeze` remain
-            variable-only; take a variable with `get_variable` for those.
+            unchanged, dropped with a warning when it is not.
+
+            **Which selectors take a container.** `isel`, `sel` and `squeeze` do. `head`,
+            `tail`, `thin`, `drop_isel`, `drop_sel`, `sortby`, `drop_duplicates` and
+            `expand_dims` do not, and refuse one by name: each reorders, extends or drops an
+            axis rather than cutting positions out of it, so there is no single container-wide
+            cut to apply. Take a variable with `get_variable` for those.
 
             Where this parts company with xarray's `isel`, which indexes fancily:
 
@@ -1928,10 +1932,14 @@ class Selection(_Engine["NetCDF"]):
 
               ```
 
-        On a **container** every variable spanning the dimension is rebuilt, because a
-        container has no single band layout to relabel. The cells are unchanged, but they are
-        read and written once — where the variable route only edits metadata and so is free.
-        Nothing of length one to drop is still a no-op on either shape.
+        On a **container** every variable spanning the dimension is rebuilt, because a container
+        has no single band layout to relabel. The cells are unchanged, but they are read and
+        written once — where the variable route only edits metadata and so is free. Two further
+        differences on a container: an **auxiliary** variable spanning the squeezed axis is
+        dropped with a warning, since the axis it spans is gone, where the variable route drops
+        nothing; and a container that declares no band dimension at all is **refused** rather
+        than answered unchanged, so "nothing to drop" is a no-op only once there is a band
+        dimension to look at.
 
         See Also:
             NetCDF.expand_dims: The inverse — add a length-one dimension. Still
@@ -4856,7 +4864,7 @@ class Selection(_Engine["NetCDF"]):
               ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0, 3.0]),
               ... ).get_variable("t")
               >>> np.asarray(var.polyfit("time", 2).coords["degree"]).tolist()
-              [2.0, 1.0, 0.0]
+              [2, 1, 0]
 
               ```
         """
@@ -6621,7 +6629,7 @@ def _refuse_spatial_band_op(
 
 
 def _numeric_band_coordinates(
-    nc: NetCDF, dim: str, caller: str = "interp"
+    nc: NetCDF, dim: str, caller: str = "interp", purpose: str = "interpolate from"
 ) -> np.ndarray:
     """The numeric coordinates of band dimension `dim`, as a sample axis.
 
@@ -6632,9 +6640,13 @@ def _numeric_band_coordinates(
     container), mirroring `_bin_coordinates`.
 
     Args:
-        nc: The container or variable being interpolated (or `other`, read for its targets).
+        nc: The container or variable being read (or `other`, read for its targets).
         dim: The band dimension to read.
-        caller: The member the user called (`"interp"` / `"interp_like"`), named in refusals.
+        caller: The member the user called, named in refusals.
+        purpose: How the refusals name what the coordinates are *for*. Defaults to the
+            interpolating phrasing this function was written for; the numerical members pass
+            `"measure the spacing from"`, since a derivative is refused for want of spacing
+            rather than of interpolation.
 
     Returns:
         np.ndarray: The coordinates as `float64`.
@@ -6660,7 +6672,7 @@ def _numeric_band_coordinates(
         coords = _gridded_band_coordinates(nc, dim)
     if coords is None:
         raise ValueError(
-            f"{caller}() needs coordinate values on {dim!r} to interpolate from, but it carries "
+            f"{caller}() needs coordinate values on {dim!r} to {purpose}, but it carries "
             "none (a coordinate-less axis)."
         )
     values = np.asarray(coords)
@@ -6672,14 +6684,14 @@ def _numeric_band_coordinates(
     values = values.astype("float64")
     if np.isnan(values).any():
         raise ValueError(
-            f"{caller}() cannot interpolate along {dim!r}: its coordinates contain NaN."
+            f"{caller}() cannot work along {dim!r}: its coordinates contain NaN."
         )
     if np.unique(values).size != values.size:
         # interp1d is uniquely sensitive to a repeated sample point -- it returns an arbitrary,
         # order-dependent value at the tie rather than erroring -- so refuse a duplicate stamp here.
         raise ValueError(
-            f"{caller}() cannot interpolate along {dim!r}: its coordinates have duplicate values, "
-            "which make the interpolation ambiguous. Deduplicate the axis first."
+            f"{caller}() cannot work along {dim!r}: its coordinates have duplicate values, "
+            "which make the result ambiguous. Deduplicate the axis first."
         )
     return values
 
@@ -7024,6 +7036,32 @@ def _assert_container_dimension(
     )
 
 
+def _selected_bands_of(
+    var: NetCDF, dim: str, kept: tuple[int, ...]
+) -> np.typing.NDArray:
+    """Read only `kept` along `dim` of `var`, shaped to the result's band layout.
+
+    The container counterpart of what `_subset_along_dim` does on the variable route: map the
+    positions along one band dimension onto the flat classic band indices, read just those, and
+    reshape to the layout the cut produces. Handed to `_TakeSteps` so a container's positional
+    cut reads what it selects instead of the whole variable.
+
+    Args:
+        var: The variable being cut.
+        dim: The band dimension the positions index.
+        kept: The positions along `dim` to keep, in order.
+
+    Returns:
+        np.typing.NDArray: `(*band_sizes_after, rows, cols)`.
+    """
+    names = list(var._band_dim_names)
+    sizes = tuple(var._band_dim_sizes)
+    axis = names.index(dim)
+    flat = _read_selected_bands(var, _map_dim_to_band_indices(axis, sizes, list(kept)))
+    after = tuple(len(kept) if i == axis else size for i, size in enumerate(sizes))
+    return flat.reshape(*after, *flat.shape[-2:])
+
+
 def _cut_container_along(
     nc: NetCDF,
     cuts: list[tuple[str, list[int], bool]],
@@ -7050,7 +7088,9 @@ def _cut_container_along(
             kept=tuple(indices),
             squeeze=collapse,
             whole=len(indices) == sizes[dim_name] and not collapse,
+            reader=_selected_bands_of,
             caller=caller,
+            verb="squeeze" if caller == "squeeze" else "select",
         )
         result = _apply_to_container(result, dim_name, op)
     return result
@@ -7213,7 +7253,18 @@ def _run_convert_calendar(
             f"{caller}() would drop every step of {dim!r}: no date on it exists in the "
             f"{calendar!r} calendar."
         )
-    offsets = [float(value) for value in cftime.date2num(carried, units, calendar)]
+    try:
+        offsets = [float(value) for value in cftime.date2num(carried, units, calendar)]
+    except (ValueError, TypeError) as exc:
+        # The source's `units` string is kept, so its reference date must also exist in the
+        # target calendar — "days since 2001-02-29" has no meaning on `noleap`. Wrapped the way
+        # `_decoded_instants` wraps `num2date`, rather than letting cftime's own message
+        # surface naming neither the member nor a way out.
+        raise ValueError(
+            f"{caller}() cannot count {dim!r} in {units!r} on the {calendar!r} calendar: "
+            f"{exc}. The units' reference date must exist in the target calendar too — "
+            f"restamp it with assign_coords/attrs before converting."
+        ) from exc
     op = _TakeSteps(
         kept=tuple(kept),
         stamps=tuple(offsets),
@@ -7279,9 +7330,10 @@ def _run_interp_calendar(nc: NetCDF, target: NetCDF, *, dim: str) -> NetCDF:
             list(target_instants), target_units, target_calendar
         )
     ]
-    # Interpolate on the common scale, then let the operation declare the target's units for
-    # the axis it restamps — one rebuild, and the stamps and the calendar they are counted on
-    # are set together rather than one after the other.
+    # Three passes, not one: `assign_coords` puts the source on the common scale, `_run_interp`
+    # interpolates onto the target's, and a second `assign_coords` restamps to the target's own
+    # offsets. The calendar is declared by the interpolation (through `declares`) and the stamps
+    # are set after it — correct, but the opposite order from what this comment used to claim.
     on_scale = nc.assign_coords({dim: [float(value) for value in source_scale]})
     interpolated = _run_interp(
         on_scale,
@@ -7328,11 +7380,27 @@ def _run_numerical(
             coordinates, or is shorter than `minimum` steps.
     """
     _refuse_spatial_band_op(nc, dim, caller=caller, verb=verb)
-    positions = _numeric_band_coordinates(nc, dim, caller=caller)
+    positions = _numeric_band_coordinates(
+        nc, dim, caller=caller, purpose="measure the spacing from"
+    )
     if positions.size < minimum:
         raise ValueError(
             f"{caller}() needs at least {minimum} steps along {dim!r}, but it has "
             f"{positions.size}."
+        )
+    if not np.all(np.isfinite(positions)):
+        raise ValueError(
+            f"{caller}() cannot measure spacing along {dim!r}: its coordinates are not all "
+            f"finite. Restamp the axis with assign_coords first."
+        )
+    steps = np.diff(positions)
+    if positions.size > 1 and not (np.all(steps > 0) or np.all(steps < 0)):
+        # A derivative or an integral over an out-of-order axis is arithmetically defined and
+        # physically meaningless — the signed areas of an integral simply cancel — so it is
+        # refused rather than answered. `sortby` is the remedy and is named.
+        raise ValueError(
+            f"{caller}() needs {dim!r} to run in one direction, and its coordinates are not "
+            f"monotonic. Order the axis first with sortby({dim!r})."
         )
     if _reduces_as_a_variable(nc):
         result = _apply_to_variable(nc, dim, op)

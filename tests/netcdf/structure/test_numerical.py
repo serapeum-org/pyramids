@@ -356,7 +356,9 @@ class TestPolyFit:
 
         result = cube.polyfit("level", 2).get_variable("t")
 
-        assert np.asarray(result.coords["degree"]).tolist() == [2.0, 1.0, 0.0]
+        assert np.asarray(result.coords["degree"]).tolist() == [2, 1, 0], (
+            "the powers are integers, as xarray stamps its own degree axis"
+        )
 
     def test_a_quadratic_is_recovered_at_degree_two(self):
         """A fit that needs the higher power.

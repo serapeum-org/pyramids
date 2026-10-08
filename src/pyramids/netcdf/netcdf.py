@@ -25,7 +25,7 @@ import pandas as pd
 from osgeo import gdal, osr
 
 from pyramids import _io
-from pyramids.base._axes import AXIS_NAMES, X_AXIS_NAMES, Y_AXIS_NAMES
+from pyramids.base._axes import AXIS_NAMES
 from pyramids.base._file_manager import discard_path_handles
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
@@ -92,11 +92,15 @@ from pyramids.netcdf.cf import (
 )
 from pyramids.netcdf.engines import interop as _interop
 from pyramids.netcdf.engines import variables as _variables
-from pyramids.netcdf.engines._along_dim import _read_no_data
+from pyramids.netcdf.engines._along_dim import _read_no_data, _reduces_as_a_variable
 from pyramids.netcdf.engines.combine import concat as _concat
 from pyramids.netcdf.engines.combine import merge as _merge
 from pyramids.netcdf.engines.interop import Interop
-from pyramids.netcdf.engines.selection import CumulativeAccessor, Selection
+from pyramids.netcdf.engines.selection import (
+    _SPATIAL_AXIS_NAMES,
+    CumulativeAccessor,
+    Selection,
+)
 from pyramids.netcdf.engines.variables import Variables
 from pyramids.netcdf.labeled import LabeledArray
 from pyramids.netcdf.metadata import get_metadata
@@ -122,8 +126,12 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
 
-_SPATIAL_DIM_NAMES = {name.lower() for name in (*X_AXIS_NAMES, *Y_AXIS_NAMES)}
-"""Dimension names that are a horizontal axis rather than a band one."""
+_SPATIAL_DIM_NAMES = _SPATIAL_AXIS_NAMES
+"""Dimension names that are a horizontal axis rather than a band one.
+
+An alias rather than a third copy: `engines.selection` already derives exactly this set from
+`X_AXIS_NAMES` / `Y_AXIS_NAMES`, and two independently-built sets are two things to keep in
+step. Kept under this name because that is what this module's readers look for."""
 
 # Guards the per-container `_lazy_managers` WeakSet against a concurrent lazy `read_array` (which adds)
 # and `close()` (which snapshots) on the same container from different threads.
@@ -10099,6 +10107,11 @@ class NetCDF(Dataset):
         """
         if self._band_dim_names:
             return tuple(self._band_dim_names)
+        if _reduces_as_a_variable(self):
+            # A *variable* with no band dimensions spans none, so there is nothing to resolve
+            # units for. Falling through to the container branch had a flat variable claiming
+            # the store's dimensions — harmless downstream, but it is not an axis it spans.
+            return ()
         return tuple(
             name
             for name in (self.dimension_names or [])

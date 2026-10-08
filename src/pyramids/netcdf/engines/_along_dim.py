@@ -111,7 +111,10 @@ class _AlongDim(ABC):
     # for every operation that only moves cells, so almost all of them leave this alone.
     #
     # It lives on the operation rather than in `_Applied` because `_Applied` is unpacked
-    # positionally in several places, so widening it is a breaking change at each one.
+    # positionally in several places, so widening it is a breaking change at each one. Not a
+    # `ClassVar` even though it is declared here: `_AlongDim` is not a dataclass, so no subclass
+    # turns it into a field either way, and instances set it in place — the same arrangement
+    # `materialize` uses a few lines up.
     declares: dict[str, tuple[str, str]] | None = None
     # Set False by the lazy cube (#1237) so `apply` returns a dask array that stays deferred until
     # the cube's `compute()`. A plain class attribute, not a dataclass field: instances flip it in
@@ -1604,7 +1607,11 @@ class _Integrate(_AlongDim):
         arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
         axis = band_names.index(dim)
         positions = _required_axis_positions(values_map, dim, self.caller)
-        data = _gaps_as_nan(arr, ndv)
+        # Materialised before the kernel: `_materialize_inputs` reads lazily, and dask
+        # implements neither `trapezoid` nor `polyfit`, so handing it one emits a FutureWarning
+        # and computes eagerly anyway. Being explicit says what happens and keeps the warning
+        # out of the caller's output.
+        data = np.asarray(_gaps_as_nan(arr, ndv))
         integral = np.trapezoid(data, positions, axis=axis)
         fill: Any = np.nan if ndv is None else ndv
         values = np.where(np.isnan(integral), fill, integral)
@@ -1700,7 +1707,9 @@ class _PolyFit(_AlongDim):
         arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
         axis = band_names.index(dim)
         positions = _required_axis_positions(values_map, dim, self.caller)
-        data = _gaps_as_nan(arr, ndv)
+        # Materialised for the same reason as `_Integrate`: dask does not implement
+        # `np.polyfit`, so a lazy array would warn and compute eagerly regardless.
+        data = np.asarray(_gaps_as_nan(arr, ndv))
         moved = np.moveaxis(data, axis, 0)
         columns = moved.reshape(moved.shape[0], -1).astype("float64")
         # `polyfit` answers garbage rather than NaN for a column holding gaps, so the gappy
@@ -1720,7 +1729,9 @@ class _PolyFit(_AlongDim):
         names = list(band_names)
         names[axis] = self.coord_name
         kept = {name: values_map[name] for name in band_names if name != dim}
-        kept[self.coord_name] = [float(power) for power in range(self.deg, -1, -1)]
+        # Integers, as xarray stamps its own `degree` axis (int64): a power is a count, and a
+        # float stamp reads oddly in `sel(degree=2)`.
+        kept[self.coord_name] = list(range(self.deg, -1, -1))
         return _Applied(np.asarray(values), names, kept, np.nan)
 
 
@@ -1749,14 +1760,27 @@ class _TakeSteps(_AlongDim):
             its new length. `isel(dim=<scalar>, drop=True)` is the caller; only valid when one
             step was kept.
         whole: Whether every step survived.
+        reader: Reads **only** the kept bands of one variable, shaped to the result's layout.
+            `None` falls back to reading the whole variable and slicing it, which is what a
+            calendar conversion needs anyway (it keeps nearly every step). A positional cut
+            passes one, so `container.isel(time=0)` reads one plane rather than the whole cube
+            — the point of `isel`, which the full read defeated.
     """
 
     kept: tuple[int, ...]
     stamps: tuple[float, ...] | None = None
     squeeze: bool = False
-    whole: bool = True
+    # Fail *closed*: the default says the axis changed length, so a caller that forgets to pass
+    # it gets the conservative answer (auxiliaries dropped with a warning) rather than silently
+    # carrying an auxiliary across a length change. Both callers pass it explicitly.
+    whole: bool = False
+    reader: Callable[[NetCDF, str, tuple[int, ...]], Any] | None = None
     caller: str = "convert_calendar"
-    verb: ClassVar[str] = "convert"
+    # An instance field, not the usual ClassVar: this one operation serves `isel`, `sel`,
+    # `squeeze` and `convert_calendar`, and the empty-container refusal reads
+    # "Cannot <verb> an empty container" — so a fixed "convert" told an `isel` caller the
+    # wrong thing.
+    verb: str = "convert"  # type: ignore[misc]
 
     @property
     def keeps_length(self) -> bool:  # type: ignore[override]
@@ -1777,10 +1801,20 @@ class _TakeSteps(_AlongDim):
             caller's `stamps` or the source's own coordinates at the kept positions. With
             `squeeze` the dimension leaves the layout entirely.
         """
-        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
         axis = band_names.index(dim)
-        indices = np.asarray(self.kept, dtype=int)
-        values = np.take(np.asarray(arr), indices, axis=axis)
+        if self.reader is None:
+            arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+            axis = band_names.index(dim)
+            values = np.take(
+                np.asarray(arr), np.asarray(self.kept, dtype=int), axis=axis
+            )
+        else:
+            # Only the kept bands are read, so a cut costs what it selects rather than what
+            # the variable holds.
+            ndv = _read_no_data(var)
+            values = self.reader(var, dim, self.kept)
         coords = values_map.get(dim)
         if self.stamps is not None:
             selected: Any = [float(stamp) for stamp in self.stamps]
