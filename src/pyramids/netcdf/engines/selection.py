@@ -6988,12 +6988,13 @@ def _assert_degree(deg: Any) -> None:
         raise ValueError(f"polyfit() needs a degree of 0 or more, but got {deg!r}.")
 
 
-def _declared_dimensions(nc: NetCDF, group: Any, name: str) -> list[Any]:
+def _declared_dimensions(group: Any, name: str) -> list[Any]:
     """The GDAL dimension objects variable `name` declares, read without building a raster.
 
     Args:
-        nc: The container, used only to resolve a group-qualified name.
-        group: The working group the name is relative to.
+        group: The working group the name is relative to. Everything needed is reachable from
+            it, so the container itself is not a parameter — the group already knows which
+            store it belongs to.
         name: The variable's name, possibly group-qualified on a hierarchical root.
 
     Returns:
@@ -7034,7 +7035,7 @@ def _gridded_band_dimensions(
         # warns that going to `get_variable` "would read the whole array only to reject it",
         # and this is a gate that runs before every cut. `GetDimensions()` carries both the
         # size and the horizontal/band split (`GetType()`), so nothing has to be read.
-        for dim in _declared_dimensions(nc, group, name):
+        for dim in _declared_dimensions(group, name):
             if dim.GetType() in (
                 gdal.DIM_TYPE_HORIZONTAL_X,
                 gdal.DIM_TYPE_HORIZONTAL_Y,

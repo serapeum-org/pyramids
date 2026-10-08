@@ -1876,7 +1876,11 @@ def _is_zero_sentinel(ndv: Any) -> bool:
     # zero sentinel, which is the bug the check replaced.
     if isinstance(ndv, bool) or not isinstance(ndv, (Real, np.number)):
         return False
-    return float(ndv) == 0.0
+    # `not x` rather than `x == 0.0`: the question is exactly "is this sentinel zero", and a
+    # tolerance would be wrong here — a sentinel of 1e-300 is not zero and must not be
+    # replaced — but an explicit float equality is the shape of a real defect elsewhere, so
+    # this says the same thing without one.
+    return not float(ndv)
 
 
 def _required_axis_positions(

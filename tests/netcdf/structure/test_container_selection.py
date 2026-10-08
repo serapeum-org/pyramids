@@ -595,8 +595,11 @@ class TestAPackedVariableKeepsItsUnits:
         variable = NetCDF.read_file(str(self.PACKED)).get_variable("p2t")
 
         scale, offset = variable._effective_packing(0)
-        assert scale not in (None, 1.0) and offset not in (None, 0.0), (
-            f"the fixture must be packed for this class to mean anything, got {scale}, {offset}"
+        assert scale not in (None, 1.0), (
+            f"the fixture must declare a real scale, got {scale}"
+        )
+        assert offset not in (None, 0.0), (
+            f"the fixture must declare a real offset, got {offset}"
         )
 
     def test_container_isel_agrees_with_variable_isel_numerically(self):
@@ -665,9 +668,10 @@ class TestAPackedVariableKeepsItsUnits:
         values = np.asarray(cut.read_array(), dtype="float64")
         finite = values[np.isfinite(values)]
 
-        assert finite.size and 150.0 < float(finite.mean()) < 400.0, (
+        assert finite.size, "the cut should hold at least one finite cell"
+        assert 150.0 < float(finite.mean()) < 400.0, (
             f"a 2-metre temperature field should read in kelvin, got mean "
-            f"{float(finite.mean()) if finite.size else 'nothing'}"
+            f"{float(finite.mean())}"
         )
 
 
@@ -750,12 +754,15 @@ def _two_groups_disagreeing_on_time() -> gdal.Dataset:
 class TestTheBandInventoryIsReadFromTheDeclaration:
     """The gate must be cheap and must not collapse disagreeing variables (round 2, M2, M3)."""
 
-    def test_resolving_the_inventory_builds_no_raster(self):
+    def test_resolving_the_inventory_builds_no_raster(self, monkeypatch):
         """The gate runs before every cut, so it must not read what the cut then re-reads.
 
         `_require_raster_variable`'s own docstring warns that reaching for `get_variable`
         "would read the whole array only to reject it". The first version of this resolver did
         exactly that for every gridded variable, which undid the perf fix it sits in front of.
+
+        Args:
+            monkeypatch: pytest's patching fixture, which restores `get_variable` for us.
 
         Test scenario:
             Resolving the inventory makes no `get_variable` call at all.
@@ -768,11 +775,8 @@ class TestTheBandInventoryIsReadFromTheDeclaration:
             calls.append(name)
             return original(self, name, *args, **kwargs)
 
-        NetCDF.get_variable = spy
-        try:
-            _gridded_band_dimensions(container, "probe")
-        finally:
-            NetCDF.get_variable = original
+        monkeypatch.setattr(NetCDF, "get_variable", spy)
+        _gridded_band_dimensions(container, "probe")
 
         assert calls == [], f"the gate should read no variable, but built {calls}"
 
