@@ -12,6 +12,7 @@ container operation shares, and the drop tests in `test_calendars.py` silence it
 assert values — silencing a warning in every test is how a warning stops being checked at all.
 """
 
+import pathlib
 import warnings
 
 import numpy as np
@@ -529,3 +530,107 @@ class TestAnAxisWithNoCoordinateArray:
 
         with pytest.raises(ValueError, match="measure the spacing from"):
             container.differentiate("time")
+
+
+class TestAPackedVariableKeepsItsUnits:
+    """A container cut must answer physical units, not stored counts (round 2, C1).
+
+    The round-1 perf fix swapped the container cut onto a raw GDAL band read, which applies no
+    CF unpacking — so `container.isel(...)` answered the stored `int16` counts while
+    `variable.isel(...)` answered kelvin. A shape-only assertion cannot see that, which is why
+    these compare the two routes **numerically**. CF packing is the normal encoding for
+    ERA5/CMIP-style stores, i.e. this module's audience.
+    """
+
+    PACKED = (
+        pathlib.Path(__file__).parents[3]
+        / "examples"
+        / "data"
+        / "netcdf"
+        / "samples"
+        / "cf__20v__1d3-3d17__y-desc.nc"
+    )
+
+    def test_the_fixture_really_is_packed(self):
+        """The precondition, so a pass here cannot be vacuous.
+
+        Test scenario:
+            `p2t` declares a non-identity `(scale, offset)`.
+        """
+        variable = NetCDF.read_file(str(self.PACKED)).get_variable("p2t")
+
+        scale, offset = variable._effective_packing(0)
+        assert scale not in (None, 1.0) and offset not in (None, 0.0), (
+            f"the fixture must be packed for this class to mean anything, got {scale}, {offset}"
+        )
+
+    def test_container_isel_agrees_with_variable_isel_numerically(self):
+        """The two routes must answer the same numbers, not merely the same shape.
+
+        Test scenario:
+            The same positional cut through the container and through the variable match cell
+            for cell. Before the fix the container answered the raw counts (6302.0 where the
+            variable answered 273.9663 K).
+        """
+        through_variable = np.asarray(
+            NetCDF.read_file(str(self.PACKED))
+            .get_variable("p2t")
+            .isel(time=[0, 2])
+            .read_array()
+        )
+        through_container = np.asarray(
+            NetCDF.read_file(str(self.PACKED))
+            .isel(time=[0, 2])
+            .get_variable("p2t")
+            .read_array()
+        )
+
+        assert np.allclose(through_variable, through_container, equal_nan=True), (
+            f"the two routes disagree: variable {through_variable[0, 0, :3]} vs container "
+            f"{through_container[0, 0, :3]}"
+        )
+
+    def test_container_sel_agrees_too(self):
+        """`sel` shares the same cut, so it shares the same exposure.
+
+        Test scenario:
+            A label cut through the container matches the equivalent positional cut through the
+            variable.
+        """
+        stamps = NetCDF.read_file(str(self.PACKED)).get_dimension_values("time")
+        through_variable = np.asarray(
+            NetCDF.read_file(str(self.PACKED))
+            .get_variable("p2t")
+            .isel(time=[0])
+            .read_array()
+        )
+        through_container = np.asarray(
+            NetCDF.read_file(str(self.PACKED))
+            .sel(time=float(stamps[0]))
+            .get_variable("p2t")
+            .read_array()
+        )
+
+        assert np.allclose(through_variable, through_container, equal_nan=True), (
+            "sel on a container must answer physical units too"
+        )
+
+    def test_the_cut_result_is_in_the_same_units_as_its_declared_sentinel(self):
+        """The raw read also paired counts with an *unpacked* sentinel.
+
+        `_read_no_data` documents that it reads a variable unpacked, so a packed variable's
+        fill cells hold `_FillValue * scale + offset`. Values in counts beside a sentinel in
+        physical units means a packed variable's gaps stop being recognised.
+
+        Test scenario:
+            The cut's values span the same order of magnitude as the sentinel it declares —
+            kelvin, not int16 counts.
+        """
+        cut = NetCDF.read_file(str(self.PACKED)).isel(time=[0]).get_variable("p2t")
+        values = np.asarray(cut.read_array(), dtype="float64")
+        finite = values[np.isfinite(values)]
+
+        assert finite.size and 150.0 < float(finite.mean()) < 400.0, (
+            f"a 2-metre temperature field should read in kelvin, got mean "
+            f"{float(finite.mean()) if finite.size else 'nothing'}"
+        )

@@ -34,7 +34,7 @@ from shapely import box, contains_xy
 
 from pyramids.base._axes import X_AXIS_NAMES, Y_AXIS_NAMES
 from pyramids.base._errors import AlignmentError
-from pyramids.base._utils import carry_band_packing
+from pyramids.base._utils import apply_unpack, carry_band_packing
 from pyramids.base.crs import crs_equal, crs_spec, sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
@@ -7057,9 +7057,17 @@ def _selected_bands_of(
     names = list(var._band_dim_names)
     sizes = tuple(var._band_dim_sizes)
     axis = names.index(dim)
-    flat = _read_selected_bands(var, _map_dim_to_band_indices(axis, sizes, list(kept)))
+    bands = _map_dim_to_band_indices(axis, sizes, list(kept))
+    flat = _read_selected_bands(var, bands)
+    # `_read_selected_bands` is a raw GDAL band read: no CF unpacking and no float64
+    # promotion. The other arm of `_TakeSteps` reads through `read_array`, which unpacks, so
+    # without this the two arms disagree about what the numbers *are* — a `scale_factor=0.01,
+    # add_offset=1.5` cube came back as the stored counts `[0, 12]` where the variable route
+    # answers the physical `[1.5, 1.62]`. Unpacking here keeps one representation throughout,
+    # and keeps it the same one `_read_no_data`'s sentinel is already in.
+    unpacked = apply_unpack(flat, *var._effective_packing(bands[0]))
     after = tuple(len(kept) if i == axis else size for i, size in enumerate(sizes))
-    return flat.reshape(*after, *flat.shape[-2:])
+    return np.asarray(unpacked).reshape(*after, *flat.shape[-2:])
 
 
 def _cut_container_along(
