@@ -19,6 +19,7 @@ from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
 from pyramids.netcdf.engines._along_dim import (
     _apply_to_variable,
     _Differentiate,
+    _is_zero_sentinel,
     _PolyFit,
 )
 
@@ -897,3 +898,74 @@ class TestPolyFitRefusesWhatItCannotName:
         cube = _cube([1.0, 3.0, 5.0, 7.0], stamps=[0.0, 1.0, 2.0, 3.0])
 
         assert cube.polyfit("level", 1).get_variable("t")._band_dim_sizes == (2,)
+
+
+class TestTheGuardsRound1Added:
+    """Round 1's own fixes, which I verified by probe and had left untested.
+
+    The round-1 `/test` pass measured 99.27 % on the changed lines and every gap was inside a
+    guard added by a round-1 fix — a probe in a terminal proves a path works once, a test keeps
+    it working.
+    """
+
+    def test_a_non_finite_axis_is_refused(self):
+        """An infinite coordinate gives arithmetically-defined, meaningless answers.
+
+        Test scenario:
+            A `level` axis holding `inf` is refused by the shared numerical gate, naming the
+            member and pointing at `assign_coords`.
+        """
+        cube = _cube([1.0, 2.0, 3.0], stamps=[0.0, float("inf"), 2.0])
+
+        with pytest.raises(ValueError, match="not all"):
+            cube.differentiate("level")
+
+    def test_a_non_monotonic_axis_is_refused_and_names_sortby(self):
+        """Out-of-order coordinates make an integral's signed areas cancel.
+
+        Test scenario:
+            `[0, 5, 2]` is refused rather than integrated to the 0.0 the cancellation produces,
+            and the message names `sortby` as the remedy.
+        """
+        cube = _cube([1.0, 2.0, 3.0], stamps=[0.0, 5.0, 2.0])
+
+        with pytest.raises(ValueError, match="sortby"):
+            cube.integrate("level")
+
+    def test_a_descending_axis_is_still_accepted(self):
+        """The monotonic guard must not reject a pressure axis, which descends by convention.
+
+        Test scenario:
+            `[1000, 900, 800]` integrates (negatively, as its coordinates say) rather than
+            being refused.
+        """
+        cube = _cube([1.0, 1.0, 1.0], stamps=[1000.0, 900.0, 800.0])
+
+        assert _series(cube.integrate("level")) == [-200.0]
+
+    def test_a_single_step_axis_is_refused_before_the_monotonic_check(self):
+        """One step has no spacing at all, so the step-count refusal comes first.
+
+        Test scenario:
+            A one-step axis is refused for being too short, not for being non-monotonic —
+            `np.diff` of one value is empty and would pass the direction test vacuously.
+        """
+        cube = _cube([1.0], stamps=[0.0])
+
+        with pytest.raises(ValueError, match="at least 2 steps"):
+            cube.differentiate("level")
+
+    def test_a_non_numeric_sentinel_cannot_collide(self):
+        """`_is_zero_sentinel` tolerates a sentinel that is not a number.
+
+        The zero-sentinel replacement must not raise on a declared no-data value it cannot
+        convert, since such a value cannot collide with a float result anyway.
+
+        Test scenario:
+            A string sentinel answers `False` rather than raising out of `float()`.
+        """
+        assert _is_zero_sentinel("not-a-number") is False
+        assert _is_zero_sentinel(None) is False
+        assert _is_zero_sentinel(0) is True
+        assert _is_zero_sentinel(np.float32(0.0)) is True
+        assert _is_zero_sentinel(-9999.0) is False

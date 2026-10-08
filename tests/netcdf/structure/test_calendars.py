@@ -908,3 +908,30 @@ class TestInterpCalendarRefusesADisjointTarget:
         assert series[0] != series[1], (
             f"the in-range step should interpolate and the out-of-range one gap, got {series}"
         )
+
+
+class TestConvertCalendarGuardsItsEpoch:
+    """The source's units epoch must exist in the target calendar too (round 1, L5)."""
+
+    def test_a_reference_date_the_target_lacks_is_refused_by_name(self):
+        """`cftime.date2num` was unguarded, so its own message surfaced naming nothing.
+
+        Test scenario:
+            Units counted from `2001-02-29` — a real date on `all_leap` — cannot be counted on
+            `noleap`, and the refusal names the member, the dimension, the units, the calendar
+            and the remedy.
+        """
+        cube = _cube([0.0, 1.0], "all_leap", units="days since 2001-02-29")
+
+        with pytest.raises(ValueError, match=r"convert_calendar\(\) cannot count"):
+            cube.convert_calendar("noleap")
+
+    def test_a_valid_epoch_still_converts(self):
+        """The guard must not reject the ordinary case.
+
+        Test scenario:
+            A `2001-01-01` epoch converts as before.
+        """
+        cube = _cube([0.0, 1.0], "all_leap")
+
+        assert _calendar_of(cube.convert_calendar("noleap")) == "noleap"
