@@ -858,3 +858,53 @@ class TestConvertCalendarKeepsPrecision:
             f"pyramids {[str(d) for d in ours]} vs xarray "
             f"{[str(v) for v in expected.time.values]}"
         )
+
+
+class TestInterpCalendarRefusesADisjointTarget:
+    """A target sharing no span with the source is refused (review round 1, M10).
+
+    Every target outside the source's span interpolates to a gap, so a disjoint target answered
+    a fully-masked cube in silence — the worst outcome for a member whose stated job is lining
+    two cubes up before `concat`, because `concat` then succeeds on nothing.
+    """
+
+    def test_no_overlap_is_refused_with_both_spans_named(self):
+        """The refusal has to say what did not overlap.
+
+        Test scenario:
+            A 2001 source against a 1990 target is refused, naming both decimal-year spans.
+        """
+        source = _cube([0.0, 10.0], "noleap")
+        target = _cube([2160.0, 6480.0], "noleap", units="hours since 1990-01-01")
+
+        with pytest.raises(ValueError, match="found no overlap"):
+            source.interp_calendar(target)
+
+    def test_an_overlapping_target_still_interpolates(self):
+        """The guard must not reject the ordinary case.
+
+        Test scenario:
+            A target inside the source's span answers both of its steps.
+        """
+        source = _cube([0.0, 20.0], "noleap", values=[0.0, 20.0])
+        target = _cube([5.0, 15.0], "noleap", values=[0.0, 0.0])
+
+        aligned = source.interp_calendar(target)
+
+        assert aligned.get_variable("t")._band_dim_sizes == (2,)
+
+    def test_a_partial_overlap_is_allowed_and_partly_masked(self):
+        """Partial overlap is a real answer, so it is not refused — only total disjointness is.
+
+        Test scenario:
+            A target straddling the source's end interpolates the step inside and gaps the one
+            outside, rather than being refused.
+        """
+        source = _cube([0.0, 10.0], "noleap", values=[0.0, 10.0])
+        target = _cube([5.0, 500.0], "noleap", values=[0.0, 0.0])
+
+        series = _series(source.interp_calendar(target))
+
+        assert series[0] != series[1], (
+            f"the in-range step should interpolate and the out-of-range one gap, got {series}"
+        )

@@ -4477,9 +4477,17 @@ class Selection(_Engine["NetCDF"]):
             stamps and carrying its `units` and `calendar`.
 
         Raises:
+            TypeError: `target` is not a cube.
             ValueError: Either side lacks `dim`, its coordinate values or its CF time `units`;
-                or the source axis has fewer than two steps, which is too few to interpolate
-                between.
+                the source axis has fewer than two steps, which is too few to interpolate
+                between; or the two spans do not overlap at all, so every step would come back
+                a gap.
+
+        Note:
+            A target stamp *inside* the source's span interpolates; one outside it is a **gap**,
+            not an extrapolation — the contract `interp` already has. A target that overlaps
+            only partly therefore comes back partly masked, and one that does not overlap at all
+            is refused rather than answered as a fully-masked cube.
 
         Examples:
             - A `360_day` cube onto a standard-calendar cube's stamps, losing no step:
@@ -4810,9 +4818,12 @@ class Selection(_Engine["NetCDF"]):
             `degree` of length `deg + 1`, stamped highest power first. Float64 declaring NaN.
 
         Raises:
+            TypeError: `deg` is not an integer, or is a `bool`.
             ValueError: The container has no data variables; `dim` is a spatial axis, is not a
                 band dimension, carries no coordinate values, or is shorter than two steps;
-                `deg` is negative; or `deg` leaves the fit underdetermined (`deg >= length`).
+                `deg` is negative; `deg` leaves the fit underdetermined (`deg >= length`); or
+                the cube already carries a dimension named `degree`, which the coefficients
+                would collide with.
 
         Examples:
             - A linear trend: slope first, then intercept:
@@ -4849,8 +4860,14 @@ class Selection(_Engine["NetCDF"]):
 
               ```
         """
-        if int(deg) < 0:
-            raise ValueError(f"polyfit() needs a degree of 0 or more, but got {deg!r}.")
+        _assert_degree(deg)
+        if _COEFFICIENT_DIM in _band_dims_of(self._ds):
+            raise ValueError(
+                f"polyfit() lands its coefficients on a dimension named "
+                f"{_COEFFICIENT_DIM!r}, which this cube already has. Rename it first with "
+                f"rename_dims({_COEFFICIENT_DIM}=...) — without that the rebuild reaches GDAL "
+                f"with two dimensions of one name and fails there instead."
+            )
         return _run_numerical(
             self._ds,
             dim,
@@ -6896,6 +6913,32 @@ def _gridded_band_coordinates(nc: NetCDF, dim: str) -> Any:
     return nc.get_dimension_values(dim)
 
 
+_COEFFICIENT_DIM = "degree"
+"""The dimension :meth:`Selection.polyfit` lands its coefficients on."""
+
+
+def _assert_degree(deg: Any) -> None:
+    """Refuse a polynomial degree that is not a whole, non-negative number.
+
+    `int(deg)` accepted `1.9`, `True` and `"1"` and silently truncated them, which is how a
+    quietly wrong model order gets fitted. Mirrors `_check_periods`, which `shift` uses.
+
+    Args:
+        deg: The degree the caller passed.
+
+    Raises:
+        TypeError: `deg` is not an integer, or is a `bool` — `polyfit(dim, True)` would mean
+            degree 1, and a caller writing it means something else.
+        ValueError: `deg` is negative.
+    """
+    if isinstance(deg, bool) or not isinstance(deg, (int, np.integer)):
+        raise TypeError(
+            f"polyfit() needs an integer degree, but got {type(deg).__name__} ({deg!r})."
+        )
+    if int(deg) < 0:
+        raise ValueError(f"polyfit() needs a degree of 0 or more, but got {deg!r}.")
+
+
 def _gridded_band_dimensions(nc: NetCDF) -> dict[str, int]:
     """A container's band dimensions and lengths, read through its **working group**.
 
@@ -7217,6 +7260,18 @@ def _run_interp_calendar(nc: NetCDF, target: NetCDF, *, dim: str) -> NetCDF:
         raise ValueError(
             f"{caller}() needs at least 2 steps along {dim!r} to interpolate between, but it "
             f"has {source_scale.size}."
+        )
+    # Every target outside the source's span interpolates to a gap, so a target that shares no
+    # span at all answers a fully-masked cube. Silently handing that back is the worst outcome
+    # for the member's stated purpose — lining two cubes up before `concat` — because `concat`
+    # then succeeds on nothing.
+    low, high = float(source_scale.min()), float(source_scale.max())
+    if float(target_scale.min()) > high or float(target_scale.max()) < low:
+        raise ValueError(
+            f"{caller}() found no overlap along {dim!r}: this cube spans {low:.4f} to "
+            f"{high:.4f} in decimal years and the target spans "
+            f"{float(target_scale.min()):.4f} to {float(target_scale.max()):.4f}. Every step "
+            f"would interpolate to a gap. Check the two cubes' time units and epochs."
         )
     offsets = [
         float(value)

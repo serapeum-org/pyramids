@@ -841,3 +841,57 @@ class TestTheZeroFirstStepCannotBeMistakenForAGap:
             -9999.0,
             -9999.0,
         ]
+
+
+class TestPolyFitRefusesWhatItCannotName:
+    """Two refusals polyfit owed the caller (review round 1, M9 and L7)."""
+
+    def test_a_degree_dimension_collision_is_named(self):
+        """A cube already carrying `degree` must be refused by `polyfit`, not by GDAL.
+
+        Before the guard the rebuild reached GDAL with two dimensions of one name and died with
+        `RuntimeError: A dimension with same name already exists` — no mention of `polyfit`, the
+        dimension, or a way out, and `coord_name` is not public so there was no workaround.
+
+        Test scenario:
+            A `(degree, level)` cube fitted along `level` is refused, naming the dimension and
+            pointing at `rename_dims`.
+        """
+        planes = np.arange(2.0 * 4 * NY * NX).reshape(2, 4, NY, NX)
+        cube = NetCDF.from_array(
+            planes,
+            geo_ref=_geo_ref(),
+            variable_name="t",
+            dims=ExtraDimensions(
+                dims=[("degree", [0.0, 1.0]), ("level", [0.0, 1.0, 2.0, 3.0])]
+            ),
+        )
+
+        with pytest.raises(ValueError, match="rename_dims"):
+            cube.polyfit("level", 1)
+
+    @pytest.mark.parametrize("deg", [1.9, True, "1"])
+    def test_a_non_integer_degree_is_refused(self, deg):
+        """`int(deg)` truncated these silently, which fits a quietly wrong model order.
+
+        Args:
+            deg: A degree that is not a whole number, or is a `bool`.
+
+        Test scenario:
+            Each is a `TypeError` naming the type received, where `1.9` previously fitted
+            degree 1 without complaint.
+        """
+        cube = _cube([1.0, 3.0, 5.0, 7.0], stamps=[0.0, 1.0, 2.0, 3.0])
+
+        with pytest.raises(TypeError, match="integer degree"):
+            cube.polyfit("level", deg)
+
+    def test_a_whole_degree_is_still_accepted(self):
+        """The validation must not reject the valid case.
+
+        Test scenario:
+            Degree 1 still answers two coefficients.
+        """
+        cube = _cube([1.0, 3.0, 5.0, 7.0], stamps=[0.0, 1.0, 2.0, 3.0])
+
+        assert cube.polyfit("level", 1).get_variable("t")._band_dim_sizes == (2,)
