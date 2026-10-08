@@ -858,3 +858,60 @@ class TestAReversingCutDoesNotMisalignAuxiliaries:
         assert "qc" in whole.variable_names, (
             f"an unchanged axis should keep the auxiliary, got {whole.variable_names}"
         )
+
+
+class TestTheInventoryToleratesAnUntypedSpatialAxis:
+    """Not every store tags its horizontal axes with a GDAL dimension type.
+
+    `_gridded_band_dimensions` filters on `GetType()` first and falls back to the axis *name*,
+    which is what covers a store that declares `lat`/`lon` without typing them — common in
+    netCDFs written by tools that do not set the GDAL dimension type.
+    """
+
+    def test_an_axis_named_lat_is_excluded_even_when_untyped(self):
+        """Otherwise a spatial axis would be offered as a band dimension to cut along.
+
+        Test scenario:
+            A store whose `lat`/`lon` carry no `DIM_TYPE_HORIZONTAL_*` still resolves to
+            `{'time': 3}` — the spatial pair is filtered by name.
+        """
+        store = gdal.GetDriverByName("MEM").CreateMultiDimensional("")
+        root = store.GetRootGroup()
+        f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+        lat = root.CreateDimension("lat", "", "", NY)
+        lon = root.CreateDimension("lon", "", "", NX)
+        time = root.CreateDimension("time", "", "", 3)
+        for dim, values in (
+            (lat, [1.5, 0.5]),
+            (lon, [0.5, 1.5, 2.5]),
+            (time, [0.0, 1.0, 2.0]),
+        ):
+            coordinate = root.CreateMDArray(dim.GetName(), [dim], f64)
+            coordinate.Write(np.array(values, dtype="float64"))
+            dim.SetIndexingVariable(coordinate)
+        reference = osr.SpatialReference()
+        reference.ImportFromEPSG(4326)
+        gridded = root.CreateMDArray("t", [time, lat, lon], f64)
+        gridded.Write(np.arange(3.0 * NY * NX).reshape(3, NY, NX))
+        gridded.SetSpatialRef(reference)
+
+        resolved = _gridded_band_dimensions(Container(store), "probe")
+
+        assert resolved == {"time": 3}, (
+            f"an untyped lat/lon must still be excluded by name, got {resolved}"
+        )
+
+    def test_a_plain_container_re_wraps_without_open_options(self):
+        """`_rewrapped_container` carries `_open_options` only when there are any.
+
+        Test scenario:
+            A no-op squeeze on a container built in memory — which has no open options —
+            answers a usable container rather than tripping on the absent attribute.
+        """
+        container = _cube([0.0])
+
+        result = container.squeeze()
+
+        assert result.variable_names == ["v"], (
+            f"the re-wrap must work without open options, got {result.variable_names}"
+        )

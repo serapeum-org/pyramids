@@ -1870,13 +1870,13 @@ def _is_zero_sentinel(ndv: Any) -> bool:
     # `isinstance` first: `float("0")` is `0.0`, so converting blindly made the *string*
     # `"0"` a zero sentinel and contradicted the rule below. A sentinel has to be a number
     # before it can collide with one.
+    # The type check makes the conversion safe, so there is nothing left to catch: `float()`
+    # does not fail on a `Real` or an `np.number`. The earlier `try` was load-bearing only
+    # while this accepted anything — and while it did, `float("0")` made the *string* `"0"` a
+    # zero sentinel, which is the bug the check replaced.
     if isinstance(ndv, bool) or not isinstance(ndv, (Real, np.number)):
         return False
-    try:
-        return float(ndv) == 0.0
-    except (TypeError, ValueError):
-        # A number that will not convert cannot collide with a float result either.
-        return False
+    return float(ndv) == 0.0
 
 
 def _required_axis_positions(
