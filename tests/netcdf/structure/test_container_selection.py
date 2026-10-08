@@ -194,14 +194,14 @@ class TestTheThreeShareOneGate:
         flat = NetCDF.from_array(
             np.ones((NY, NX)), geo_ref=_geo_ref(), variable_name="v"
         )
+        call = {
+            "squeeze": lambda: flat.squeeze(),
+            "isel": lambda: flat.isel(time=0),
+            "sel": lambda: flat.sel(time=0.0),
+        }[member]
 
         with pytest.raises(ValueError, match="needs a non-spatial dimension"):
-            if member == "squeeze":
-                flat.squeeze()
-            elif member == "isel":
-                flat.isel(time=0)
-            else:
-                flat.sel(time=0.0)
+            call()
 
     @pytest.mark.parametrize("member", ["isel", "sel", "squeeze"])
     def test_a_spatial_axis_is_refused_by_all_three(self, member: str):
@@ -215,14 +215,14 @@ class TestTheThreeShareOneGate:
             grid.
         """
         container = _cube([0.0, 1.0, 2.0])
+        call = {
+            "squeeze": lambda: container.squeeze("y"),
+            "isel": lambda: container.isel(y=0),
+            "sel": lambda: container.sel(y=0.0),
+        }[member]
 
         with pytest.raises(ValueError, match="spatial axis"):
-            if member == "squeeze":
-                container.squeeze("y")
-            elif member == "isel":
-                container.isel(y=0)
-            else:
-                container.sel(y=0.0)
+            call()
 
     @pytest.mark.parametrize("member", ["isel", "sel"])
     def test_an_unknown_name_lists_the_band_dimensions(self, member: str):
@@ -236,12 +236,13 @@ class TestTheThreeShareOneGate:
             are rather than claiming the receiver tracks none.
         """
         container = _cube([0.0, 1.0, 2.0])
+        call = {
+            "isel": lambda: container.isel(nope=0),
+            "sel": lambda: container.sel(nope=0.0),
+        }[member]
 
         with pytest.raises(ValueError, match="not a band dimension of this container"):
-            if member == "isel":
-                container.isel(nope=0)
-            else:
-                container.sel(nope=0.0)
+            call()
 
 
 class TestSeveralKeywordsCompose:

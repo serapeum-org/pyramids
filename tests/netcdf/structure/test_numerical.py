@@ -535,10 +535,10 @@ class TestTheSharedGate:
         Test scenario:
             Each member refuses `"y"`, pointing at the operations that do regrid.
         """
-        cube = _cube([1.0, 2.0, 3.0])
+        call = getattr(_cube([1.0, 2.0, 3.0]), member)
 
         with pytest.raises(ValueError, match="only band"):
-            getattr(cube, member)("y")
+            call("y")
 
     @pytest.mark.parametrize(
         "member", ["differentiate", "integrate", "cumulative_integrate"]
@@ -549,10 +549,10 @@ class TestTheSharedGate:
         Test scenario:
             Each member refuses `"nope"`.
         """
-        cube = _cube([1.0, 2.0, 3.0])
+        call = getattr(_cube([1.0, 2.0, 3.0]), member)
 
         with pytest.raises(ValueError, match="nope"):
-            getattr(cube, member)("nope")
+            call("nope")
 
     @pytest.mark.parametrize(
         "member", ["differentiate", "integrate", "cumulative_integrate"]
@@ -563,10 +563,10 @@ class TestTheSharedGate:
         Test scenario:
             A single-step axis is refused rather than answering a degenerate result.
         """
-        cube = _cube([1.0], stamps=[0.0])
+        call = getattr(_cube([1.0], stamps=[0.0]), member)
 
         with pytest.raises(ValueError, match="at least 2 steps"):
-            getattr(cube, member)("level")
+            call("level")
 
     def test_an_unlabelled_axis_is_refused(self):
         """Without coordinates there is no spacing to measure.
@@ -683,8 +683,10 @@ class TestTheNarrowingGuard:
         variable = cube.get_variable("t")
         variable._band_dim_values_map["level"] = None
 
+        operation = _Differentiate()
+
         with pytest.raises(ValueError, match="no coordinates for 'level'"):
-            _Differentiate().apply(variable, variable, "level")
+            operation.apply(variable, variable, "level")
 
 
 class TestAContainerOfSeveralVariables:
