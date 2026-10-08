@@ -4398,8 +4398,14 @@ class Selection(_Engine["NetCDF"]):
                 the stamp to `round(days_in_target * day_of_year / days_in_source)` — whole
                 days, with the time of day carried across unchanged, which is the mapping
                 xarray's `convert_calendar` uses. That is what you want for a `360_day` axis
-                whose dates are model bookkeeping rather than real days; nothing is dropped
-                under `"year"`.
+                whose dates are model bookkeeping rather than real days.
+
+                `"year"` is **not** lossless either, though it loses less than `"date"`: the
+                mapping is not injective when the target year is shorter, so consecutive source
+                days can land on one target day — 365 daily steps collapse onto 360 going to
+                `360_day`. Those duplicates are dropped, as xarray drops them, because a
+                repeated stamp is an axis `differentiate`, `integrate`, `polyfit`, `interp` and
+                `sel` all refuse. :meth:`interp_calendar` is the route that keeps every step.
 
         Returns:
             NetCDF: A container for a container, a variable for a variable, with `dim` restamped
@@ -4870,7 +4876,12 @@ class Selection(_Engine["NetCDF"]):
               ```
         """
         _assert_degree(deg)
-        if _COEFFICIENT_DIM in _band_dims_of(self._ds):
+        existing = (
+            set(self._ds._band_dim_names)
+            if _reduces_as_a_variable(self._ds)
+            else set(_gridded_band_dimensions(self._ds, "polyfit"))
+        )
+        if _COEFFICIENT_DIM in existing:
             raise ValueError(
                 f"polyfit() lands its coefficients on a dimension named "
                 f"{_COEFFICIENT_DIM!r}, which this cube already has. Rename it first with "
@@ -6879,8 +6890,26 @@ def _carried_to_calendar(
     carried: list[Any] = []
     kept: list[int] = []
     if align_on == "year":
+        seen: set[tuple] = set()
         for index, instant in enumerate(instants):
-            carried.append(_same_position_in_year(instant, calendar))
+            moved = _same_position_in_year(instant, calendar)
+            # The mapping is not injective when the target year is shorter — 365 source days
+            # collapse onto 360 — and a repeated stamp is an axis `differentiate`, `integrate`,
+            # `polyfit`, `interp` and `sel` all refuse. xarray drops the collapsed days; so do
+            # we, which keeps the result strictly monotonic and therefore usable.
+            stamp = (
+                moved.year,
+                moved.month,
+                moved.day,
+                moved.hour,
+                moved.minute,
+                moved.second,
+                moved.microsecond,
+            )
+            if stamp in seen:
+                continue
+            seen.add(stamp)
+            carried.append(moved)
             kept.append(index)
         return carried, kept
     for index, instant in enumerate(instants):

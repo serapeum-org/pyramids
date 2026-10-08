@@ -935,3 +935,86 @@ class TestConvertCalendarGuardsItsEpoch:
         cube = _cube([0.0, 1.0], "all_leap")
 
         assert _calendar_of(cube.convert_calendar("noleap")) == "noleap"
+
+
+class TestAlignOnYearStaysMonotonic:
+    """`align_on="year"` must not emit a stamp twice (round 2, M6).
+
+    The whole-day mapping is not injective when the target year is shorter, so 365 daily steps
+    collapse onto 360. Round 1 kept every step, honouring "nothing is dropped" literally — and
+    produced an axis that `differentiate`, `integrate`, `polyfit`, `interp` and `sel` all refuse
+    for having duplicate coordinates.
+    """
+
+    def _daily_year(self) -> NetCDF:
+        """A 365-step daily `standard` series.
+
+        Returns:
+            NetCDF: The container.
+        """
+        steps = 365
+        return NetCDF.from_array(
+            np.arange(float(steps)).reshape(steps, 1, 1),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+            variable_name="t",
+            dims=ExtraDimensions(
+                name="time",
+                values=[float(step) for step in range(steps)],
+                attrs={"time": {"units": UNITS, "calendar": "standard"}},
+            ),
+        )
+
+    def test_the_collapsed_days_are_dropped(self):
+        """365 daily steps map onto 360 target days, so five collapse and are dropped.
+
+        Test scenario:
+            The result has 360 steps and no repeated stamp.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            converted = self._daily_year().convert_calendar("360_day", align_on="year")
+
+        stamps = _stamps(converted)
+        assert len(stamps) == len(set(stamps)), (
+            f"{len(stamps) - len(set(stamps))} duplicate stamps survived"
+        )
+
+    def test_the_result_is_usable_by_the_numerical_members(self):
+        """The point of dropping them: a duplicate stamp is refused everywhere else.
+
+        Test scenario:
+            `differentiate` works on the converted cube, where before it refused it for having
+            duplicate coordinates.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            converted = self._daily_year().convert_calendar("360_day", align_on="year")
+
+        assert converted.differentiate("time") is not None, (
+            "the converted axis must be strictly monotonic for the numerical members"
+        )
+
+    def test_it_matches_xarray_step_for_step(self):
+        """xarray drops the collapsed days too, so the two axes agree in length.
+
+        Test scenario:
+            Both produce 360 unique steps for the same 365-day source.
+        """
+        xarray = pytest.importorskip("xarray")
+        dates = cftime.num2date(
+            [float(step) for step in range(365)],
+            UNITS,
+            "standard",
+            only_use_cftime_datetimes=True,
+        )
+        expected = xarray.DataArray(
+            np.arange(365.0), dims="time", coords={"time": dates}
+        ).convert_calendar("360_day", align_on="year")
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            converted = self._daily_year().convert_calendar("360_day", align_on="year")
+
+        assert len(_stamps(converted)) == int(expected.time.size), (
+            f"pyramids {len(_stamps(converted))} steps vs xarray {int(expected.time.size)}"
+        )
