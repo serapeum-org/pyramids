@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7600,14 +7600,6 @@ rhum._band_dim_names, column._band_dim_names</div>
 <div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
 </div>
 <div class="jp-OutputArea jp-Cell-outputArea">
-<div class="jp-OutputArea-child">
-<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
-<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="application/vnd.jupyter.stderr" tabindex="0">
-<pre>/home/runner/work/pyramids/pyramids/.pixi/envs/docs/lib/python3.14/site-packages/dask/array/core.py:1735: FutureWarning: The `numpy.trapezoid` function is not implemented by Dask array. You may want to use the da.map_blocks function or something similar to silence this warning. Your code may stop working in a future release.
-  warnings.warn(
-</pre>
-</div>
-</div>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[6]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
@@ -7649,13 +7641,9 @@ Reverse the axis, or negate the result, when the magnitude is what you want.</p>
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="nb">float</span><span class="p">(</span><span class="n">column</span><span class="o">.</span><span class="n">read_array</span><span class="p">()[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">])</span> <span class="k">if</span> <span class="n">column</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">3</span> <span class="k">else</span> <span class="nb">float</span><span class="p">(</span>
-    <span class="n">column</span><span class="o">.</span><span class="n">read_array</span><span class="p">()[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>
-<span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="nb">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">column</span><span class="o">.</span><span class="n">read_array</span><span class="p">()</span><span class="o">.</span><span class="n">ravel</span><span class="p">()[</span><span class="mi">0</span><span class="p">]),</span> <span class="mi">3</span><span class="p">)</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-7">float(column.read_array()[0, 0, 0]) if column.read_array().ndim == 3 else float(
-    column.read_array()[0, 0]
-)</div>
+<div class="clipboard-copy-txt" id="cell-7">round(float(column.read_array().ravel()[0]), 3)</div>
 </div>
 </div>
 </div>
@@ -7667,7 +7655,7 @@ Reverse the axis, or negate the result, when the magnitude is what you want.</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[7]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>-14653.127800603397</pre>
+<pre>-14653.128</pre>
 </div>
 </div>
 </div>
@@ -7871,7 +7859,7 @@ to:</p>
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[10]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>[2.0, 1.0, 0.0]</pre>
+<pre>[2, 1, 0]</pre>
 </div>
 </div>
 </div>
