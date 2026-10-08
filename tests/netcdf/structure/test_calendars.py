@@ -785,3 +785,76 @@ class TestContainerSelAndSqueeze:
         assert result.get_variable("t")._band_dim_names == ("time",), (
             "a no-op must leave the layout intact"
         )
+
+
+class TestConvertCalendarKeepsPrecision:
+    """What a conversion must not quietly alter (review round 1, M7 and M8)."""
+
+    def test_microseconds_survive_align_on_date(self):
+        """The docstring promises the time of day is kept; microseconds are part of it.
+
+        Test scenario:
+            A stamp at `12:00:00.050000` on `all_leap` keeps its 50 ms moving to `noleap`.
+            Before the fix the microsecond was dropped from the rebuilt `cftime.datetime` and
+            the stamp came back at `12:00:00`.
+        """
+        offset = 0.5 + 50e-3 / 86400.0
+        cube = _cube([offset], "all_leap")
+
+        converted = cube.convert_calendar("noleap")
+
+        decoded = cftime.num2date(
+            _stamps(converted), UNITS, "noleap", only_use_cftime_datetimes=True
+        )
+        assert decoded[0].microsecond == 50000, (
+            f"the 50 ms should survive, got {decoded[0]!r}"
+        )
+
+    def test_align_on_year_maps_whole_days(self):
+        """`align_on="year"` moves the day of the year, not a proportion of its seconds.
+
+        The point of the mode is making a model calendar comparable with a real one, and the
+        earlier seconds interpolation landed a day-aligned `360_day` stamp on
+        `2001-12-30 23:40:00.000001` — which no daily label matches.
+
+        Test scenario:
+            A `360_day` axis at midnight on day 0 and day 359 comes back at midnight on both.
+        """
+        cube = _cube([0.0, 359.0], "360_day")
+
+        converted = cube.convert_calendar("noleap", align_on="year")
+
+        decoded = cftime.num2date(
+            _stamps(converted), UNITS, "noleap", only_use_cftime_datetimes=True
+        )
+        assert all(
+            (date.hour, date.minute, date.second, date.microsecond) == (0, 0, 0, 0)
+            for date in decoded
+        ), f"every stamp should stay at midnight, got {[str(d) for d in decoded]}"
+
+    def test_align_on_year_matches_xarray(self):
+        """The mapping is xarray's, so the two agree stamp for stamp.
+
+        Test scenario:
+            The same `360_day` pair converted to `noleap` with `align_on="year"` gives the same
+            dates through pyramids and through `xarray.DataArray.convert_calendar`.
+        """
+        xarray = pytest.importorskip("xarray")
+        source = cftime.num2date(
+            [0.0, 359.0], UNITS, "360_day", only_use_cftime_datetimes=True
+        )
+        expected = xarray.DataArray(
+            [0.0, 1.0], dims="time", coords={"time": source}
+        ).convert_calendar("noleap", align_on="year")
+
+        converted = _cube([0.0, 359.0], "360_day").convert_calendar(
+            "noleap", align_on="year"
+        )
+
+        ours = cftime.num2date(
+            _stamps(converted), UNITS, "noleap", only_use_cftime_datetimes=True
+        )
+        assert [str(d) for d in ours] == [str(v) for v in expected.time.values], (
+            f"pyramids {[str(d) for d in ours]} vs xarray "
+            f"{[str(v) for v in expected.time.values]}"
+        )

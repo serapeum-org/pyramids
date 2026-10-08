@@ -4384,10 +4384,13 @@ class Selection(_Engine["NetCDF"]):
                 `"noleap"` / `"365_day"`, `"all_leap"` / `"366_day"`, `"360_day"` or `"julian"`.
             dim: The time dimension to restamp. `"time"` by default.
             align_on: How a date is carried across. `"date"` (default) keeps the calendar date —
-                same year, month, day and time of day — and drops what the target does not have.
-                `"year"` keeps the *position in the year* instead, mapping the day of the year
-                proportionally, which is what you want for a `360_day` axis whose dates are
-                model bookkeeping rather than real days; nothing is dropped under `"year"`.
+                same year, month, day and time of day, to the microsecond — and drops what the
+                target does not have. `"year"` keeps the *position in the year* instead, moving
+                the stamp to `round(days_in_target * day_of_year / days_in_source)` — whole
+                days, with the time of day carried across unchanged, which is the mapping
+                xarray's `convert_calendar` uses. That is what you want for a `360_day` axis
+                whose dates are model bookkeeping rather than real days; nothing is dropped
+                under `"year"`.
 
         Returns:
             NetCDF: A container for a container, a variable for a variable, with `dim` restamped
@@ -6776,6 +6779,56 @@ def _decimal_years(instants: Any) -> np.ndarray:
     return years
 
 
+def _days_in_year(year: int, calendar: str) -> int:
+    """How many days `calendar` gives `year`.
+
+    Args:
+        year: The year.
+        calendar: The CF calendar.
+
+    Returns:
+        int: 360, 365 or 366 depending on the calendar and the year.
+    """
+    start = cftime.datetime(year, 1, 1, calendar=calendar)
+    return int((cftime.datetime(year + 1, 1, 1, calendar=calendar) - start).days)
+
+
+def _same_position_in_year(instant: Any, calendar: str) -> Any:
+    """`instant` moved to `calendar`, keeping its position in the year rather than its date.
+
+    What `align_on="year"` means, and it maps **whole days**: the new day of the year is
+    `round(days_in_target * day_of_year / days_in_source)`, which is the formula xarray's
+    `convert_calendar` uses, and the time of day is carried across verbatim. An earlier version
+    interpolated in seconds through a decimal year, which pushed a day-aligned `360_day` stamp
+    to `2001-12-30 23:40:00.000001` — arithmetically close and useless for the comparison the
+    mode exists to enable, since no daily label matches it.
+
+    Args:
+        instant: The source instant.
+        calendar: The target CF calendar.
+
+    Returns:
+        The instant on `calendar`, at the proportional day of the year.
+    """
+    source_length = _days_in_year(instant.year, instant.calendar)
+    target_length = _days_in_year(instant.year, calendar)
+    moved = int(round(target_length * instant.dayofyr / source_length))
+    # `round` can land on 0 for the first day of a shrinking year, and on length + 1 for the
+    # last day of a growing one; both are outside the year.
+    day = min(max(moved, 1), target_length)
+    start = cftime.datetime(
+        instant.year,
+        1,
+        1,
+        instant.hour,
+        instant.minute,
+        instant.second,
+        instant.microsecond,
+        calendar=calendar,
+    )
+    return start + timedelta(days=day - 1)
+
+
 def _carried_to_calendar(
     instants: Any, calendar: str, align_on: str
 ) -> tuple[list[Any], list[int]]:
@@ -6794,13 +6847,8 @@ def _carried_to_calendar(
     carried: list[Any] = []
     kept: list[int] = []
     if align_on == "year":
-        for index, fraction in enumerate(_decimal_years(instants)):
-            year = int(np.floor(fraction))
-            start = cftime.datetime(year, 1, 1, calendar=calendar)
-            length = (
-                cftime.datetime(year + 1, 1, 1, calendar=calendar) - start
-            ).total_seconds()
-            carried.append(start + timedelta(seconds=(fraction - year) * length))
+        for index, instant in enumerate(instants):
+            carried.append(_same_position_in_year(instant, calendar))
             kept.append(index)
         return carried, kept
     for index, instant in enumerate(instants):
@@ -6813,6 +6861,7 @@ def _carried_to_calendar(
                     instant.hour,
                     instant.minute,
                     instant.second,
+                    instant.microsecond,
                     calendar=calendar,
                 )
             )
