@@ -777,3 +777,67 @@ class TestPolyFitSurfacesIllConditioning:
         assert fitted.get_variable("t")._band_dim_sizes == (2,), (
             "a degree-1 fit should still answer two coefficients"
         )
+
+
+class TestTheZeroFirstStepCannotBeMistakenForAGap:
+    """`cumulative_integrate`'s first step is a computed zero (review round 1, M6).
+
+    It must therefore never be maskable. Borrowing the source's sentinel made it a gap whenever
+    that sentinel was `0.0` — ordinary for an accumulation, a count or a flux — so every
+    gap-aware reader downstream skipped a real value.
+    """
+
+    def test_a_zero_sentinel_is_replaced_by_nan(self):
+        """A `0.0` sentinel would collide with the first step, so the result declares NaN.
+
+        Test scenario:
+            A source declaring `no_data_value=0.0` answers a result declaring NaN, and
+            `reduce(mean)` then counts all four steps — 3.0, not the 4.0 it gave while step 0
+            was being skipped.
+        """
+        cube = _cube(
+            [2.0, 2.0, 2.0, 2.0], stamps=[0.0, 1.0, 2.0, 3.0], no_data_value=0.0
+        )
+
+        result = cube.cumulative_integrate("level")
+        variable = result.get_variable("t")
+
+        assert np.isnan(variable.no_data_value[0]), (
+            f"a zero sentinel must not survive, got {variable.no_data_value[0]!r}"
+        )
+        assert _series(result.reduce("level", "mean")) == [3.0], (
+            "every step must count: (0 + 2 + 4 + 6) / 4 == 3.0"
+        )
+
+    def test_a_non_colliding_sentinel_is_kept(self):
+        """The converse: only a zero sentinel is replaced, so gaps still round-trip.
+
+        Test scenario:
+            A source declaring `-9999.0` keeps it, and the mean is still right.
+        """
+        cube = _cube(
+            [2.0, 2.0, 2.0, 2.0], stamps=[0.0, 1.0, 2.0, 3.0], no_data_value=-9999.0
+        )
+
+        result = cube.cumulative_integrate("level")
+
+        assert result.get_variable("t").no_data_value[0] == -9999.0
+        assert _series(result.reduce("level", "mean")) == [3.0]
+
+    def test_a_real_gap_still_propagates(self):
+        """Replacing the sentinel must not stop gaps being gaps.
+
+        Test scenario:
+            A gap at step 1 makes every later step a gap, since the running total cannot skip
+            an interval it never measured; step 0 is still the computed zero.
+        """
+        cube = _cube(
+            [2.0, -9999.0, 2.0, 2.0], stamps=[0.0, 1.0, 2.0, 3.0], no_data_value=-9999.0
+        )
+
+        assert _series(cube.cumulative_integrate("level")) == [
+            0.0,
+            -9999.0,
+            -9999.0,
+            -9999.0,
+        ]

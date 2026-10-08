@@ -1652,7 +1652,13 @@ class _CumulativeIntegrate(_AlongDim):
         running = np.cumsum(areas, axis=0)
         leading = np.zeros((1, *moved.shape[1:]), dtype="float64")
         stacked = np.moveaxis(np.concatenate([leading, running], axis=0), 0, axis)
-        fill: Any = np.nan if ndv is None else ndv
+        # The first step is a *computed* zero — no interval traversed yet — so it must not be
+        # maskable. Borrowing the source's sentinel would make it one whenever that sentinel is
+        # `0.0`, which is ordinary for an accumulation, a count or a flux: every gap-aware
+        # reader downstream would then skip a real value (`reduce(mean)` answered 4.0 where 3.0
+        # is right). NaN cannot collide with a finite result, so a zero-valued sentinel is
+        # replaced by it rather than carried.
+        fill: Any = np.nan if ndv is None or _is_zero_sentinel(ndv) else ndv
         values = np.where(np.isnan(stacked), fill, stacked)
         return _Applied(np.asarray(values), band_names, values_map, fill)
 
@@ -1791,6 +1797,25 @@ class _TakeSteps(_AlongDim):
         else:
             values_map[dim] = selected
         return _Applied(values, band_names, values_map, ndv)
+
+
+def _is_zero_sentinel(ndv: Any) -> bool:
+    """Whether `ndv` is a no-data value equal to zero.
+
+    Asked by :class:`_CumulativeIntegrate`, whose first step is a computed zero: a sentinel of
+    `0.0` would turn that real value into a gap for every reader downstream.
+
+    Args:
+        ndv: The declared no-data value, which may be a non-numeric placeholder.
+
+    Returns:
+        bool: `True` when it is numerically zero.
+    """
+    try:
+        return float(ndv) == 0.0
+    except (TypeError, ValueError):
+        # A sentinel that is not a number cannot collide with a float result.
+        return False
 
 
 def _required_axis_positions(
