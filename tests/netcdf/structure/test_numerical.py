@@ -10,6 +10,8 @@ ignores the coordinates still passes.
 pin the *equivalence* rather than re-deriving the arithmetic.
 """
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -736,3 +738,42 @@ class TestAContainerOfSeveralVariables:
         cube.differentiate("level").to_file(str(path))
 
         assert _series(NetCDF.read_file(str(path))) == [10.0, 10.0, 10.0]
+
+
+class TestPolyFitSurfacesIllConditioning:
+    """numpy's `RankWarning` must reach the caller, not be swallowed (review round 1, M2)."""
+
+    def test_an_ill_conditioned_axis_warns(self):
+        """A CF time axis with a 1970 epoch at a high degree is the ordinary case that warns.
+
+        The suppression this replaces was nominally about the zeros substituted for gappy
+        columns, but `RankWarning` depends on the design matrix alone — the coordinates — so it
+        never had anything to do with them, and swallowing it left a caller with a fit whose
+        leading coefficient is ~1e-34 and no hint it was fragile.
+
+        Test scenario:
+            Six daily steps counted in seconds from 1970, fitted at degree 4, warn.
+        """
+        seconds = [1.7e9 + 86400.0 * step for step in range(6)]
+        cube = _cube([float(step) for step in range(6)], dim="time", stamps=seconds)
+
+        with pytest.warns(np.exceptions.RankWarning):
+            cube.polyfit("time", 4)
+
+    def test_a_well_conditioned_axis_does_not_warn(self):
+        """The converse, so the test above is not passing on an unconditional warning.
+
+        Test scenario:
+            The same cube fitted at degree 1 warns about nothing — asserted by promoting the
+            warning to an error.
+        """
+        seconds = [1.7e9 + 86400.0 * step for step in range(6)]
+        cube = _cube([float(step) for step in range(6)], dim="time", stamps=seconds)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", np.exceptions.RankWarning)
+            fitted = cube.polyfit("time", 1)
+
+        assert fitted.get_variable("t")._band_dim_sizes == (2,), (
+            "a degree-1 fit should still answer two coefficients"
+        )

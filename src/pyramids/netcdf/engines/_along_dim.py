@@ -1564,9 +1564,7 @@ class _Differentiate(_AlongDim):
         axis = band_names.index(dim)
         positions = _required_axis_positions(values_map, dim, self.caller)
         data = _gaps_as_nan(arr, ndv)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            gradient = np.gradient(data, positions, axis=axis)
+        gradient = np.gradient(data, positions, axis=axis)
         fill: Any = np.nan if ndv is None else ndv
         values = np.where(np.isnan(gradient), fill, gradient)
         return _Applied(np.asarray(values), band_names, values_map, fill)
@@ -1607,9 +1605,7 @@ class _Integrate(_AlongDim):
         axis = band_names.index(dim)
         positions = _required_axis_positions(values_map, dim, self.caller)
         data = _gaps_as_nan(arr, ndv)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            integral = np.trapezoid(data, positions, axis=axis)
+        integral = np.trapezoid(data, positions, axis=axis)
         fill: Any = np.nan if ndv is None else ndv
         values = np.where(np.isnan(integral), fill, integral)
         remaining = [name for name in band_names if name != dim]
@@ -1653,9 +1649,7 @@ class _CumulativeIntegrate(_AlongDim):
         moved = np.moveaxis(data, axis, 0)
         widths = np.diff(positions).reshape(-1, *([1] * (moved.ndim - 1)))
         areas = widths * (moved[1:] + moved[:-1]) / 2.0
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            running = np.cumsum(areas, axis=0)
+        running = np.cumsum(areas, axis=0)
         leading = np.zeros((1, *moved.shape[1:]), dtype="float64")
         stacked = np.moveaxis(np.concatenate([leading, running], axis=0), 0, axis)
         fill: Any = np.nan if ndv is None else ndv
@@ -1707,9 +1701,13 @@ class _PolyFit(_AlongDim):
         # columns are fitted anyway (one call stays vectorised) and masked out afterwards.
         finite = np.isfinite(columns).all(axis=0)
         filled = np.where(np.isfinite(columns), columns, 0.0)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", np.exceptions.RankWarning)
-            fitted = np.polyfit(positions, filled, deg=self.deg)
+        # `RankWarning` is numpy's signal that the Vandermonde matrix is ill-conditioned, and
+        # it is **not** suppressed: it depends on `positions` alone, not on the values, so it
+        # says nothing about the zeros substituted above and everything about the axis. A CF
+        # time axis with a 1970 epoch at a high degree is the ordinary case that raises it, and
+        # swallowing it would leave a caller with a fit whose leading coefficient is ~1e-34 and
+        # no hint that it is fragile. xarray does not suppress it either.
+        fitted = np.polyfit(positions, filled, deg=self.deg)
         coefficients = np.where(finite[None, :], fitted, np.nan)
         shaped = coefficients.reshape(self.deg + 1, *moved.shape[1:])
         values = np.moveaxis(shaped, 0, axis)
