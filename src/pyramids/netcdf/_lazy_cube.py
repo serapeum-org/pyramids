@@ -592,7 +592,7 @@ class LazyNetCDF:
         from pyramids.netcdf.engines.selection import (
             _INTERP_MIN_POINTS,
             _interp_targets,
-            _refuse_spatial_interp,
+            _refuse_spatial_band_op,
             _resolve_interp_kind,
         )
 
@@ -602,7 +602,7 @@ class LazyNetCDF:
             return self.compute().interp(method, **coords)
         result: Any = self
         for dim, target in coords.items():
-            _refuse_spatial_interp(self._source, dim, caller="interp")
+            _refuse_spatial_band_op(self._source, dim, caller="interp")
             rec = next(iter(result._current_records().values()))
             if dim not in rec.band_names:
                 raise ValueError(

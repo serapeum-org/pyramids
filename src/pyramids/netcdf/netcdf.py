@@ -92,11 +92,15 @@ from pyramids.netcdf.cf import (
 )
 from pyramids.netcdf.engines import interop as _interop
 from pyramids.netcdf.engines import variables as _variables
-from pyramids.netcdf.engines._along_dim import _read_no_data
+from pyramids.netcdf.engines._along_dim import _read_no_data, _reduces_as_a_variable
 from pyramids.netcdf.engines.combine import concat as _concat
 from pyramids.netcdf.engines.combine import merge as _merge
 from pyramids.netcdf.engines.interop import Interop
-from pyramids.netcdf.engines.selection import Selection
+from pyramids.netcdf.engines.selection import (
+    _SPATIAL_AXIS_NAMES,
+    CumulativeAccessor,
+    Selection,
+)
 from pyramids.netcdf.engines.variables import Variables
 from pyramids.netcdf.labeled import LabeledArray
 from pyramids.netcdf.metadata import get_metadata
@@ -121,6 +125,13 @@ if TYPE_CHECKING:
     from cleopatra.styling.scaling import ColorScaling
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
+
+_SPATIAL_DIM_NAMES = _SPATIAL_AXIS_NAMES
+"""Dimension names that are a horizontal axis rather than a band one.
+
+An alias of `engines.selection`'s set rather than a second copy built from the same two
+sources, so there is one definition to keep in step. Both this name and its only reader,
+`_resolvable_time_dim_names`, arrived with the calendar members."""
 
 # Guards the per-container `_lazy_managers` WeakSet against a concurrent lazy `read_array` (which adds)
 # and `close()` (which snapshots) on the same container from different threads.
@@ -7938,6 +7949,39 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.interp_like <pyramids.netcdf.engines.selection.Selection.interp_like>`."""
         return self.selection.interp_like(other, method=method)
 
+    def convert_calendar(
+        self, calendar: str, *, dim: str = "time", align_on: str = "date"
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.convert_calendar
+        <pyramids.netcdf.engines.selection.Selection.convert_calendar>`."""
+        return self.selection.convert_calendar(calendar, dim=dim, align_on=align_on)
+
+    def interp_calendar(self, target: NetCDF, *, dim: str = "time") -> NetCDF:
+        """Facade — :meth:`Selection.interp_calendar
+        <pyramids.netcdf.engines.selection.Selection.interp_calendar>`."""
+        return self.selection.interp_calendar(target, dim=dim)
+
+    def differentiate(self, dim: str) -> NetCDF:
+        """Facade — :meth:`Selection.differentiate <pyramids.netcdf.engines.selection.Selection.differentiate>`."""
+        return self.selection.differentiate(dim)
+
+    def integrate(self, dim: str) -> NetCDF:
+        """Facade — :meth:`Selection.integrate <pyramids.netcdf.engines.selection.Selection.integrate>`."""
+        return self.selection.integrate(dim)
+
+    def cumulative_integrate(self, dim: str) -> NetCDF:
+        """Facade — :meth:`Selection.cumulative_integrate
+        <pyramids.netcdf.engines.selection.Selection.cumulative_integrate>`."""
+        return self.selection.cumulative_integrate(dim)
+
+    def polyfit(self, dim: str, deg: int) -> NetCDF:
+        """Facade — :meth:`Selection.polyfit <pyramids.netcdf.engines.selection.Selection.polyfit>`."""
+        return self.selection.polyfit(dim, deg)
+
+    def cumulative(self, dim: str) -> CumulativeAccessor:
+        """Facade — :meth:`Selection.cumulative <pyramids.netcdf.engines.selection.Selection.cumulative>`."""
+        return self.selection.cumulative(dim)
+
     def cumsum(self, dim: str, *, skipna: bool = True) -> NetCDF:
         """Facade — :meth:`Selection.cumsum <pyramids.netcdf.engines.selection.Selection.cumsum>`."""
         return self.selection.cumsum(dim, skipna=skipna)
@@ -10048,6 +10092,32 @@ class NetCDF(Dataset):
         carried = getattr(owner, "_band_dim_time_attrs", {}).get(var_name)
         return carried if carried is not None and is_cf_time_units(carried[0]) else None
 
+    def _resolvable_time_dim_names(self) -> tuple[str, ...]:
+        """The dimensions :meth:`_resolved_band_dim_time_attrs` looks for CF time units on.
+
+        A **variable** tracks its own non-spatial axes, so those are the ones to ask about. A
+        **container** tracks none — `_band_dim_names` is empty on one — so asking it the same
+        question used to answer `{}` however much the store declared, and a caller reading a
+        container's calendar had to reach through one of its variables to find it. Here a
+        container falls back to its own non-spatial dimensions, which is the same set its
+        variables span.
+
+        Returns:
+            tuple[str, ...]: The dimension names to resolve units for.
+        """
+        if self._band_dim_names:
+            return tuple(self._band_dim_names)
+        if _reduces_as_a_variable(self):
+            # A *variable* with no band dimensions spans none, so there is nothing to resolve
+            # units for. Falling through to the container branch had a flat variable claiming
+            # the store's dimensions — harmless downstream, but it is not an axis it spans.
+            return ()
+        return tuple(
+            name
+            for name in (self.dimension_names or [])
+            if name.lower() not in _SPATIAL_DIM_NAMES
+        )
+
     def _resolved_band_dim_time_attrs(self) -> dict[str, tuple[str, str]]:
         """The nearest `(units, calendar)` of each band dimension that has one.
 
@@ -10081,7 +10151,7 @@ class NetCDF(Dataset):
               ```
         """
         resolved: dict[str, tuple[str, str]] = {}
-        for name in self._band_dim_names:
+        for name in self._resolvable_time_dim_names():
             nearest = next(iter(self._time_attr_candidates(name)), None)
             if nearest is not None:
                 resolved[name] = nearest

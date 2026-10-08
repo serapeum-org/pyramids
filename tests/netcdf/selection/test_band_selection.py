@@ -940,11 +940,15 @@ class TestWritingAReorderedAxisBack:
 
 
 class TestAContainerIsRefusedByName:
-    """A container has no bands of its own, and the nine say so rather than failing inside.
+    """A container has no bands of its own, and these say so rather than failing inside.
 
-    `squeeze()` and `expand_dims()` died with `IndexError: list index out of range` from
-    the band reader, and the windows answered a message about band dimensions that named
-    no container. The wording matches the cell-wise members' refusal.
+    `expand_dims()` died with `IndexError: list index out of range` from the band reader, and
+    the windows answered a message about band dimensions that named no container. The wording
+    matches the cell-wise members' refusal.
+
+    `squeeze` used to be on this list and is not any more: it reaches every variable through
+    the shared along-dimension route, as `isel` and `sel` now do. The seven that remain still
+    cut one variable's bands, so a container is still the wrong receiver for them.
     """
 
     @pytest.mark.parametrize(
@@ -957,7 +961,6 @@ class TestAContainerIsRefusedByName:
             ("drop_sel", ()),
             ("sortby", ("time",)),
             ("drop_duplicates", ("time",)),
-            ("squeeze", ()),
             ("expand_dims", ("member",)),
         ],
     )
@@ -982,7 +985,6 @@ class TestAContainerIsRefusedByName:
         ("member", "arguments"),
         [
             ("head", ({"time": 2},)),
-            ("squeeze", ()),
             ("expand_dims", ("member",)),
         ],
     )

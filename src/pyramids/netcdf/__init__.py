@@ -9,6 +9,7 @@ from pyramids.netcdf.array_options import (
     ExtraDimensions,
     GeoReference,
 )
+from pyramids.netcdf.engines.selection import CumulativeAccessor
 from pyramids.netcdf.labeled import LabeledArray, LabeledDataset
 from pyramids.netcdf.metadata import from_json, get_metadata, to_dict, to_json
 from pyramids.netcdf.models import (
@@ -28,28 +29,29 @@ from pyramids.netcdf.plot_options import (
 from pyramids.netcdf.ugrid import UgridDataset
 
 __all__ = [
-    "NetCDF",
-    "Container",
-    "Variable",
-    "LazyNetCDF",
-    "UgridDataset",
-    "GeoReference",
-    "ExtraDimensions",
-    "Encoding",
     "CFAttributes",
-    "LabeledDataset",
-    "LabeledArray",
-    "NetCDFMetadata",
     "CFInfo",
-    "DimensionInfo",
-    "VariableInfo",
-    "GroupInfo",
-    "StructuralInfo",
-    "Selectors",
+    "Container",
     "CoordinateSpec",
+    "CumulativeAccessor",
+    "DimensionInfo",
+    "Encoding",
+    "ExtraDimensions",
     "FacetSpec",
-    "get_metadata",
-    "to_json",
     "from_json",
+    "GeoReference",
+    "get_metadata",
+    "GroupInfo",
+    "LabeledArray",
+    "LabeledDataset",
+    "LazyNetCDF",
+    "NetCDF",
+    "NetCDFMetadata",
+    "Selectors",
+    "StructuralInfo",
     "to_dict",
+    "to_json",
+    "UgridDataset",
+    "Variable",
+    "VariableInfo",
 ]

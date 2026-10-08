@@ -106,6 +106,16 @@ class _AlongDim(ABC):
     verb: ClassVar[str] = ""
     keeps_length: ClassVar[bool] = False
     change_noun: ClassVar[str] = "reduced"
+    # The CF `(units, calendar)` the result's dimensions declare, for an operation that changes
+    # what the stamps *mean* — a calendar conversion. `None` keeps the source's, which is right
+    # for every operation that only moves cells, so almost all of them leave this alone.
+    #
+    # It lives on the operation rather than in `_Applied` because `_Applied` is unpacked
+    # positionally in several places, so widening it is a breaking change at each one. Not a
+    # `ClassVar` even though it is declared here: `_AlongDim` is not a dataclass, so no subclass
+    # turns it into a field either way, and instances set it in place — the same arrangement
+    # `materialize` uses a few lines up.
+    declares: dict[str, tuple[str, str]] | None = None
     # Set False by the lazy cube (#1237) so `apply` returns a dask array that stays deferred until
     # the cube's `compute()`. A plain class attribute, not a dataclass field: instances flip it in
     # place. The eager path (default True) materialises each op's result as before.
@@ -1520,6 +1530,393 @@ def _reduced_array(
     return arr, band_names, values_map, result_ndv
 
 
+@dataclass
+class _Differentiate(_AlongDim):
+    """`differentiate`: the derivative along a band dimension, by its coordinate spacing.
+
+    `numpy.gradient` over the band axis, with the dimension's own coordinates as the sample
+    positions, which is what xarray's `differentiate` answers. A central difference inside the
+    axis and a one-sided difference at each end, so the dimension keeps its length and its
+    stamps and a container's auxiliary variables are all carried over.
+
+    Uneven spacing is honoured: on `[1000, 925, 850, 700]` the last interval is twice the
+    others and the derivative says so, where `diff` would report the same kind of step for
+    both.
+    """
+
+    caller: str = "differentiate"
+    verb: ClassVar[str] = "differentiate"
+    keeps_length: ClassVar[bool] = True
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Differentiate one variable along `dim`.
+
+        Args:
+            nc: The object `differentiate` was called on.
+            var: The variable.
+            dim: The dimension to differentiate along.
+
+        Returns:
+            _Applied: The derivative, the band layout unchanged. Float64 declaring the
+            variable's no-data value, or NaN when it declares none. A gap spoils the steps
+            that **read** it. In the interior that is its two neighbours and not itself — a
+            central difference at step `i` reads `i-1` and `i+1`, never `i`. At either **end**
+            the formula is one-sided and does read the endpoint, so a gap at step 0 spoils
+            step 0 and step 1, and a gap at the last step spoils the last two.
+        """
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        axis = band_names.index(dim)
+        positions = _required_axis_positions(values_map, dim, self.caller)
+        data = _gaps_as_nan(arr, ndv)
+        gradient = np.gradient(data, positions, axis=axis)
+        # A derivative of zero is an ordinary answer — a flat series — so it must not be
+        # maskable. See `_is_zero_sentinel`: a sentinel of `0.0` would turn every flat stretch
+        # into a gap.
+        fill: Any = np.nan if ndv is None or _is_zero_sentinel(ndv) else ndv
+        values = np.where(np.isnan(gradient), fill, gradient)
+        return _Applied(np.asarray(values), band_names, values_map, fill)
+
+
+@dataclass
+class _Integrate(_AlongDim):
+    """`integrate`: the trapezoidal integral along a band dimension, which it consumes.
+
+    `numpy.trapezoid` over the band axis, weighted by the dimension's own coordinate spacing —
+    xarray's `integrate`. The dimension is **consumed**, exactly as a full `reduce` collapses
+    one, so a container's auxiliary variables spanning it are dropped with the usual warning.
+
+    The sign follows the coordinates rather than being normalised away: a descending axis
+    (`[1000, 925, 850, 700]`) integrates negative, because that is what integrating from
+    1000 to 700 means. Reverse the axis first, or negate the result, if the magnitude is what
+    you want.
+    """
+
+    caller: str = "integrate"
+    verb: ClassVar[str] = "integrate"
+    keeps_length: ClassVar[bool] = False
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Integrate one variable along `dim`.
+
+        Args:
+            nc: The object `integrate` was called on.
+            var: The variable.
+            dim: The dimension to integrate along.
+
+        Returns:
+            _Applied: The integral with `dim` gone from the layout. Float64 declaring the
+            variable's no-data value, or NaN when it declares none — a series holding a gap
+            integrates to a gap, since a trapezoid touching it has no area.
+        """
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        axis = band_names.index(dim)
+        positions = _required_axis_positions(values_map, dim, self.caller)
+        # Materialised before the kernel: `_materialize_inputs` reads lazily, and dask
+        # implements neither `trapezoid` nor `polyfit`, so handing it one emits a FutureWarning
+        # and computes eagerly anyway. Being explicit says what happens and keeps the warning
+        # out of the caller's output.
+        data = np.asarray(_gaps_as_nan(arr, ndv))
+        integral = np.trapezoid(data, positions, axis=axis)
+        # An integral of zero is an ordinary answer — a series that cancels, or a flat zero —
+        # so a sentinel of `0.0` must not claim it.
+        fill: Any = np.nan if ndv is None or _is_zero_sentinel(ndv) else ndv
+        values = np.where(np.isnan(integral), fill, integral)
+        remaining = [name for name in band_names if name != dim]
+        kept = {name: values_map[name] for name in remaining}
+        return _Applied(np.asarray(values), remaining, kept, fill)
+
+
+@dataclass
+class _CumulativeIntegrate(_AlongDim):
+    """`cumulative_integrate`: the running trapezoidal integral along a band dimension.
+
+    :class:`_Integrate`'s length-preserving twin — the integral *up to* each step rather than
+    over the whole axis — and xarray's `cumulative_integrate`. The dimension keeps its length
+    and its stamps, so a container's auxiliary variables are all carried over.
+
+    The **first step is zero**: no interval has been traversed yet. That is a real asymmetry
+    with `cumsum`, whose first step holds the first value, and it is xarray's answer too.
+    """
+
+    caller: str = "cumulative_integrate"
+    verb: ClassVar[str] = "accumulate"
+    keeps_length: ClassVar[bool] = True
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Accumulate one variable's integral along `dim`.
+
+        Args:
+            nc: The object `cumulative_integrate` was called on.
+            var: The variable.
+            dim: The dimension to accumulate along.
+
+        Returns:
+            _Applied: The running integral, the band layout unchanged, float64 declaring the
+            variable's no-data value or NaN when it declares none. A gap makes every step from
+            it onwards a gap, since the running total cannot skip an interval it never measured.
+        """
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        axis = band_names.index(dim)
+        positions = _required_axis_positions(values_map, dim, self.caller)
+        data = _gaps_as_nan(arr, ndv)
+        moved = np.moveaxis(data, axis, 0)
+        widths = np.diff(positions).reshape(-1, *([1] * (moved.ndim - 1)))
+        areas = widths * (moved[1:] + moved[:-1]) / 2.0
+        running = np.cumsum(areas, axis=0)
+        leading = np.zeros((1, *moved.shape[1:]), dtype="float64")
+        stacked = np.moveaxis(np.concatenate([leading, running], axis=0), 0, axis)
+        # The first step is a *computed* zero — no interval traversed yet — so it must not be
+        # maskable. Borrowing the source's sentinel would make it one whenever that sentinel is
+        # `0.0`, which is ordinary for an accumulation, a count or a flux: every gap-aware
+        # reader downstream would then skip a real value (`reduce(mean)` answered 4.0 where 3.0
+        # is right). NaN cannot collide with a finite result, so a zero-valued sentinel is
+        # replaced by it rather than carried.
+        fill: Any = np.nan if ndv is None or _is_zero_sentinel(ndv) else ndv
+        values = np.where(np.isnan(stacked), fill, stacked)
+        return _Applied(np.asarray(values), band_names, values_map, fill)
+
+
+@dataclass
+class _PolyFit(_AlongDim):
+    """`polyfit`: least-squares polynomial coefficients per cell along a band dimension.
+
+    `numpy.polyfit`, which is vectorised over trailing columns, so the whole cube fits in one
+    call. The fitted dimension is **replaced** by a `degree` dimension of length `deg + 1`,
+    stamped with the powers **highest first** — the order numpy returns them in, and the same
+    one xarray's `polyfit` stamps its own `degree` axis with, so a result transfers between the
+    two without reindexing.
+
+    Attributes:
+        deg: The polynomial degree.
+        coord_name: The dimension the coefficients land on.
+    """
+
+    deg: int
+    coord_name: str = "degree"
+    caller: str = "polyfit"
+    verb: ClassVar[str] = "fit"
+    keeps_length: ClassVar[bool] = False
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Fit one variable along `dim`.
+
+        Args:
+            nc: The object `polyfit` was called on.
+            var: The variable.
+            dim: The dimension to fit along.
+
+        Returns:
+            _Applied: The coefficients, with `dim` replaced by `degree` of length `deg + 1`.
+            Float64 declaring NaN: `numpy.polyfit` has no gap concept, so a cell whose series
+            holds a gap answers all-NaN coefficients rather than a fit over a shorter series.
+        """
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        axis = band_names.index(dim)
+        positions = _required_axis_positions(values_map, dim, self.caller)
+        # Materialised for the same reason as `_Integrate`: dask does not implement
+        # `np.polyfit`, so a lazy array would warn and compute eagerly regardless.
+        data = np.asarray(_gaps_as_nan(arr, ndv))
+        moved = np.moveaxis(data, axis, 0)
+        columns = moved.reshape(moved.shape[0], -1).astype("float64")
+        # `polyfit` answers garbage rather than NaN for a column holding gaps, so the gappy
+        # columns are fitted anyway (one call stays vectorised) and masked out afterwards.
+        finite = np.isfinite(columns).all(axis=0)
+        filled = np.where(np.isfinite(columns), columns, 0.0)
+        # `RankWarning` is numpy's signal that the Vandermonde matrix is ill-conditioned, and
+        # it is **not** suppressed: it depends on `positions` alone, not on the values, so it
+        # says nothing about the zeros substituted above and everything about the axis. A CF
+        # time axis with a 1970 epoch at a high degree is the ordinary case that raises it, and
+        # swallowing it would leave a caller with a fit whose leading coefficient is ~1e-34 and
+        # no hint that it is fragile. xarray does not suppress it either.
+        fitted = np.polyfit(positions, filled, deg=self.deg)
+        coefficients = np.where(finite[None, :], fitted, np.nan)
+        shaped = coefficients.reshape(self.deg + 1, *moved.shape[1:])
+        values = np.moveaxis(shaped, 0, axis)
+        names = list(band_names)
+        names[axis] = self.coord_name
+        kept = {name: values_map[name] for name in band_names if name != dim}
+        # Integers, as xarray stamps its own `degree` axis (int64): a power is a count, and a
+        # float stamp reads oddly in `sel(degree=2)`.
+        kept[self.coord_name] = list(range(self.deg, -1, -1))
+        return _Applied(np.asarray(values), names, kept, np.nan)
+
+
+@dataclass
+class _TakeSteps(_AlongDim):
+    """Keep some steps of a band dimension, optionally restamping or collapsing it.
+
+    Positional selection along one band dimension, which serves two callers:
+
+    - **`isel` on a container.** `_subset_along_dim` expresses the same cut on a *variable*, by
+      reading that variable's own band layout; a container has none of its own. Going through an
+      operation along the dimension reaches every variable that spans it, carries the ones that
+      do not, and gets the auxiliary-variable handling for free.
+    - **`convert_calendar`.** A conversion is the same cut — keep the dates the target calendar
+      has a day for — plus a restamp onto that calendar.
+
+    The axis keeps its length when every step survives, so a container's auxiliaries are carried
+    over, and loses it when some were dropped, so they go with the usual warning.
+
+    Attributes:
+        kept: The indices of the steps that survive, in order.
+        stamps: The surviving steps' coordinates, one per kept index, for a caller that
+            *changes* them — a calendar conversion. `None`, the default, keeps the source's own
+            coordinates at those positions, which is what a positional cut means.
+        squeeze: Whether to collapse the dimension out of the layout instead of keeping it at
+            its new length. `isel(dim=<scalar>, drop=True)` is the caller; only valid when one
+            step was kept.
+        whole: Whether every step survived.
+        reader: Reads **only** the kept bands of one variable, shaped to the result's layout.
+            A positional cut passes one, so `container.isel(time=0)` reads one plane rather
+            than the whole cube — the point of `isel`, which the full read defeated.
+
+            `None` falls back to reading the whole variable and slicing it, and a calendar
+            conversion takes that path. The reason is not that it "keeps nearly every step" —
+            usually it keeps all of them — but that a conversion's cost is the per-step
+            `cftime` decode rather than the read, so the band-selected path would buy nothing
+            while adding a second representation to reason about.
+    """
+
+    kept: tuple[int, ...]
+    stamps: tuple[float, ...] | None = None
+    squeeze: bool = False
+    # Fail *closed*: the default says the axis changed length, so a caller that forgets to pass
+    # it gets the conservative answer (auxiliaries dropped with a warning) rather than silently
+    # carrying an auxiliary across a length change. Both callers pass it explicitly.
+    whole: bool = False
+    reader: Callable[[NetCDF, str, tuple[int, ...]], Any] | None = None
+    caller: str = "convert_calendar"
+    # An instance field, not the usual ClassVar: this one operation serves `isel`, `sel`,
+    # `squeeze` and `convert_calendar`, and the empty-container refusal reads
+    # "Cannot <verb> an empty container" — so a fixed "convert" told an `isel` caller the
+    # wrong thing.
+    verb: str = "convert"  # type: ignore[misc]
+
+    @property
+    def keeps_length(self) -> bool:  # type: ignore[override]
+        """Whether the axis comes out **exactly** as it went in.
+
+        Not merely the same length: a negative-step slice keeps every index in *descending*
+        order, so the gridded variables and the dimension's stamps are reversed while an
+        auxiliary spanning that axis would be carried over untouched — `qc[0]` then describing
+        the step that used to be `qc[2]`. Comparing the kept positions to `range(n)` catches a
+        reversal and a reorder as well as a length change, so the auxiliary is dropped with the
+        usual warning rather than silently misaligned.
+        """
+        unchanged = tuple(self.kept) == tuple(range(len(self.kept)))
+        return self.whole and unchanged and not self.squeeze
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Keep `kept` of one variable's steps along `dim`.
+
+        Args:
+            nc: The object the member was called on.
+            var: The variable.
+            dim: The dimension being cut.
+
+        Returns:
+            _Applied: The surviving steps. The values and the no-data value are untouched — a
+            positional cut selects, it does not compute — and the dimension carries either the
+            caller's `stamps` or the source's own coordinates at the kept positions. With
+            `squeeze` the dimension leaves the layout entirely.
+        """
+        band_names = list(var._band_dim_names)
+        values_map = dict(var._band_dim_values_map)
+        axis = band_names.index(dim)
+        if self.reader is None:
+            arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+            axis = band_names.index(dim)
+            values = np.take(
+                np.asarray(arr), np.asarray(self.kept, dtype=int), axis=axis
+            )
+        else:
+            # Only the kept bands are read, so a cut costs what it selects rather than what
+            # the variable holds.
+            ndv = _read_no_data(var)
+            values = self.reader(var, dim, self.kept)
+        coords = values_map.get(dim)
+        if self.stamps is not None:
+            selected: Any = [float(stamp) for stamp in self.stamps]
+        elif coords is None:
+            # An unlabelled axis stays unlabelled: numbering it here would let `sel` match
+            # positions as if they were stamps.
+            selected = None
+        else:
+            selected = [coords[index] for index in self.kept]
+        if self.squeeze:
+            values = np.squeeze(values, axis=axis)
+            band_names = [name for name in band_names if name != dim]
+            values_map.pop(dim, None)
+        else:
+            values_map[dim] = selected
+        return _Applied(values, band_names, values_map, ndv)
+
+
+def _is_zero_sentinel(ndv: Any) -> bool:
+    """Whether `ndv` is a no-data value equal to zero.
+
+    Asked by every kernel here whose output is *computed* rather than selected —
+    `differentiate` (a flat series differentiates to zero), `integrate` (a series that cancels
+    integrates to zero) and `cumulative_integrate` (its first step is always zero). A sentinel
+    of `0.0` would turn each of those real answers into a gap for every reader downstream.
+    `_PolyFit` needs no check: it declares NaN unconditionally.
+
+    Args:
+        ndv: The declared no-data value, which may be a non-numeric placeholder.
+
+    Returns:
+        bool: `True` when it is numerically zero.
+    """
+    # `isinstance` first: `float("0")` is `0.0`, so converting blindly made the *string*
+    # `"0"` a zero sentinel and contradicted the rule below. A sentinel has to be a number
+    # before it can collide with one.
+    # The type check makes the conversion safe, so there is nothing left to catch: `float()`
+    # does not fail on a `Real` or an `np.number`. The earlier `try` was load-bearing only
+    # while this accepted anything — and while it did, `float("0")` made the *string* `"0"` a
+    # zero sentinel, which is the bug the check replaced.
+    if isinstance(ndv, bool) or not isinstance(ndv, (Real, np.number)):
+        return False
+    # `not x` rather than `x == 0.0`: the question is exactly "is this sentinel zero", and a
+    # tolerance would be wrong here — a sentinel of 1e-300 is not zero and must not be
+    # replaced — but an explicit float equality is the shape of a real defect elsewhere, so
+    # this says the same thing without one.
+    return not float(ndv)
+
+
+def _required_axis_positions(
+    values_map: dict[str, Any], dim: str, caller: str
+) -> np.ndarray:
+    """The sample positions a numerical operation reads `dim`'s coordinates as.
+
+    `Selection` validates the coordinates before the operation runs, so this is the narrowing
+    guard rather than the check — it stays here so an operation reached directly cannot read a
+    coordinate-less axis as if it were indexed.
+
+    Distinct from :meth:`_Interpolate._axis_positions`, which answers the same question for
+    `interpolate_na` and takes the **opposite** view of a coordinate-less axis: that one falls
+    back to the step index (`use_coordinate=False` is a documented mode there), while a
+    derivative or an integral has no meaning without real spacing and refuses instead. The
+    names were one word apart, which is why this one says `required`.
+
+    Args:
+        values_map: The band dimensions' coordinates.
+        dim: The dimension being operated along.
+        caller: The member the user called, named in the refusal.
+
+    Returns:
+        np.ndarray: The coordinates as float64.
+
+    Raises:
+        ValueError: `dim` carries no coordinate values.
+    """
+    coords = values_map.get(dim)
+    if coords is None:
+        raise ValueError(
+            f"{caller}() has no coordinates for {dim!r} to measure the spacing from."
+        )
+    return np.asarray([float(value) for value in coords], dtype="float64")
+
+
 def _apply_to_variable(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
     """Run `op` along `dim` of a single variable and hand back a variable.
 
@@ -1541,7 +1938,7 @@ def _apply_to_variable(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
     """
     _assert_band_dimension(nc, dim, caller=op.caller)
     op.start()
-    return _variable_from_applied(nc, op.apply(nc, nc, dim))
+    return _variable_from_applied(nc, op.apply(nc, nc, dim), declares=op.declares)
 
 
 def _stamped(nc: NetCDF, geotransform: tuple) -> NetCDF:
@@ -1579,7 +1976,10 @@ def _stamped(nc: NetCDF, geotransform: tuple) -> NetCDF:
 
 
 def _variable_from_applied(
-    nc: NetCDF, applied: _Applied, geotransform: tuple | None = None
+    nc: NetCDF,
+    applied: _Applied,
+    geotransform: tuple | None = None,
+    declares: dict[str, tuple[str, str]] | None = None,
 ) -> NetCDF:
     """Rebuild a variable from what an operation made of it.
 
@@ -1588,6 +1988,10 @@ def _variable_from_applied(
         applied: The values and band layout the operation produced.
         geotransform: The result's geotransform; `nc`'s when `None`, which every operation
             along a band dimension keeps.
+        declares: CF `(units, calendar)` the operation declares for the result's dimensions,
+            overriding the source's. Needed because the rebuild declares the source's units on
+            the new store and `_time_attr_candidates` ranks a declared pair above a carried
+            one, so an operation that invalidated those units cannot correct them afterwards.
 
     Returns:
         NetCDF: The rebuilt variable, named after `nc` or `"variable"` when `nc` has no name of
@@ -1605,6 +2009,7 @@ def _variable_from_applied(
         band_names,
         values_map,
         source=nc,
+        time_attrs=declares,
     )
     grid = nc.geotransform if geotransform is None else geotransform
     _stamped(container, grid)
@@ -1693,6 +2098,15 @@ def _apply_to_container(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
         else:
             arr = nc._materialize_variable_array(var)
 
+        # What the source said, then what the operation says instead. An operation only
+        # declares units when it changed what the stamps *mean* (a calendar conversion); every
+        # other one leaves this `None` and the source's units travel unchanged.
+        carried = {
+            name: attrs
+            for name, attrs in var._resolved_band_dim_time_attrs().items()
+            if name in band_names
+        }
+        carried.update(op.declares or {})
         grid = var.geotransform if grid is None else grid
         result = nc._stack_reduced_variable(
             result,
@@ -1704,16 +2118,14 @@ def _apply_to_container(nc: NetCDF, dim: str, op: _AlongDim) -> NetCDF:
             band_names,
             values_map,
             source=var,
+            # Passed so the rebuilt *store* declares them: `_time_attr_candidates` ranks a
+            # declared pair above a carried one, so correcting only the carried dict below
+            # would leave the source's units winning on every read.
+            time_attrs=carried or None,
         )
         # The rebuilt container has no store to read time units from; carry the source
         # variables' so a variable taken from it still decodes its stamps.
-        time_attrs.update(
-            {
-                name: attrs
-                for name, attrs in var._resolved_band_dim_time_attrs().items()
-                if name in band_names
-            }
-        )
+        time_attrs.update(carried)
 
     if not found:
         raise ValueError(

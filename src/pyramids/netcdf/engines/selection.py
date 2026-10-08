@@ -20,18 +20,22 @@ from __future__ import annotations
 import math
 import operator
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from datetime import timedelta
 from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
+import cftime
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from osgeo import gdal
 from shapely import box, contains_xy
 
 from pyramids.base._axes import X_AXIS_NAMES, Y_AXIS_NAMES
 from pyramids.base._errors import AlignmentError
-from pyramids.base._utils import carry_band_packing
+from pyramids.base._utils import apply_unpack, carry_band_packing
 from pyramids.base.crs import crs_equal, crs_spec, sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
@@ -58,18 +62,23 @@ from pyramids.netcdf._mdim import copy_band_values_map, open_mdarray, scalar_no_
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.array_options import GeoReference
 from pyramids.netcdf.engines._along_dim import (
+    _AlongDim,
     _apply_per_variable,
     _apply_to_container,
     _apply_to_variable,
     _assert_band_dimension,
     _CumProd,
     _CumSum,
+    _CumulativeIntegrate,
     _Diff,
+    _Differentiate,
     _DropNa,
     _Extremum,
+    _Integrate,
     _Interpolate,
     _InterpTo,
     _Pad,
+    _PolyFit,
     _Push,
     _Rank,
     _read_no_data,
@@ -77,6 +86,7 @@ from pyramids.netcdf.engines._along_dim import (
     _Reduction,
     _Rolling,
     _Shift,
+    _TakeSteps,
 )
 from pyramids.netcdf.engines._weighted import _WEIGHTED_HOWS, _weighted_result
 
@@ -770,12 +780,16 @@ class Selection(_Engine["NetCDF"]):
                 no meaningful stride.
 
         Returns:
-            NetCDF: A variable holding the selected bands, with `_band_dim_sizes` and the
+            NetCDF: A container for a container and a variable for a variable. On a container,
+            every variable spanning the named dimension is cut and the rest are carried over, as
+            with every other member that runs along a dimension. On a variable, one holding the
+            selected bands, with `_band_dim_sizes` and the
             coordinate map narrowed to match. A dimension with no coordinates keeps none.
             With `drop=True`, the axes a scalar selector collapsed are removed.
 
         Raises:
-            ValueError: No indexers were given, the variable tracks no band dimensions, a
+            ValueError: No indexers were given; a name is not a band dimension of the receiver,
+                or is a spatial axis; the receiver tracks no band dimension at all; a
                 named dimension is not one of them, or a selector keeps no position — an
                 empty `list` or `tuple` as much as a `slice` whose bounds cross.
             IndexError: An index is outside the dimension's range.
@@ -853,7 +867,38 @@ class Selection(_Engine["NetCDF"]):
 
               ```
 
+            - On a **container**, every variable spanning the dimension is cut and the rest
+              are carried over — no `get_variable` first:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(3.0).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... )
+              >>> cut = cube.isel(time=[0, 2])
+              >>> cut.get_variable("t")._band_dim_sizes
+              (2,)
+              >>> np.asarray(cut.get_variable("t").coords["time"]).tolist()
+              [0.0, 12.0]
+
+              ```
+
         Notes:
+            On a **container** the cut goes through the shared along-dimension route, so a
+            variable that does not span the named dimension is carried over untouched and an
+            auxiliary variable spanning it follows the usual rule — carried when the length is
+            unchanged, dropped with a warning when it is not.
+
+            **Which selectors take a container.** `isel`, `sel` and `squeeze` do. `head`,
+            `tail`, `thin`, `drop_isel`, `drop_sel`, `sortby`, `drop_duplicates` and
+            `expand_dims` do not, and refuse one by name: each reorders, extends or drops an
+            axis rather than cutting positions out of it, so there is no single container-wide
+            cut to apply. Take a variable with `get_variable` for those.
+
             Where this parts company with xarray's `isel`, which indexes fancily:
 
             - A **list** is sorted and deduplicated before it is applied, so a list can
@@ -887,6 +932,8 @@ class Selection(_Engine["NetCDF"]):
             raise ValueError(
                 "isel() requires at least one keyword argument, e.g. isel(time=0)."
             )
+        if not _reduces_as_a_variable(nc):
+            return _container_isel(nc, indexers, drop=drop)
 
         # Resolve every keyword before cutting anything. Validating inside the loop meant a
         # typo in the second keyword raised only after the first cut had been read from
@@ -1199,6 +1246,31 @@ class Selection(_Engine["NetCDF"]):
                 See Also:
                     `get_variable`: builds a variable subset and populates the
                         band-dim metadata that `sel()` consumes.
+
+            - On a **container**, the labels resolve against the store's own coordinates:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(3.0).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... )
+              >>> picked = cube.sel(time=6.0)
+              >>> picked.get_variable("t")._band_dim_sizes
+              (1,)
+              >>> picked.get_variable("t").read_array().ravel().tolist()
+              [1.0]
+
+              ```
+
+        Note:
+            On a **container** the labels are resolved against the **store's** dimension
+            coordinates — a container carries no band layout of its own — and the cut goes
+            through the shared along-dimension route, so a variable that does not span the
+            dimension is carried over untouched and the auxiliaries follow the usual rule.
         """
         nc = self._ds
         if not kwargs:
@@ -1227,6 +1299,9 @@ class Selection(_Engine["NetCDF"]):
         # either way. An earlier version of this hoisted only the name check, on the stated
         # grounds that a preceding cut could narrow the coordinates a label needs — which
         # is not something any cut does.
+        if not _reduces_as_a_variable(nc):
+            return _container_sel(nc, kwargs, method, tolerance)
+
         resolved: list[tuple[str, list[int]]] = []
         for dim_name, selector in kwargs.items():
             resolved.append(
@@ -1840,11 +1915,41 @@ class Selection(_Engine["NetCDF"]):
 
               ```
 
+            - On a **container**, the length-one axis leaves every variable that spanned it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(1.0).reshape(1, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0]),
+              ... )
+              >>> cube.get_variable("t")._band_dim_names
+              ('time',)
+              >>> cube.squeeze().get_variable("t")._band_dim_names
+              ()
+
+              ```
+
+        On a **container** every variable spanning the dimension is rebuilt, because a container
+        has no single band layout to relabel. The cells are unchanged, but they are read and
+        written once — where the variable route only edits metadata and so is free. Two further
+        differences on a container: an **auxiliary** variable spanning the squeezed axis is
+        dropped with a warning, since the axis it spans is gone, where the variable route drops
+        nothing; and a container that declares no band dimension at all is **refused** rather
+        than answered unchanged, so "nothing to drop" is a no-op only once there is a band
+        dimension to look at.
+
         See Also:
-            NetCDF.expand_dims: The inverse — add a length-one dimension.
+            NetCDF.expand_dims: The inverse — add a length-one dimension. Still
+                variable-only: adding an axis to a container would have to invent its
+                position in every variable.
         """
         nc = self._ds
-        _refuse_a_container(nc, "squeeze")
+        if not _reduces_as_a_variable(nc):
+            return _container_squeeze(nc, dim)
         names = list(nc._band_dim_names)
         sizes = list(nc._band_dim_sizes)
         if dim is not None:
@@ -4094,7 +4199,7 @@ class Selection(_Engine["NetCDF"]):
             )
         result = nc
         for dim in shared:
-            target = _interp_source_coordinates(other, dim, caller="interp_like")
+            target = _numeric_band_coordinates(other, dim, caller="interp_like")
             result = _run_interp(result, dim, target, kind, caller="interp_like")
         return result
 
@@ -4262,6 +4367,596 @@ class Selection(_Engine["NetCDF"]):
         else:
             result = _apply_to_container(nc, dim, op)
         return result
+
+    def convert_calendar(
+        self, calendar: str, *, dim: str = "time", align_on: str = "date"
+    ) -> NetCDF:
+        """Restamp a time axis onto another CF calendar.
+
+        Climate-model output uses model calendars — `360_day`, `noleap`, `all_leap`, `julian` —
+        and pyramids already *reads* them: `cftime` is a core dependency and the store's
+        `calendar` attribute is parsed on the way in. This is the other half: moving a cube onto a
+        different calendar so it can be compared or `concat`-enated with one on another.
+
+        **Only the time coordinate changes.** The cells are never touched and never interpolated:
+        each step keeps its values and is given the stamp its date has in the target calendar.
+
+        A date with no counterpart in the target is **dropped, and its step goes with it** —
+        29 February moving to `noleap`, 31 December moving to `360_day`. The axis therefore gets
+        shorter, which is xarray's behaviour too, and a container's auxiliary variables spanning
+        the axis follow the same length-change path as every other member that shortens one. When
+        losing steps is not acceptable, :meth:`interp_calendar` is the lossless counterpart: it
+        interpolates the values onto the target's own stamps instead.
+
+        Args:
+            calendar: The target CF calendar — `"standard"` / `"gregorian"`, `"proleptic_gregorian"`,
+                `"noleap"` / `"365_day"`, `"all_leap"` / `"366_day"`, `"360_day"` or `"julian"`.
+            dim: The time dimension to restamp. `"time"` by default.
+            align_on: How a date is carried across. `"date"` (default) keeps the calendar date —
+                same year, month, day and time of day, to the microsecond — and drops what the
+                target does not have. `"year"` keeps the *position in the year* instead, moving
+                the stamp to `round(days_in_target * day_of_year / days_in_source)` — whole
+                days, with the time of day carried across unchanged, which is the mapping
+                xarray's `convert_calendar` uses. That is what you want for a `360_day` axis
+                whose dates are model bookkeeping rather than real days.
+
+                `"year"` is **not** lossless either, though it loses less than `"date"`: the
+                mapping is not injective when the target year is shorter, so consecutive source
+                days can land on one target day — 365 daily steps collapse onto 360 going to
+                `360_day`. Those duplicates are dropped, as xarray drops them, because a
+                repeated stamp is an axis `differentiate`, `integrate`, `polyfit`, `interp` and
+                `sel` all refuse. :meth:`interp_calendar` is the route that keeps every step.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, with `dim` restamped
+            and carrying the target `calendar` (its `units` string is kept, so the offsets are
+            re-counted in the same unit and epoch). `to_file` writes both attributes.
+
+        Raises:
+            ValueError: `dim` is not a dimension, carries no coordinate values, or declares no CF
+                time `units` to decode; `calendar` is not a calendar `cftime` knows; or `align_on`
+                is neither `"date"` nor `"year"`.
+
+        Examples:
+            - A `360_day` axis onto a standard calendar, keeping the dates:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(3.0).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(
+              ...         name="time",
+              ...         values=[0.0, 1.0, 2.0],
+              ...         attrs={
+              ...             "time": {
+              ...                 "units": "days since 2001-01-01",
+              ...                 "calendar": "360_day",
+              ...             }
+              ...         },
+              ...     ),
+              ... )
+              >>> moved = cube.convert_calendar("noleap")
+              >>> moved.get_variable("t")._resolved_band_dim_time_attrs()["time"][1]
+              'noleap'
+
+              ```
+            - Nothing is dropped here, so the axis keeps its length:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.arange(3.0).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(
+              ...         name="time",
+              ...         values=[0.0, 1.0, 2.0],
+              ...         attrs={
+              ...             "time": {
+              ...                 "units": "days since 2001-01-01",
+              ...                 "calendar": "360_day",
+              ...             }
+              ...         },
+              ...     ),
+              ... )
+              >>> cube.convert_calendar("noleap").get_variable("t")._band_dim_sizes
+              (3,)
+
+              ```
+        """
+        return _run_convert_calendar(self._ds, calendar, dim=dim, align_on=align_on)
+
+    def interp_calendar(self, target: NetCDF, *, dim: str = "time") -> NetCDF:
+        """Interpolate the values onto another cube's time stamps, across calendars.
+
+        :meth:`convert_calendar`'s lossless counterpart. Where that one restamps the steps it has
+        and drops the dates the target calendar lacks, this one **interpolates the values** onto
+        the target's own stamps, so no step is lost and the two cubes line up exactly — which is
+        what you want before `concat` or an operator.
+
+        Both axes are put on a common **decimal-year** scale (the year plus the fraction of it
+        elapsed, which is calendar-independent), and the interpolation is the one
+        :meth:`interp` already does along a band dimension.
+
+        Args:
+            target: The cube whose time stamps to interpolate onto. Its `dim` supplies the
+                stamps, the `units` and the `calendar` the result carries.
+            dim: The time dimension on both sides. `"time"` by default.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, on `target`'s time
+            stamps and carrying its `units` and `calendar`.
+
+        Raises:
+            TypeError: `target` is not a cube.
+            ValueError: Either side lacks `dim`, its coordinate values or its CF time `units`;
+                the source axis has fewer than two steps, which is too few to interpolate
+                between; or the two spans do not overlap at all, so every step would come back
+                a gap.
+
+        Note:
+            A target stamp *inside* the source's span interpolates; one outside it is a **gap**,
+            not an extrapolation — the contract `interp` already has. A target that overlaps
+            only partly therefore comes back partly masked, and one that does not overlap at all
+            is refused rather than answered as a fully-masked cube.
+
+        Examples:
+            - A `360_day` cube onto a standard-calendar cube's stamps, losing no step:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> source = NetCDF.from_array(
+              ...     np.array([0.0, 10.0, 20.0]).reshape(3, 1, 1),
+              ...     geo_ref=geo,
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(
+              ...         name="time",
+              ...         values=[0.0, 180.0, 359.0],
+              ...         attrs={
+              ...             "time": {
+              ...                 "units": "days since 2001-01-01",
+              ...                 "calendar": "360_day",
+              ...             }
+              ...         },
+              ...     ),
+              ... )
+              >>> onto = NetCDF.from_array(
+              ...     np.zeros((2, 1, 1)),
+              ...     geo_ref=geo,
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(
+              ...         name="time",
+              ...         values=[90.0, 270.0],
+              ...         attrs={
+              ...             "time": {
+              ...                 "units": "days since 2001-01-01",
+              ...                 "calendar": "noleap",
+              ...             }
+              ...         },
+              ...     ),
+              ... )
+              >>> aligned = source.interp_calendar(onto)
+              >>> aligned.get_variable("t")._band_dim_sizes
+              (2,)
+              >>> variable = aligned.get_variable("t")
+              >>> variable._resolved_band_dim_time_attrs()["time"][1]
+              'noleap'
+              >>> [round(value, 3) for value in variable.read_array().ravel().tolist()]
+              [4.932, 14.821]
+
+              ```
+            - Why it exists, beside :meth:`convert_calendar`: 29 February has no counterpart
+              on `noleap`, so a conversion drops that step while this keeps every one of the
+              target's:
+
+              ```python
+              >>> import warnings
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> geo = GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326)
+              >>> def cube(stamps, calendar, values):
+              ...     return NetCDF.from_array(
+              ...         np.array(values, dtype="float64").reshape(len(stamps), 1, 1),
+              ...         geo_ref=geo,
+              ...         variable_name="t",
+              ...         dims=ExtraDimensions(
+              ...             name="time",
+              ...             values=list(stamps),
+              ...             attrs={
+              ...                 "time": {
+              ...                     "units": "days since 2001-01-01",
+              ...                     "calendar": calendar,
+              ...                 }
+              ...             },
+              ...         ),
+              ...     )
+              >>> leap = cube([58.0, 59.0, 60.0], "all_leap", [1.0, 2.0, 3.0])
+              >>> onto = cube([58.0, 59.0, 60.0], "noleap", [0.0, 0.0, 0.0])
+              >>> with warnings.catch_warnings():
+              ...     warnings.simplefilter("ignore")
+              ...     converted = leap.convert_calendar("noleap")
+              >>> converted.get_variable("t")._band_dim_sizes
+              (2,)
+              >>> leap.interp_calendar(onto).get_variable("t")._band_dim_sizes
+              (3,)
+
+              ```
+        """
+        return _run_interp_calendar(self._ds, target, dim=dim)
+
+    def differentiate(self, dim: str) -> NetCDF:
+        """Differentiate the values along a non-spatial dimension, by its coordinate spacing.
+
+        The derivative `numpy.gradient` computes: a central difference inside the axis and a
+        one-sided one at each end, divided by the real distance between the coordinates. This is
+        what xarray's `differentiate` answers, and it is **not** `diff`: `diff` subtracts
+        neighbouring steps and shortens the axis, ignoring how far apart they are, so on an uneven
+        axis it is not a rate at all.
+
+        The dimension keeps its length and its stamps, so a container's auxiliary variables are
+        all carried over, those spanning `dim` included.
+
+        A gap spoils the steps that **read** it. In the interior that is its two neighbours and
+        not itself, because a central difference at step `i` reads `i-1` and `i+1` and never
+        `i`. At either **end** the formula is one-sided and does read the endpoint, so a gap at
+        the first step spoils the first two and a gap at the last spoils the last two.
+
+        Works on a container, differentiating every variable that has `dim`, and on a single
+        variable, returning a variable.
+
+        Args:
+            dim: The non-spatial dimension to differentiate along. Its coordinates are the sample
+                positions, so uneven spacing is honoured.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, every dimension
+            unchanged. Float64 declaring the variable's no-data value, or NaN when it declares
+            none.
+
+        Raises:
+            ValueError: The container has no data variables; `dim` is a spatial axis, is not a
+                band dimension, carries no coordinate values, or is shorter than two steps.
+
+        Examples:
+            - A straight line differentiates to its slope, uneven spacing and all:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([0.0, 10.0, 30.0]).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="level", values=[0.0, 1.0, 3.0]),
+              ... ).get_variable("t")
+              >>> var.differentiate("level").read_array().ravel().tolist()
+              [10.0, 10.0, 10.0]
+
+              ```
+            - `diff` answers the steps instead, and shortens the axis:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([0.0, 10.0, 30.0]).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="level", values=[0.0, 1.0, 3.0]),
+              ... ).get_variable("t")
+              >>> var.diff("level").read_array().ravel().tolist()
+              [10.0, 20.0]
+
+              ```
+        """
+        return _run_numerical(
+            self._ds,
+            dim,
+            _Differentiate(),
+            caller="differentiate",
+            verb="differentiates",
+        )
+
+    def integrate(self, dim: str) -> NetCDF:
+        """Integrate the values along a non-spatial dimension, which the integral consumes.
+
+        The trapezoidal integral `numpy.trapezoid` computes, weighted by the real distance
+        between the dimension's coordinates — xarray's `integrate`. This is **not**
+        `reduce(how="sum")`: a sum adds the step values and ignores the spacing, so on an uneven
+        axis the two disagree by a factor that varies per interval.
+
+        The dimension is **consumed**, exactly as a full `reduce` collapses one, so a container's
+        auxiliary variables spanning `dim` are dropped with a warning.
+
+        The **sign follows the coordinates** rather than being normalised away: a descending axis
+        such as a pressure-level axis integrates negative, because integrating from 1000 down to
+        700 is what the coordinates say. Reverse the axis, or negate the result, when the
+        magnitude is what you want.
+
+        Works on a container, integrating every variable that has `dim`, and on a single variable,
+        returning a variable.
+
+        Args:
+            dim: The non-spatial dimension to integrate along.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, with `dim` gone.
+            Float64 declaring the variable's no-data value, or NaN when it declares none.
+
+        Raises:
+            ValueError: The container has no data variables; `dim` is a spatial axis, is not a
+                band dimension, carries no coordinate values, or is shorter than two steps.
+
+        Examples:
+            - A constant 2.0 over a width of 3 integrates to 6.0, where a sum answers 8.0:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.full((4, 1, 1), 2.0),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="level", values=[0.0, 1.0, 2.0, 3.0]),
+              ... ).get_variable("t")
+              >>> float(var.integrate("level").read_array()[0, 0])
+              6.0
+              >>> float(var.reduce("level", "sum").read_array()[0, 0])
+              8.0
+
+              ```
+            - A descending axis integrates negative, as its coordinates say:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.full((3, 1, 1), 1.0),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="level", values=[1000.0, 900.0, 800.0]),
+              ... ).get_variable("t")
+              >>> float(var.integrate("level").read_array()[0, 0])
+              -200.0
+
+              ```
+        """
+        return _run_numerical(
+            self._ds, dim, _Integrate(), caller="integrate", verb="integrates"
+        )
+
+    def cumulative_integrate(self, dim: str) -> NetCDF:
+        """Accumulate the integral along a non-spatial dimension, step by step.
+
+        :meth:`integrate`'s length-preserving twin: each step holds the integral *up to* itself
+        rather than over the whole axis — xarray's `cumulative_integrate`. The dimension keeps its
+        length and its stamps, so a container's auxiliary variables are all carried over.
+
+        The **first step is zero**, because no interval has been traversed yet. That is a real
+        asymmetry with :meth:`cumsum`, whose first step holds the first value, and it is xarray's
+        answer too.
+
+        Works on a container, accumulating every variable that has `dim`, and on a single
+        variable, returning a variable.
+
+        Args:
+            dim: The non-spatial dimension to accumulate along.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, every dimension
+            unchanged. Float64 declaring the variable's no-data value, or NaN when it declares
+            none.
+
+        Raises:
+            ValueError: The container has no data variables; `dim` is a spatial axis, is not a
+                band dimension, carries no coordinate values, or is shorter than two steps.
+
+        Examples:
+            - The running integral of a constant 2.0, ending where `integrate` ends:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.full((4, 1, 1), 2.0),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="level", values=[0.0, 1.0, 2.0, 3.0]),
+              ... ).get_variable("t")
+              >>> var.cumulative_integrate("level").read_array().ravel().tolist()
+              [0.0, 2.0, 4.0, 6.0]
+              >>> float(var.integrate("level").read_array()[0, 0])
+              6.0
+
+              ```
+            - Where `cumsum` starts at the first value, this starts at zero:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.full((3, 1, 1), 5.0),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="level", values=[0.0, 1.0, 2.0]),
+              ... ).get_variable("t")
+              >>> var.cumsum("level").read_array().ravel().tolist()
+              [5.0, 10.0, 15.0]
+              >>> var.cumulative_integrate("level").read_array().ravel().tolist()
+              [0.0, 5.0, 10.0]
+
+              ```
+        """
+        return _run_numerical(
+            self._ds,
+            dim,
+            _CumulativeIntegrate(),
+            caller="cumulative_integrate",
+            verb="accumulates",
+        )
+
+    def polyfit(self, dim: str, deg: int) -> NetCDF:
+        """Fit a polynomial per cell along a non-spatial dimension, returning its coefficients.
+
+        The least-squares fit `numpy.polyfit` computes, vectorised over every cell, so a whole
+        cube fits in one call. The dimension's coordinates are the sample positions, so an uneven
+        axis fits correctly.
+
+        Unlike every other member that runs along a band dimension, the **output axis is not the
+        input axis**: fitting degree *n* over *k* steps answers *n + 1* coefficients, so `dim` is
+        replaced by a `degree` dimension of length `deg + 1`. A container's auxiliary variables
+        spanning `dim` are therefore dropped with a warning.
+
+        The coefficients are stamped with the powers **highest first** — `numpy.polyfit`'s own
+        order, so `polyfit(dim, 1)` gives `[slope, intercept]`. xarray's `polyfit` stamps its
+        `degree` axis the same way, so the two agree and a result moves between them without
+        reindexing; the `degree` stamps say which power each coefficient belongs to either way.
+
+        Gaps have no fit: `numpy.polyfit` has no gap concept, so a cell whose series holds one
+        answers **all-NaN** coefficients rather than a fit over the steps that remain. Use
+        :meth:`dropna` or :meth:`interpolate_na` first when a partial series should still fit.
+
+        Works on a container, fitting every variable that has `dim`, and on a single variable,
+        returning a variable.
+
+        Args:
+            dim: The non-spatial dimension to fit along.
+            deg: The polynomial degree. `1` is a linear trend.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, with `dim` replaced by
+            `degree` of length `deg + 1`, stamped highest power first. Float64 declaring NaN.
+
+        Raises:
+            TypeError: `deg` is not an integer, or is a `bool`.
+            ValueError: The container has no data variables; `dim` is a spatial axis, is not a
+                band dimension, or carries no coordinate values; `dim` is shorter than
+                `deg + 1` steps, which is the fewest a degree-`deg` fit is determined by;
+                `deg` is negative; or the cube already carries a dimension named `degree`,
+                which the coefficients would collide with.
+
+        Examples:
+            - A linear trend: slope first, then intercept:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 3.0, 5.0, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0, 3.0]),
+              ... ).get_variable("t")
+              >>> fit = var.polyfit("time", 1)
+              >>> fit._band_dim_names, fit._band_dim_sizes
+              (('degree',), (2,))
+              >>> [round(value, 6) for value in fit.read_array().ravel().tolist()]
+              [2.0, 1.0]
+
+              ```
+            - The powers the coefficients sit on, highest first:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 3.0, 5.0, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0, 3.0]),
+              ... ).get_variable("t")
+              >>> np.asarray(var.polyfit("time", 2).coords["degree"]).tolist()
+              [2, 1, 0]
+
+              ```
+        """
+        _assert_degree(deg)
+        existing = (
+            set(self._ds._band_dim_names)
+            if _reduces_as_a_variable(self._ds)
+            else set(_gridded_band_dimensions(self._ds, "polyfit"))
+        )
+        if _COEFFICIENT_DIM in existing:
+            raise ValueError(
+                f"polyfit() lands its coefficients on a dimension named "
+                f"{_COEFFICIENT_DIM!r}, which this cube already has. Rename it first with "
+                f"rename_dims({_COEFFICIENT_DIM}=...) — without that the rebuild reaches GDAL "
+                f"with two dimensions of one name and fails there instead."
+            )
+        return _run_numerical(
+            self._ds,
+            dim,
+            _PolyFit(deg=int(deg)),
+            caller="polyfit",
+            verb="fits",
+            minimum=int(deg) + 1,
+        )
+
+    def cumulative(self, dim: str) -> CumulativeAccessor:
+        """Accumulate along a non-spatial dimension, in xarray's accessor form.
+
+        xarray spells the running total `cumulative(dim).sum()`, the same shape as
+        `rolling(dim, window)`. pyramids already answers both operations directly, as
+        :meth:`cumsum` and :meth:`cumprod`, so this is the accessor spelling over them — it
+        forwards, and the two spellings cannot drift.
+
+        `dim` is validated **here**, not on the reducer: a member that accepts a bad dimension and
+        only fails on the next call is a worse API than one that refuses straight away.
+
+        Args:
+            dim: The non-spatial dimension to accumulate along.
+
+        Returns:
+            CumulativeAccessor: An accessor whose `sum()` and `prod()` answer exactly what
+            :meth:`cumsum` and :meth:`cumprod` answer.
+
+        Raises:
+            ValueError: The container has no data variables, or `dim` is not a band dimension of
+                any gridded variable (or of this variable, or this variable has none).
+
+        Examples:
+            - The accessor and the direct member agree:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 2.0, 3.0]).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0]),
+              ... ).get_variable("t")
+              >>> var.cumulative("time").sum().read_array().ravel().tolist()
+              [1.0, 3.0, 6.0]
+              >>> var.cumulative("time").prod().read_array().ravel().tolist()
+              [1.0, 2.0, 6.0]
+
+              ```
+            - It names the dimension it will accumulate along:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 2.0, 3.0]).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0]),
+              ... ).get_variable("t")
+              >>> var.cumulative("time")
+              CumulativeAccessor(dim='time')
+
+              ```
+        """
+        nc = self._ds
+        _assert_accumulable_dimension(nc, dim)
+        return CumulativeAccessor(nc, dim)
 
     def shift(self, dim: str, periods: int = 1, *, fill_value: Any = None) -> NetCDF:
         """Move the values along a non-spatial dimension, filling the steps that are vacated.
@@ -5268,6 +5963,10 @@ _INTERP_KINDS = (
 )
 """The `scipy.interpolate.interp1d` kinds `interp` / `interp_like` accept as `method`."""
 
+_UNSET = object()
+"""Tells `_resolve_one_dim` to read the receiver's own coordinates, where `None` is a
+real answer meaning the axis carries none."""
+
 _SPATIAL_AXIS_NAMES = {name.lower() for name in (*X_AXIS_NAMES, *Y_AXIS_NAMES)}
 """Axis names that identify the horizontal plane, which `interp` regrids through the warp path."""
 
@@ -5915,37 +6614,52 @@ def _same_spatial_grid(nc: NetCDF, other: NetCDF) -> bool:
     )
 
 
-def _refuse_spatial_interp(nc: NetCDF, dim: str, *, caller: str) -> None:
-    """Refuse interpolating a spatial axis, pointing at the operations that regrid it correctly.
+def _refuse_spatial_band_op(
+    nc: NetCDF, dim: str, *, caller: str, verb: str = "interpolates"
+) -> None:
+    """Refuse operating on a spatial axis, pointing at the operations that regrid it correctly.
+
+    Shared by every member that runs along a band dimension and needs the axis to carry real
+    coordinates — `interp` / `interp_like` and the numerical members (`differentiate`,
+    `integrate`, `cumulative_integrate`, `polyfit`). The `(y, x)` plane is pinned by the
+    geotransform, so none of them may touch it.
 
     Args:
-        nc: The cube being interpolated.
+        nc: The cube being operated on.
         dim: The dimension the caller named.
         caller: The member the user called, named in the message.
+        verb: How the message names what the member does to a band dimension.
 
     Raises:
         ValueError: `dim` is a spatial axis (and not a band dimension of `nc`).
     """
     if dim.lower() in _SPATIAL_AXIS_NAMES and dim not in _band_dims_of(nc):
         raise ValueError(
-            f"{caller}() interpolates only band (non-spatial) dimensions; {dim!r} is a spatial "
+            f"{caller}() {verb} only band (non-spatial) dimensions; {dim!r} is a spatial "
             "axis. For a new spatial grid use resample() (new cell size), to_crs() (new CRS) or "
             "align() (onto another dataset's grid); for scattered points use extract() / point()."
         )
 
 
-def _interp_source_coordinates(
-    nc: NetCDF, dim: str, caller: str = "interp"
+def _numeric_band_coordinates(
+    nc: NetCDF, dim: str, caller: str = "interp", purpose: str = "interpolate from"
 ) -> np.ndarray:
-    """The numeric source coordinates of band dimension `dim`, for `interp` to interpolate from.
+    """The numeric coordinates of band dimension `dim`, as a sample axis.
+
+    Read by `interp` / `interp_like` as the source stamps, and by the numerical members as the
+    positions they measure spacing from.
 
     Read from the variable's `_band_dim_values_map` (a variable) or the store's dimension values (a
     container), mirroring `_bin_coordinates`.
 
     Args:
-        nc: The container or variable being interpolated (or `other`, read for its targets).
+        nc: The container or variable being read (or `other`, read for its targets).
         dim: The band dimension to read.
-        caller: The member the user called (`"interp"` / `"interp_like"`), named in refusals.
+        caller: The member the user called, named in refusals.
+        purpose: How the refusals name what the coordinates are *for*. Defaults to the
+            interpolating phrasing this function was written for; the numerical members pass
+            `"measure the spacing from"`, since a derivative is refused for want of spacing
+            rather than of interpolation.
 
     Returns:
         np.ndarray: The coordinates as `float64`.
@@ -5960,16 +6674,20 @@ def _interp_source_coordinates(
         _assert_band_dimension(nc, dim, caller=caller)
         coords = nc._band_dim_values_map.get(dim)
     else:
-        names = list(nc.dimension_names or [])
+        # Through the working group, so the root of a hierarchical store resolves the
+        # dimensions its sub-groups declare rather than reporting none.
+        names = sorted(_gridded_band_dimensions(nc, caller)) or list(
+            nc.dimension_names or []
+        )
         if dim not in names:
             raise ValueError(
                 f"{caller}() got {dim!r}, which is not a dimension of this container; its "
                 f"dimensions are {names}."
             )
-        coords = nc.get_dimension_values(dim)
+        coords = _gridded_band_coordinates(nc, dim)
     if coords is None:
         raise ValueError(
-            f"{caller}() needs coordinate values on {dim!r} to interpolate from, but it carries "
+            f"{caller}() needs coordinate values on {dim!r} to {purpose}, but it carries "
             "none (a coordinate-less axis)."
         )
     values = np.asarray(coords)
@@ -5981,14 +6699,14 @@ def _interp_source_coordinates(
     values = values.astype("float64")
     if np.isnan(values).any():
         raise ValueError(
-            f"{caller}() cannot interpolate along {dim!r}: its coordinates contain NaN."
+            f"{caller}() cannot work along {dim!r}: its coordinates contain NaN."
         )
     if np.unique(values).size != values.size:
         # interp1d is uniquely sensitive to a repeated sample point -- it returns an arbitrary,
         # order-dependent value at the tie rather than erroring -- so refuse a duplicate stamp here.
         raise ValueError(
-            f"{caller}() cannot interpolate along {dim!r}: its coordinates have duplicate values, "
-            "which make the interpolation ambiguous. Deduplicate the axis first."
+            f"{caller}() cannot work along {dim!r}: its coordinates have duplicate values, "
+            "which make the result ambiguous. Deduplicate the axis first."
         )
     return values
 
@@ -6019,8 +6737,971 @@ def _interp_targets(target: Any, dim: str, caller: str = "interp") -> np.ndarray
     return values
 
 
+_CALENDAR_ALIGNMENTS = ("date", "year")
+"""How :meth:`Selection.convert_calendar` may carry a date across — see its `align_on`."""
+
+
+def _cf_time_units(nc: NetCDF, dim: str, *, caller: str) -> tuple[str, str]:
+    """The CF `(units, calendar)` the time dimension `dim` declares.
+
+    Args:
+        nc: The container or variable to read.
+        dim: The time dimension.
+        caller: The member the user called, named in the refusal.
+
+    Returns:
+        tuple: `(units, calendar)`, the calendar defaulting to `"standard"` as CF does.
+
+    Raises:
+        ValueError: `dim` declares no CF time `units`, so its offsets cannot be decoded.
+    """
+    attrs = nc._resolved_band_dim_time_attrs() or {}
+    pair = attrs.get(dim)
+    units = (pair[0] if pair else "") or ""
+    if not units:
+        raise ValueError(
+            f"{caller}() needs CF time units on {dim!r} to decode its offsets, but it declares "
+            f"none. Read the cube from a file that carries them, or pass them through "
+            f"`from_array(attrs={{{dim!r}: {{'units': ..., 'calendar': ...}}}})`."
+        )
+    calendar = (pair[1] if pair else "") or "standard"
+    return str(units), str(calendar)
+
+
+def _decoded_instants(nc: NetCDF, dim: str, *, caller: str) -> tuple[Any, str, str]:
+    """`dim`'s offsets decoded to calendar-aware `cftime` objects.
+
+    Deliberately **not** `interop._decode_cf_offsets`, which targets `datetime64[ns]` and
+    declines a non-standard calendar — the opposite of what a calendar conversion needs. This
+    asks `cftime` for its own objects, which every calendar has.
+
+    Args:
+        nc: The container or variable to read.
+        dim: The time dimension.
+        caller: The member the user called, named in refusals.
+
+    Returns:
+        tuple: `(instants, units, calendar)`.
+
+    Raises:
+        ValueError: `dim` carries no coordinates or no CF units, or `cftime` refuses the pair.
+    """
+    offsets = _numeric_band_coordinates(
+        nc, dim, caller=caller, purpose="decode as dates"
+    )
+    units, calendar = _cf_time_units(nc, dim, caller=caller)
+    try:
+        instants = cftime.num2date(
+            offsets, units, calendar, only_use_cftime_datetimes=True
+        )
+    except (ValueError, TypeError) as exc:
+        raise ValueError(
+            f"{caller}() could not decode {dim!r} as {units!r} on the {calendar!r} calendar: "
+            f"{exc}"
+        ) from exc
+    return np.asarray(instants, dtype=object), units, calendar
+
+
+def _decimal_years(instants: Any) -> np.ndarray:
+    """`instants` as decimal years — the year plus the fraction of it elapsed.
+
+    The common scale `interp_calendar` interpolates on, because it means the same thing in every
+    calendar: a 360-day year and a 365-day year both run from `Y.0` to `Y+1.0`.
+
+    Args:
+        instants: Calendar-aware `cftime` objects.
+
+    Returns:
+        np.ndarray: The decimal years, float64.
+    """
+    years = np.empty(len(instants), dtype="float64")
+    for index, instant in enumerate(instants):
+        start = instant.replace(
+            month=1, day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        next_start = start.replace(year=start.year + 1)
+        length = (next_start - start).total_seconds()
+        years[index] = instant.year + (instant - start).total_seconds() / length
+    return years
+
+
+def _days_in_year(year: int, calendar: str) -> int:
+    """How many days `calendar` gives `year`.
+
+    Args:
+        year: The year.
+        calendar: The CF calendar.
+
+    Returns:
+        int: 360, 365 or 366 depending on the calendar and the year.
+    """
+    start = cftime.datetime(year, 1, 1, calendar=calendar)
+    return int((cftime.datetime(year + 1, 1, 1, calendar=calendar) - start).days)
+
+
+def _same_position_in_year(instant: Any, calendar: str) -> Any:
+    """`instant` moved to `calendar`, keeping its position in the year rather than its date.
+
+    What `align_on="year"` means, and it maps **whole days**: the new day of the year is
+    `round(days_in_target * day_of_year / days_in_source)`, which is the formula xarray's
+    `convert_calendar` uses, and the time of day is carried across verbatim. An earlier version
+    interpolated in seconds through a decimal year, which pushed a day-aligned `360_day` stamp
+    to `2001-12-30 23:40:00.000001` — arithmetically close and useless for the comparison the
+    mode exists to enable, since no daily label matches it.
+
+    Args:
+        instant: The source instant.
+        calendar: The target CF calendar.
+
+    Returns:
+        The instant on `calendar`, at the proportional day of the year.
+    """
+    source_length = _days_in_year(instant.year, instant.calendar)
+    target_length = _days_in_year(instant.year, calendar)
+    moved = int(round(target_length * instant.dayofyr / source_length))
+    # A defensive clamp, not a reachable branch for any CF calendar pair: `dayofyr` runs 1..n
+    # and the ratio of two CF year lengths (360 / 365 / 366) never rounds day 1 down to 0 nor
+    # day n past the target length. It stays because this is arithmetic on a ratio, and a
+    # calendar of a very different length would otherwise build an invalid date.
+    day = min(max(moved, 1), target_length)
+    start = cftime.datetime(
+        instant.year,
+        1,
+        1,
+        instant.hour,
+        instant.minute,
+        instant.second,
+        instant.microsecond,
+        calendar=calendar,
+    )
+    return start + timedelta(days=day - 1)
+
+
+def _carried_to_calendar(
+    instants: Any, calendar: str, align_on: str
+) -> tuple[list[Any], list[int]]:
+    """`instants` expressed in `calendar`, and which of them survived.
+
+    Args:
+        instants: The source instants.
+        calendar: The target CF calendar.
+        align_on: `"date"` keeps the calendar date and drops what the target has no day for;
+            `"year"` keeps the position in the year and drops nothing.
+
+    Returns:
+        tuple: `(carried, kept)` — the target-calendar instants and the source indices they came
+        from, so the caller can select the surviving steps.
+    """
+    carried: list[Any] = []
+    kept: list[int] = []
+    if align_on == "year":
+        seen: set[tuple] = set()
+        for index, instant in enumerate(instants):
+            moved = _same_position_in_year(instant, calendar)
+            # The mapping is not injective when the target year is shorter — 365 source days
+            # collapse onto 360 — and a repeated stamp is an axis `differentiate`, `integrate`,
+            # `polyfit`, `interp` and `sel` all refuse. xarray drops the collapsed days; so do
+            # we, which keeps the result strictly monotonic and therefore usable.
+            stamp = (
+                moved.year,
+                moved.month,
+                moved.day,
+                moved.hour,
+                moved.minute,
+                moved.second,
+                moved.microsecond,
+            )
+            if stamp in seen:
+                continue
+            seen.add(stamp)
+            carried.append(moved)
+            kept.append(index)
+        return carried, kept
+    for index, instant in enumerate(instants):
+        try:
+            carried.append(
+                cftime.datetime(
+                    instant.year,
+                    instant.month,
+                    instant.day,
+                    instant.hour,
+                    instant.minute,
+                    instant.second,
+                    instant.microsecond,
+                    calendar=calendar,
+                )
+            )
+        except ValueError:
+            # The documented drop: the target calendar has no such day (29 February on
+            # `noleap`, 31 December on `360_day`), so the step goes with it.
+            continue
+        kept.append(index)
+    return carried, kept
+
+
+def _gridded_band_coordinates(nc: NetCDF, dim: str) -> Any:
+    """A container's coordinate values for `dim`, read through its **working group**.
+
+    The coordinate counterpart of :func:`_gridded_band_dimensions`, and it exists for the same
+    reason: on the root of a hierarchical store `get_dimension_values` finds nothing, because
+    the coordinate array is declared on the sub-group. Each gridded variable carries the stamps
+    for every dimension it spans, so the first one that spans `dim` answers for the container.
+
+    Args:
+        nc: The container.
+        dim: The band dimension to read.
+
+    Returns:
+        The coordinate values, or `None` when the axis carries none.
+    """
+    group = nc._working_group()
+    for name in nc._spatial_variable_names(group):
+        carried = nc._require_raster_variable(name)._band_dim_values_map.get(dim)
+        if carried is not None:
+            return carried
+    return nc.get_dimension_values(dim)
+
+
+_COEFFICIENT_DIM = "degree"
+"""The dimension :meth:`Selection.polyfit` lands its coefficients on."""
+
+
+def _assert_degree(deg: Any) -> None:
+    """Refuse a polynomial degree that is not a whole, non-negative number.
+
+    `int(deg)` accepted `1.9`, `True` and `"1"` and silently truncated them, which is how a
+    quietly wrong model order gets fitted. Mirrors `_check_periods`, which `shift` uses.
+
+    Args:
+        deg: The degree the caller passed.
+
+    Raises:
+        TypeError: `deg` is not an integer, or is a `bool` — `polyfit(dim, True)` would mean
+            degree 1, and a caller writing it means something else.
+        ValueError: `deg` is negative.
+    """
+    if isinstance(deg, bool) or not isinstance(deg, (int, np.integer)):
+        raise TypeError(
+            f"polyfit() needs an integer degree, but got {type(deg).__name__} ({deg!r})."
+        )
+    if int(deg) < 0:
+        raise ValueError(f"polyfit() needs a degree of 0 or more, but got {deg!r}.")
+
+
+def _declared_dimensions(group: Any, name: str) -> list[Any]:
+    """The GDAL dimension objects variable `name` declares, read without building a raster.
+
+    Args:
+        group: The working group the name is relative to. Everything needed is reachable from
+            it, so the container itself is not a parameter — the group already knows which
+            store it belongs to.
+        name: The variable's name, possibly group-qualified on a hierarchical root.
+
+    Returns:
+        list: The `gdal.Dimension` objects, or `[]` when the array cannot be opened.
+    """
+    target, _, leaf = name.rpartition("/")
+    owner = group
+    if target:
+        for step in target.split("/"):
+            owner = owner.OpenGroup(step) or owner
+    array = owner.OpenMDArray(leaf)
+    return list(array.GetDimensions()) if array is not None else []
+
+
+def _gridded_band_dimensions(
+    nc: NetCDF, caller: str = "this operation"
+) -> dict[str, int]:
+    """A container's band dimensions and lengths, read through its **working group**.
+
+    `nc.dimension_sizes` answers `{}` on the root of a store whose arrays live in a sub-group,
+    because the dimensions are declared on the group rather than the root. Asking the gridded
+    variables instead gives the same answer on a flat store and the right one on a hierarchical
+    store — which is what `_apply_to_container` already does for every pre-existing member that
+    runs along a dimension, and why those work on a grouped root while a route reading
+    `dimension_sizes` refuses it.
+
+    Args:
+        nc: The container.
+
+    Returns:
+        dict[str, int]: Band dimension name to length, over every gridded variable.
+    """
+    group = nc._working_group()
+    sizes: dict[str, int] = {}
+    conflicts: dict[str, set[int]] = {}
+    for name in nc._spatial_variable_names(group):
+        # The **declaration**, not a built raster: `_require_raster_variable`'s own docstring
+        # warns that going to `get_variable` "would read the whole array only to reject it",
+        # and this is a gate that runs before every cut. `GetDimensions()` carries both the
+        # size and the horizontal/band split (`GetType()`), so nothing has to be read.
+        for dim in _declared_dimensions(group, name):
+            if dim.GetType() in (
+                gdal.DIM_TYPE_HORIZONTAL_X,
+                gdal.DIM_TYPE_HORIZONTAL_Y,
+            ):
+                continue
+            label = dim.GetName()
+            if label.lower() in _SPATIAL_AXIS_NAMES:
+                continue
+            size = int(dim.GetSize())
+            conflicts.setdefault(label, set()).add(size)
+            sizes.setdefault(label, size)
+    # Two sub-groups may each declare a dimension of one name at different lengths. Taking the
+    # first silently bounded the whole container by it, so a legitimate selection on the longer
+    # variable was refused with a message naming the shorter axis.
+    disagreeing = {
+        label: sorted(seen) for label, seen in conflicts.items() if len(seen) > 1
+    }
+    if disagreeing:
+        raise ValueError(
+            f"{caller}() cannot treat this container as one cube: its variables declare "
+            f"{disagreeing} for the same dimension name(s). Call it on the group or variable "
+            f"you mean, with get_group(...) / get_variable(...)."
+        )
+    return sizes
+
+
+def _container_band_dimensions(nc: NetCDF, caller: str) -> dict[str, int]:
+    """The container's non-spatial dimensions and their lengths.
+
+    The container-side answer to `_band_dim_names` / `_band_dim_sizes`, which a container has
+    none of: its variables carry the band layout while the store carries the dimensions. The
+    `(y, x)` plane is excluded because it is pinned by the geotransform.
+
+    Args:
+        nc: The container.
+        caller: The member the user called, named in the refusal.
+
+    Returns:
+        dict[str, int]: Dimension name to length.
+
+    Raises:
+        ValueError: The container declares no non-spatial dimension at all.
+    """
+    sizes = _gridded_band_dimensions(nc, caller)
+    if not sizes:
+        # Nothing gridded to read dimensions from; fall back to what the store declares so the
+        # refusal can at least name the dimensions it does have.
+        declared = sorted(nc.dimension_sizes or {})
+        raise ValueError(
+            f"{caller}() needs a non-spatial dimension, and no gridded variable of this "
+            f"container has one; the dimensions it declares are {declared}."
+        )
+    return sizes
+
+
+def _assert_container_dimension(
+    dim_name: str, sizes: dict[str, int], caller: str
+) -> None:
+    """Refuse a name that is not one of the container's band dimensions.
+
+    Takes the resolved `sizes` rather than the container, because that is all the decision
+    needs: `_container_band_dimensions` has already read the store and filtered the spatial
+    axes out, so passing the container as well would be a second, unused route to the same
+    facts.
+
+    Args:
+        dim_name: The name the caller passed.
+        sizes: The container's band dimensions, from `_container_band_dimensions`.
+        caller: The member the user called, named in the refusal.
+
+    Raises:
+        ValueError: The name is a spatial axis, or not a dimension of the container at all.
+    """
+    if dim_name in sizes:
+        return
+    if dim_name.lower() in _SPATIAL_AXIS_NAMES:
+        raise ValueError(
+            f"{caller}() works along band (non-spatial) dimensions; {dim_name!r} is a "
+            "spatial axis. Use crop() or a windowed read for the horizontal plane."
+        )
+    raise ValueError(
+        f"{caller}() got {dim_name!r}, which is not a band dimension of this container; its "
+        f"band dimensions are {sorted(sizes)}."
+    )
+
+
+def _selected_bands_of(
+    var: NetCDF, dim: str, kept: tuple[int, ...]
+) -> np.typing.NDArray:
+    """Read only `kept` along `dim` of `var`, shaped to the result's band layout.
+
+    The container counterpart of what `_subset_along_dim` does on the variable route: map the
+    positions along one band dimension onto the flat classic band indices, read just those, and
+    reshape to the layout the cut produces. Handed to `_TakeSteps` so a container's positional
+    cut reads what it selects instead of the whole variable.
+
+    Args:
+        var: The variable being cut.
+        dim: The band dimension the positions index.
+        kept: The positions along `dim` to keep, in order.
+
+    Returns:
+        np.typing.NDArray: `(*band_sizes_after, rows, cols)`.
+    """
+    names = list(var._band_dim_names)
+    sizes = tuple(var._band_dim_sizes)
+    axis = names.index(dim)
+    bands = _map_dim_to_band_indices(axis, sizes, list(kept))
+    flat = _read_selected_bands(var, bands)
+    # `_read_selected_bands` is a raw GDAL band read: no CF unpacking and no float64
+    # promotion. The other arm of `_TakeSteps` reads through `read_array`, which unpacks, so
+    # without this the two arms disagree about what the numbers *are* — a `scale_factor=0.01,
+    # add_offset=1.5` cube came back as the stored counts `[0, 12]` where the variable route
+    # answers the physical `[1.5, 1.62]`. Unpacking here keeps one representation throughout,
+    # and keeps it the same one `_read_no_data`'s sentinel is already in.
+    unpacked = apply_unpack(flat, *var._effective_packing(bands[0]))
+    after = tuple(len(kept) if i == axis else size for i, size in enumerate(sizes))
+    return np.asarray(unpacked).reshape(*after, *flat.shape[-2:])
+
+
+def _cut_container_along(
+    nc: NetCDF,
+    cuts: list[tuple[str, list[int], bool]],
+    sizes: dict[str, int],
+    caller: str,
+) -> NetCDF:
+    """Apply one positional cut per dimension to every variable that spans it.
+
+    Shared by the container routes of `isel`, `sel` and `squeeze`: each resolves its own
+    selectors to positions, and the cut itself is the same work.
+
+    Args:
+        nc: The container.
+        cuts: `(dimension, positions, collapse)` per dimension, in call order.
+        sizes: The container's band dimensions and lengths.
+        caller: The member the user called, named in refusals and warnings.
+
+    Returns:
+        NetCDF: A container holding the selected steps.
+    """
+    result = nc
+    for dim_name, indices, collapse in cuts:
+        op = _TakeSteps(
+            kept=tuple(indices),
+            squeeze=collapse,
+            whole=len(indices) == sizes[dim_name] and not collapse,
+            reader=_selected_bands_of,
+            caller=caller,
+            verb="squeeze" if caller == "squeeze" else "select",
+        )
+        result = _apply_to_container(result, dim_name, op)
+    return result
+
+
+def _container_sel(
+    nc: NetCDF,
+    kwargs: dict[str, Any],
+    method: str | None,
+    tolerance: float | None,
+) -> NetCDF:
+    """`sel` on a container: resolve each label against the store, then cut.
+
+    Args:
+        nc: The container.
+        kwargs: The `dim=label` pairs, exactly as `sel` accepts them.
+        method: `None` for an exact match, `"nearest"` to snap.
+        tolerance: The furthest a `"nearest"` snap may travel.
+
+    Returns:
+        NetCDF: A container holding the selected steps.
+
+    Raises:
+        ValueError: A name is not a band dimension of the container, the axis carries no
+            coordinates, or nothing matched.
+    """
+    sizes = _container_band_dimensions(nc, "sel")
+    cuts: list[tuple[str, list[int], bool]] = []
+    for dim_name, selector in kwargs.items():
+        _assert_container_dimension(dim_name, sizes, "sel")
+        cuts.append(
+            (
+                dim_name,
+                _resolve_one_dim(
+                    nc,
+                    dim_name,
+                    selector,
+                    method,
+                    tolerance,
+                    coords=_gridded_band_coordinates(nc, dim_name),
+                ),
+                False,
+            )
+        )
+    return _cut_container_along(nc, cuts, sizes, "sel")
+
+
+def _container_squeeze(nc: NetCDF, dim: str | None) -> NetCDF:
+    """`squeeze` on a container: drop a length-one band dimension from every variable.
+
+    Unlike the variable route, which only relabels metadata and so is free, this rebuilds
+    each variable that spans the dimension — a container has no single band layout to
+    relabel. The cells are unchanged, but they are read and written once.
+
+    Args:
+        nc: The container.
+        dim: The dimension to drop, or `None` for every band dimension of length one.
+
+    Returns:
+        NetCDF: A container without those dimensions, or a fresh container over the same store
+        when there is nothing of length one to drop — never the receiver, which inside an
+        engine is a weak proxy.
+
+    Raises:
+        ValueError: `dim` is not a band dimension of the container, or is not length one.
+    """
+    sizes = _container_band_dimensions(nc, "squeeze")
+    if dim is not None:
+        _assert_container_dimension(dim, sizes, "squeeze")
+        if sizes[dim] != 1:
+            raise ValueError(
+                f"squeeze() drops a dimension of length one, and {dim!r} has length "
+                f"{sizes[dim]}. Select one step first with isel({dim}=[0])."
+            )
+        gone = [dim]
+    else:
+        gone = [name for name, size in sizes.items() if size == 1]
+    if not gone:
+        # Nothing to drop, so nothing is rebuilt: the variable route returns a view here for
+        # the same reason, and rebuilding every variable for a call that changes nothing
+        # would copy the whole store. It must still be a *fresh* wrapper rather than `nc` —
+        # `nc` is the engine's `weakref.proxy`, which dies with the receiver.
+        return _rewrapped_container(nc)
+    return _cut_container_along(
+        nc, [(name, [0], True) for name in gone], sizes, "squeeze"
+    )
+
+
+def _container_isel(nc: NetCDF, indexers: dict[str, Any], *, drop: bool) -> NetCDF:
+    """`isel` on a container: cut every variable that spans each named dimension.
+
+    A container tracks no band layout of its own, so the variable route
+    (`_subset_along_dim`, which reads `_band_dim_names` / `_band_dim_sizes`) has nothing to
+    read. This takes the sizes from the **store's** dimensions instead and applies the cut
+    through `_apply_to_container`, which is the route every container-capable member along a
+    dimension already uses — so a variable that does not span the dimension is carried over,
+    and the auxiliaries follow the usual keep-or-drop rule.
+
+    Every keyword is resolved before anything is cut, as on the variable route, so a typo in
+    the second keyword does not leave the first cut applied.
+
+    Args:
+        nc: The container.
+        indexers: The `dim=selector` pairs, exactly as `isel` accepts them.
+        drop: Whether a scalar selector collapses its dimension out of the layout.
+
+    Returns:
+        NetCDF: A container holding the selected steps.
+
+    Raises:
+        ValueError: A name is not a dimension of the container, is a spatial axis, or its
+            selector does not resolve to a position along it.
+    """
+    sizes = _container_band_dimensions(nc, "isel")
+    cuts: list[tuple[str, list[int], bool]] = []
+    for dim_name, selector in indexers.items():
+        _assert_container_dimension(dim_name, sizes, "isel")
+        indices = _resolve_positional_indices(selector, sizes[dim_name], dim_name)
+        # A scalar selector is dimension-reducing, as it is on the variable route and in
+        # xarray; a list / tuple / slice is not, even when it keeps a single step.
+        scalar = not isinstance(selector, (slice, list, tuple))
+        cuts.append((dim_name, indices, bool(drop and scalar)))
+    return _cut_container_along(nc, cuts, sizes, "isel")
+
+
+def _run_convert_calendar(
+    nc: NetCDF, calendar: str, *, dim: str, align_on: str
+) -> NetCDF:
+    """Restamp `nc`'s `dim` onto `calendar`, dropping the dates it has no day for.
+
+    Args:
+        nc: The container or variable to convert.
+        calendar: The target CF calendar.
+        dim: The time dimension.
+        align_on: `"date"` or `"year"`.
+
+    Returns:
+        NetCDF: The converted cube.
+
+    Raises:
+        ValueError: `align_on` is not one of the two alignments; `calendar` is unknown to
+            `cftime`; or `dim` cannot be decoded.
+    """
+    caller = "convert_calendar"
+    if align_on not in _CALENDAR_ALIGNMENTS:
+        raise ValueError(
+            f"{caller}() got align_on={align_on!r}; it must be one of "
+            f"{list(_CALENDAR_ALIGNMENTS)}."
+        )
+    try:
+        cftime.datetime(2001, 1, 1, calendar=calendar)
+    except (ValueError, KeyError) as exc:
+        raise ValueError(
+            f"{caller}() got calendar={calendar!r}, which cftime does not know: {exc}"
+        ) from exc
+    instants, units, _source = _decoded_instants(nc, dim, caller=caller)
+    carried, kept = _carried_to_calendar(instants, calendar, align_on)
+    if not kept:
+        raise ValueError(
+            f"{caller}() would drop every step of {dim!r}: no date on it exists in the "
+            f"{calendar!r} calendar."
+        )
+    try:
+        offsets = [float(value) for value in cftime.date2num(carried, units, calendar)]
+    except (ValueError, TypeError) as exc:
+        # The source's `units` string is kept, so its reference date must also exist in the
+        # target calendar — "days since 2001-02-29" has no meaning on `noleap`. Wrapped the way
+        # `_decoded_instants` wraps `num2date`, rather than letting cftime's own message
+        # surface naming neither the member nor a way out.
+        raise ValueError(
+            f"{caller}() cannot count {dim!r} in {units!r} on the {calendar!r} calendar: "
+            f"{exc}. The units' reference date must exist in the target calendar too — "
+            f"restamp it with assign_coords/attrs before converting."
+        ) from exc
+    op = _TakeSteps(
+        kept=tuple(kept),
+        stamps=tuple(offsets),
+        whole=len(kept) == len(instants),
+    )
+    # `_AlongDim` is not a dataclass, so `declares` is a class attribute instances set in
+    # place rather than a constructor argument — the same way the lazy cube flips
+    # `materialize`.
+    op.declares = {dim: (units, calendar)}
+    if _reduces_as_a_variable(nc):
+        result = _apply_to_variable(nc, dim, op)
+    else:
+        result = _apply_to_container(nc, dim, op)
+    return result
+
+
+def _run_interp_calendar(nc: NetCDF, target: NetCDF, *, dim: str) -> NetCDF:
+    """Interpolate `nc` onto `target`'s `dim` stamps, across calendars.
+
+    Args:
+        nc: The container or variable to interpolate.
+        target: The cube whose stamps, units and calendar to take.
+        dim: The time dimension on both sides.
+
+    Returns:
+        NetCDF: The interpolated cube on `target`'s stamps.
+
+    Raises:
+        TypeError: `target` is not a cube.
+        ValueError: Either side cannot be decoded, the source has fewer than two steps, or the
+            two decimal-year spans do not overlap at all, so every step would be a gap.
+    """
+    caller = "interp_calendar"
+    if not isinstance(target, Dataset) or not hasattr(target, "_band_dim_names"):
+        raise TypeError(
+            f"{caller}() needs a NetCDF to take the stamps from, but got "
+            f"{type(target).__name__}."
+        )
+    source_instants, _units, _calendar = _decoded_instants(nc, dim, caller=caller)
+    target_instants, target_units, target_calendar = _decoded_instants(
+        target, dim, caller=caller
+    )
+    source_scale = _decimal_years(source_instants)
+    target_scale = _decimal_years(target_instants)
+    if source_scale.size < 2:
+        raise ValueError(
+            f"{caller}() needs at least 2 steps along {dim!r} to interpolate between, but it "
+            f"has {source_scale.size}."
+        )
+    # Every target outside the source's span interpolates to a gap, so a target that shares no
+    # span at all answers a fully-masked cube. Silently handing that back is the worst outcome
+    # for the member's stated purpose — lining two cubes up before `concat` — because `concat`
+    # then succeeds on nothing.
+    low, high = float(source_scale.min()), float(source_scale.max())
+    if float(target_scale.min()) > high or float(target_scale.max()) < low:
+        raise ValueError(
+            f"{caller}() found no overlap along {dim!r}: this cube spans {low:.4f} to "
+            f"{high:.4f} in decimal years and the target spans "
+            f"{float(target_scale.min()):.4f} to {float(target_scale.max()):.4f}. Every step "
+            f"would interpolate to a gap. Check the two cubes' time units and epochs."
+        )
+    offsets = [
+        float(value)
+        for value in cftime.date2num(
+            list(target_instants), target_units, target_calendar
+        )
+    ]
+    # Three passes, not one: `assign_coords` puts the source on the common scale, `_run_interp`
+    # interpolates onto the target's, and a second `assign_coords` restamps to the target's own
+    # offsets. The calendar is declared by the interpolation (through `declares`) and the stamps
+    # are set after it — correct, but the opposite order from what this comment used to claim.
+    on_scale = nc.assign_coords({dim: [float(value) for value in source_scale]})
+    interpolated = _run_interp(
+        on_scale,
+        dim,
+        [float(value) for value in target_scale],
+        _resolve_interp_kind("linear"),
+        caller=caller,
+        declares={dim: (target_units, target_calendar)},
+    )
+    return interpolated.assign_coords({dim: offsets})
+
+
+def _run_numerical(
+    nc: NetCDF,
+    dim: str,
+    op: _AlongDim,
+    *,
+    caller: str,
+    verb: str,
+    minimum: int = 2,
+) -> NetCDF:
+    """Run a coordinate-aware numerical operation along one band dimension.
+
+    The gate the four numerical members share: refuse a spatial axis, read `dim`'s coordinates
+    (which refuses an unknown, coordinate-less, text or NaN-holding axis), check the axis is long
+    enough for the operation, then dispatch to the variable or container path. Factored out so the
+    four cannot drift in what they refuse, exactly as `_run_interp` does for the two interpolating
+    members.
+
+    Args:
+        nc: The container or variable the member was called on.
+        dim: The band dimension to operate along.
+        op: The operation to run.
+        caller: The member the user called, named in every refusal.
+        verb: How the spatial refusal names what the member does.
+        minimum: The fewest steps the operation needs. Two for a difference, a trapezoid or a
+            running integral; `deg + 1` for a fit, which is underdetermined below that.
+
+    Returns:
+        NetCDF: The result, a container for a container and a variable for a variable.
+
+    Raises:
+        ValueError: `dim` is a spatial axis, is not a band dimension, carries no usable
+            coordinates, or is shorter than `minimum` steps.
+    """
+    _refuse_spatial_band_op(nc, dim, caller=caller, verb=verb)
+    positions = _numeric_band_coordinates(
+        nc, dim, caller=caller, purpose="measure the spacing from"
+    )
+    if positions.size < minimum:
+        raise ValueError(
+            f"{caller}() needs at least {minimum} steps along {dim!r}, but it has "
+            f"{positions.size}."
+        )
+    if not np.all(np.isfinite(positions)):
+        raise ValueError(
+            f"{caller}() cannot measure spacing along {dim!r}: its coordinates are not all "
+            f"finite. Restamp the axis with assign_coords first."
+        )
+    steps = np.diff(positions)
+    if positions.size > 1 and not (np.all(steps > 0) or np.all(steps < 0)):
+        # A derivative or an integral over an out-of-order axis is arithmetically defined and
+        # physically meaningless — the signed areas of an integral simply cancel — so it is
+        # refused rather than answered. `sortby` is the remedy and is named.
+        raise ValueError(
+            f"{caller}() needs {dim!r} to run in one direction, and its coordinates are not "
+            f"monotonic. Order the axis first with sortby({dim!r})."
+        )
+    if _reduces_as_a_variable(nc):
+        result = _apply_to_variable(nc, dim, op)
+    else:
+        result = _apply_to_container(nc, dim, op)
+    return result
+
+
+def _assert_accumulable_dimension(nc: NetCDF, dim: str) -> None:
+    """Refuse a dimension `cumulative` could not accumulate along, when it is named.
+
+    `cumsum` / `cumprod` validate `dim` inside the along-dim path, which the accessor does not
+    reach until its reducer is called. Checking here keeps `cumulative("nope")` a refusal rather
+    than an object that fails later.
+
+    Args:
+        nc: The container or variable `cumulative` was called on.
+        dim: The dimension the caller named.
+
+    Raises:
+        ValueError: `dim` is not a band dimension of this variable, or of any gridded variable of
+            this container.
+    """
+    if _reduces_as_a_variable(nc):
+        _assert_band_dimension(nc, dim, caller="cumulative")
+        return
+    # Resolved through the working group, as `cumsum` / `cumprod` resolve it inside
+    # `_apply_to_container`. Reading the store's own names instead made the accessor stricter
+    # than what it forwards to, which is the one thing it must never be.
+    gridded = _gridded_band_dimensions(nc, "cumulative")
+    if dim not in gridded:
+        raise ValueError(
+            f"cumulative() got {dim!r}, which is not a band dimension of any gridded variable; "
+            f"the band dimensions are {sorted(gridded)}."
+        )
+
+
+@dataclass(frozen=True)
+class CumulativeAccessor:
+    """What :meth:`Selection.cumulative` hands back: `sum()` and `prod()` over one dimension.
+
+    xarray's accessor spelling for the running total and running product. Both reducers forward to
+    the members that already answer them — :meth:`Selection.cumsum` and
+    :meth:`Selection.cumprod` — so the accessor adds a spelling, never a second implementation.
+
+    The dimension is validated when `cumulative` builds the accessor, not when a reducer is
+    called, so an accessor in hand is always one that will work.
+
+    Attributes:
+        cube: The container or variable `cumulative` was called on.
+        dim: The band dimension to accumulate along, already validated.
+
+    Examples:
+        - Build one and read what it will accumulate along:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+          >>> cube = NetCDF.from_array(
+          ...     np.array([1.0, 2.0, 3.0]).reshape(3, 1, 1),
+          ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+          ...     variable_name="t",
+          ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0]),
+          ... )
+          >>> accessor = cube.cumulative("time")
+          >>> accessor.dim
+          'time'
+          >>> accessor
+          CumulativeAccessor(dim='time')
+
+          ```
+        - The two reducers answer the running total and the running product of the same series:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+          >>> cube = NetCDF.from_array(
+          ...     np.array([1.0, 2.0, 3.0]).reshape(3, 1, 1),
+          ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+          ...     variable_name="t",
+          ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0]),
+          ... )
+          >>> accessor = cube.cumulative("time")
+          >>> accessor.sum().get_variable("t").read_array().ravel().tolist()
+          [1.0, 3.0, 6.0]
+          >>> accessor.prod().get_variable("t").read_array().ravel().tolist()
+          [1.0, 2.0, 6.0]
+
+          ```
+
+    See Also:
+        Selection.cumulative: Builds this accessor and validates the dimension.
+        Selection.cumsum: The member `sum` forwards to.
+        Selection.cumprod: The member `prod` forwards to.
+    """
+
+    cube: NetCDF
+    dim: str
+
+    def sum(self, *, skipna: bool = True) -> NetCDF:
+        """The running total along the dimension.
+
+        Args:
+            skipna: Whether gaps are skipped, forwarded to :meth:`Selection.cumsum`.
+
+        Returns:
+            NetCDF: Exactly what `cumsum(dim, skipna=skipna)` answers.
+
+        Examples:
+            - Each step holds the total of itself and every step before it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.array([1.0, 2.0, 3.0, 4.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... )
+              >>> cube.cumulative("time").sum().get_variable("t").read_array().ravel().tolist()
+              [1.0, 3.0, 6.0, 10.0]
+
+              ```
+            - It is the same answer `cumsum` gives, which is the point of the accessor:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.array([2.0, 4.0]).reshape(2, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+              ... )
+              >>> accessor = cube.cumulative("time").sum()
+              >>> direct = cube.cumsum("time")
+              >>> accessor.get_variable("t").read_array().ravel().tolist()
+              [2.0, 6.0]
+              >>> direct.get_variable("t").read_array().ravel().tolist()
+              [2.0, 6.0]
+
+              ```
+        """
+        return self.cube.cumsum(self.dim, skipna=skipna)
+
+    def prod(self, *, skipna: bool = True) -> NetCDF:
+        """The running product along the dimension.
+
+        Args:
+            skipna: Whether gaps are skipped, forwarded to :meth:`Selection.cumprod`.
+
+        Returns:
+            NetCDF: Exactly what `cumprod(dim, skipna=skipna)` answers.
+
+        Examples:
+            - Each step holds the product of itself and every step before it:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.array([1.0, 2.0, 3.0, 4.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... )
+              >>> cube.cumulative("time").prod().get_variable("t").read_array().ravel().tolist()
+              [1.0, 2.0, 6.0, 24.0]
+
+              ```
+            - A series holding one leaves the product unchanged at that step:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> cube = NetCDF.from_array(
+              ...     np.array([3.0, 1.0, 2.0]).reshape(3, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0]),
+              ... )
+              >>> cube.cumulative("time").prod().get_variable("t").read_array().ravel().tolist()
+              [3.0, 3.0, 6.0]
+
+              ```
+        """
+        return self.cube.cumprod(self.dim, skipna=skipna)
+
+    def __repr__(self) -> str:
+        """Name the dimension, so an accessor in a debugger is self-describing.
+
+        Returns:
+            str: `CumulativeAccessor(dim='time')`.
+        """
+        return f"CumulativeAccessor(dim={self.dim!r})"
+
+
 def _run_interp(
-    nc: NetCDF, dim: str, target: Any, kind: str, caller: str = "interp"
+    nc: NetCDF,
+    dim: str,
+    target: Any,
+    kind: str,
+    caller: str = "interp",
+    declares: dict[str, tuple[str, str]] | None = None,
 ) -> NetCDF:
     """Interpolate one band dimension of `nc` onto `target`, container or variable.
 
@@ -6031,12 +7712,15 @@ def _run_interp(
         kind: The resolved `interp1d` kind.
         caller: The member the user called (`"interp"` / `"interp_like"`), threaded into every
             refusal and the dropped-auxiliary warning so they name the real entry point.
+        declares: CF `(units, calendar)` for the result's dimensions, for a caller that changes
+            what the stamps mean — `interp_calendar` taking the target's calendar. `None` for
+            `interp` / `interp_like`, which only move the stamps within one calendar.
 
     Returns:
         NetCDF: The interpolated container or variable.
     """
-    _refuse_spatial_interp(nc, dim, caller=caller)
-    source = _interp_source_coordinates(nc, dim, caller=caller)
+    _refuse_spatial_band_op(nc, dim, caller=caller)
+    source = _numeric_band_coordinates(nc, dim, caller=caller)
     minimum = _INTERP_MIN_POINTS[kind]
     if source.size < minimum:
         raise ValueError(
@@ -6045,6 +7729,7 @@ def _run_interp(
         )
     targets = _interp_targets(target, dim, caller=caller)
     op = _InterpTo(target=targets, kind=kind, caller=caller)
+    op.declares = declares
     if _reduces_as_a_variable(nc):
         return _apply_to_variable(nc, dim, op)
     return _apply_to_container(nc, dim, op)
@@ -7129,6 +8814,7 @@ def _resolve_one_dim(
     selector: Any,
     method: str | None,
     tolerance: float | None,
+    coords: Any = _UNSET,
 ) -> list[int]:
     """Resolve one `sel` keyword to positions, without cutting anything.
 
@@ -7137,12 +8823,17 @@ def _resolve_one_dim(
     `sel` refuse a wrong *value* in a later keyword as cheaply as a wrong name.
 
     Args:
-        nc: The variable the keyword is resolved against.
+        nc: The receiver the keyword is resolved against.
         dim_name: The dimension to narrow.
         selector: A coordinate value, a list of them, a boolean mask of the axis' own
             length, or a slice.
         method: `None` for an exact match, `"nearest"` to snap.
         tolerance: The furthest a `"nearest"` snap may travel.
+        coords: The axis' coordinate values to resolve against. Omitted for a **variable**,
+            which carries its own in `_band_dim_values_map`; passed for a **container**,
+            whose band layout lives on its variables while the coordinates live on the
+            store. Passing them also skips the band-dimension assertion, which a container
+            cannot answer — the caller has already checked the name against the store.
 
     Returns:
         list[int]: Positions along `dim_name` to keep.
@@ -7151,10 +8842,11 @@ def _resolve_one_dim(
         ValueError: The dimension is unknown, has no coordinates, or nothing matched.
         KeyError: A `"nearest"` request found nothing within `tolerance`.
     """
-    _assert_band_dimension(nc, dim_name, caller="sel")
+    if coords is _UNSET:
+        _assert_band_dimension(nc, dim_name, caller="sel")
+        coords = nc._band_dim_values_map.get(dim_name)
     selector = _as_a_sequence_of_labels(selector)
 
-    coords = nc._band_dim_values_map.get(dim_name)
     masked = _mask_positions(selector, coords, dim_name)
     if masked is not None:
         return masked
@@ -7726,6 +9418,42 @@ def _coordinates_of(nc: NetCDF, dim_name: str, caller: str) -> list:
             f"{caller}() reads {dim_name!r}'s coordinate values, and it has none."
         )
     return list(coords)
+
+
+def _rewrapped_container(nc: NetCDF) -> NetCDF:
+    """`nc` as a fresh container over the same store, reading nothing.
+
+    The container counterpart of :func:`_rewrapped`, and it exists for the same reason: inside
+    an engine `self._ds` is a `weakref.proxy` to the dataset, so handing it back as a result
+    gives the caller an object that dies with the receiver. The idiomatic one-liner is exactly
+    the case that breaks — `NetCDF.from_array(...).squeeze()` drops the receiver on the same
+    line, so the "result" is already dead when it is returned.
+
+    No cells are copied: the wrapper is built over `nc._raster`, so the result reads as
+    whatever `nc` reads as.
+
+    Args:
+        nc: The container.
+
+    Returns:
+        NetCDF: A fresh container over the same raster.
+    """
+    # Local import breaks the netcdf.py <-> engines.selection cycle, as `_rewrapped` does.
+    from pyramids.netcdf.netcdf import Container
+
+    fresh = Container(nc._raster, access=nc._access)
+    # A `get_group` view is identified by three fields `get_group` sets on an otherwise plain
+    # container, and none of them is derivable from the raster. Dropping them turned
+    # `view.squeeze()` into the **store root** — same type, same class name, wrong group, and a
+    # `get_variable('t')` that then fails on the root's group-qualified inventory. That is a
+    # worse outcome than the `ReferenceError` this function was written to remove, because it
+    # fails later and further away.
+    fresh._group_path = nc._group_path
+    fresh._parent_nc = getattr(nc, "_parent_nc", None)
+    # Assigned unconditionally: `_open_options` defaults to `()` on every container, so it is
+    # never absent and never `None` — the guard this replaces had an arm nothing could reach.
+    fresh._open_options = nc._open_options
+    return fresh
 
 
 def _rewrapped(nc: NetCDF) -> NetCDF:
