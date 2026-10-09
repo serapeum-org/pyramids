@@ -461,6 +461,12 @@ def reduce_by_label(
                 f"found {lo}..{hi}."
             )
 
+    if weights is not None and np.asarray(weights).size != values.size:
+        raise ValueError(
+            f"reduce_by_label: weights has {np.asarray(weights).size} element(s) but "
+            f"values has {values.size}; they must be the same size."
+        )
+
     valid = assigned & ~np.isnan(flat_values)
     lbl = flat_labels[valid].astype(np.intp)
     val = flat_values[valid]
@@ -514,9 +520,16 @@ def reduce_by_label(
         }
         wvar = None
         if wt is not None and ("std" in other_stats or "var" in other_stats):
-            wsumsq = np.bincount(lbl, weights=wt * val * val, minlength=n_groups)
+            # Stable weighted variance: Σ w·(x − group mean)² / Σ w, accumulated per group
+            # with bincount. A sum of non-negative terms, so it is never negative — unlike
+            # Σ w·x²/Σ w − mean², which cancels catastrophically for a near-constant group
+            # and can yield a tiny negative (then NaN under sqrt). Matches the definition in
+            # :func:`weighted_statistic`.
+            assert wmean is not None  # nosec B101 - computed above whenever std/var asked
+            deviations = wt * (val - np.asarray(wmean)[lbl]) ** 2
+            weighted_sq = np.bincount(lbl, weights=deviations, minlength=n_groups)
             with np.errstate(invalid="ignore", divide="ignore"):
-                wvar = np.where(wtotal != 0, wsumsq / wtotal - wmean * wmean, np.nan)
+                wvar = np.where(wtotal != 0, weighted_sq / wtotal, np.nan)
         for group in range(n_groups):
             segment = grouped_values[starts[group] : ends[group]]
             if segment.size == 0:

@@ -380,7 +380,10 @@ class MeshVariable:
             location=self.location,
             mesh_name=self.mesh_name,
             shape=data.shape if data is not None else self.shape,
-            attributes=self.attributes,
+            # Copy, not alias: a derived variable owns its own attributes dict, so a later
+            # edit to the derivation can never leak back into the source (these derivations
+            # are meant to be immutable).
+            attributes=dict(self.attributes),
             nodata=self.nodata,
             units=self.units,
             standard_name=self.standard_name,

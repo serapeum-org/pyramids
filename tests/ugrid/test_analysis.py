@@ -119,3 +119,35 @@ class TestZonalStats:
         )
         with pytest.raises(ValueError, match="CRS"):
             unit_mesh.zonal_stats(zones, variable_name="depth")
+
+
+class TestNonTimeFirstAxis:
+    """A variable storing time as a trailing axis must still reduce over the right axis."""
+
+    def _mesh_time_trailing(self) -> UgridDataset:
+        # data shape (n_face=2, n_time=3); dimensions mark the trailing axis as time.
+        mesh = UgridDataset.from_arrays(
+            node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={"d": np.array([[1.0, 2.0, 3.0], [10.0, 20.0, 30.0]])},
+            data_locations={"d": "face"},
+        )
+        mesh["d"].dimensions = ("nMesh2d_face", "time")
+        return mesh
+
+    def test_time_index_is_trailing(self):
+        mesh = self._mesh_time_trailing()
+        assert mesh["d"].time_index == 1
+
+    def test_stats_uses_the_right_axis(self):
+        mesh = self._mesh_time_trailing()
+        # step 0 along the trailing time axis is the per-face column [1.0, 10.0].
+        s = mesh.stats("d", time_index=0)
+        assert s["min"] == 1.0 and s["max"] == 10.0 and s["count"] == 2.0
+
+    def test_weighted_matches_face_count(self):
+        mesh = self._mesh_time_trailing()
+        # Two faces -> weighted over 2 face values at step 0, not 3 time values of one face.
+        result = mesh.weighted("d", time_index=0)
+        assert np.isfinite(result)

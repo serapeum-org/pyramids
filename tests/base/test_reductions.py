@@ -125,3 +125,35 @@ class TestWeightedStatistic:
         out = weighted_statistic(values, weights, (0,), "mean", None, True)
         # column 0: (1*1 + 3*5)/4 = 4.0 ; column 1: (1*3 + 3*7)/4 = 6.0
         np.testing.assert_allclose(out.ravel(), [4.0, 6.0])
+
+
+class TestReduceByLabelWeightedStability:
+    def test_near_constant_group_var_is_nonnegative(self):
+        # A group of equal values with distinct weights: variance is exactly 0, and the
+        # stable formula must not return a tiny negative (which would make std NaN).
+        values = np.full(6, 123.456)
+        labels = np.zeros(6, dtype=int)
+        weights = np.array([1.0, 1.3, 0.7, 2.1, 0.9, 1.1])
+        out = reduce_by_label(values, labels, 1, ["var", "std"], weights=weights)
+        assert out["var"][0] >= 0.0
+        assert np.isclose(out["var"][0], 0.0, atol=1e-9)
+        assert not np.isnan(out["std"][0])
+        assert np.isclose(out["std"][0], 0.0, atol=1e-6)
+
+    def test_weighted_var_matches_weighted_statistic(self):
+        from pyramids.base._reductions import weighted_statistic
+
+        values = np.array([1.0, 3.0, 5.0, 9.0])
+        weights = np.array([1.0, 2.0, 1.0, 3.0])
+        labels = np.zeros(4, dtype=int)
+        by_label = reduce_by_label(values, labels, 1, ["var"], weights=weights)["var"][
+            0
+        ]
+        direct = weighted_statistic(values, weights, (0,), "var", None, True)
+        np.testing.assert_allclose(by_label, np.asarray(direct).ravel()[0])
+
+    def test_weights_size_mismatch_raises(self):
+        with pytest.raises(ValueError, match="weights has"):
+            reduce_by_label(
+                np.zeros(3), np.zeros(3, dtype=int), 1, ["mean"], weights=np.zeros(2)
+            )

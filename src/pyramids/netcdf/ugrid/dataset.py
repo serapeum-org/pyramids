@@ -1084,7 +1084,12 @@ class UgridDataset:
         if data is None:
             raise ValueError(f"Variable {variable_name!r} has no loaded data.")
         if var.has_time:
-            data = data[time_index]
+            # Take the step along the variable's own time axis, not blindly axis 0 — a
+            # mesh variable may store time as a trailing axis (e.g. (nFaces, time)), and
+            # the rest of this module keys off var.time_index for exactly that reason.
+            data = np.take(
+                np.asarray(data), time_index, axis=cast("int", var.time_index)
+            )
         return var, gaps_as_nan(np.asarray(data), var.nodata)
 
     def stats(self, variable_name: str, *, time_index: int = 0) -> dict[str, float]:
@@ -1102,6 +1107,10 @@ class UgridDataset:
         Returns:
             dict[str, float]: ``{"min", "max", "mean", "std", "count"}``. A variable with
             no valid element yields NaN for every statistic and ``count`` of ``0.0``.
+
+        Raises:
+            KeyError: ``variable_name`` is not a data variable of this dataset.
+            ValueError: The variable has no loaded data.
 
         Examples:
             - Per-face statistics of a two-triangle mesh:
@@ -1418,27 +1427,87 @@ class UgridDataset:
         return self._rebuild(new_vars)
 
     def mean(self, *, skipna: bool = True) -> UgridDataset:
-        """Mean over time of every temporal variable. See :meth:`reduce`."""
+        """Mean over time of every temporal variable (thin wrapper over :meth:`reduce`).
+
+        Args:
+            skipna: Skip the declared no-data value and NaN. Defaults to True.
+
+        Returns:
+            UgridDataset: A new dataset; each temporal variable collapsed to its time mean.
+
+        Raises:
+            ValueError: No variable has a time dimension.
+        """
         return self.reduce("mean", skipna=skipna)
 
     def sum(self, *, skipna: bool = True) -> UgridDataset:
-        """Sum over time of every temporal variable. See :meth:`reduce`."""
+        """Sum over time of every temporal variable (thin wrapper over :meth:`reduce`).
+
+        Args:
+            skipna: Skip the declared no-data value and NaN. Defaults to True.
+
+        Returns:
+            UgridDataset: A new dataset; each temporal variable collapsed to its time sum.
+
+        Raises:
+            ValueError: No variable has a time dimension.
+        """
         return self.reduce("sum", skipna=skipna)
 
     def min(self, *, skipna: bool = True) -> UgridDataset:
-        """Minimum over time of every temporal variable. See :meth:`reduce`."""
+        """Minimum over time of every temporal variable (thin wrapper over :meth:`reduce`).
+
+        Args:
+            skipna: Skip the declared no-data value and NaN. Defaults to True.
+
+        Returns:
+            UgridDataset: A new dataset; each temporal variable collapsed to its time minimum.
+
+        Raises:
+            ValueError: No variable has a time dimension.
+        """
         return self.reduce("min", skipna=skipna)
 
     def max(self, *, skipna: bool = True) -> UgridDataset:
-        """Maximum over time of every temporal variable. See :meth:`reduce`."""
+        """Maximum over time of every temporal variable (thin wrapper over :meth:`reduce`).
+
+        Args:
+            skipna: Skip the declared no-data value and NaN. Defaults to True.
+
+        Returns:
+            UgridDataset: A new dataset; each temporal variable collapsed to its time maximum.
+
+        Raises:
+            ValueError: No variable has a time dimension.
+        """
         return self.reduce("max", skipna=skipna)
 
     def std(self, *, skipna: bool = True) -> UgridDataset:
-        """Standard deviation over time of every temporal variable. See :meth:`reduce`."""
+        """Std-dev over time of every temporal variable (thin wrapper over :meth:`reduce`).
+
+        Args:
+            skipna: Skip the declared no-data value and NaN. Defaults to True.
+
+        Returns:
+            UgridDataset: A new dataset; each temporal variable collapsed to its time std.
+
+        Raises:
+            ValueError: No variable has a time dimension.
+        """
         return self.reduce("std", skipna=skipna)
 
     def var(self, *, skipna: bool = True) -> UgridDataset:
-        """Variance over time of every temporal variable. See :meth:`reduce`."""
+        """Variance over time of every temporal variable (thin wrapper over :meth:`reduce`).
+
+        Args:
+            skipna: Skip the declared no-data value and NaN. Defaults to True.
+
+        Returns:
+            UgridDataset: A new dataset; each temporal variable collapsed to its time variance.
+
+        Raises:
+            ValueError: No variable has a time dimension.
+        """
         return self.reduce("var", skipna=skipna)
 
     def _transform_time(self, operation: str, fn: Any) -> UgridDataset:
@@ -1889,6 +1958,15 @@ class UgridDataset:
             new_var = var.with_data(np.concatenate(arrays, axis=axis))
             if has_times:
                 new_var.attributes = {**var.attributes, "time_values": times}
+            elif "time_values" in new_var.attributes:
+                # At least one part had no time coordinate, so the concatenated axis has
+                # none either. Drop the first part's stale, now-too-short `time_values`
+                # (carried over by with_data) rather than leave it mismatched with the data.
+                new_var.attributes = {
+                    key: value
+                    for key, value in new_var.attributes.items()
+                    if key != "time_values"
+                }
             new_vars[name] = new_var
         return self._rebuild(new_vars)
 
