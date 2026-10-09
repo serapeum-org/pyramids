@@ -261,6 +261,133 @@ class UgridDataset:
         """Get a data variable by name using bracket notation."""
         return self.get_data(key)
 
+    def __contains__(self, key: str) -> bool:
+        """True when ``key`` is a data variable of this dataset."""
+        return key in self._data_variables
+
+    def __len__(self) -> int:
+        """The number of data variables."""
+        return len(self._data_variables)
+
+    def __iter__(self) -> Any:
+        """Iterate over the data variable names."""
+        return iter(self._data_variables)
+
+    def keys(self) -> list[str]:
+        """The data variable names (read-only mapping surface)."""
+        return list(self._data_variables.keys())
+
+    def values(self) -> list[MeshVariable]:
+        """The data variables (read-only mapping surface)."""
+        return list(self._data_variables.values())
+
+    def items(self) -> list[tuple[str, MeshVariable]]:
+        """The ``(name, variable)`` pairs (read-only mapping surface)."""
+        return list(self._data_variables.items())
+
+    def get(self, key: str, default: Any = None) -> MeshVariable | Any:
+        """The variable ``key``, or ``default`` when it is absent."""
+        return self._data_variables.get(key, default)
+
+    @property
+    def data_vars(self) -> dict[str, MeshVariable]:
+        """A copy of the ``{name: variable}`` mapping.
+
+        A fresh dict, so mutating it never changes the dataset — variable edits go through
+        :meth:`with_variable` / :meth:`drop_variables` / :meth:`rename_variable`, which each
+        return a new dataset.
+        """
+        return dict(self._data_variables)
+
+    def with_variable(
+        self,
+        name: str,
+        data: np.ndarray,
+        *,
+        location: str = "face",
+        nodata: float | None = None,
+    ) -> UgridDataset:
+        """Return a new dataset with ``name`` added or replaced.
+
+        UGRID derivations are immutable — unlike ``NetCDF.set_variable`` this does not mutate
+        in place but returns a fresh dataset. A 2-D ``data`` array is treated as temporal
+        (leading axis = time); a 1-D array is a static per-element variable.
+
+        Args:
+            name: Variable name to add or replace.
+            data: The values; ``(n_elements,)`` static or ``(n_time, n_elements)`` temporal.
+            location: Mesh location — ``"face"``, ``"node"`` or ``"edge"``. Defaults to
+                ``"face"``.
+            nodata: Optional no-data value for the new variable.
+
+        Returns:
+            UgridDataset: A new dataset carrying the variable.
+        """
+        arr = np.asarray(data)
+        variable = MeshVariable(
+            name=name,
+            location=location,
+            mesh_name=self.mesh_name,
+            shape=arr.shape,
+            nodata=nodata,
+            _data=arr,
+        )
+        new_vars = dict(self._data_variables)
+        new_vars[name] = variable
+        return self._rebuild(new_vars)
+
+    def drop_variables(self, names: str | list[str]) -> UgridDataset:
+        """Return a new dataset without the named variable(s).
+
+        Args:
+            names: A variable name, or a list of them, to drop.
+
+        Returns:
+            UgridDataset: A new dataset without those variables.
+
+        Raises:
+            KeyError: A named variable is not present.
+        """
+        drop = [names] if isinstance(names, str) else list(names)
+        new_vars = dict(self._data_variables)
+        for name in drop:
+            if name not in new_vars:
+                raise KeyError(
+                    f"Variable {name!r} not found. Available: {self.data_variable_names}"
+                )
+            del new_vars[name]
+        return self._rebuild(new_vars)
+
+    def rename_variable(self, old: str, new: str) -> UgridDataset:
+        """Return a new dataset with variable ``old`` renamed to ``new``.
+
+        Args:
+            old: The current variable name.
+            new: The new name.
+
+        Returns:
+            UgridDataset: A new dataset with the variable renamed.
+
+        Raises:
+            KeyError: ``old`` is not present.
+            ValueError: ``new`` already names a different variable.
+        """
+        if old not in self._data_variables:
+            raise KeyError(
+                f"Variable {old!r} not found. Available: {self.data_variable_names}"
+            )
+        if new in self._data_variables and new != old:
+            raise ValueError(f"Variable {new!r} already exists.")
+        new_vars: dict[str, MeshVariable] = {}
+        for name, var in self._data_variables.items():
+            if name == old:
+                # `replace` keeps the lazy loader and every other field, only re-labelling
+                # the variable, so a rename never forces a read.
+                new_vars[new] = replace(var, name=new)
+            else:
+                new_vars[name] = var
+        return self._rebuild(new_vars)
+
     @property
     def metadata(self) -> UgridMetadata:
         """Full metadata summary for this dataset."""

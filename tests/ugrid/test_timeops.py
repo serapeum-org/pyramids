@@ -225,3 +225,70 @@ class TestConcatMerge:
         )
         with pytest.raises(ValueError, match="same mesh topology"):
             a.concat(other)
+
+
+class TestMappingSurface:
+    @pytest.fixture
+    def mesh(self) -> UgridDataset:
+        return UgridDataset.from_arrays(
+            node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={"a": np.array([1.0, 2.0]), "b": np.array([3.0, 4.0])},
+        )
+
+    def test_len_contains_iter(self, mesh):
+        assert len(mesh) == 2
+        assert "a" in mesh and "z" not in mesh
+        assert sorted(iter(mesh)) == ["a", "b"]
+
+    def test_keys_values_items_get(self, mesh):
+        assert sorted(mesh.keys()) == ["a", "b"]
+        assert len(mesh.values()) == 2
+        assert dict(mesh.items())["a"].location == "face"
+        assert mesh.get("missing") is None
+        assert mesh.get("a").name == "a"
+
+    def test_data_vars_is_a_copy(self, mesh):
+        dv = mesh.data_vars
+        dv.clear()
+        assert len(mesh) == 2  # dataset untouched
+
+
+class TestVariableManagement:
+    @pytest.fixture
+    def mesh(self) -> UgridDataset:
+        return UgridDataset.from_arrays(
+            node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={"d": np.array([1.0, 2.0])},
+        )
+
+    def test_with_variable_is_immutable(self, mesh):
+        out = mesh.with_variable("e", np.array([5.0, 6.0]))
+        assert sorted(out.data_variable_names) == ["d", "e"]
+        assert mesh.data_variable_names == ["d"]  # original untouched
+
+    def test_with_variable_temporal(self, mesh):
+        out = mesh.with_variable("t", np.array([[1.0, 2.0], [3.0, 4.0]]))
+        assert out["t"].has_time is True
+
+    def test_drop_variables(self, mesh):
+        out = mesh.with_variable("e", np.array([5.0, 6.0])).drop_variables("d")
+        assert out.data_variable_names == ["e"]
+
+    def test_drop_missing_raises(self, mesh):
+        with pytest.raises(KeyError, match="not found"):
+            mesh.drop_variables("zzz")
+
+    def test_rename_preserves_lazy_and_relabels(self, mesh):
+        out = mesh.rename_variable("d", "depth")
+        assert out.data_variable_names == ["depth"]
+        assert out["depth"].name == "depth"
+        assert out["depth"].data.tolist() == [1.0, 2.0]
+
+    def test_rename_conflict_raises(self, mesh):
+        two = mesh.with_variable("e", np.array([5.0, 6.0]))
+        with pytest.raises(ValueError, match="already exists"):
+            two.rename_variable("d", "e")
