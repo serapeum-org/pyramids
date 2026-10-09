@@ -1757,8 +1757,13 @@ class _CurveFit(_AlongDim):
     rather than with the callable's parameter names: a text axis is inert to the rest of the
     library, since `differentiate`, `integrate` and `interp` all refuse a non-numeric axis.
 
-    With `full`, one more slot is appended, stamped `-1`, holding each cell's **residual sum of
-    squares**. That is not decoration. `curve_fit` does not report a failed fit: on a degenerate
+    With `full`, one more slot is **prepended**, stamped `-1`, holding each cell's **residual sum
+    of squares**. Prepended rather than appended so the axis stays monotonic ascending
+    (`[-1, 0, 1]`): an appended `-1` made `[0, 1, -1]`, which `integrate` and `differentiate` —
+    two of the three members the integer stamps were chosen for — then refused outright, while
+    `interp` blended a coefficient with a residual and answered without complaint.
+
+    That is not decoration. `curve_fit` does not report a failed fit: on a degenerate
     series it returns `p0` unchanged, does not raise, and reports `ier=1`, a *success* code, so a
     failed cell is a plausible-looking constant region indistinguishable from a fit. Its
     covariance is no help and is inverted — a degenerate cell came back finite where a perfect
@@ -1816,6 +1821,9 @@ class _CurveFit(_AlongDim):
         columns = moved.reshape(moved.shape[0], -1).astype("float64")
         count = len(self.p0)
         width = count + 1 if self.full else count
+        # The residual occupies row 0 under `full`, so the axis reads `[-1, 0, 1]` — ascending,
+        # which the coordinate-aware members require.
+        offset = 1 if self.full else 0
         fitted = np.full((width, columns.shape[1]), np.nan)
         extra = {} if self.bounds is None else {"bounds": self.bounds}
         unfittable = 0
@@ -1824,6 +1832,11 @@ class _CurveFit(_AlongDim):
             # whenever it cannot estimate a covariance, which on a large cube is routine and
             # says nothing a caller can act on cell by cell.
             warnings.simplefilter("ignore", OptimizeWarning)
+            # A model that overflows mid-search (`exp` of a large trial parameter) raises a
+            # numpy RuntimeWarning per cell, which on a million-cell cube is a million lines of
+            # noise about intermediate arithmetic the caller never sees. Suppressed here only,
+            # around the fit itself.
+            warnings.simplefilter("ignore", RuntimeWarning)
             for index in range(columns.shape[1]):
                 series = columns[:, index]
                 finite = np.isfinite(series)
@@ -1843,12 +1856,10 @@ class _CurveFit(_AlongDim):
                     # cell's data, TypeError a model that cannot take this many parameters.
                     unfittable += 1
                     continue
-                fitted[:count, index] = best
+                fitted[offset : offset + count, index] = best
                 if self.full:
                     predicted = np.asarray(self.func(positions[finite], *best))
-                    fitted[count, index] = float(
-                        np.sum((series[finite] - predicted) ** 2)
-                    )
+                    fitted[0, index] = float(np.sum((series[finite] - predicted) ** 2))
         if unfittable:
             warnings.warn(
                 f"curvefit() could not fit {unfittable} of {columns.shape[1]} cells, which "
@@ -1863,8 +1874,9 @@ class _CurveFit(_AlongDim):
         names[axis] = self.coord_name
         kept = {name: values_map[name] for name in band_names if name != dim}
         # Positional stamps, and `-1` for the residual so `sel(param=-1)` reaches it by a value
-        # that cannot collide with a parameter's index.
-        kept[self.coord_name] = list(range(count)) + ([-1] if self.full else [])
+        # that cannot collide with a parameter's index. First, not last, to keep the axis
+        # ascending.
+        kept[self.coord_name] = ([-1] if self.full else []) + list(range(count))
         return _Applied(np.asarray(values), names, kept, np.nan)
 
 
@@ -1912,9 +1924,12 @@ class _RollingExp(_AlongDim):
     def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
         """Smooth one variable along `dim`.
 
-        Gaps are skipped rather than propagated, which is `ewm`'s own behaviour: a missing step
-        contributes nothing and the decay carries through it, so one absent scene does not blank
-        the rest of the series.
+        A gap does not blank the rest of the series: it contributes nothing and the decay carries
+        through it, so every later step still answers. **The gap step itself stays a gap**, which
+        is where this departs from raw `ewm`. pandas fills it with the carried value — a finite,
+        plausible number with nothing marking it as unobserved — and for a cloud-masked scene in
+        a satellite series that is fabricated data in a GIS product. `rolling` leaves its
+        unanswered steps no-data and this matches it.
 
         Args:
             nc: The object `rolling_exp` was called on.
@@ -1923,7 +1938,7 @@ class _RollingExp(_AlongDim):
 
         Returns:
             _Applied: The smoothed values, the band layout unchanged. Float64 declaring NaN,
-            since a leading gap has nothing to average yet.
+            which the steps that were gaps hold, and which step 0 holds for `std` and `var`.
         """
         arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
         axis = band_names.index(dim)
@@ -1935,6 +1950,10 @@ class _RollingExp(_AlongDim):
         window = pd.DataFrame(columns).ewm(alpha=self.alpha)
         reduced = np.asarray(getattr(window, self.how)(), dtype="float64")
         values = np.moveaxis(reduced.reshape(moved.shape), 0, axis)
+        # Re-mask the steps that were gaps. `ewm` carries the previous value through one, so
+        # without this a masked step comes back finite and plausible while the result declares a
+        # sentinel that appears nowhere in the array — the mask silently lost.
+        values = np.where(np.isfinite(data), values, np.nan)
         return _Applied(np.asarray(values), list(band_names), dict(values_map), np.nan)
 
 

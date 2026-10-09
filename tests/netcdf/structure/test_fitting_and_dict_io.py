@@ -209,8 +209,10 @@ class TestCurveFit:
         fit = var.curvefit("level", _line, [1.0, 1.0], full=True)
 
         assert fit._band_dim_sizes == (3,), fit._band_dim_sizes
-        assert np.asarray(fit.coords["param"]).tolist() == [0, 1, -1]
-        residual = np.asarray(fit.read_array()).reshape(3, NY, NX)[2]
+        assert np.asarray(fit.coords["param"]).tolist() == [-1, 0, 1], (
+            "the residual slot goes first so the axis stays ascending"
+        )
+        residual = np.asarray(fit.read_array()).reshape(3, NY, NX)[0]
         assert np.allclose(residual, 0.0, atol=1e-18), residual
 
     def test_the_residual_is_what_makes_a_failed_fit_findable(self):
@@ -235,15 +237,15 @@ class TestCurveFit:
             fit = var.curvefit("level", _decay, [1.0, 1.0], full=True)
 
         planes = np.asarray(fit.read_array()).reshape(3, NY, NX)
-        assert np.allclose(planes[0], 1.0), (
+        assert np.allclose(planes[1], 1.0), (
             "the trap this guards: scipy hands back p0 as if it were a fit, so the "
-            f"coefficients look plausible — got {planes[0, 0, 0]}"
+            f"coefficients look plausible — got {planes[1, 0, 0]}"
         )
-        assert np.all(np.isfinite(planes[0])), (
+        assert np.all(np.isfinite(planes[1])), (
             "and they are finite, so NaN cannot find them"
         )
-        assert np.all(planes[2] > 1e17), (
-            f"the residual must be enormous so the cell is findable, got {planes[2, 0, 0]}"
+        assert np.all(planes[0] > 1e17), (
+            f"the residual must be enormous so the cell is findable, got {planes[0, 0, 0]}"
         )
 
     def test_a_gap_is_dropped_per_cell_rather_than_poisoning_it(self):
@@ -299,30 +301,96 @@ class TestCurveFit:
         assert np.isnan(np.asarray(fit.read_array())).all()
 
     def test_a_cell_whose_fit_raises_is_counted_as_unfittable(self):
-        """The other way a cell fails: `curve_fit` itself raises for it.
+        """The other way a cell fails: the model itself raises for that cell's data.
 
-        Distinct from having too few finite steps — this is the `except` path. An initial guess
-        outside the bounds makes `curve_fit` raise `ValueError` for every cell, so the member
-        must answer NaN and count them rather than propagating the exception.
+        Distinct from having too few finite steps — this is the `except` path. The fixture is a
+        model that raises for one particular cell's values, which is a genuine per-cell data
+        problem. It deliberately does **not** use `p0` outside `bounds` or a model of the wrong
+        arity: those are caller mistakes, they now raise up front, and using one here would have
+        frozen "a caller error produces an all-NaN raster" as intended behaviour.
 
         Test scenario:
-            A `p0` of ones against bounds that exclude it.
+            One cell's series trips the model; that cell is NaN and is counted, the rest fit.
         """
-        var = _cube([1.0, 3.0, 7.0, 13.0]).get_variable("t")
+        array = np.zeros((4, NY, NX))
+        for step in range(4):
+            array[step, :, :] = float(step) * 2.0 + 1.0
+        array[:, 0, 0] = [-1.0, -2.0, -3.0, -4.0]
+
+        var = _cube_from_array(array).get_variable("t")
+
+        def model(x, a, b):
+            values = a * x + b
+            if np.any(values < -100.0):
+                raise RuntimeError("this cell's data is unusable")
+            return values
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            fit = var.curvefit(
-                "level", _line, [1.0, 1.0], bounds=([10.0, 10.0], [20.0, 20.0])
-            )
+            fit = var.curvefit("level", model, [-1000.0, -1000.0])
 
-        assert np.isnan(np.asarray(fit.read_array())).all(), (
-            "a raising fit must answer NaN, not propagate"
-        )
         relevant = [item for item in caught if "curvefit()" in str(item.message)]
         assert len(relevant) == 1, f"expected one warning, got {len(relevant)}"
         assert "the fit raised for it" in str(relevant[0].message), str(
             relevant[0].message
+        )
+        assert np.isnan(np.asarray(fit.read_array())).any(), (
+            "a raising cell must answer NaN, not propagate"
+        )
+
+    def test_p0_outside_its_bounds_is_a_caller_error_not_a_data_error(self):
+        """`curve_fit` raises for every cell, so this used to be an all-NaN raster.
+
+        The warning then blamed the data ("fewer than N finite steps, or the fit raised"), which
+        points a caller with a typo in `p0` at the wrong thing entirely.
+
+        Test scenario:
+            A `p0` of ones against bounds that exclude it is refused before any fitting.
+        """
+        var = _cube([1.0, 3.0, 7.0, 13.0]).get_variable("t")
+
+        with pytest.raises(ValueError, match="inside its bounds"):
+            var.curvefit(
+                "level", _line, [1.0, 1.0], bounds=([10.0, 10.0], [20.0, 20.0])
+            )
+
+    def test_a_model_of_the_wrong_arity_is_a_caller_error(self):
+        """Also an all-NaN raster before, for the same reason.
+
+        Test scenario:
+            A two-parameter model against a three-entry `p0` is refused up front.
+        """
+        var = _cube([1.0, 3.0, 7.0, 13.0]).get_variable("t")
+
+        with pytest.raises(TypeError, match="x plus 3 parameter"):
+            var.curvefit("level", _line, [1.0, 1.0, 1.0])
+
+    def test_a_scattered_axis_fits_because_order_does_not_matter(self):
+        """A least-squares fit is indifferent to the order of its samples.
+
+        The shared numerical gate refuses a non-monotonic axis, with a rationale written for
+        derivatives and integrals whose signed areas cancel. A fit has no such problem, so it
+        opts out of that check.
+
+        Test scenario:
+            The same points presented out of order recover the same line.
+        """
+        ordered = _cube(
+            [1.0, 3.0, 7.0, 13.0], stamps=[0.0, 1.0, 3.0, 6.0]
+        ).get_variable("t")
+        scattered = _cube(
+            [1.0, 7.0, 3.0, 13.0], stamps=[0.0, 3.0, 1.0, 6.0]
+        ).get_variable("t")
+
+        first = np.asarray(
+            ordered.curvefit("level", _line, [1.0, 1.0]).read_array()
+        ).reshape(2, NY, NX)
+        second = np.asarray(
+            scattered.curvefit("level", _line, [1.0, 1.0]).read_array()
+        ).reshape(2, NY, NX)
+
+        assert np.allclose(first, second), (
+            f"order must not change the fit: {first[:, 0, 0]} vs {second[:, 0, 0]}"
         )
 
     def test_a_param_dimension_collision_is_refused(self):
@@ -500,7 +568,8 @@ class TestRollingExp:
         """One absent scene must not blank the rest of the series.
 
         Test scenario:
-            A series with a NaN in the middle still answers at every later step.
+            A series with a gap in the middle answers at every later step, and the gap step
+            itself stays a gap rather than being filled with the carried value.
         """
         var = _cube([10.0, np.nan, 10.0, 20.0]).get_variable("t")
 
@@ -508,6 +577,10 @@ class TestRollingExp:
 
         got = np.asarray(smoothed.read_array()).reshape(4, NY, NX)[:, 0, 0]
         assert np.isfinite(got[[0, 2, 3]]).all(), got
+        assert np.isnan(got[1]), (
+            "the masked step must stay masked, not come back as the carried value — "
+            f"got {got[1]}, which nothing in the output would mark as unobserved"
+        )
 
     def test_is_step_based_so_a_coordinateless_axis_works(self):
         """Deliberately unlike the numerical members, which refuse an axis with no coordinates.
