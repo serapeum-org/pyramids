@@ -7978,6 +7978,22 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.polyfit <pyramids.netcdf.engines.selection.Selection.polyfit>`."""
         return self.selection.polyfit(dim, deg)
 
+    def curvefit(
+        self,
+        dim: str,
+        func: Callable[..., Any],
+        p0: Sequence[float],
+        *,
+        bounds: tuple[Any, Any] | None = None,
+        full: bool = False,
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.curvefit <pyramids.netcdf.engines.selection.Selection.curvefit>`."""
+        return self.selection.curvefit(dim, func, p0, bounds=bounds, full=full)
+
+    def rolling_exp(self, dim: str, alpha: float, *, how: str = "mean") -> NetCDF:
+        """Facade — :meth:`Selection.rolling_exp <pyramids.netcdf.engines.selection.Selection.rolling_exp>`."""
+        return self.selection.rolling_exp(dim, alpha, how=how)
+
     def cumulative(self, dim: str) -> CumulativeAccessor:
         """Facade — :meth:`Selection.cumulative <pyramids.netcdf.engines.selection.Selection.cumulative>`."""
         return self.selection.cumulative(dim)
