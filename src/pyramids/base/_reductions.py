@@ -308,6 +308,15 @@ def window_coordinates(
     return labels
 
 
+#: The statistics :func:`weighted_statistic` understands. Callers should validate ``how``
+#: against this set before calling — the kernel itself treats any value other than
+#: ``"sum_of_weights"`` / ``"sum"`` / ``"mean"`` / ``"var"`` as ``"std"`` (its catch-all
+#: ``else``), so an unchecked typo would silently return the standard deviation.
+WEIGHTED_HOWS: frozenset[str] = frozenset(
+    {"mean", "sum", "sum_of_weights", "std", "var"}
+)
+
+
 def weighted_statistic(
     arr: Any, spread: Any, axes: tuple[int, ...], how: str, ndv: Any, skipna: bool
 ) -> Any:

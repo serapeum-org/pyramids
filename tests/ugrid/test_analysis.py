@@ -151,3 +151,14 @@ class TestNonTimeFirstAxis:
         # Two faces -> weighted over 2 face values at step 0, not 3 time values of one face.
         result = mesh.weighted("d", time_index=0)
         assert np.isfinite(result)
+
+
+class TestWeightedValidation:
+    def test_unsupported_how_raises(self, unit_mesh):
+        # An unsupported `how` must raise, not silently return std via the kernel's else-branch.
+        with pytest.raises(ValueError, match="how"):
+            unit_mesh.weighted("depth", how="median")
+
+    def test_typo_how_raises(self, unit_mesh):
+        with pytest.raises(ValueError, match="how"):
+            unit_mesh.weighted("depth", how="meen")

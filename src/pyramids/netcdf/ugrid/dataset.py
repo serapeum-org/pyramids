@@ -26,6 +26,7 @@ from pyproj import CRS, Transformer
 from shapely.geometry import LineString, box
 
 from pyramids.base._reductions import (
+    WEIGHTED_HOWS,
     gaps_as_nan,
     interpolated,
     pushed,
@@ -1249,6 +1250,13 @@ class UgridDataset:
 
                 ```
         """
+        if how not in WEIGHTED_HOWS:
+            # Validate up front, mirroring the raster weighted path: the kernel's catch-all
+            # else-branch would otherwise return the standard deviation for any unsupported
+            # `how`, a silent wrong answer.
+            raise ValueError(
+                f"weighted: how must be one of {sorted(WEIGHTED_HOWS)}, got {how!r}."
+            )
         var, arr = self._element_values(variable_name, time_index=time_index)
         if var.location != "face":
             raise ValueError(
