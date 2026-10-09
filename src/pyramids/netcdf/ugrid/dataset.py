@@ -26,6 +26,8 @@ from pyproj import CRS, Transformer
 from shapely.geometry import LineString, box
 
 from pyramids.base._reductions import (
+    COUNTING_REDUCERS,
+    REDUCERS,
     WEIGHTED_HOWS,
     gaps_as_nan,
     interpolated,
@@ -1195,6 +1197,18 @@ class UgridDataset:
                     f"sample method must be 'contains' or 'nearest', got {method!r}"
                 )
         elif var.location == "node":
+            # A node is a point, so "contains" has no meaning here — only "nearest"
+            # applies. Reject "contains" rather than silently doing a nearest lookup, as
+            # the docstring promises.
+            if method == "contains":
+                raise ValueError(
+                    "sample method='contains' is only valid for a face-located variable; "
+                    f"{variable_name!r} is on 'node' — use method='nearest'."
+                )
+            if method != "nearest":
+                raise ValueError(
+                    f"sample method must be 'contains' or 'nearest', got {method!r}"
+                )
             idx = np.atleast_1d(index.locate_nearest_node(xs, ys)).ravel()
         else:
             raise ValueError(
@@ -1420,6 +1434,7 @@ class UgridDataset:
 
                 ```
         """
+        _check_reduce_how(how, q)
         self._require_temporal("reduce")
         new_vars: dict[str, MeshVariable] = {}
         for name, var in self._data_variables.items():
@@ -1693,9 +1708,10 @@ class UgridDataset:
             statistic along time; static variables are unchanged.
 
         Raises:
-            ValueError: No variable has a time dimension, or a temporal variable has no
-                loaded data.
+            ValueError: ``how`` is not a known reduction, no variable has a time dimension,
+                or a temporal variable has no loaded data.
         """
+        _check_reduce_how(how, None, allow_quantile=False)
 
         def _roll(data: np.ndarray, axis: int) -> np.ndarray:
             moved = np.moveaxis(data, axis, 0)
@@ -2020,6 +2036,8 @@ class UgridDataset:
             ValueError: No variable has a time dimension, or a temporal variable has no
                 loaded data.
         """
+        if how not in ("any", "all"):
+            raise ValueError(f"dropna how must be 'any' or 'all', got {how!r}.")
         temporal = self._require_temporal("dropna")
         length = self._time_length("dropna")
         keep = np.ones(length, dtype=bool)
@@ -2102,6 +2120,14 @@ class UgridDataset:
             has_times = True
             for part in parts:
                 pv = part._data_variables[name]
+                if not pv.has_time:
+                    # `var` is temporal (outer branch), so a static same-named variable in
+                    # another part cannot be concatenated along the time axis. Say so with a
+                    # domain message instead of letting np.concatenate raise a shape error.
+                    raise ValueError(
+                        f"concat: variable {name!r} is temporal in one dataset but static "
+                        "in another; they cannot be joined along time."
+                    )
                 data = pv.data
                 if data is None:
                     raise ValueError(f"Variable {name!r} has no loaded data to concat.")
@@ -2315,6 +2341,36 @@ class UgridDataset:
         return result
 
 
+def _check_reduce_how(
+    how: str, q: float | None, *, allow_quantile: bool = True
+) -> None:
+    """Validate a reduction ``how`` / ``q`` pair, mirroring the raster path's guards.
+
+    The raster ``Selection.reduce`` routes ``how`` through ``_check_how`` and ``q`` through
+    ``_check_quantile``; the mesh members call this to get the same clear ``ValueError``
+    instead of a raw numpy ``KeyError`` / ``TypeError``.
+
+    Args:
+        how: The requested reduction.
+        q: The quantile, required for ``how="quantile"`` and rejected otherwise.
+        allow_quantile: Whether ``"quantile"`` is a permitted ``how`` (``rolling`` has no
+            ``q`` argument, so it forbids it). Defaults to True.
+
+    Raises:
+        ValueError: ``how`` is not a known reduction, ``q`` is given for a non-quantile
+            ``how``, or ``how="quantile"`` is given without ``q``.
+    """
+    valid = set(REDUCERS) | set(COUNTING_REDUCERS)
+    if not allow_quantile:
+        valid.discard("quantile")
+    if how not in valid:
+        raise ValueError(f"how must be one of {sorted(valid)}, got {how!r}.")
+    if how == "quantile" and q is None:
+        raise ValueError("reduce(how='quantile') requires q, a float in [0, 1].")
+    if how != "quantile" and q is not None:
+        raise ValueError(f"q is only valid for how='quantile', not how={how!r}.")
+
+
 def _static_from(
     var: MeshVariable, data: np.typing.NDArray, time_axis: int
 ) -> MeshVariable:
@@ -2337,12 +2393,18 @@ def _static_from(
         if var.dimensions
         else ()
     )
+    # Copy the attributes (never alias — the same invariant MeshVariable.with_data keeps),
+    # and drop `time_values`: the time axis is gone, so a coordinate for it would be a
+    # stale, wrong-length list on a now-static variable.
+    attributes = {
+        key: value for key, value in var.attributes.items() if key != "time_values"
+    }
     return MeshVariable(
         name=var.name,
         location=var.location,
         mesh_name=var.mesh_name,
         shape=data.shape,
-        attributes=var.attributes,
+        attributes=attributes,
         nodata=var.nodata,
         units=var.units,
         standard_name=var.standard_name,

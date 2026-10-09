@@ -162,3 +162,26 @@ class TestWeightedValidation:
     def test_typo_how_raises(self, unit_mesh):
         with pytest.raises(ValueError, match="how"):
             unit_mesh.weighted("depth", how="meen")
+
+
+class TestSampleNodeMethod:
+    def _node_mesh(self) -> UgridDataset:
+        return UgridDataset.from_arrays(
+            node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={"h": np.array([1.0, 2.0, 3.0, 4.0])},
+            data_locations={"h": "node"},
+        )
+
+    def test_contains_on_node_variable_raises(self):
+        # L4: 'contains' is meaningless for a node (point) variable — must raise, not
+        # silently do a nearest lookup.
+        mesh = self._node_mesh()
+        with pytest.raises(ValueError, match="contains"):
+            mesh.sample("h", x=[0.0], y=[0.0], method="contains")
+
+    def test_nearest_on_node_variable_works(self):
+        mesh = self._node_mesh()
+        out = mesh.sample("h", x=[0.01, 0.99], y=[0.01, 0.01], method="nearest")
+        assert out.tolist() == [1.0, 2.0]

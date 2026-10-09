@@ -361,3 +361,63 @@ class TestDropna:
     def test_dropna_thresh(self):
         m = self._mesh(np.array([[1.0, 2.0], [np.nan, 4.0]]))
         assert m.dropna(thresh=2)["d"].data.tolist() == [[1.0, 2.0]]
+
+
+class TestAlongTimeValidation:
+    @pytest.fixture
+    def mesh(self) -> UgridDataset:
+        return _temporal_mesh(np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]))
+
+    def test_reduce_unknown_how_raises(self, mesh):
+        with pytest.raises(ValueError, match="how"):
+            mesh.reduce("bogus")
+
+    def test_reduce_quantile_requires_q(self, mesh):
+        with pytest.raises(ValueError, match="quantile"):
+            mesh.reduce("quantile")
+
+    def test_reduce_q_rejected_for_non_quantile(self, mesh):
+        with pytest.raises(ValueError, match="q"):
+            mesh.reduce("mean", q=0.5)
+
+    def test_reduce_quantile_with_q_works(self, mesh):
+        out = mesh.reduce("quantile", q=0.5)
+        assert out["d"].data.tolist() == [3.0, 4.0]
+
+    def test_rolling_unknown_how_raises(self, mesh):
+        with pytest.raises(ValueError, match="how"):
+            mesh.rolling(2, "bogus")
+
+    def test_dropna_unknown_how_raises(self, mesh):
+        with pytest.raises(ValueError, match="how"):
+            mesh.dropna(how="bogus")
+
+
+class TestReviewFixes:
+    def test_reduce_drops_stale_time_values(self):
+        # L2: a collapsed (static) variable must not carry the old time coordinate.
+        mesh = _temporal_mesh(np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]))
+        mesh["d"].attributes = {"time_values": [10, 20, 30], "units": "m"}
+        out = mesh.reduce("mean")
+        assert "time_values" not in out["d"].attributes
+        assert out["d"].attributes.get("units") == "m"  # other attrs preserved
+
+    def test_reduce_does_not_mutate_source_attributes(self):
+        # L2: _static_from must copy, not alias, the source attributes dict.
+        mesh = _temporal_mesh(np.array([[1.0, 2.0], [3.0, 4.0]]))
+        mesh["d"].attributes = {"units": "m"}
+        out = mesh.reduce("sum")
+        out["d"].attributes["units"] = "km"
+        assert mesh["d"].attributes["units"] == "m"  # source untouched
+
+    def test_concat_temporal_static_mismatch_raises(self):
+        temporal = _temporal_mesh(np.array([[1.0, 2.0], [3.0, 4.0]]))
+        static = UgridDataset.from_arrays(
+            node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={"d": np.array([5.0, 6.0])},
+            data_locations={"d": "face"},
+        )
+        with pytest.raises(ValueError, match="temporal in one dataset but static"):
+            temporal.concat(static)

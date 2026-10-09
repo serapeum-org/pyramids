@@ -340,7 +340,7 @@ def _rolled_array(
 ) -> tuple[Any, list[str], dict[str, Any], Any]:
     """Roll one variable along `dim`: the per-variable step of `rolling`, on a given array.
 
-    Every operation here (`np.take`, `_reduce_axis`, `_count_axis`, `np.where`, `np.stack`)
+    Every operation here (`np.take`, `reduce_axis`, `count_axis`, `np.where`, `np.stack`)
     dispatches on a `dask.array`, so with `materialize=False` the result stays a deferred dask
     array for a lazy cube (#1237); the eager path collapses it with the final `np.asarray`.
     """
@@ -363,7 +363,7 @@ def _rolled_array(
         members = _window_members(position, size, window, center)
         block = np.take(arr, members, axis=axis)
         value = reduce_axis(block, axis, how, True, ndv, q)
-        # `_reduce_axis` sends `count` straight to `_count_axis`, so for that statistic the
+        # `reduce_axis` sends `count` straight to `count_axis`, so for that statistic the
         # window's valid cells are the value itself — counting them again would be the same pass.
         valid = value if how == "count" else count_axis(block, axis, "count", True, ndv)
         steps.append(np.where(valid >= min_periods, value, short))

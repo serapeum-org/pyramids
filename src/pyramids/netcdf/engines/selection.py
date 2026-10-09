@@ -2436,9 +2436,8 @@ class Selection(_Engine["NetCDF"]):
 
               ```
         """
-        # Local import breaks the netcdf.py <-> engines.selection import cycle
-        # (netcdf.py imports this module at top level for wiring); the reducer registries
-        # are module-level there, shared with the reduce helpers.
+        # The reducer registries live in the cycle-free `pyramids.base._reductions`; kept a
+        # local import here for consistency with this method's other local imports.
         from pyramids.base._reductions import COUNTING_REDUCERS, REDUCERS
 
         nc = self._ds
@@ -2615,7 +2614,7 @@ class Selection(_Engine["NetCDF"]):
 
               ```
         """
-        # Local import breaks the netcdf.py <-> engines.selection import cycle.
+        # The reducer registries live in the cycle-free `pyramids.base._reductions`.
         from pyramids.base._reductions import COUNTING_REDUCERS, REDUCERS
 
         nc = self._ds
@@ -2731,7 +2730,7 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.reduce: group by equal labels or a calendar window.
             NetCDF.coarsen: reduce fixed-size positional windows.
         """
-        # Local import breaks the netcdf.py <-> engines.selection import cycle, as `reduce` does.
+        # The reducer registries live in the cycle-free `pyramids.base._reductions`, as `reduce` uses.
         from pyramids.base._reductions import COUNTING_REDUCERS, REDUCERS
 
         nc = self._ds
@@ -2903,7 +2902,7 @@ class Selection(_Engine["NetCDF"]):
 
               ```
         """
-        # Local import breaks the netcdf.py <-> engines.selection import cycle.
+        # The reducer registries live in the cycle-free `pyramids.base._reductions`.
         from pyramids.base._reductions import COUNTING_REDUCERS, REDUCERS
 
         nc = self._ds
