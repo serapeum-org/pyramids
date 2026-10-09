@@ -482,12 +482,16 @@ def reduce_by_label(
     need_sum = "sum" in stats or "mean" in stats or (wt is not None and other_stats)
 
     if wt is None:
+        # need_sum is True whenever "sum" or "mean" is requested, so sums is non-None on
+        # either branch that reads it.
         sums = np.bincount(lbl, weights=val, minlength=n_groups) if need_sum else None
         if "sum" in stats:
+            assert sums is not None  # nosec B101
             out["sum"] = sums
         if "count" in stats:
             out["count"] = counts
         if "mean" in stats:
+            assert sums is not None  # nosec B101
             with np.errstate(invalid="ignore", divide="ignore"):
                 out["mean"] = np.where(counts > 0, sums / counts, np.nan)
     else:
@@ -502,10 +506,12 @@ def reduce_by_label(
                 else None
             )
         if "sum" in stats:
+            assert wsum is not None  # nosec B101
             out["sum"] = wsum
         if "count" in stats:
             out["count"] = counts
         if "mean" in stats:
+            assert wmean is not None  # nosec B101
             out["mean"] = wmean
 
     if other_stats:

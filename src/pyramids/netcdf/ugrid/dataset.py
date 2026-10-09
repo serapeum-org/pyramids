@@ -1586,7 +1586,7 @@ class UgridDataset:
 
         def _fill(data: np.ndarray, axis: int) -> np.ndarray:
             positions = np.arange(data.shape[axis], dtype="float64")
-            return interpolated(data, axis, positions, method, limit)
+            return np.asarray(interpolated(data, axis, positions, method, limit))
 
         return self._transform_time("interpolate_na", _fill)
 
