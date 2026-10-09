@@ -138,14 +138,14 @@ A variable with no raster plane is the exception — see each member's docstring
 | `integrate()`            | Trapezoidal integral along `dim`, which it consumes.                                  |
 | `cumulative_integrate()` | Running trapezoidal integral along `dim`.                                             |
 | `polyfit()`              | Per-cell least-squares coefficients along `dim`.                                      |
-| `curvefit()`             | Per-cell least-squares fit of an arbitrary model along `dim` — `p0`, `bounds`, `full`. |
+| `curvefit()`             | Per-cell least-squares fit of an arbitrary model along `dim` — `p0`/`bounds`/`full`.  |
 | `shift()`                | Moves the values along `dim`, filling the vacated steps — `periods`, `fill_value`.    |
 | `ffill()`                | Carries the last valid value along `dim` into the gaps after it — `limit`.            |
 | `bfill()`                | Carries the next valid value along `dim` back into the gaps before it — `limit`.      |
 | `dropna()`               | Removes the steps of `dim` whose cells are missing — `how`, `thresh`.                 |
 | `interpolate_na()`       | Fills the interior gaps along `dim` from both sides — `method`, `limit`.              |
 | `to_dataframe()`         | The cube as a pandas frame, indexed by its dimensions — `variables`, `dropna`.        |
-| `to_dict()`              | The cube's whole structure as a nested dict — xarray's schema plus georeferencing.     |
+| `to_dict()`              | The cube's whole structure as a nested dict — xarray's schema plus georeference.      |
 | `to_dask_dataframe()`    | The lazy sibling of `to_dataframe` — a tidy `dask.dataframe`, read lazily.            |
 | `concat()`               | Joins cubes end to end along `dim` (classmethod).                                     |
 | `merge()`                | Puts several cubes' variables on one grid (classmethod) — `compat`.                   |

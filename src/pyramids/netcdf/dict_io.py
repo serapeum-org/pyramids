@@ -1,4 +1,10 @@
-"""The cube as plain Python objects: `to_dict` out, `from_dict` back.
+"""The cube as plain Python objects: `NetCDF.to_dict` out, `NetCDF.from_dict` back.
+
+The methods are the public spelling. The module-level functions behind them are `cube_to_dict`
+and `cube_from_dict` rather than `to_dict` / `from_dict`, because `pyramids.netcdf` already
+exports a `to_dict` — `metadata.to_dict(NetCDFMetadata)`, a different function taking a different
+argument — and `from pyramids.netcdf import to_dict` binds that one. Two same-named functions in
+one package is a trap for anyone following a docs page to the obvious import.
 
 Every other export goes to a *file* or a *foreign object* — `to_file`, `to_zarr`, `to_kerchunk`,
 `to_dataframe`, `to_xarray`, `to_stac_item`. This is the one that goes to nothing but `dict`,
@@ -28,6 +34,11 @@ takes neither:
 - **Arbitrary global attributes.** `from_array` takes globals as a `CFAttributes`, a fixed set of
   CF fields rather than a free mapping, so `from_dict` restores the CF ones it recognises and
   drops the rest.
+
+One narrower asymmetry: a no-data **sentinel** comes back as a float even for an integer cube
+(`-1` becomes `-1.0`), because it travels through `from_array`'s `no_data_value`. The array dtype
+itself round-trips exactly, and `to_dict(a) == to_dict(from_dict(to_dict(a)))` still holds, since
+both sides widen alike.
 
 A cube holding **non-gridded** variables is lossy for a third reason: they have no raster plane,
 so `from_array` cannot rebuild them, and `to_dict` drops them with a warning naming each.
@@ -62,8 +73,13 @@ def _plain(value: Any) -> Any:
     """Convert NumPy containers and scalars to plain Python, recursively.
 
     NaN is left as a float NaN rather than mapped to `None`: it is what the array holds, and
-    Python's `json` emits and reads it back by default. Mapping it would make the round trip lossy
-    in exactly the cells a caller most needs to see.
+    mapping it would make the round trip lossy in exactly the cells a caller most needs to see.
+
+    The consequence is worth being exact about. Python's `json` emits `NaN` and `Infinity` and
+    reads them back, so a payload round-trips through `json.dumps`/`loads` between Python
+    processes. They are **not** RFC-8259 JSON, so `JSON.parse`, `serde_json` and strict Python
+    parsers reject them: a gappy raster's payload is Python-JSON, not wire-JSON. Convert the
+    non-finite cells yourself before sending one somewhere strict.
 
     Args:
         value: Anything that might be a NumPy array, a NumPy scalar, or a container of them.
@@ -189,7 +205,7 @@ def _coordinate_attrs(var: NetCDF, dim: str) -> dict[str, str]:
     return attrs
 
 
-def to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
+def cube_to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
     """Export a cube's full structure as a nested dict.
 
     Args:
@@ -266,7 +282,7 @@ def to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
           ```
 
     See Also:
-        from_dict: Rebuilds a cube from what this returns.
+        cube_from_dict: Rebuilds a cube from what this returns.
         pyramids.netcdf.NetCDF.to_dataframe: The cube as a pandas frame instead, which is a
             flat table rather than the structure.
     """
@@ -484,7 +500,7 @@ def _cf_attributes(attrs: Any) -> CFAttributes:
     return CFAttributes(**taken)
 
 
-def from_dict(payload: Any) -> Container:
+def cube_from_dict(payload: Any) -> Container:
     """Rebuild a cube from a nested dict as :func:`to_dict` produces.
 
     The acceptance criterion is the round trip, not the parse: `to_dict` then `from_dict` gives
@@ -559,7 +575,7 @@ def from_dict(payload: Any) -> Container:
           ```
 
     See Also:
-        to_dict: Produces the payload this consumes.
+        cube_to_dict: Produces the payload this consumes.
         pyramids.netcdf.NetCDF.from_array: The constructor this builds on, and the reason only
             the CF-recognised global attributes are restored.
     """
@@ -592,7 +608,7 @@ def from_dict(payload: Any) -> Container:
     )
     attributes = _cf_attributes(payload.get("attrs"))
     names_pair = (spatial[-2], spatial[-1]) if len(spatial) >= 2 else None
-    built: Container | None = None
+    pieces: list[tuple[str, Container]] = []
     for name, entry in payload["data_vars"].items():
         array = _variable_array(str(name), entry, dims)
         declared = [str(item) for item in entry["dims"]]
@@ -645,8 +661,11 @@ def from_dict(payload: Any) -> Container:
             attrs=attributes,
             spatial_names=names_pair,
         )
-        if built is None:
-            built = one
-        else:
-            built.add_variable(one, str(name))
-    return cast("Container", built)
+        pieces.append((str(name), one))
+    # `_assert_payload` refuses an empty `data_vars`, so there is always a first piece. Written
+    # as a list rather than an accumulator seeded with `None` so that the return type needs no
+    # cast to assert what the validation already guarantees.
+    (_, first), *rest = pieces
+    for later_name, later_cube in rest:
+        first.add_variable(later_cube, later_name)
+    return first

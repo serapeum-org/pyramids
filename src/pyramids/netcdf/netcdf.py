@@ -8050,13 +8050,18 @@ class NetCDF(Dataset):
         return self.interop.to_dataframe(variables=variables, dropna=dropna)
 
     def to_dict(self, *, data: bool = True) -> dict[str, Any]:
-        """Facade — :func:`to_dict <pyramids.netcdf.dict_io.to_dict>`."""
-        return _dict_io.to_dict(self, data=data)
+        """Facade — :func:`cube_to_dict <pyramids.netcdf.dict_io.cube_to_dict>`."""
+        return _dict_io.cube_to_dict(self, data=data)
 
     @classmethod
     def from_dict(cls, payload: Any) -> Container:
-        """Facade — :func:`from_dict <pyramids.netcdf.dict_io.from_dict>`."""
-        return _dict_io.from_dict(payload)
+        """Facade — :func:`cube_from_dict <pyramids.netcdf.dict_io.cube_from_dict>`.
+
+        A `classmethod` that does not use `cls`, exactly as :meth:`from_array`,
+        :meth:`from_bytes` and :meth:`from_xarray` are: each always builds a `Container`
+        whatever subtype it is invoked on, and `from_array`'s docstring records that choice.
+        """
+        return _dict_io.cube_from_dict(payload)
 
     def to_dask_dataframe(
         self, *, variables: Any = None, dropna: bool = False, chunks: Any = "auto"

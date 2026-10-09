@@ -96,6 +96,18 @@ def _cube_from_array(array: np.ndarray, *, dim: str = "level") -> NetCDF:
     )
 
 
+def _refuse_constant(token):
+    """Reject the JSON constants a strict RFC-8259 parser does not accept.
+
+    Args:
+        token: The constant `json` met, one of `NaN`, `Infinity`, `-Infinity`.
+
+    Raises:
+        ValueError: Always — that is the point.
+    """
+    raise ValueError(f"{token} is not RFC-8259 JSON")
+
+
 def _line(x, a, b):
     """A two-parameter straight line, the model most tests here fit.
 
@@ -752,6 +764,29 @@ class TestDictRoundTrip:
             np.asarray(rebuilt.get_variable("t").read_array()),
             np.asarray(_cube([1.0, 2.0, 3.0, 4.0]).get_variable("t").read_array()),
         )
+
+    def test_a_gappy_cube_serialises_only_as_python_json(self):
+        """The JSON claim needs the NaN case, which the gap-free test could never reach.
+
+        Python's `json` emits `NaN` and reads it back, so the payload survives a round trip
+        between Python processes. Those tokens are not RFC-8259, so a strict parser rejects them
+        — which is the mode every gappy raster lands in, and is worth pinning rather than
+        discovering downstream.
+
+        Test scenario:
+            A cube holding NaN round-trips through `json.dumps`/`loads`, and the text contains
+            the non-standard token that a strict parser refuses.
+        """
+        payload = _cube([1.0, np.nan, 3.0, 4.0]).to_dict()
+
+        text = json.dumps(payload)
+        restored = json.loads(text)
+
+        assert "NaN" in text, "a gappy cube's payload carries the NaN token"
+        values = np.asarray(restored["data_vars"]["t"]["data"], dtype="float64")
+        assert np.isnan(values[1]).all(), "the gap must survive the round trip"
+        with pytest.raises(ValueError):
+            json.loads(text, parse_constant=_refuse_constant)
 
     def test_the_xarray_keys_keep_their_xarray_meaning(self):
         """A reader that knows only xarray's schema must still find what it expects.

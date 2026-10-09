@@ -240,6 +240,7 @@ nav:
       - Metadata: reference/netcdf/metadata.md
       - Dimensions: reference/netcdf/dimensions.md
       - Utilities: reference/netcdf/utils.md
+      - Dict I/O: reference/netcdf/dict_io.md
       - CF Conventions: reference/netcdf/cf/index.md
       - UGRID:
         - Overview: reference/netcdf/ugrid/index.md
