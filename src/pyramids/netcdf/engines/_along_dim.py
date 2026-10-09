@@ -25,7 +25,9 @@ from numbers import Real
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, cast
 
 import numpy as np
+import pandas as pd
 from scipy.interpolate import interp1d
+from scipy.optimize import OptimizeWarning, curve_fit
 from scipy.stats import rankdata
 
 from pyramids.base.crs import crs_spec
@@ -1739,6 +1741,232 @@ class _PolyFit(_AlongDim):
         # float stamp reads oddly in `sel(degree=2)`.
         kept[self.coord_name] = list(range(self.deg, -1, -1))
         return _Applied(np.asarray(values), names, kept, np.nan)
+
+
+@dataclass
+class _CurveFit(_AlongDim):
+    """`curvefit`: least-squares coefficients of an arbitrary model per cell.
+
+    `polyfit`'s general case. Where a polynomial fit is linear in its coefficients and so
+    vectorises over every cell in one `numpy.polyfit` call, an arbitrary model is not: each cell
+    runs its own `scipy.optimize.curve_fit`, and there is no vectorised form for that. The cost is
+    therefore linear in the number of cells and dominated by the per-cell solve, which is a
+    property of non-linear least squares rather than of this route — xarray's `curvefit` goes
+    per-cell through `apply_ufunc` for the same reason.
+
+    The fitted dimension is **replaced** by a `param` dimension stamped `0 .. n - 1`, positionally
+    rather than with the callable's parameter names: a text axis is inert to the rest of the
+    library, since `differentiate`, `integrate` and `interp` all refuse a non-numeric axis.
+
+    With `full`, one more slot is **prepended**, stamped `-1`, holding each cell's **residual sum
+    of squares**. Prepended rather than appended so the axis stays monotonic ascending
+    (`[-1, 0, 1]`): an appended `-1` made `[0, 1, -1]`, which `integrate` and `differentiate` —
+    two of the three members the integer stamps were chosen for — then refused outright, while
+    `interp` blended a coefficient with a residual and answered without complaint.
+
+    That is not decoration. `curve_fit` does not report a failed fit: on a degenerate
+    series it returns `p0` unchanged, does not raise, and reports `ier=1`, a *success* code, so a
+    failed cell is a plausible-looking constant region indistinguishable from a fit. Its
+    covariance is no help and is inverted — a degenerate cell came back finite where a perfect
+    fit came back `inf`. The residual is the one quantity that separates them, by a factor of
+    ~1e49 on the series this was measured against, which is why every raster tool ships
+    goodness-of-fit as data (ArcGIS writes RMSE as a band; `numpy.polyfit` and xarray's own
+    `polyfit` both return residuals under `full=True`) rather than as a status flag.
+
+    Attributes:
+        func: The model, called as `func(x, *params)`.
+        p0: The initial guess, positionally — its length fixes how many parameters are fitted.
+        bounds: `(lower, upper)` for `curve_fit`, or `None` for unbounded.
+        full: Whether to prepend the residual-sum-of-squares slot, stamped `-1`.
+        coord_name: The dimension the coefficients land on.
+    """
+
+    func: Callable[..., Any]
+    p0: tuple[float, ...]
+    bounds: tuple[Any, Any] | None = None
+    full: bool = False
+    coord_name: str = "param"
+    caller: str = "curvefit"
+    verb: ClassVar[str] = "fit"
+    keeps_length: ClassVar[bool] = False
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Fit one variable along `dim`, one cell at a time.
+
+        Gaps are dropped per cell rather than poisoning it: the fit runs over whatever steps
+        remain, so a cell with one missing scene still answers. This differs from `polyfit`,
+        which masks a gappy cell entirely, and it is deliberate — the per-cell loop is already
+        paid for here, so there is no vectorisation to protect.
+
+        A cell that raises, or that has fewer finite steps than parameters, is left all-NaN. Those
+        are counted and reported as **one** warning rather than one per cell, because a
+        million-cell cube would otherwise emit a million identical warnings.
+
+        Args:
+            nc: The object `curvefit` was called on.
+            var: The variable.
+            dim: The dimension to fit along.
+
+        Returns:
+            _Applied: The coefficients, with `dim` replaced by `param`. Float64 declaring NaN,
+            which is also what an unfittable cell holds.
+        """
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        axis = band_names.index(dim)
+        positions = _required_axis_positions(values_map, dim, self.caller)
+        # Materialised for the same reason as `_Integrate` and `_PolyFit`: the per-cell loop
+        # below has to read every value anyway, so a lazy array buys nothing and would only
+        # compute eagerly one slice at a time.
+        data = np.asarray(_gaps_as_nan(arr, ndv))
+        moved = np.moveaxis(data, axis, 0)
+        columns = moved.reshape(moved.shape[0], -1).astype("float64")
+        count = len(self.p0)
+        width = count + 1 if self.full else count
+        # The residual occupies row 0 under `full`, so the axis reads `[-1, 0, 1]` — ascending,
+        # which the coordinate-aware members require.
+        offset = 1 if self.full else 0
+        fitted = np.full((width, columns.shape[1]), np.nan)
+        extra = {} if self.bounds is None else {"bounds": self.bounds}
+        unfittable = 0
+        with warnings.catch_warnings():
+            # Per-cell, and summarised into one warning below instead: `curve_fit` raises this
+            # whenever it cannot estimate a covariance, which on a large cube is routine and
+            # says nothing a caller can act on cell by cell.
+            warnings.simplefilter("ignore", OptimizeWarning)
+            # A model that overflows mid-search (`exp` of a large trial parameter) raises a
+            # numpy RuntimeWarning per cell, which on a million-cell cube is a million lines of
+            # noise about intermediate arithmetic the caller never sees. Suppressed here only,
+            # around the fit itself.
+            warnings.simplefilter("ignore", RuntimeWarning)
+            for index in range(columns.shape[1]):
+                series = columns[:, index]
+                finite = np.isfinite(series)
+                if int(finite.sum()) < count:
+                    unfittable += 1
+                    continue
+                try:
+                    best, _ = curve_fit(
+                        self.func,
+                        positions[finite],
+                        series[finite],
+                        p0=self.p0,
+                        **extra,
+                    )
+                except (RuntimeError, ValueError, TypeError):
+                    # RuntimeError is non-convergence, ValueError a bad model or bounds for this
+                    # cell's data, TypeError a model that cannot take this many parameters.
+                    unfittable += 1
+                    continue
+                if self.full:
+                    # Inside the same `try`: a model that raises when evaluated at its own
+                    # fitted parameters is one unfittable cell, not a failed call. `curve_fit`
+                    # has already evaluated it at `best`, so this is unlikely — but the
+                    # asymmetry of aborting here while tolerating a raise two lines above is
+                    # not defensible.
+                    predicted = np.asarray(self.func(positions[finite], *best))
+                    fitted[0, index] = float(np.sum((series[finite] - predicted) ** 2))
+                fitted[offset : offset + count, index] = best
+        if unfittable:
+            warnings.warn(
+                f"curvefit() could not fit {unfittable} of {columns.shape[1]} cells, which "
+                f"hold NaN. A cell is unfittable when it has fewer than {count} finite steps, "
+                f"or when the fit raised for it.",
+                RuntimeWarning,
+                stacklevel=_user_stacklevel(),
+            )
+        shaped = fitted.reshape(width, *moved.shape[1:])
+        values = np.moveaxis(shaped, 0, axis)
+        names = list(band_names)
+        names[axis] = self.coord_name
+        kept = {name: values_map[name] for name in band_names if name != dim}
+        # Positional stamps, and `-1` for the residual so `sel(param=-1)` reaches it by a value
+        # that cannot collide with a parameter's index. First, not last, to keep the axis
+        # ascending.
+        kept[self.coord_name] = ([-1] if self.full else []) + list(range(count))
+        return _Applied(np.asarray(values), names, kept, np.nan)
+
+
+@dataclass
+class _RollingExp(_AlongDim):
+    """`rolling_exp`: an exponentially-weighted moving reduction along a band dimension.
+
+    `_Rolling`'s counterpart with an infinite window. Where `rolling` averages a fixed window
+    with equal weights — losing the first `window - 1` steps to no-data and forgetting everything
+    older — this weights every earlier step, decaying geometrically.
+
+    The operation is pandas' **adjusted** exponentially-weighted mean, which is a normalised
+    weighted sum over the steps seen so far rather than a bare recursion:
+
+        y[i] = sum_k (1-alpha)^k * x[i-k] / sum_k (1-alpha)^k,   k = 0 .. i
+
+    The bare recursion `y[i] = alpha*x[i] + (1-alpha)*y[i-1]` is pandas' `adjust=False` variant
+    and is **not** what runs here: on `[10, 10, 10, 20]` at `alpha=0.5` it gives `15.0` where
+    this gives `15.3333`. Both were quoted as the definition at one point; only the normalised
+    form matches the code.
+
+    `mean` and `sum` answer from step 0 and never fully forget, which on a short or irregular
+    satellite series is the difference between discarding the earliest scenes and keeping them.
+    `std` and `var` are NaN at step 0, since one step has no spread.
+
+    `pandas.DataFrame.ewm` does the work. A cube is `(bands, y, x)` with the band axis first, so
+    its cells are already columns: reshaped to `(steps, cells)` the whole cube goes through one
+    `ewm` call in C, with no per-cell Python loop. This is also why the member needs
+    no new dependency — `pandas` is already core, and the `numbagg` requirement belongs to
+    xarray's implementation, which raises `ImportError` without it.
+
+    The dimension keeps its length and its coordinates.
+
+    Attributes:
+        alpha: The smoothing factor, `0 < alpha <= 1`. Larger forgets faster. At `alpha=1`
+            `mean` and `sum` return the input unchanged, while `std` and `var` are undefined and
+            come back all-NaN.
+        how: The reduction: `mean`, `sum`, `std` or `var`.
+    """
+
+    alpha: float
+    how: str
+    caller: str = "rolling_exp"
+    verb: ClassVar[str] = "smooth"
+    keeps_length: ClassVar[bool] = True
+
+    def apply(self, nc: NetCDF, var: NetCDF, dim: str) -> _Applied:
+        """Smooth one variable along `dim`.
+
+        A gap does not blank the rest of the series: it contributes nothing and the decay carries
+        through it, so every later step still answers. **The gap step itself stays a gap**, which
+        is where this departs from raw `ewm`. pandas fills it with the carried value — a finite,
+        plausible number with nothing marking it as unobserved — and for a cloud-masked scene in
+        a satellite series that is fabricated data in a GIS product. `rolling` leaves its
+        unanswered steps no-data and this matches it.
+
+        Args:
+            nc: The object `rolling_exp` was called on.
+            var: The variable.
+            dim: The dimension to smooth along.
+
+        Returns:
+            _Applied: The smoothed values, the band layout unchanged. Float64 declaring NaN,
+            which the steps that were gaps hold, and which step 0 holds for `std` and `var`.
+        """
+        arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
+        axis = band_names.index(dim)
+        # Materialised because `pandas.ewm` is not implemented by dask and a lazy array would
+        # compute eagerly anyway, as `_Integrate` does for `np.trapezoid`.
+        data = np.asarray(_gaps_as_nan(arr, ndv))
+        moved = np.moveaxis(data, axis, 0)
+        columns = moved.reshape(moved.shape[0], -1).astype("float64")
+        window = pd.DataFrame(columns).ewm(alpha=self.alpha)
+        reduced = np.asarray(getattr(window, self.how)(), dtype="float64")
+        values = np.moveaxis(reduced.reshape(moved.shape), 0, axis)
+        # Re-mask the steps that were gaps. `ewm` carries the previous value through one, so
+        # without this a masked step comes back finite and plausible while the result declares a
+        # sentinel that appears nowhere in the array — the mask silently lost.
+        #
+        # `isnan`, not `isfinite`: after `_gaps_as_nan` a gap is already NaN, while `±inf` is a
+        # value the array holds. Masking on `isfinite` made an infinite cell indistinguishable
+        # from an unobserved one.
+        values = np.where(np.isnan(data), np.nan, values)
+        return _Applied(np.asarray(values), list(band_names), dict(values_map), np.nan)
 
 
 @dataclass
