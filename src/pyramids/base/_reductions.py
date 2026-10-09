@@ -536,3 +536,190 @@ def reduce_by_label(
         out.update(per_group)
 
     return out
+
+
+#: Per-operation ``(skipna_func, plain_func)`` pairs for the statistics ``reduce`` /
+#: ``coarsen`` compute. Under ``skipna``, :func:`reduce_axis` runs the first on float64, so
+#: the result is float64; without it, the second runs on the raw values in the dtype numpy
+#: gives that reduction — the ``min`` of an ``int16`` band stays ``int16``. ``quantile`` is
+#: the one that takes an extra argument, ``q``.
+REDUCERS: dict[str, tuple[Any, Any]] = {
+    "mean": (np.nanmean, np.mean),
+    "sum": (np.nansum, np.sum),
+    "min": (np.nanmin, np.min),
+    "max": (np.nanmax, np.max),
+    "std": (np.nanstd, np.std),
+    "var": (np.nanvar, np.var),
+    "median": (np.nanmedian, np.median),
+    "prod": (np.nanprod, np.prod),
+    "quantile": (np.nanquantile, np.quantile),
+}
+
+#: Reductions answering a count or a truth flag rather than a float statistic. They cannot
+#: share the float rule in :func:`reduce_axis` — cast to float64, turn gaps into NaN, restore
+#: the sentinel on an all-gap column — because a count is an integer that is never missing
+#: and a flag is a boolean GDAL has no band type for.
+COUNTING_REDUCERS: frozenset[str] = frozenset({"count", "all", "any"})
+
+#: The no-data value of a ``uint8`` 0/1 flag band: the value the comparison operators declare.
+FLAG_NO_DATA = 255
+
+
+def reduce_axis(
+    arr: Any, axis: int, how: str, skipna: bool, ndv: Any, q: float | None = None
+) -> Any:
+    """Apply one reduction over ``axis``, masking no-data when ``skipna``.
+
+    ``count``, ``all`` and ``any`` go to :func:`count_axis`; every other ``how`` is looked up
+    in :data:`REDUCERS`. Under ``skipna`` the values are cast to float64 and the sentinel and
+    NaN are skipped, and a column with no valid cell, or whose statistic comes out NaN,
+    answers ``ndv`` (NaN when ``ndv`` is ``None``). Without ``skipna`` numpy's plain function
+    reduces the raw values, sentinel and NaN included, in the dtype numpy gives it.
+
+    Args:
+        arr: The unflattened array, numpy or dask.
+        axis: The axis to reduce.
+        how: A key of :data:`REDUCERS`, or ``"count"`` / ``"all"`` / ``"any"``.
+        skipna: Whether the sentinel and NaN are skipped.
+        ndv: The sentinel as it appears in ``arr``, or ``None`` — unpacked, for a CF-packed
+            variable read unpacked.
+        q: Forwarded as ``q=`` to the :data:`REDUCERS` function whenever it is not ``None``,
+            so it must stay ``None`` for every statistic but ``quantile``. The counting
+            reductions ignore it.
+
+    Returns:
+        The reduced array, a dask array when ``arr`` is one: float64 for a statistic under
+        ``skipna``, ``int64`` for ``count``, ``uint8`` for ``all`` / ``any``.
+
+    Raises:
+        KeyError: ``how`` is in neither registry.
+        TypeError: ``q`` is given with a statistic whose numpy function takes no ``q``.
+    """
+    if how in COUNTING_REDUCERS:
+        result = count_axis(arr, axis, how, skipna, ndv)
+    else:
+        nan_func, plain_func = REDUCERS[how]
+        extra = {} if q is None else {"q": q}
+        if skipna:
+            data = arr.astype("float64")
+            if ndv is not None:
+                data = np.where(data == ndv, np.nan, data)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                out = nan_func(data, axis=axis, **extra)
+            # nansum and nanprod return a number (0 and 1), not NaN, for an all-NoData
+            # slice, so detect fully-masked positions explicitly and restore NoData for
+            # every reducer rather than leaking a spurious 0 or 1.
+            all_masked = np.all(np.isnan(data), axis=axis)
+            fill = ndv if ndv is not None else np.nan
+            out = np.where(np.isnan(out) | all_masked, fill, out)
+            result = out
+        else:
+            result = plain_func(arr, axis=axis, **extra)
+    return result
+
+
+def count_axis(arr: Any, axis: int, how: str, skipna: bool, ndv: Any) -> Any:
+    """Count the valid cells along ``axis``, or test them for truth.
+
+    A cell is valid when it is neither NaN nor ``ndv``. ``count`` answers an ``int64`` count
+    of them — 0 for a column with none — whatever ``skipna`` says, since a count has nothing
+    to skip. ``all`` and ``any`` answer a ``uint8`` 0/1 flag: with ``skipna`` a gap is neutral
+    (true for ``all``, false for ``any``) and a column with no valid cell answers
+    :data:`FLAG_NO_DATA`; without it the raw values are tested, where a non-zero sentinel and
+    NaN are both true, as they are to numpy.
+
+    Args:
+        arr: The unflattened array, numpy or dask.
+        axis: The axis to reduce.
+        how: ``"count"``, ``"all"`` or ``"any"``.
+        skipna: Whether gaps are skipped, for ``all`` / ``any``.
+        ndv: The sentinel as it appears in ``arr``, or ``None`` — the unpacked ``_FillValue``
+            for a CF-packed variable read unpacked.
+
+    Returns:
+        The reduced array: ``int64`` for ``count``, ``uint8`` for ``all`` / ``any``.
+    """
+    valid = np.ones_like(arr, dtype=bool)
+    if np.issubdtype(arr.dtype, np.floating):
+        valid = ~np.isnan(arr)
+    if ndv is not None:
+        valid = valid & (arr != ndv)
+    if how == "count":
+        result = np.sum(valid, axis=axis, dtype=np.int64)
+    else:
+        test = np.all if how == "all" else np.any
+        if skipna:
+            gap = how == "all"
+            flags = test(np.where(valid, arr != 0, gap), axis=axis)
+            result = np.where(
+                np.any(valid, axis=axis), flags.astype(np.uint8), FLAG_NO_DATA
+            ).astype(np.uint8)
+        else:
+            result = test(arr != 0, axis=axis).astype(np.uint8)
+    return result
+
+
+def reduce_variable_array(
+    arr: Any,
+    axis: int,
+    dim: str,
+    band_names: list[str],
+    values_map: dict[str, Any],
+    how: str,
+    skipna: bool,
+    ndv: Any,
+    groupby: Any,
+    group_positions: list | None,
+    q: float | None = None,
+) -> tuple[Any, list[str], dict[str, Any]]:
+    """Reduce one variable's array along ``axis``; return the new array plus its dims.
+
+    With ``group_positions`` ``None`` the dimension collapses (``reduce``); otherwise each
+    group of positions is reduced and the results stacked back along ``axis`` (``coarsen`` /
+    grouped ``reduce``), relabelling ``dim`` with each group's first coordinate.
+
+    Args:
+        arr: The unflattened values.
+        axis: The axis holding ``dim``.
+        dim: The dimension being reduced.
+        band_names: The current band-dimension names, outermost first.
+        values_map: Per-dimension coordinate values.
+        how: The reduction, forwarded to :func:`reduce_axis`.
+        skipna: Whether gaps are skipped.
+        ndv: The sentinel as it appears in ``arr``, or ``None``.
+        groupby: Unused placeholder kept for call-site compatibility.
+        group_positions: The groups of positions to reduce, or ``None`` to collapse ``dim``.
+        q: The quantile, for ``how="quantile"``.
+
+    Returns:
+        tuple: ``(new_array, new_band_names, new_values_map)``.
+
+    Raises:
+        ValueError: The group positions do not cover ``dim``'s length.
+    """
+    if group_positions is None:
+        new_arr = reduce_axis(arr, axis, how, skipna, ndv, q)
+        new_band_names = [name for name in band_names if name != dim]
+        new_values_map = {name: values_map.get(name) for name in new_band_names}
+    else:
+        covered = sum(len(positions) for positions in group_positions)
+        if covered != arr.shape[axis]:
+            raise ValueError(
+                f"groupby covers {covered} positions but dimension {dim!r} "
+                f"has size {arr.shape[axis]}."
+            )
+        slices = [
+            reduce_axis(np.take(arr, positions, axis=axis), axis, how, skipna, ndv, q)
+            for positions in group_positions
+        ]
+        new_arr = np.stack(slices, axis=axis)
+        coord = values_map.get(dim)
+        new_band_names = list(band_names)
+        new_values_map = dict(values_map)
+        new_values_map[dim] = (
+            [coord[int(positions[0])] for positions in group_positions]
+            if coord is not None
+            else None
+        )
+    return new_arr, new_band_names, new_values_map

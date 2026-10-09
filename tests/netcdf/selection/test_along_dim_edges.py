@@ -17,6 +17,21 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
+from pyramids.base._reductions import (
+    gaps_as_nan as _gaps_as_nan,
+)
+from pyramids.base._reductions import (
+    sentinel_as_stored as _sentinel_as_stored,
+)
+from pyramids.base._reductions import (
+    shifted as _shifted,
+)
+from pyramids.base._reductions import (
+    slice_axis as _slice_axis,
+)
+from pyramids.base._reductions import (
+    window_members as _window_members,
+)
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
 from pyramids.netcdf.engines import _along_dim
 from pyramids.netcdf.engines._along_dim import (
@@ -26,16 +41,11 @@ from pyramids.netcdf.engines._along_dim import (
     _CumSum,
     _Diff,
     _Extremum,
-    _gaps_as_nan,
     _Reduction,
     _Rolling,
-    _sentinel_as_stored,
     _Shift,
-    _shifted,
-    _slice_axis,
     _user_stacklevel,
     _variable_from_applied,
-    _window_members,
 )
 from pyramids.netcdf.netcdf import Variable
 from tests._marks import requires_dask

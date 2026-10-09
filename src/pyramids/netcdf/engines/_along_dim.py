@@ -29,6 +29,17 @@ from scipy.interpolate import interp1d
 from scipy.stats import rankdata
 
 from pyramids.base._reductions import (
+    COUNTING_REDUCERS as _COUNTING_REDUCERS,
+)
+from pyramids.base._reductions import (
+    FLAG_NO_DATA as _FLAG_NO_DATA,
+)
+from pyramids.base._reductions import (
+    count_axis,
+    reduce_axis,
+    reduce_variable_array,
+)
+from pyramids.base._reductions import (
     gaps_as_nan as _gaps_as_nan,
 )
 from pyramids.base._reductions import (
@@ -333,7 +344,6 @@ def _rolled_array(
     dispatches on a `dask.array`, so with `materialize=False` the result stays a deferred dask
     array for a lazy cube (#1237); the eager path collapses it with the final `np.asarray`.
     """
-    from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _FLAG_NO_DATA
 
     band_names = list(band_names)
     values_map = dict(values_map)
@@ -352,12 +362,10 @@ def _rolled_array(
     for position in range(size):
         members = _window_members(position, size, window, center)
         block = np.take(arr, members, axis=axis)
-        value = nc._reduce_axis(block, axis, how, True, ndv, q)
+        value = reduce_axis(block, axis, how, True, ndv, q)
         # `_reduce_axis` sends `count` straight to `_count_axis`, so for that statistic the
         # window's valid cells are the value itself — counting them again would be the same pass.
-        valid = (
-            value if how == "count" else nc._count_axis(block, axis, "count", True, ndv)
-        )
+        valid = value if how == "count" else count_axis(block, axis, "count", True, ndv)
         steps.append(np.where(valid >= min_periods, value, short))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
@@ -1279,7 +1287,6 @@ def _reduced_array(
         ValueError: `group_positions` does not cover `dim`, after any `resize`, exactly.
     """
     # Local import breaks the netcdf.py <-> engines.selection import cycle.
-    from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _FLAG_NO_DATA
 
     if override is not None:
         # A lazy cube composing ops (#1237): reduce the cube's CURRENT (possibly already
@@ -1299,7 +1306,7 @@ def _reduced_array(
     size = arr.shape[axis]
     if resize is not None and resize != size:
         arr = _resize_axis(arr, axis, resize)
-    arr, band_names, values_map = nc._reduce_variable_array(
+    arr, band_names, values_map = reduce_variable_array(
         arr,
         axis,
         dim,
