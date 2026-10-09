@@ -1584,6 +1584,114 @@ class UgridDataset:
             new_vars[name] = new_var
         return self._rebuild(new_vars)
 
+    def _assert_same_topology(self, other: UgridDataset, operation: str) -> None:
+        """Refuse ``operation`` unless ``other`` sits on the same mesh as ``self``.
+
+        Same mesh means the same node/face/edge counts and the same node coordinates and
+        face-node connectivity — combining data across different meshes is meaningless.
+        """
+        mine, theirs = self._mesh, other._mesh
+        same = (
+            mine.n_node == theirs.n_node
+            and mine.n_face == theirs.n_face
+            and mine.n_edge == theirs.n_edge
+            and np.array_equal(mine.node_x, theirs.node_x)
+            and np.array_equal(mine.node_y, theirs.node_y)
+            and np.array_equal(
+                np.asarray(mine.face_node_connectivity.data),
+                np.asarray(theirs.face_node_connectivity.data),
+            )
+        )
+        if not same:
+            raise ValueError(
+                f"{operation} requires datasets on the same mesh topology "
+                f"(matching node/face/edge counts, coordinates and connectivity)."
+            )
+
+    def concat(self, others: UgridDataset | list[UgridDataset]) -> UgridDataset:
+        """Concatenate same-topology datasets along time.
+
+        The mesh counterpart of :meth:`pyramids.netcdf.NetCDF.concat`. Every dataset must sit
+        on the same mesh. Each temporal variable's data is concatenated along its time axis
+        (and its ``time_values`` coordinate, when present); a static variable is taken from
+        ``self`` unchanged. The variable set must match across datasets.
+
+        Args:
+            others: One dataset, or a list of them, to append after ``self`` in order.
+
+        Returns:
+            UgridDataset: A new dataset spanning the concatenated time axis.
+
+        Raises:
+            ValueError: A dataset sits on a different mesh, or carries a different variable
+                set, or a variable has no loaded data.
+        """
+        parts = [
+            self,
+            *([others] if isinstance(others, UgridDataset) else list(others)),
+        ]
+        for other in parts[1:]:
+            self._assert_same_topology(other, "concat")
+            if set(other._data_variables) != set(self._data_variables):
+                raise ValueError(
+                    "concat requires the same variables in every dataset; got "
+                    f"{sorted(self._data_variables)} vs {sorted(other._data_variables)}."
+                )
+        new_vars: dict[str, MeshVariable] = {}
+        for name, var in self._data_variables.items():
+            if not var.has_time:
+                new_vars[name] = var
+                continue
+            axis = cast("int", var.time_index)
+            arrays = []
+            times: list[Any] = []
+            has_times = True
+            for part in parts:
+                pv = part._data_variables[name]
+                data = pv.data
+                if data is None:
+                    raise ValueError(f"Variable {name!r} has no loaded data to concat.")
+                arrays.append(np.asarray(data))
+                part_times = pv.attributes.get("time_values")
+                if part_times is None:
+                    has_times = False
+                else:
+                    times.extend(list(part_times))
+            new_var = var.with_data(np.concatenate(arrays, axis=axis))
+            if has_times:
+                new_var.attributes = {**var.attributes, "time_values": times}
+            new_vars[name] = new_var
+        return self._rebuild(new_vars)
+
+    def merge(self, others: UgridDataset | list[UgridDataset]) -> UgridDataset:
+        """Merge the variables of same-topology datasets into one.
+
+        The mesh counterpart of :meth:`pyramids.netcdf.NetCDF.merge`. Every dataset must sit
+        on the same mesh; the union of their variables is returned. A variable name present
+        in more than one dataset is a conflict and is refused.
+
+        Args:
+            others: One dataset, or a list of them, whose variables join ``self``'s.
+
+        Returns:
+            UgridDataset: A new dataset carrying every variable.
+
+        Raises:
+            ValueError: A dataset sits on a different mesh, or a variable name collides.
+        """
+        parts = [others] if isinstance(others, UgridDataset) else list(others)
+        new_vars: dict[str, MeshVariable] = dict(self._data_variables)
+        for other in parts:
+            self._assert_same_topology(other, "merge")
+            for name, var in other._data_variables.items():
+                if name in new_vars:
+                    raise ValueError(
+                        f"merge: variable {name!r} is present in more than one dataset; "
+                        "rename it first."
+                    )
+                new_vars[name] = var
+        return self._rebuild(new_vars)
+
     def plot(
         self,
         variable_name: str,

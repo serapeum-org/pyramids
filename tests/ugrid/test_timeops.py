@@ -170,3 +170,58 @@ class TestSelection:
         mesh["d"].attributes = {"time_values": [10, 20, 30]}
         assert mesh.isel([0, 2])["d"].attributes["time_values"] == [10, 30]
         assert mesh.diff()["d"].attributes["time_values"] == [20, 30]
+
+
+class TestConcatMerge:
+    def _mesh(self, data: np.ndarray, name: str = "d") -> UgridDataset:
+        return UgridDataset.from_arrays(
+            node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={name: data},
+            data_locations={name: "face"},
+        )
+
+    def test_concat_along_time(self):
+        a = self._mesh(np.array([[1.0, 2.0], [3.0, 4.0]]))
+        b = self._mesh(np.array([[5.0, 6.0]]))
+        out = a.concat(b)
+        assert out["d"].data.tolist() == [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]
+
+    def test_concat_list_and_time_values(self):
+        a = self._mesh(np.array([[1.0, 1.0]]))
+        a["d"].attributes = {"time_values": [0]}
+        b = self._mesh(np.array([[2.0, 2.0]]))
+        b["d"].attributes = {"time_values": [1]}
+        out = a.concat([b])
+        assert out["d"].attributes["time_values"] == [0, 1]
+
+    def test_concat_variable_mismatch_raises(self):
+        a = self._mesh(np.array([[1.0, 2.0]]), "x")
+        b = self._mesh(np.array([[3.0, 4.0]]), "y")
+        with pytest.raises(ValueError, match="same variables"):
+            a.concat(b)
+
+    def test_merge_union(self):
+        a = self._mesh(np.array([1.0, 2.0]), "x")
+        b = self._mesh(np.array([3.0, 4.0]), "y")
+        merged = a.merge(b)
+        assert sorted(merged.data_variable_names) == ["x", "y"]
+
+    def test_merge_conflict_raises(self):
+        a = self._mesh(np.array([1.0, 2.0]), "x")
+        b = self._mesh(np.array([9.0, 9.0]), "x")
+        with pytest.raises(ValueError, match="more than one"):
+            a.merge(b)
+
+    def test_different_topology_raises(self):
+        a = self._mesh(np.array([[1.0, 2.0]]))
+        other = UgridDataset.from_arrays(
+            node_x=np.array([0.0, 2.0, 2.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={"d": np.array([[1.0, 2.0]])},
+            data_locations={"d": "face"},
+        )
+        with pytest.raises(ValueError, match="same mesh topology"):
+            a.concat(other)
