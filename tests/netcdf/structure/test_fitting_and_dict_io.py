@@ -10,7 +10,9 @@ schema that serialises is worth nothing if what comes back is not the same cube,
 most easily lost is the georeferencing xarray's own schema has no slot for.
 """
 
+import glob
 import json
+import pathlib
 import warnings
 
 import numpy as np
@@ -23,6 +25,7 @@ from pyramids.netcdf.dict_io import _plain
 NY, NX = 2, 3
 GEO = (0.0, 1.0, 0.0, 2.0, 0.0, -1.0)
 UNEVEN = [0.0, 1.0, 3.0, 6.0]
+DATA = pathlib.Path(__file__).parents[2] / "data" / "netcdf"
 """Gaps of 1, 2 then 3, so a member that treats the axis as unit steps answers differently."""
 
 
@@ -891,5 +894,234 @@ class TestDictRoundTrip:
         container = _cube([1.0, 2.0, 3.0, 4.0])
         container.remove_variable("t")
 
-        with pytest.raises(ValueError, match="at least one data variable"):
+        with pytest.raises(ValueError, match="at least one gridded data variable"):
             container.to_dict()
+
+
+class TestDictExportOnRealFiles:
+    """The parts of `to_dict` / `from_dict` that only real CF output exercises."""
+
+    def test_non_gridded_auxiliary_variables_are_dropped_with_a_warning(self):
+        """A CAM/CESM file carries variables with no raster plane, and 12 of 43 here do.
+
+        They arrive as a `LabeledArray` with none of the band metadata an export needs, and
+        `from_array` could not rebuild them even if they were exported. Dropping them with a
+        warning that names them keeps the member usable on real files while saying the round
+        trip is lossy; crashing on them, or dropping them silently, are both worse.
+
+        Test scenario:
+            The repo's own `cf__48v…` fixture exports its 31 gridded variables and warns about
+            the 12 it cannot.
+        """
+        path = glob.glob(str(DATA / "*48v*"))
+        assert path, "the cf__48v fixture is missing"
+        cube = NetCDF.read_file(path[0])
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            payload = cube.to_dict(data=False)
+
+        assert len(payload["data_vars"]) == 31, len(payload["data_vars"])
+        dropped = [item for item in caught if "to_dict() exported" in str(item.message)]
+        assert len(dropped) == 1, f"expected one warning, got {len(dropped)}"
+        assert "hyai" in str(dropped[0].message), str(dropped[0].message)
+
+    def test_a_store_may_interleave_spatial_and_band_dimensions(self):
+        """The payload records pyramids' layout, not the store's declared order.
+
+        Variable `U` of the `cf__48v…` fixture declares `['time', 'lat', 'lev', 'lon']` — a
+        spatial axis sitting between two band axes. Taking that order verbatim mis-shapes the
+        array; asserting the band axes lead it refuses a valid cube. Both were written and both
+        were wrong, so this pins the third behaviour.
+
+        Test scenario:
+            `U`'s payload entry lists its band dimensions first and its spatial pair last, and
+            its shape agrees with that order.
+        """
+        path = glob.glob(str(DATA / "*48v*"))
+        assert path, "the cf__48v fixture is missing"
+        cube = NetCDF.read_file(path[0])
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            payload = cube.to_dict(data=False)
+
+        entry = payload["data_vars"]["U"]
+        spatial = payload["pyramids"]["spatial_dims"]
+        assert entry["dims"][-2:] == spatial, (entry["dims"], spatial)
+        assert [payload["dims"][name] for name in entry["dims"]] == entry["shape"], (
+            f"dims and shape disagree: {entry['dims']} vs {entry['shape']}"
+        )
+
+
+class TestDictStructureOnlyReadsNothing:
+    """`data=False` is a metadata mode, and has to actually be one."""
+
+    def test_structure_only_issues_no_read(self, monkeypatch):
+        """The docstring promises inspection "without reading them", so prove it reads nothing.
+
+        The first version called `read_array()` once per variable regardless — the whole payload
+        over the wire for a remote or dask-backed cube, to learn two facts the declared metadata
+        already carries.
+
+        Args:
+            monkeypatch: pytest's patching fixture.
+
+        Test scenario:
+            `read_array` is replaced with a raiser, and `to_dict(data=False)` still succeeds.
+        """
+        cube = _cube([1.0, 2.0, 3.0, 4.0])
+
+        def explode(self, *args, **kwargs):
+            raise AssertionError("to_dict(data=False) must not read any values")
+
+        monkeypatch.setattr(NetCDF, "read_array", explode)
+        payload = cube.to_dict(data=False)
+
+        assert payload["data_vars"]["t"]["shape"] == [4, NY, NX]
+        assert payload["data_vars"]["t"]["dtype"] == "float64"
+
+    def test_structure_only_works_without_a_crs(self, monkeypatch):
+        """Thirteen of the repo's fixtures have no CRS; refusing them for inspection is too much.
+
+        Values still need one, because a payload that rebuilds unreferenced is the thing the
+        `pyramids` block exists to prevent — but structure-only payloads cannot be rebuilt at all.
+
+        Args:
+            monkeypatch: pytest's patching fixture.
+
+        Test scenario:
+            A CRS-less cube describes itself, and refuses only when asked for values.
+        """
+        cube = _cube([1.0, 2.0, 3.0, 4.0])
+        monkeypatch.setattr(type(cube), "epsg", property(lambda self: None))
+
+        payload = cube.to_dict(data=False)
+
+        assert payload["pyramids"]["epsg"] is None
+        with pytest.raises(ValueError, match=r"set_crs\(\)"):
+            cube.to_dict()
+
+
+class TestDictCoordinateMetadata:
+    """The metadata whose loss changes what the numbers mean."""
+
+    def test_a_time_axis_keeps_its_units_and_calendar(self):
+        """Values matching is not the round trip; a time axis also has to keep its meaning.
+
+        Without this a rebuilt time axis is bare floats with no epoch and no calendar. Every
+        value matches, so the cube looks right and the plain round-trip tests pass.
+
+        Test scenario:
+            A cube whose `time` declares CF units and a `noleap` calendar round-trips both.
+        """
+        cube = NetCDF.from_array(
+            np.arange(4.0).reshape(4, 1, 1),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="t",
+            dims=ExtraDimensions(
+                name="time",
+                values=[0.0, 1.0, 2.0, 3.0],
+                attrs={
+                    "time": {
+                        "units": "days since 2000-01-01",
+                        "calendar": "noleap",
+                    }
+                },
+            ),
+        )
+        before = cube.get_variable("t")._band_dim_time_attrs
+
+        payload = cube.to_dict()
+        rebuilt = NetCDF.from_dict(payload)
+
+        assert payload["coords"]["time"]["attrs"] == {
+            "units": "days since 2000-01-01",
+            "calendar": "noleap",
+        }, payload["coords"]["time"]["attrs"]
+        assert rebuilt.get_variable("t")._band_dim_time_attrs == before, (
+            f"expected {before}, got {rebuilt.get_variable('t')._band_dim_time_attrs}"
+        )
+
+    def test_an_axis_with_no_coordinates_rebuilds_with_a_warning(self):
+        """Silently unstamping an axis sends the next refusal to the wrong place.
+
+        Test scenario:
+            A payload whose band dimension carries no coordinate data warns and names the
+            members that will refuse the result.
+        """
+        payload = _cube([1.0, 2.0, 3.0, 4.0]).to_dict()
+        del payload["coords"]["level"]
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            NetCDF.from_dict(payload)
+
+        relevant = [item for item in caught if "rebuilt unstamped" in str(item.message)]
+        assert len(relevant) == 1, f"expected one warning, got {len(relevant)}"
+        assert "differentiate" in str(relevant[0].message), str(relevant[0].message)
+
+
+class TestDictPayloadValidation:
+    """`from_dict` takes untrusted input, so each refusal names the key at fault."""
+
+    def test_exports_a_single_variable(self):
+        """The docstring documents the variable shape, so it has to work.
+
+        A variable reports no `variable_names` at all, so the first version refused it with
+        "needs at least one data variable" — which actively misinforms, the variable being
+        obviously data. It matters because `curvefit` and `rolling_exp` return variables.
+
+        Test scenario:
+            A variable exports under its own name, with its own dimensions.
+        """
+        variable = _cube([1.0, 2.0, 3.0, 4.0]).get_variable("t")
+
+        payload = variable.to_dict()
+
+        assert list(payload["data_vars"]) == ["t"], list(payload["data_vars"])
+        assert payload["dims"]["level"] == 4, payload["dims"]
+        assert np.asarray(payload["coords"]["level"]["data"]).tolist() == UNEVEN
+
+    @pytest.mark.parametrize("key", ["dims", "coords", "data_vars", "attrs"])
+    def test_refuses_a_top_level_key_that_is_not_a_mapping(self, key):
+        """A list here used to escape as an `AttributeError` naming an attribute, not the key.
+
+        Args:
+            key: The key to corrupt.
+
+        Test scenario:
+            Each of the four xarray keys is refused by name when it holds a list.
+        """
+        payload = _cube([1.0, 2.0, 3.0, 4.0]).to_dict()
+        payload[key] = ["not", "a", "mapping"]
+
+        with pytest.raises(TypeError, match=rf"{key!r}"):
+            NetCDF.from_dict(payload)
+
+    def test_refuses_a_payload_from_a_newer_schema(self):
+        """Stamping a version and never reading it makes the stamp decoration.
+
+        Test scenario:
+            A payload stamped one version ahead is refused, naming both versions.
+        """
+        payload = _cube([1.0, 2.0, 3.0, 4.0]).to_dict()
+        payload["pyramids"]["schema"] = payload["pyramids"]["schema"] + 1
+
+        with pytest.raises(ValueError, match="newer pyramids"):
+            NetCDF.from_dict(payload)
+
+    def test_refuses_variables_whose_spatial_layouts_disagree(self):
+        """Last-variable-wins stamped one layout over the payload and rebuilt the rest wrongly.
+
+        Test scenario:
+            A payload whose two variables name different spatial dimensions is refused.
+        """
+        payload = _cube([1.0, 2.0, 3.0, 4.0]).to_dict()
+        payload["dims"]["row"] = NY
+        payload["dims"]["col"] = NX
+        payload["data_vars"]["u"] = dict(payload["data_vars"]["t"])
+        payload["data_vars"]["u"]["dims"] = ["level", "row", "col"]
+
+        with pytest.raises(ValueError, match="spatial pair"):
+            NetCDF.from_dict(payload)

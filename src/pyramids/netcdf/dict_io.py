@@ -23,6 +23,7 @@ is a stated limit, not a silent loss — the dict is complete, the constructor i
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import fields
 from typing import TYPE_CHECKING, Any, cast
 
@@ -30,6 +31,7 @@ import numpy as np
 
 from pyramids.base.georeference import GeoReference
 from pyramids.netcdf.array_options import CFAttributes, ExtraDimensions
+from pyramids.netcdf.engines._along_dim import _reduces_as_a_variable, _user_stacklevel
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import Container, NetCDF
@@ -87,6 +89,92 @@ def _shaped_array(var: NetCDF, flat: Any) -> Any:
     array = np.asarray(flat)
     sizes = tuple(int(size) for size in var._band_dim_sizes)
     return array.reshape(*sizes, *array.shape[-2:]) if sizes else array
+
+
+def _export_targets(nc: NetCDF) -> tuple[NetCDF, list[str], list[str]]:
+    """Which variables a cube exports, and which it cannot, for either cube shape.
+
+    Two problems are settled here. A **variable** reports no `variable_names` at all, so asking it
+    for its own name has to go through the container it came from. And a **container** may hold
+    variables with no raster plane — `hyai`, `gw`, `date_written` in a CAM/CESM file, 12 of the 43
+    in this repo's own `cf__48v…` fixture — which arrive as a `LabeledArray` with none of the band
+    metadata an export needs, and which `from_array` could not rebuild even if they were exported.
+    `_spatial_variable_names` is the split the rest of the package already uses for that.
+
+    Args:
+        nc: The container or variable `to_dict` was called on.
+
+    Returns:
+        tuple[NetCDF, list[str], list[str]]: The object to resolve names against, the variable
+        names to export, and the non-gridded names that cannot be.
+
+    Raises:
+        ValueError: A variable whose parent container cannot be reached, or a container with no
+            gridded variable at all.
+    """
+    if _reduces_as_a_variable(nc):
+        parent = getattr(nc, "_parent_nc", None)
+        own = getattr(nc, "_source_var_name", None)
+        if parent is None or own is None:
+            raise ValueError(
+                "to_dict() cannot export this variable: it does not know which container it "
+                "came from, so its dimensions cannot be resolved. Export the container instead."
+            )
+        return cast("NetCDF", parent), [str(own)], []
+    gridded = [str(name) for name in nc._spatial_variable_names()]
+    skipped = [str(name) for name in nc.variable_names if str(name) not in gridded]
+    if not gridded:
+        raise ValueError(
+            "to_dict() needs at least one gridded data variable, and this cube has none"
+            + (f" — only the non-gridded {skipped}." if skipped else ".")
+        )
+    return nc, gridded, skipped
+
+
+def _declared_shape(var: NetCDF) -> tuple[list[int], str]:
+    """A variable's shape and dtype from its declared metadata, reading no values.
+
+    This is what makes `data=False` mean what it says. `read_array()` would materialise the whole
+    variable — the entire payload over the wire for a remote or dask-backed cube — to learn two
+    facts the band sizes and the raster dimensions already carry.
+
+    Args:
+        var: The variable.
+
+    Returns:
+        tuple[list[int], str]: The shape in declared order, band axes first, and the dtype name.
+    """
+    sizes = [int(size) for size in var._band_dim_sizes]
+    rows, cols = (int(size) for size in var.shape[-2:])
+    declared = var.dtype
+    one = declared[0] if isinstance(declared, (list, tuple)) and declared else declared
+    return [*sizes, rows, cols], str(np.dtype(one))
+
+
+def _coordinate_attrs(var: NetCDF, dim: str) -> dict[str, str]:
+    """The CF attributes a band dimension declares, so a time axis keeps its epoch and calendar.
+
+    Without this a round trip returns a time axis as bare floats: every value matches and the cube
+    still looks right, which is exactly why it goes unnoticed. It is the one piece of metadata
+    whose loss changes what the numbers *mean*.
+
+    Args:
+        var: The variable the dimension belongs to.
+        dim: The dimension's name.
+
+    Returns:
+        dict[str, str]: `units` and `calendar` where the dimension declares them, else empty.
+    """
+    carried = getattr(var, "_band_dim_time_attrs", None) or {}
+    pair = carried.get(dim)
+    attrs: dict[str, str] = {}
+    if pair:
+        units, calendar = pair
+        if units:
+            attrs["units"] = str(units)
+        if calendar:
+            attrs["calendar"] = str(calendar)
+    return attrs
 
 
 def to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
@@ -170,52 +258,78 @@ def to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
         pyramids.netcdf.NetCDF.to_dataframe: The cube as a pandas frame instead, which is a
             flat table rather than the structure.
     """
-    names = list(nc.variable_names)
-    if not names:
-        raise ValueError(
-            "to_dict() needs at least one data variable, and this cube has none."
+    source, names, skipped = _export_targets(nc)
+    if skipped:
+        warnings.warn(
+            f"to_dict() exported {len(names)} gridded variable(s) and dropped the non-gridded "
+            f"{skipped}: they have no raster plane, so from_dict() could not rebuild them. The "
+            f"round trip is therefore lossy for this cube.",
+            UserWarning,
+            stacklevel=_user_stacklevel(),
         )
     epsg = nc.epsg
-    if epsg is None:
+    if epsg is None and data:
         raise ValueError(
-            "to_dict() needs a CRS to export, and this cube declares none. Set one with "
-            "to_crs() first — the payload carries it so from_dict() can georeference the "
-            "result, and a dict without it would rebuild into an unreferenced cube."
+            "to_dict() needs a CRS to export values, and this cube declares none. Set one with "
+            "set_crs() first — the payload carries it so from_dict() can georeference the "
+            "result, and a dict without it would rebuild into an unreferenced cube. "
+            "to_dict(data=False) describes a CRS-less cube without this refusal, since "
+            "structure-only payloads are for inspection and from_dict() refuses them anyway."
         )
-    group = nc._working_group()
+    group = source._working_group()
     dims: dict[str, int] = {}
     coords: dict[str, Any] = {}
     data_vars: dict[str, Any] = {}
     no_data: dict[str, Any] = {}
-    spatial: list[str] = []
+    layouts: set[tuple[str, ...]] = set()
     for name in names:
-        var = cast("NetCDF", nc.get_variable(name))
-        declared = list(nc._variable_dim_names(group, name))
+        var = cast("NetCDF", source.get_variable(name))
         band = [str(entry) for entry in var._band_dim_names]
-        spatial = declared[len(band) :]
-        array = _shaped_array(var, var.read_array())
-        for position, size in zip(declared, array.shape):
+        stored = [str(entry) for entry in source._variable_dim_names(group, name)]
+        # The payload records **pyramids' own** layout, band axes first and `(y, x)` last, which
+        # is the shape `read_array` returns and `_shaped_array` rebuilds. A store's declared
+        # order is not that: variable `U` of this repo's `cf__48v…` fixture declares
+        # `['time', 'lat', 'lev', 'lon']`, interleaving a spatial axis between two band axes.
+        # Taking the store's order verbatim, or asserting the band axes lead it, both break on
+        # that file — the first silently mis-shapes the array, the second refuses a valid cube.
+        spatial = tuple(item for item in stored if item not in band)
+        if len(spatial) != 2:
+            raise ValueError(
+                f"to_dict() expects {name!r} to have two spatial dimensions, but its declared "
+                f"{stored} leaves {list(spatial)} once its band axes {band} are removed."
+            )
+        declared = [*band, *spatial]
+        layouts.add(spatial)
+        shape, dtype_name = _declared_shape(var)
+        for position, size in zip(declared, shape, strict=True):
             dims[position] = int(size)
         for coord_name, values in var.coords.items():
             coords[str(coord_name)] = {
                 "dims": [str(coord_name)],
                 "data": _plain(np.asarray(values)),
-                "attrs": {},
+                "attrs": _coordinate_attrs(var, str(coord_name)),
             }
         entry: dict[str, Any] = {
             "dims": declared,
             "attrs": _plain(dict(var.attrs)),
-            "dtype": str(array.dtype),
-            "shape": [int(size) for size in array.shape],
+            "dtype": dtype_name,
+            "shape": shape,
         }
         if data:
-            entry["data"] = _plain(array)
+            entry["data"] = _plain(_shaped_array(var, var.read_array()))
         data_vars[name] = entry
         sentinels = var.no_data_value
         # Per-band on a variable, and uniform within one, so the first entry speaks for it.
         # Annotated as possibly scalar, which a cube built by some routes really is.
         first = sentinels[0] if isinstance(sentinels, (tuple, list)) else sentinels
         no_data[name] = _plain(first)
+    if len(layouts) > 1:
+        # Last-variable-wins would have stamped one layout over the whole payload and rebuilt
+        # the others against the wrong axes.
+        raise ValueError(
+            f"to_dict() cannot describe this cube as one grid: its variables declare the "
+            f"spatial layouts {sorted(layouts)}. Export them separately."
+        )
     return {
         "dims": dims,
         "coords": coords,
@@ -223,9 +337,9 @@ def to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
         "attrs": _plain(dict(nc.attrs)),
         "pyramids": {
             "schema": SCHEMA_VERSION,
-            "epsg": int(epsg),
+            "epsg": None if epsg is None else int(epsg),
             "geotransform": [float(value) for value in nc.geotransform],
-            "spatial_dims": spatial,
+            "spatial_dims": list(next(iter(layouts))),
             "no_data_value": no_data,
         },
     }
@@ -266,6 +380,13 @@ def _assert_payload(payload: Any) -> dict[str, Any]:
             f"from_dict() needs the 'pyramids' key to hold a dict, but got "
             f"{type(geo).__name__}."
         )
+    for key in ("dims", "coords", "data_vars", "attrs"):
+        if not isinstance(payload[key], dict):
+            raise TypeError(
+                f"from_dict() needs {key!r} to hold a dict, but got "
+                f"{type(payload[key]).__name__}. A list here escapes as an AttributeError much "
+                f"later, naming an attribute rather than the key at fault."
+            )
     missing_geo = [key for key in _REQUIRED_GEO if key not in geo]
     if missing_geo:
         raise ValueError(
@@ -275,6 +396,19 @@ def _assert_payload(payload: Any) -> dict[str, Any]:
         )
     if not payload["data_vars"]:
         raise ValueError("from_dict() needs at least one entry in 'data_vars'.")
+    stamped = geo.get("schema", SCHEMA_VERSION)
+    if (
+        not isinstance(stamped, int)
+        or isinstance(stamped, bool)
+        or stamped > SCHEMA_VERSION
+    ):
+        # Stamping a version and never reading it makes the stamp decoration. A payload from a
+        # newer writer may carry keys whose meaning this reader does not know, so it is refused
+        # rather than read with today's assumptions.
+        raise ValueError(
+            f"from_dict() understands schema version {SCHEMA_VERSION} and this payload is "
+            f"stamped {stamped!r}. It was written by a newer pyramids than this one."
+        )
     return payload
 
 
@@ -450,10 +584,42 @@ def from_dict(payload: Any) -> Container:
     for name, entry in payload["data_vars"].items():
         array = _variable_array(str(name), entry, dims)
         declared = [str(item) for item in entry["dims"]]
+        if declared[-2:] != spatial[-2:]:
+            # Without this the mismatch reaches `from_array` as an extra-dimension count and
+            # fails there with a message about `extra_dims`, which says nothing about the key
+            # that is actually wrong.
+            raise ValueError(
+                f"from_dict() found {name!r} declaring {declared}, whose last two dimensions "
+                f"are not the payload's spatial pair {spatial[-2:]}. Every variable in one "
+                f"payload has to share the grid the 'pyramids' block describes."
+            )
         band = [item for item in declared if item not in spatial]
+        unstamped = [item for item in band if not coords.get(item, {}).get("data")]
+        if unstamped:
+            # Rebuilding an unstamped axis silently loses the one thing `to_dict` recorded about
+            # it, and every coordinate-aware member then refuses the result for a reason that
+            # points at the cube rather than at the payload.
+            warnings.warn(
+                f"from_dict() found no coordinates for {unstamped} on {name!r}, so those axes "
+                f"are rebuilt unstamped. Members that measure against coordinates "
+                f"(differentiate, integrate, interp) will refuse the result.",
+                UserWarning,
+                stacklevel=_user_stacklevel(),
+            )
+        dim_attrs = {
+            item: {
+                str(key): str(value)
+                for key, value in (coords.get(item, {}).get("attrs") or {}).items()
+            }
+            for item in band
+            if coords.get(item, {}).get("attrs")
+        }
         extra = (
             ExtraDimensions(
-                dims=[(item, _plain(coords.get(item, {}).get("data"))) for item in band]
+                dims=[
+                    (item, _plain(coords.get(item, {}).get("data"))) for item in band
+                ],
+                attrs=dim_attrs or None,
             )
             if band
             else None
