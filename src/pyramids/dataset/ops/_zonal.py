@@ -26,31 +26,21 @@ then reduce.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 from osgeo import gdal, ogr, osr
 
 from pyramids.base._domain import is_no_data
+from pyramids.base._reductions import reduce_by_label
 from pyramids.base._utils import apply_unpack
 from pyramids.base.crs import sr_from_epsg, sr_from_wkt
 
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
     from pyramids.feature import FeatureCollection
-
-
-_STAT_FUNCS: dict[str, Callable[[np.ndarray], Any]] = {
-    "mean": np.nanmean,
-    "sum": np.nansum,
-    "min": np.nanmin,
-    "max": np.nanmax,
-    "std": np.nanstd,
-    "var": np.nanvar,
-    "count": lambda vals: float(np.sum(~np.isnan(vals))),
-}
 
 
 def _rasterize_labels(ds: Dataset, fc: FeatureCollection) -> np.typing.NDArray:
@@ -112,9 +102,6 @@ def _rasterize_labels(ds: Dataset, fc: FeatureCollection) -> np.typing.NDArray:
     return labels
 
 
-_BINCOUNT_STATS = {"mean", "sum", "count"}
-
-
 def _rasterize_zonal_stats(
     ds: Dataset,
     fc: FeatureCollection,
@@ -122,12 +109,11 @@ def _rasterize_zonal_stats(
     band: int,
     no_data: float | None,
 ) -> pd.DataFrame:
-    """Compute stats via single-rasterize + vectorised groupby.
+    """Compute stats via single-rasterize + the shared per-label reducer.
 
-    mean / sum / count stats route through :func:`numpy.bincount`
-    weighted reductions instead of a per-polygon Python loop. Non-
-    linear stats (std / var / min / max) still use the loop because
-    bincount can't express them without per-label sort.
+    The polygons are rasterised once into an integer label grid, then
+    :func:`pyramids.base._reductions.reduce_by_label` reduces the band per label
+    (bincount for sum/count/mean, a sorted-group pass for min/max/std/var).
 
     The band is read once in stored units. The no-data cells are found there, where
     the sentinel lives, and blanked to `NaN`; the statistics are then taken over the
@@ -145,8 +131,7 @@ def _rasterize_zonal_stats(
             a zone with no valid cell (`count` is `0.0` there).
 
     Raises:
-        ValueError: An unknown stat name, raised when the first zone holding cells is
-            reduced.
+        ValueError: An unknown stat name.
     """
     # Masked against the stored counts, where the sentinel lives, and the statistics
     # then taken over the physical values. `no_data` is a stored value, so comparing it
@@ -163,97 +148,12 @@ def _rasterize_zonal_stats(
     labels = _rasterize_labels(ds, fc)
     n_features = len(fc)
 
-    stats_bincount = [s for s in stats if s in _BINCOUNT_STATS]
-    stats_loop = [s for s in stats if s not in _BINCOUNT_STATS]
-
-    columns: dict[str, np.ndarray] = {}
-    if stats_bincount:
-        columns.update(_bincount_stats(raster, labels, n_features, stats_bincount))
-    if stats_loop:
-        # Group the labelled cells once instead of re-scanning the whole raster
-        # per polygon. `raster[labels == pid]` inside the loop walked every cell
-        # for every feature -- features x cells -- where sorting the covered
-        # cells once and slicing each polygon's run is cells log cells.
-        flat_labels = labels.ravel()
-        flat_values = raster.ravel()
-        covered = flat_labels >= 0
-        # Hoisted: indexing with the boolean mask copies the covered set, and
-        # writing `flat_labels[covered]` three times built three of them.
-        covered_labels = flat_labels[covered]
-        covered_values = flat_values[covered]
-        order = np.argsort(covered_labels, kind="stable")
-        grouped_labels = covered_labels[order]
-        grouped_values = covered_values[order]
-        feature_ids = np.arange(n_features)
-        starts = np.searchsorted(grouped_labels, feature_ids, side="left")
-        ends = np.searchsorted(grouped_labels, feature_ids, side="right")
-
-        loop_cols: dict[str, list[float]] = {s: [] for s in stats_loop}
-        for pid in range(n_features):
-            vals = grouped_values[starts[pid] : ends[pid]]
-            for stat in stats_loop:
-                loop_cols[stat].append(_apply_stat(stat, vals))
-        for stat, vals_list in loop_cols.items():
-            columns[stat] = np.asarray(vals_list, dtype=np.float64)
-
+    # The per-label reduction (bincount for sum/count/mean, a sorted-group pass for
+    # min/max/std/var) is the grid-agnostic `reduce_by_label`: unassigned pixels carry -1
+    # from `_rasterize_labels`, and the physical NaN-blanked `raster` is the value array.
+    columns = reduce_by_label(raster, labels, n_features, list(stats), unassigned=-1)
     ordered = {stat: columns[stat] for stat in stats}
     return pd.DataFrame(ordered, index=fc.index)
-
-
-def _bincount_stats(
-    raster: np.ndarray,
-    labels: np.ndarray,
-    n_features: int,
-    stats: list[str],
-) -> dict[str, np.typing.NDArray]:
-    """Vectorised sum / count / mean via :func:`numpy.bincount`.
-
-    `labels` uses -1 for unassigned pixels; we shift by +1 so
-    bincount's non-negative-index requirement is satisfied, then
-    drop the leading "unassigned" bucket.
-    """
-    flat_labels = labels.ravel() + 1
-    flat_vals = raster.ravel()
-    valid_mask = ~np.isnan(flat_vals)
-    minlength = n_features + 1
-    sums = np.bincount(
-        flat_labels[valid_mask],
-        weights=flat_vals[valid_mask],
-        minlength=minlength,
-    )[1:]
-    counts = np.bincount(
-        flat_labels[valid_mask],
-        minlength=minlength,
-    )[1:].astype(np.float64)
-    out: dict[str, np.ndarray] = {}
-    if "sum" in stats:
-        out["sum"] = sums
-    if "count" in stats:
-        out["count"] = counts
-    if "mean" in stats:
-        with np.errstate(invalid="ignore", divide="ignore"):
-            mean = np.where(counts > 0, sums / counts, np.nan)
-        out["mean"] = mean
-    return out
-
-
-def _apply_stat(stat: str, vals: np.ndarray) -> float:
-    """Safe per-polygon stat — empty cohort or all-NaN returns NaN."""
-    if vals.size == 0:
-        result = float("nan")
-    else:
-        valid = vals[~np.isnan(vals)] if stat != "count" else vals
-        if stat != "count" and valid.size == 0:
-            result = float("nan")
-        else:
-            try:
-                func = _STAT_FUNCS[stat]
-            except KeyError as exc:
-                raise ValueError(
-                    f"unknown stat {stat!r}; supported: {sorted(_STAT_FUNCS)}"
-                ) from exc
-            result = float(func(vals))
-    return result
 
 
 def zonal_stats(

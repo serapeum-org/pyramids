@@ -374,3 +374,165 @@ def weighted_statistic(
             )
         result = np.asarray(values)
     return result
+
+
+#: Statistics ``reduce_by_label`` can compute, each NaN-aware. ``count`` is the number of
+#: non-NaN members, so it is weight-independent.
+_LABEL_STAT_FUNCS: dict[str, Any] = {
+    "mean": np.nanmean,
+    "sum": np.nansum,
+    "min": np.nanmin,
+    "max": np.nanmax,
+    "std": np.nanstd,
+    "var": np.nanvar,
+    "count": lambda vals: float(np.sum(~np.isnan(vals))),
+}
+
+#: The subset ``numpy.bincount`` expresses directly (sum / count / mean); the rest
+#: (min / max / std / var) need a per-group pass.
+_LABEL_BINCOUNT_STATS = frozenset({"mean", "sum", "count"})
+
+
+def reduce_by_label(
+    values: Any,
+    labels: Any,
+    n_groups: int,
+    stats: list[str],
+    *,
+    unassigned: int = -1,
+    weights: Any = None,
+) -> dict[str, np.ndarray]:
+    """Reduce a flat value array into per-group statistics.
+
+    Given a value array and a parallel integer ``labels`` array assigning each cell to one
+    of ``n_groups`` groups (``unassigned`` marks a cell in no group), compute the requested
+    statistics per group. The geometry that produced the labels is irrelevant — a rasterised
+    polygon grid, mesh faces grouped by zone, anything — so this one reducer serves the
+    raster ``zonal_stats`` and a mesh ``zonal_stats`` alike.
+
+    ``sum`` / ``count`` / ``mean`` go through :func:`numpy.bincount`; ``min`` / ``max`` /
+    ``std`` / ``var`` take a single sorted-group pass. NaN values are left out of every
+    statistic; a group with no valid member is NaN (``count`` is ``0.0``).
+
+    With ``weights`` (same size as ``values``), ``sum`` becomes ``Σ wᵢxᵢ``, ``mean`` the
+    weighted mean ``Σ wᵢxᵢ / Σ wᵢ``, and ``std`` / ``var`` the population weighted spread
+    ``Σ wᵢ(xᵢ−x̄)² / Σ wᵢ`` (the same definition as :func:`weighted_statistic`). ``count``
+    stays the unweighted non-NaN count and ``min`` / ``max`` are weight-invariant.
+
+    Args:
+        values: The values, any shape; ravelled internally.
+        labels: Integer group id per cell, same size as ``values``.
+        n_groups: Number of groups; the output arrays have this length and groups are
+            ``0 .. n_groups - 1``.
+        stats: Statistic names, each one of ``_LABEL_STAT_FUNCS``.
+        unassigned: The label value marking a cell in no group. Defaults to ``-1``.
+        weights: Optional weights, same size as ``values``; ``None`` for unweighted.
+
+    Returns:
+        dict[str, numpy.ndarray]: One ``float64`` array of length ``n_groups`` per requested
+        statistic.
+
+    Raises:
+        ValueError: ``values`` and ``labels`` differ in size; a stat name is unknown; or an
+            assigned label falls outside ``[0, n_groups)``.
+    """
+    values = np.asarray(values)
+    labels = np.asarray(labels)
+    if values.size != labels.size:
+        raise ValueError(
+            f"reduce_by_label: values has {values.size} element(s) but labels has "
+            f"{labels.size}; they must be the same size."
+        )
+    for stat in stats:
+        if stat not in _LABEL_STAT_FUNCS:
+            raise ValueError(
+                f"unknown stat {stat!r}; supported: {sorted(_LABEL_STAT_FUNCS)}"
+            )
+
+    flat_labels = labels.ravel()
+    flat_values = values.ravel().astype("float64")
+    assigned = flat_labels != unassigned
+    if assigned.any():
+        lo = int(flat_labels[assigned].min())
+        hi = int(flat_labels[assigned].max())
+        if lo < 0 or hi >= n_groups:
+            raise ValueError(
+                f"reduce_by_label: assigned labels fall outside [0, {n_groups}); "
+                f"found {lo}..{hi}."
+            )
+
+    valid = assigned & ~np.isnan(flat_values)
+    lbl = flat_labels[valid].astype(np.intp)
+    val = flat_values[valid]
+    wt = (
+        np.asarray(weights, dtype="float64").ravel()[valid]
+        if weights is not None
+        else None
+    )
+    counts = np.bincount(lbl, minlength=n_groups).astype("float64")
+
+    out: dict[str, np.ndarray] = {}
+    other_stats = [s for s in stats if s not in _LABEL_BINCOUNT_STATS]
+    need_sum = "sum" in stats or "mean" in stats or (wt is not None and other_stats)
+
+    if wt is None:
+        sums = np.bincount(lbl, weights=val, minlength=n_groups) if need_sum else None
+        if "sum" in stats:
+            out["sum"] = sums
+        if "count" in stats:
+            out["count"] = counts
+        if "mean" in stats:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                out["mean"] = np.where(counts > 0, sums / counts, np.nan)
+    else:
+        wtotal = np.bincount(lbl, weights=wt, minlength=n_groups)
+        wsum = (
+            np.bincount(lbl, weights=wt * val, minlength=n_groups) if need_sum else None
+        )
+        with np.errstate(invalid="ignore", divide="ignore"):
+            wmean = (
+                np.where(wtotal != 0, wsum / wtotal, np.nan)
+                if wsum is not None
+                else None
+            )
+        if "sum" in stats:
+            out["sum"] = wsum
+        if "count" in stats:
+            out["count"] = counts
+        if "mean" in stats:
+            out["mean"] = wmean
+
+    if other_stats:
+        order = np.argsort(lbl, kind="stable")
+        grouped_labels = lbl[order]
+        grouped_values = val[order]
+        ids = np.arange(n_groups)
+        starts = np.searchsorted(grouped_labels, ids, side="left")
+        ends = np.searchsorted(grouped_labels, ids, side="right")
+        per_group = {
+            stat: np.full(n_groups, np.nan, dtype="float64") for stat in other_stats
+        }
+        wvar = None
+        if wt is not None and ("std" in other_stats or "var" in other_stats):
+            wsumsq = np.bincount(lbl, weights=wt * val * val, minlength=n_groups)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                wvar = np.where(wtotal != 0, wsumsq / wtotal - wmean * wmean, np.nan)
+        for group in range(n_groups):
+            segment = grouped_values[starts[group] : ends[group]]
+            if segment.size == 0:
+                continue
+            if "min" in other_stats:
+                per_group["min"][group] = float(np.min(segment))
+            if "max" in other_stats:
+                per_group["max"][group] = float(np.max(segment))
+            if wt is None and "std" in other_stats:
+                per_group["std"][group] = float(np.std(segment))
+            if wt is None and "var" in other_stats:
+                per_group["var"][group] = float(np.var(segment))
+        if wt is not None and "var" in other_stats:
+            per_group["var"] = np.asarray(wvar, dtype="float64")
+        if wt is not None and "std" in other_stats:
+            per_group["std"] = np.sqrt(np.asarray(wvar, dtype="float64"))
+        out.update(per_group)
+
+    return out
