@@ -45,6 +45,7 @@ from pyramids.netcdf.ugrid.models import (
     MeshTopologyInfo,
     MeshVariable,
     UgridMetadata,
+    read_mesh_variable,
 )
 from pyramids.netcdf.ugrid.spatial import (
     MeshSpatialIndex,
@@ -1095,20 +1096,10 @@ def _make_variable_loader(path: str, var_name: str):
     """
 
     def _load() -> np.typing.NDArray | None:
-        ds = gdal.OpenEx(str(path), gdal.OF_MULTIDIM_RASTER | gdal.OF_VERBOSE_ERROR)
-        if ds is None:
-            raise ValueError(f"GDAL cannot re-open {path!r} for a lazy variable read.")
-        rg = ds.GetRootGroup()
-        md = open_mdarray(rg, var_name) if rg is not None else None
-        if md is None:
-            raise ValueError(
-                f"Variable {var_name!r} is no longer present in {path!r} on lazy read."
-            )
-        # `ReadAsArray()` already returns a fresh, numpy-owned array, so an extra `.copy()` only
-        # duplicates the largest arrays for no benefit (#982). The typed local coerces GDAL's
-        # untyped `Any` return to the declared type (no-any-return).
-        data: np.typing.NDArray | None = md.ReadAsArray()
-        return data
+        # The whole-array variant of the shared mesh reader: re-open, resolve, read the
+        # full array (no window). `ReadAsArray` already returns a fresh, numpy-owned array,
+        # so no extra `.copy()` is needed (#982).
+        return read_mesh_variable(path, var_name, context="lazy variable read")
 
     return _load
 
