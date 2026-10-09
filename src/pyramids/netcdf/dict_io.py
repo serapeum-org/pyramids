@@ -37,8 +37,13 @@ takes neither:
 
 One narrower asymmetry: a no-data **sentinel** comes back as a float even for an integer cube
 (`-1` becomes `-1.0`), because it travels through `from_array`'s `no_data_value`. The array dtype
-itself round-trips exactly, and `to_dict(a) == to_dict(from_dict(to_dict(a)))` still holds, since
-both sides widen alike.
+itself round-trips exactly.
+
+**`to_dict(a) == to_dict(from_dict(to_dict(a)))` is therefore not an identity**, and an earlier
+version of this note wrongly said it was. Measured on the COARDS sample this repo ships, the two
+payloads differ in `attrs` and in every variable's `attrs` — the attribute losses above — while
+`dims`, `coords`, `shape`, `dtype` and every value agree. Diff on those keys, not on the whole
+dict.
 
 A cube holding **non-gridded** variables is lossy for a third reason: they have no raster plane,
 so `from_array` cannot rebuild them, and `to_dict` drops them with a warning naming each.
@@ -119,26 +124,65 @@ def _shaped_array(var: NetCDF, flat: Any) -> Any:
     return array.reshape(*sizes, *array.shape[-2:]) if sizes else array
 
 
-def _export_targets(nc: NetCDF) -> tuple[NetCDF, list[str], list[str]]:
-    """Which variables a cube exports, and which it cannot, for either cube shape.
+def _is_exportable(container: NetCDF, var: Any, name: str) -> bool:
+    """Whether a variable is one this exporter can describe and `from_array` could rebuild.
 
-    Two problems are settled here. A **variable** reports no `variable_names` at all, so asking it
-    for its own name has to go through the container it came from. And a **container** may hold
-    variables with no raster plane — `hyai`, `gw`, `date_written` in a CAM/CESM file, 12 of the 43
-    in this repo's own `cf__48v…` fixture — which arrive as a `LabeledArray` with none of the band
-    metadata an export needs, and which `from_array` could not rebuild even if they were exported.
-    `_spatial_variable_names` is the split the rest of the package already uses for that.
+    Decided on the property the exporter actually needs — a dimension list that is the band axes
+    plus exactly two more — rather than on whether the grid axes are *named* `y`/`x`.
+    `_spatial_variable_names` asks the second question, and a curvilinear or staggered store
+    answers no to it while holding perfectly readable rasters: ROMS names its axes `eta_rho` and
+    `xi_rho`, WRF `south_north_stag`. Classifying on the name refused 9 of this repo's 26 netCDF
+    fixtures, including `salt (12, 191, 371)` and `data (5, 480, 640)`, and told the caller their
+    variables had no raster plane.
+
+    A variable with no raster plane at all arrives as a `LabeledArray` and has no band metadata,
+    which is the case this still has to exclude.
 
     Args:
-        nc: The container or variable `to_dict` was called on.
+        container: The container the variable belongs to.
+        var: What `get_variable` returned for it.
+        name: The variable's name.
 
     Returns:
-        tuple[NetCDF, list[str], list[str]]: The object to resolve names against, the variable
-        names to export, and the non-gridded names that cannot be.
+        bool: True when the variable has band metadata and exactly two non-band dimensions.
+    """
+    band_names = getattr(var, "_band_dim_names", None)
+    if band_names is None:
+        return False
+    band = [str(entry) for entry in band_names]
+    declared = [
+        str(entry)
+        for entry in container._variable_dim_names(container._working_group(), name)
+    ]
+    return len([entry for entry in declared if entry not in band]) == 2
+
+
+def _export_targets(
+    nc: NetCDF,
+) -> tuple[list[tuple[str, NetCDF]], NetCDF, list[str]]:
+    """The variables a cube exports, the object that resolves their dimensions, and the rest.
+
+    A **variable** reports no `variable_names`, so its own name and the store's declared
+    dimension list have to come from the container it came from. Everything *else* about it —
+    its band sizes, its coordinates, its values, its sentinel — comes from the receiver itself.
+    That distinction is the whole of this function: resolving the variable and then re-opening
+    it from the parent, as the first version did, discards the receiver's state, so
+    `variable.isel(level=[0, 1]).to_dict()` described the parent's full four-step axis and
+    exported four steps of values. The selecting members (`isel`, `sel`, `head`) keep their
+    parent, which is why they were the ones that lied; the rebuilding members point at a fresh
+    container and were unaffected.
+
+    Args:
+        nc: The container or variable `cube_to_dict` was called on.
+
+    Returns:
+        tuple[list[tuple[str, NetCDF]], NetCDF, list[str]]: `(name, variable)` pairs to export,
+        the object to resolve declared dimension lists against, and the names that cannot be
+        exported.
 
     Raises:
         ValueError: A variable whose parent container cannot be reached, or a container with no
-            gridded variable at all.
+            exportable variable.
     """
     if _reduces_as_a_variable(nc):
         parent = getattr(nc, "_parent_nc", None)
@@ -148,35 +192,57 @@ def _export_targets(nc: NetCDF) -> tuple[NetCDF, list[str], list[str]]:
                 "to_dict() cannot export this variable: it does not know which container it "
                 "came from, so its dimensions cannot be resolved. Export the container instead."
             )
-        return cast("NetCDF", parent), [str(own)], []
-    gridded = [str(name) for name in nc._spatial_variable_names()]
-    skipped = [str(name) for name in nc.variable_names if str(name) not in gridded]
-    if not gridded:
+        return [(str(own), nc)], cast("NetCDF", parent), []
+    pairs: list[tuple[str, NetCDF]] = []
+    skipped: list[str] = []
+    for name in nc.variable_names:
+        candidate = nc.get_variable(str(name))
+        if _is_exportable(nc, candidate, str(name)):
+            pairs.append((str(name), cast("NetCDF", candidate)))
+        else:
+            skipped.append(str(name))
+    if not pairs:
         raise ValueError(
-            "to_dict() needs at least one gridded data variable, and this cube has none"
-            + (f" — only the non-gridded {skipped}." if skipped else ".")
+            "to_dict() needs at least one variable it can describe as a grid, and none of this "
+            f"cube's variables qualifies. {skipped} each either have no raster plane or do not "
+            "resolve to their band dimensions plus exactly two more."
         )
-    return nc, gridded, skipped
+    return pairs, nc, skipped
 
 
 def _declared_shape(var: NetCDF) -> tuple[list[int], str]:
-    """A variable's shape and dtype from its declared metadata, reading no values.
+    """A variable's shape, and the dtype its **values** have, from metadata alone.
 
     This is what makes `data=False` mean what it says. `read_array()` would materialise the whole
     variable — the entire payload over the wire for a remote or dask-backed cube — to learn two
     facts the band sizes and the raster dimensions already carry.
 
+    The dtype is the one the *values* have, not the one the store holds. Those differ whenever CF
+    packing is declared: `read_array` unpacks through `scale_factor` / `add_offset` and returns
+    floats, so reporting the stored `int16` made the payload describe its own `data` wrongly and
+    `from_dict` floored every value — 95,737 of 127,872 cells on the COARDS sample this repo
+    ships. Packing is declared metadata, so this stays a metadata-only read.
+
     Args:
         var: The variable.
 
     Returns:
-        tuple[list[int], str]: The shape in declared order, band axes first, and the dtype name.
+        tuple[list[int], str]: The shape in declared order, band axes first, and the dtype the
+        values carry.
     """
     sizes = [int(size) for size in var._band_dim_sizes]
     rows, cols = (int(size) for size in var.shape[-2:])
     declared = var.dtype
-    one = declared[0] if isinstance(declared, (list, tuple)) and declared else declared
-    return [*sizes, rows, cols], str(np.dtype(one))
+    per_band = list(declared) if isinstance(declared, (list, tuple)) else [declared]
+    if len({str(np.dtype(entry)) for entry in per_band}) > 1:
+        raise ValueError(
+            f"to_dict() cannot give one dtype for a variable whose bands disagree: "
+            f"{sorted({str(np.dtype(entry)) for entry in per_band})}."
+        )
+    stored = str(np.dtype(per_band[0]))
+    scale, offset = var._effective_packing(0)
+    unpacked = not (scale in (None, 1.0) and offset in (None, 0.0))
+    return [*sizes, rows, cols], "float64" if unpacked else stored
 
 
 def _coordinate_attrs(var: NetCDF, dim: str) -> dict[str, str]:
@@ -286,12 +352,13 @@ def cube_to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
         pyramids.netcdf.NetCDF.to_dataframe: The cube as a pandas frame instead, which is a
             flat table rather than the structure.
     """
-    source, names, skipped = _export_targets(nc)
+    pairs, dims_source, skipped = _export_targets(nc)
     if skipped:
         warnings.warn(
-            f"to_dict() exported {len(names)} gridded variable(s) and dropped the non-gridded "
-            f"{skipped}: they have no raster plane, so from_dict() could not rebuild them. The "
-            f"round trip is therefore lossy for this cube.",
+            f"to_dict() exported {len(pairs)} variable(s) and dropped {skipped}: each either "
+            f"has no raster plane or does not resolve to its band dimensions plus exactly two "
+            f"more, so from_array() could not rebuild them. The round trip is therefore lossy "
+            f"for this cube.",
             UserWarning,
             stacklevel=_user_stacklevel(),
         )
@@ -304,16 +371,17 @@ def cube_to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
             "to_dict(data=False) describes a CRS-less cube without this refusal, since "
             "structure-only payloads are for inspection and from_dict() refuses them anyway."
         )
-    group = source._working_group()
+    group = dims_source._working_group()
     dims: dict[str, int] = {}
     coords: dict[str, Any] = {}
     data_vars: dict[str, Any] = {}
     no_data: dict[str, Any] = {}
     layouts: set[tuple[str, ...]] = set()
-    for name in names:
-        var = cast("NetCDF", source.get_variable(name))
+    for name, var in pairs:
+        # `var` is the receiver itself on the variable route, so a subsetted variable describes
+        # its own axis rather than the parent's.
         band = [str(entry) for entry in var._band_dim_names]
-        stored = [str(entry) for entry in source._variable_dim_names(group, name)]
+        stored = [str(entry) for entry in dims_source._variable_dim_names(group, name)]
         # The payload records **pyramids' own** layout, band axes first and `(y, x)` last, which
         # is the shape `read_array` returns and `_shaped_array` rebuilds. A store's declared
         # order is not that: variable `U` of this repo's `cf__48v…` fixture declares
@@ -331,6 +399,13 @@ def cube_to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
         shape, dtype_name = _declared_shape(var)
         for position, size in zip(declared, shape, strict=True):
             dims[position] = int(size)
+        read_values = None
+        if data:
+            read_values = _shaped_array(var, var.read_array())
+            # The array is the authority on its own dtype once it has been read: `_declared_shape`
+            # infers it from declared packing, and a store that packs in a way that inference does
+            # not cover would otherwise describe its own values wrongly.
+            dtype_name = str(read_values.dtype)
         for coord_name, values in var.coords.items():
             coords[str(coord_name)] = {
                 "dims": [str(coord_name)],
@@ -343,8 +418,8 @@ def cube_to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
             "dtype": dtype_name,
             "shape": shape,
         }
-        if data:
-            entry["data"] = _plain(_shaped_array(var, var.read_array()))
+        if read_values is not None:
+            entry["data"] = _plain(read_values)
         data_vars[name] = entry
         sentinels = var.no_data_value
         # Per-band on a variable, and uniform within one, so the first entry speaks for it.

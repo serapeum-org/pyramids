@@ -7275,11 +7275,24 @@ def _assert_model(func: Any, count: int) -> None:
         parameter.kind is parameter.VAR_POSITIONAL
         for parameter in signature.parameters.values()
     )
-    if not variadic and len(positional) != count + 1:
+    if variadic:
+        return
+    required = len(
+        [
+            parameter
+            for parameter in positional
+            if parameter.default is parameter.empty
+        ]
+    )
+    # A range, not an exact count: `def model(x, a, b, scale=2.0)` fitted with `p0=[1, 1]` is a
+    # shape `curve_fit` accepts — the defaulted parameter simply keeps its default — and an
+    # exact-arity check refused it. What is genuinely wrong is a call that cannot supply every
+    # required parameter, or that supplies more than the model can take.
+    if not required <= count + 1 <= len(positional):
         raise TypeError(
-            f"curvefit() needs a model taking x plus {count} parameter(s), one per p0 entry, "
-            f"but {getattr(func, '__name__', 'the model')} takes {len(positional)} positional "
-            f"argument(s)."
+            f"curvefit() needs a model it can call as func(x, *p0) with {count} parameter(s), "
+            f"but {getattr(func, '__name__', 'the model')} takes "
+            f"{required}-{len(positional)} positional argument(s) including x."
         )
 
 

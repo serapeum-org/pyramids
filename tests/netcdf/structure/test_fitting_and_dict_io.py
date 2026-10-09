@@ -27,6 +27,7 @@ NY, NX = 2, 3
 GEO = (0.0, 1.0, 0.0, 2.0, 0.0, -1.0)
 UNEVEN = [0.0, 1.0, 3.0, 6.0]
 DATA = pathlib.Path(__file__).parents[2] / "data" / "netcdf"
+SAMPLES = pathlib.Path(__file__).parents[3] / "examples" / "data" / "netcdf" / "samples"
 """Gaps of 1, 2 then 3, so a member that treats the axis as unit steps answers differently."""
 
 
@@ -375,7 +376,9 @@ class TestCurveFit:
         """
         var = _cube([1.0, 3.0, 7.0, 13.0]).get_variable("t")
 
-        with pytest.raises(TypeError, match="x plus 3 parameter"):
+        with pytest.raises(
+            TypeError, match=r"call as func\(x, \*p0\) with 3 parameter"
+        ):
             var.curvefit("level", _line, [1.0, 1.0, 1.0])
 
     def test_a_scattered_axis_fits_because_order_does_not_matter(self):
@@ -1003,7 +1006,7 @@ class TestDictRoundTrip:
         container = _cube([1.0, 2.0, 3.0, 4.0])
         container.remove_variable("t")
 
-        with pytest.raises(ValueError, match="at least one gridded data variable"):
+        with pytest.raises(ValueError, match="describe as a grid"):
             container.to_dict()
 
 
@@ -1262,7 +1265,32 @@ class TestDictExportDefensivePaths:
             monkeypatch: pytest's patching fixture.
 
         Test scenario:
-            A store reporting only one non-band dimension is refused by name.
+            A variable whose store reports only one non-band dimension is refused by name. The
+            variable route is the one that reaches this check: a container's variables are
+            pre-filtered by `_is_exportable`, which drops anything that does not resolve to its
+            band dimensions plus exactly two more, so for a container the refusal is the
+            "nothing qualifies" one instead.
+        """
+        variable = _cube([1.0, 2.0, 3.0, 4.0]).get_variable("t")
+        monkeypatch.setattr(
+            type(variable._parent_nc),
+            "_variable_dim_names",
+            lambda self, group, name: ["level", "x"],
+        )
+
+        with pytest.raises(ValueError, match="two spatial dimensions"):
+            variable.to_dict(data=False)
+
+    def test_a_container_whose_variables_all_fail_the_grid_test_is_refused(
+        self, monkeypatch
+    ):
+        """The container route's pre-filter, which drops rather than refuses per variable.
+
+        Args:
+            monkeypatch: pytest's patching fixture.
+
+        Test scenario:
+            Every variable reporting one non-band dimension leaves nothing to export.
         """
         container = _cube([1.0, 2.0, 3.0, 4.0])
         monkeypatch.setattr(
@@ -1271,7 +1299,7 @@ class TestDictExportDefensivePaths:
             lambda self, group, name: ["level", "x"],
         )
 
-        with pytest.raises(ValueError, match="two spatial dimensions"):
+        with pytest.raises(ValueError, match="describe as a grid"):
             container.to_dict(data=False)
 
     def test_variables_on_different_grids_are_refused(self, monkeypatch):
@@ -1416,3 +1444,87 @@ class TestCurveFitArgumentChecksOnOddCallables:
 
         with pytest.raises(ValueError, match="one direction"):
             scattered.integrate("level")
+
+
+class TestDictRoundTripOnStoresThatBiteBack:
+    """The three regressions round 1's own fixes introduced, each pinned by values."""
+
+    def test_a_cf_packed_cube_round_trips_its_values(self):
+        """The payload has to describe the values it carries, not the ones the store holds.
+
+        `read_array` unpacks through `scale_factor` / `add_offset` and returns floats, so a
+        payload that reported the stored `int16` had `from_dict` floor every value: 95,737 of
+        127,872 cells changed on this fixture. Shapes matched throughout, which is why the
+        earlier round-trip tests passed — they compared structure, not numbers.
+
+        Test scenario:
+            The COARDS sample, which is `int16` with packing, round-trips value for value.
+        """
+        path = SAMPLES / "coards__5v__1d4-4d1__y-desc.nc"
+        assert path.exists(), f"missing fixture {path}"
+        cube = NetCDF.read_file(str(path))
+        before = np.asarray(cube.get_variable("rhum").read_array())
+
+        payload = cube.to_dict()
+        after = np.asarray(NetCDF.from_dict(payload).get_variable("rhum").read_array())
+
+        assert payload["data_vars"]["rhum"]["dtype"] == "float64", (
+            "the payload must declare the dtype of the values it carries, not the stored one"
+        )
+        assert np.allclose(before, after, equal_nan=True), (
+            f"{int(np.sum(~np.isclose(before, after, equal_nan=True)))} of {before.size} cells "
+            f"changed across the round trip"
+        )
+
+    def test_a_subsetted_variable_describes_itself_not_its_parent(self):
+        """A variable resolves its *name* through its parent, and nothing else.
+
+        `isel`, `sel` and `head` return a variable that keeps its original `_parent_nc`, so
+        re-opening the variable from that parent discarded the subset entirely: a two-step
+        receiver exported a four-step axis and four steps of values, self-consistently and with
+        no warning. The rebuilding members were unaffected, their parent being a fresh container.
+
+        Test scenario:
+            A two-step `isel` of a four-step axis exports two steps, matching the receiver.
+        """
+        variable = _cube([1.0, 2.0, 3.0, 4.0]).get_variable("t")
+        subset = variable.isel(level=[0, 1])
+
+        payload = subset.to_dict()
+
+        assert subset._band_dim_sizes == (2,), subset._band_dim_sizes
+        assert payload["dims"]["level"] == 2, payload["dims"]
+        assert payload["data_vars"]["t"]["shape"] == [2, NY, NX], payload["data_vars"][
+            "t"
+        ]["shape"]
+        assert np.allclose(
+            np.asarray(payload["data_vars"]["t"]["data"], dtype="float64").ravel(),
+            np.asarray(subset.read_array(), dtype="float64").ravel(),
+            equal_nan=True,
+        ), "the payload must carry the receiver's values, not the parent's"
+
+    def test_a_curvilinear_store_exports_rather_than_being_called_non_gridded(self):
+        """Exportability is about shape, not about whether the grid axes are named `y`/`x`.
+
+        A ROMS or WRF store names its axes `eta_rho`/`xi_rho` or `south_north_stag`, so a
+        name-based classifier dropped plainly readable rasters — `salt (12, 191, 371)` among
+        them — and told the caller they had no raster plane.
+
+        Test scenario:
+            The curvilinear/staggered fixture exports its data variables.
+        """
+        path = DATA / "cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc"
+        assert path.exists(), f"missing fixture {path}"
+        cube = NetCDF.read_file(str(path))
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            payload = cube.to_dict(data=False)
+
+        assert "salt" in payload["data_vars"], sorted(payload["data_vars"])
+        entry = payload["data_vars"]["salt"]
+        assert len(entry["dims"]) == len(entry["shape"]), (
+            entry["dims"],
+            entry["shape"],
+        )
+        assert entry["dims"][-2:] == payload["pyramids"]["spatial_dims"], entry["dims"]

@@ -48,8 +48,12 @@ Does **not**, in each case because `from_array` is the only constructor and take
 - **Non-gridded variables.** They have no raster plane, so `from_array` cannot rebuild them; `to_dict` drops
   them with a warning naming each. 12 of the 43 variables in the CAM/CESM fixture are of this kind.
 
-A no-data **sentinel** also widens to a float for an integer cube (`-1` becomes `-1.0`). The array dtype itself
-round-trips exactly, and `to_dict(a) == to_dict(from_dict(to_dict(a)))` still holds, both sides widening alike.
+A no-data **sentinel** also widens to a float for an integer cube (`-1` becomes `-1.0`); the array dtype itself
+round-trips exactly.
+
+Because of the attribute losses above, `to_dict(a) == to_dict(from_dict(to_dict(a)))` is **not** an identity —
+the two payloads differ in `attrs` and in each variable's `attrs`, while `dims`, `coords`, `shape`, `dtype` and
+every value agree. Diff on those keys rather than on the whole dict.
 
 ## JSON
 
