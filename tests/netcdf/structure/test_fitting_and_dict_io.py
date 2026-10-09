@@ -426,8 +426,10 @@ class TestCurveFit:
             ),
         )
 
+        variable = container.get_variable("t")
+
         with pytest.raises(ValueError, match="already has"):
-            container.get_variable("t").curvefit("level", _line, [1.0, 1.0])
+            variable.curvefit("level", _line, [1.0, 1.0])
 
     def test_fitting_along_param_itself_is_allowed(self):
         """Fitting *along* `param` replaces it, so there is nothing left to collide with.

@@ -64,7 +64,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import fields
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 import numpy as np
 
@@ -308,6 +308,101 @@ def _coordinate_attrs(var: NetCDF, dim: str) -> dict[str, str]:
     return attrs
 
 
+class _Described(NamedTuple):
+    """One variable's contribution to the payload, as the export describes it.
+
+    The pieces travel together — a variable's dimension list, the sizes those dimensions take,
+    its spatial pair, its own entry, its coordinates and its sentinel are all read in one pass and
+    all consumed in one place — so they are one value rather than six accumulators threaded
+    through a loop.
+
+    Attributes:
+        declared: The dimension names in pyramids' order, band axes first.
+        shape: The size of each declared dimension.
+        spatial: The trailing `(y, x)` pair.
+        entry: The variable's own `data_vars` entry.
+        coords: The coordinate entries its band dimensions contribute.
+        sentinel: Its no-data value, already converted to plain Python.
+    """
+
+    declared: list[str]
+    shape: list[int]
+    spatial: tuple[str, ...]
+    entry: dict[str, Any]
+    coords: dict[str, Any]
+    sentinel: Any
+
+
+def _described_variable(
+    whole_cube: NetCDF, group: Any, name: str, var: NetCDF, data: bool
+) -> _Described:
+    """Describe one variable, reading its values only when asked for them.
+
+    Args:
+        whole_cube: The container that resolves declared dimension lists.
+        group: Its working group.
+        name: The variable's name.
+        var: The variable itself — the receiver on the variable route, so a subset describes
+            itself rather than its parent.
+        data: Whether to read and include the values.
+
+    Returns:
+        _Described: Everything the payload needs from this variable.
+
+    Raises:
+        ValueError: The variable does not resolve to its band dimensions plus exactly two more.
+    """
+    band = [str(entry) for entry in var._band_dim_names]
+    stored = [str(entry) for entry in whole_cube._variable_dim_names(group, name)]
+    # The payload records **pyramids'** layout, band axes first and `(y, x)` last, which is the
+    # shape `read_array` returns and `_shaped_array` rebuilds. A store's declared order is not
+    # that: variable `U` of this repo's `cf__48v…` fixture declares
+    # `['time', 'lat', 'lev', 'lon']`, interleaving a spatial axis between two band axes. Taking
+    # the store's order verbatim, or asserting the band axes lead it, both break on that file —
+    # the first silently mis-shapes the array, the second refuses a valid cube.
+    spatial = tuple(item for item in stored if item not in band)
+    if len(spatial) != 2:
+        raise ValueError(
+            f"to_dict() expects {name!r} to have two spatial dimensions, but its declared "
+            f"{stored} leaves {list(spatial)} once its band axes {band} are removed."
+        )
+    declared = [*band, *spatial]
+    shape, dtype_name = _declared_shape(var)
+    coords: dict[str, Any] = {}
+    for coord_name, values in var.coords.items():
+        stamps = np.asarray(values)
+        coord_entry: dict[str, Any] = {
+            "dims": [str(coord_name)],
+            "attrs": _coordinate_attrs(var, str(coord_name)),
+            "dtype": str(stamps.dtype),
+            "shape": [int(size) for size in stamps.shape],
+        }
+        if data:
+            # Dropped under `data=False` so the two modes agree: xarray's own
+            # `to_dict(data=False)` gives a coordinate `attrs`/`dims`/`dtype`/`shape` and no
+            # values, and emitting the stamps there made this neither mode.
+            coord_entry["data"] = _plain(stamps)
+        coords[str(coord_name)] = coord_entry
+    entry: dict[str, Any] = {
+        "dims": declared,
+        "attrs": _plain(dict(var.attrs)),
+        "dtype": dtype_name,
+        "shape": shape,
+    }
+    if data:
+        read_values = _shaped_array(var, var.read_array())
+        # The array is the authority on its own dtype once it has been read: `_declared_shape`
+        # infers it from declared packing, and a store that packs in a way that inference does
+        # not cover would otherwise describe its own values wrongly.
+        entry["dtype"] = str(read_values.dtype)
+        entry["data"] = _plain(read_values)
+    sentinels = var.no_data_value
+    # Per-band on a variable, and uniform within one, so the first entry speaks for it.
+    # Annotated as possibly scalar, which a cube built by some routes really is.
+    first = sentinels[0] if isinstance(sentinels, (tuple, list)) else sentinels
+    return _Described(declared, shape, spatial, entry, coords, _plain(first))
+
+
 def cube_to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
     """Export a cube's full structure as a nested dict.
 
@@ -417,62 +512,13 @@ def cube_to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
     no_data: dict[str, Any] = {}
     layouts: set[tuple[str, ...]] = set()
     for name, var in pairs:
-        # `var` is the receiver itself on the variable route, so a subsetted variable describes
-        # its own axis rather than the parent's.
-        band = [str(entry) for entry in var._band_dim_names]
-        stored = [str(entry) for entry in whole_cube._variable_dim_names(group, name)]
-        # The payload records **pyramids' own** layout, band axes first and `(y, x)` last, which
-        # is the shape `read_array` returns and `_shaped_array` rebuilds. A store's declared
-        # order is not that: variable `U` of this repo's `cf__48v…` fixture declares
-        # `['time', 'lat', 'lev', 'lon']`, interleaving a spatial axis between two band axes.
-        # Taking the store's order verbatim, or asserting the band axes lead it, both break on
-        # that file — the first silently mis-shapes the array, the second refuses a valid cube.
-        spatial = tuple(item for item in stored if item not in band)
-        if len(spatial) != 2:
-            raise ValueError(
-                f"to_dict() expects {name!r} to have two spatial dimensions, but its declared "
-                f"{stored} leaves {list(spatial)} once its band axes {band} are removed."
-            )
-        declared = [*band, *spatial]
-        layouts.add(spatial)
-        shape, dtype_name = _declared_shape(var)
-        for position, size in zip(declared, shape, strict=True):
+        described = _described_variable(whole_cube, group, name, var, data)
+        layouts.add(described.spatial)
+        for position, size in zip(described.declared, described.shape, strict=True):
             dims[position] = int(size)
-        read_values = None
-        if data:
-            read_values = _shaped_array(var, var.read_array())
-            # The array is the authority on its own dtype once it has been read: `_declared_shape`
-            # infers it from declared packing, and a store that packs in a way that inference does
-            # not cover would otherwise describe its own values wrongly.
-            dtype_name = str(read_values.dtype)
-        for coord_name, values in var.coords.items():
-            stamps = np.asarray(values)
-            entry_coord: dict[str, Any] = {
-                "dims": [str(coord_name)],
-                "attrs": _coordinate_attrs(var, str(coord_name)),
-                "dtype": str(stamps.dtype),
-                "shape": [int(size) for size in stamps.shape],
-            }
-            if data:
-                # Dropped under `data=False` so the two modes agree: xarray's own
-                # `to_dict(data=False)` gives a coordinate `attrs`/`dims`/`dtype`/`shape` and no
-                # values, and emitting the stamps there made this neither mode.
-                entry_coord["data"] = _plain(stamps)
-            coords[str(coord_name)] = entry_coord
-        entry: dict[str, Any] = {
-            "dims": declared,
-            "attrs": _plain(dict(var.attrs)),
-            "dtype": dtype_name,
-            "shape": shape,
-        }
-        if read_values is not None:
-            entry["data"] = _plain(read_values)
-        data_vars[name] = entry
-        sentinels = var.no_data_value
-        # Per-band on a variable, and uniform within one, so the first entry speaks for it.
-        # Annotated as possibly scalar, which a cube built by some routes really is.
-        first = sentinels[0] if isinstance(sentinels, (tuple, list)) else sentinels
-        no_data[name] = _plain(first)
+        coords.update(described.coords)
+        data_vars[name] = described.entry
+        no_data[name] = described.sentinel
     if len(layouts) > 1:
         # Last-variable-wins would have stamped one layout over the whole payload and rebuilt
         # the others against the wrong axes.
