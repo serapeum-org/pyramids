@@ -104,7 +104,71 @@ def to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
         sentinels and schema version.
 
     Raises:
-        ValueError: The cube has no data variables, so there is nothing to export.
+        ValueError: The cube has no data variables, or declares no CRS, so the payload could
+            only rebuild into an unreferenced cube.
+
+    Examples:
+        - The four xarray keys, plus the one that carries the georeferencing:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+          >>> cube = NetCDF.from_array(
+          ...     np.array([1.0, 2.0]).reshape(2, 1, 1),
+          ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+          ...     variable_name="t",
+          ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+          ... )
+          >>> payload = cube.to_dict()
+          >>> sorted(payload)
+          ['attrs', 'coords', 'data_vars', 'dims', 'pyramids']
+          >>> payload["dims"]
+          {'time': 2, 'y': 1, 'x': 1}
+          >>> payload["coords"]["time"]["data"]
+          [0.0, 6.0]
+
+          ```
+        - The `pyramids` block is what xarray's schema has nowhere to put:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+          >>> cube = NetCDF.from_array(
+          ...     np.array([1.0, 2.0]).reshape(2, 1, 1),
+          ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+          ...     variable_name="t",
+          ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+          ... )
+          >>> block = cube.to_dict()["pyramids"]
+          >>> block["epsg"], block["spatial_dims"]
+          (4326, ['y', 'x'])
+          >>> block["geotransform"]
+          [0.0, 1.0, 0.0, 1.0, 0.0, -1.0]
+
+          ```
+        - `data=False` keeps the shape and drops the values, for inspecting or diffing:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+          >>> cube = NetCDF.from_array(
+          ...     np.array([1.0, 2.0]).reshape(2, 1, 1),
+          ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+          ...     variable_name="t",
+          ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+          ... )
+          >>> entry = cube.to_dict(data=False)["data_vars"]["t"]
+          >>> entry["shape"], entry["dtype"]
+          ([2, 1, 1], 'float64')
+          >>> "data" in entry
+          False
+
+          ```
+
+    See Also:
+        from_dict: Rebuilds a cube from what this returns.
+        pyramids.netcdf.NetCDF.to_dataframe: The cube as a pandas frame instead, which is a
+            flat table rather than the structure.
     """
     names = list(nc.variable_names)
     if not names:
@@ -288,9 +352,70 @@ def from_dict(payload: Any) -> Container:
 
     Raises:
         TypeError: `payload` is not a dict, or its `pyramids` block is not a dict.
-        ValueError: A required key is missing; `data_vars` is empty; a variable has no values
-            because the payload came from `to_dict(data=False)`; a variable declares an unknown
-            dimension; or a variable's array shape disagrees with its dimensions.
+        ValueError: A required key is missing; `data_vars` is empty; the geotransform is not six
+            values; a variable has no values because the payload came from `to_dict(data=False)`;
+            a variable declares an unknown dimension; or a variable's array shape disagrees with
+            its dimensions.
+
+    Examples:
+        - The round trip, which is the contract: values and stamps come back:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+          >>> cube = NetCDF.from_array(
+          ...     np.array([1.0, 2.0]).reshape(2, 1, 1),
+          ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+          ...     variable_name="t",
+          ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+          ... )
+          >>> rebuilt = NetCDF.from_dict(cube.to_dict())
+          >>> rebuilt.get_variable("t").read_array().ravel().tolist()
+          [1.0, 2.0]
+          >>> np.asarray(rebuilt.get_variable("t").coords["time"]).tolist()
+          [0.0, 6.0]
+
+          ```
+        - The georeferencing survives, which is why the schema carries it at all:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+          >>> cube = NetCDF.from_array(
+          ...     np.array([1.0, 2.0]).reshape(2, 1, 1),
+          ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+          ...     variable_name="t",
+          ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+          ... )
+          >>> rebuilt = NetCDF.from_dict(cube.to_dict())
+          >>> rebuilt.epsg
+          4326
+          >>> tuple(rebuilt.geotransform)
+          (0.0, 1.0, 0, 1.0, 0, -1.0)
+
+          ```
+        - A payload carrying structure only cannot be rebuilt, and says so:
+
+          ```python
+          >>> import numpy as np
+          >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+          >>> cube = NetCDF.from_array(
+          ...     np.array([1.0, 2.0]).reshape(2, 1, 1),
+          ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+          ...     variable_name="t",
+          ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0]),
+          ... )
+          >>> NetCDF.from_dict(cube.to_dict(data=False))  # doctest: +ELLIPSIS
+          Traceback (most recent call last):
+              ...
+          ValueError: from_dict() needs values for 't', ... structure only and cannot be rebuilt.
+
+          ```
+
+    See Also:
+        to_dict: Produces the payload this consumes.
+        pyramids.netcdf.NetCDF.from_array: The constructor this builds on, and the reason only
+            the CF-recognised global attributes are restored.
     """
     # Local import breaks the netcdf.py <-> dict_io import cycle: netcdf.py's facades call these
     # functions, and the constructor here is netcdf.py's own.
