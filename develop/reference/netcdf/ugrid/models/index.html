@@ -3151,6 +3151,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../../../examples/netcdf/fitting-smoothing-and-dicts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fitting a model, smoothing a series, and the cube as a dict
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../../../examples/netcdf/dask-lazy-netcdf/" class="md-nav__link">
         
   
@@ -3218,10 +3246,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11_7" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11_8" >
         
           
-          <label class="md-nav__link" for="__nav_3_11_7" id="__nav_3_11_7_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3_11_8" id="__nav_3_11_8_label" tabindex="0">
             
   
   
@@ -3239,8 +3267,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_3_11_7_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_11_7">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_3_11_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_11_8">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -4599,6 +4627,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../dict_io/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dict I/O
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../cf/" class="md-nav__link">
         
   
@@ -4640,10 +4696,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_13_9" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_13_10" checked>
         
           
-          <label class="md-nav__link" for="__nav_4_13_9" id="__nav_4_13_9_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_13_10" id="__nav_4_13_10_label" tabindex="0">
             
   
   
@@ -4661,8 +4717,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_4_13_9_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_4_13_9">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_4_13_10_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_13_10">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -7379,7 +7435,10 @@ callable that defers reading until data is first accessed.</p>
 <span class="normal"><a href="#__codelineno-0-386">386</a></span>
 <span class="normal"><a href="#__codelineno-0-387">387</a></span>
 <span class="normal"><a href="#__codelineno-0-388">388</a></span>
-<span class="normal"><a href="#__codelineno-0-389">389</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-147" name="__codelineno-0-147"></a><span class="nd">@dataclass</span>
+<span class="normal"><a href="#__codelineno-0-389">389</a></span>
+<span class="normal"><a href="#__codelineno-0-390">390</a></span>
+<span class="normal"><a href="#__codelineno-0-391">391</a></span>
+<span class="normal"><a href="#__codelineno-0-392">392</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-147" name="__codelineno-0-147"></a><span class="nd">@dataclass</span>
 <a id="__codelineno-0-148" name="__codelineno-0-148"></a><span class="k">class</span><span class="w"> </span><span class="nc">MeshVariable</span><span class="p">:</span>
 <a id="__codelineno-0-149" name="__codelineno-0-149"></a><span class="w">    </span><span class="sd">"""Data variable defined on a mesh location.</span>
 <a id="__codelineno-0-150" name="__codelineno-0-150"></a>
@@ -7615,13 +7674,16 @@ callable that defers reading until data is first accessed.</p>
 <a id="__codelineno-0-380" name="__codelineno-0-380"></a>            <span class="n">location</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">location</span><span class="p">,</span>
 <a id="__codelineno-0-381" name="__codelineno-0-381"></a>            <span class="n">mesh_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mesh_name</span><span class="p">,</span>
 <a id="__codelineno-0-382" name="__codelineno-0-382"></a>            <span class="n">shape</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span> <span class="k">if</span> <span class="n">data</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
-<a id="__codelineno-0-383" name="__codelineno-0-383"></a>            <span class="n">attributes</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">attributes</span><span class="p">,</span>
-<a id="__codelineno-0-384" name="__codelineno-0-384"></a>            <span class="n">nodata</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">nodata</span><span class="p">,</span>
-<a id="__codelineno-0-385" name="__codelineno-0-385"></a>            <span class="n">units</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">units</span><span class="p">,</span>
-<a id="__codelineno-0-386" name="__codelineno-0-386"></a>            <span class="n">standard_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">standard_name</span><span class="p">,</span>
-<a id="__codelineno-0-387" name="__codelineno-0-387"></a>            <span class="n">dimensions</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dimensions</span><span class="p">,</span>
-<a id="__codelineno-0-388" name="__codelineno-0-388"></a>            <span class="n">_data</span><span class="o">=</span><span class="n">data</span><span class="p">,</span>
-<a id="__codelineno-0-389" name="__codelineno-0-389"></a>        <span class="p">)</span>
+<a id="__codelineno-0-383" name="__codelineno-0-383"></a>            <span class="c1"># Copy, not alias: a derived variable owns its own attributes dict, so a later</span>
+<a id="__codelineno-0-384" name="__codelineno-0-384"></a>            <span class="c1"># edit to the derivation can never leak back into the source (these derivations</span>
+<a id="__codelineno-0-385" name="__codelineno-0-385"></a>            <span class="c1"># are meant to be immutable).</span>
+<a id="__codelineno-0-386" name="__codelineno-0-386"></a>            <span class="n">attributes</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">attributes</span><span class="p">),</span>
+<a id="__codelineno-0-387" name="__codelineno-0-387"></a>            <span class="n">nodata</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">nodata</span><span class="p">,</span>
+<a id="__codelineno-0-388" name="__codelineno-0-388"></a>            <span class="n">units</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">units</span><span class="p">,</span>
+<a id="__codelineno-0-389" name="__codelineno-0-389"></a>            <span class="n">standard_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">standard_name</span><span class="p">,</span>
+<a id="__codelineno-0-390" name="__codelineno-0-390"></a>            <span class="n">dimensions</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dimensions</span><span class="p">,</span>
+<a id="__codelineno-0-391" name="__codelineno-0-391"></a>            <span class="n">_data</span><span class="o">=</span><span class="n">data</span><span class="p">,</span>
+<a id="__codelineno-0-392" name="__codelineno-0-392"></a>        <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
@@ -8300,7 +8362,10 @@ no eager data.</p>
 <span class="normal"><a href="#__codelineno-0-386">386</a></span>
 <span class="normal"><a href="#__codelineno-0-387">387</a></span>
 <span class="normal"><a href="#__codelineno-0-388">388</a></span>
-<span class="normal"><a href="#__codelineno-0-389">389</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-363" name="__codelineno-0-363"></a><span class="k">def</span><span class="w"> </span><span class="nf">with_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MeshVariable</span><span class="p">:</span>
+<span class="normal"><a href="#__codelineno-0-389">389</a></span>
+<span class="normal"><a href="#__codelineno-0-390">390</a></span>
+<span class="normal"><a href="#__codelineno-0-391">391</a></span>
+<span class="normal"><a href="#__codelineno-0-392">392</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-363" name="__codelineno-0-363"></a><span class="k">def</span><span class="w"> </span><span class="nf">with_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MeshVariable</span><span class="p">:</span>
 <a id="__codelineno-0-364" name="__codelineno-0-364"></a><span class="w">    </span><span class="sd">"""Return a copy of this variable carrying ``data``, keeping all other metadata.</span>
 <a id="__codelineno-0-365" name="__codelineno-0-365"></a>
 <a id="__codelineno-0-366" name="__codelineno-0-366"></a><span class="sd">    The new variable is eager (``_data`` set, no loader); its ``shape`` is taken from</span>
@@ -8320,13 +8385,16 @@ no eager data.</p>
 <a id="__codelineno-0-380" name="__codelineno-0-380"></a>        <span class="n">location</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">location</span><span class="p">,</span>
 <a id="__codelineno-0-381" name="__codelineno-0-381"></a>        <span class="n">mesh_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mesh_name</span><span class="p">,</span>
 <a id="__codelineno-0-382" name="__codelineno-0-382"></a>        <span class="n">shape</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span> <span class="k">if</span> <span class="n">data</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
-<a id="__codelineno-0-383" name="__codelineno-0-383"></a>        <span class="n">attributes</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">attributes</span><span class="p">,</span>
-<a id="__codelineno-0-384" name="__codelineno-0-384"></a>        <span class="n">nodata</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">nodata</span><span class="p">,</span>
-<a id="__codelineno-0-385" name="__codelineno-0-385"></a>        <span class="n">units</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">units</span><span class="p">,</span>
-<a id="__codelineno-0-386" name="__codelineno-0-386"></a>        <span class="n">standard_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">standard_name</span><span class="p">,</span>
-<a id="__codelineno-0-387" name="__codelineno-0-387"></a>        <span class="n">dimensions</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dimensions</span><span class="p">,</span>
-<a id="__codelineno-0-388" name="__codelineno-0-388"></a>        <span class="n">_data</span><span class="o">=</span><span class="n">data</span><span class="p">,</span>
-<a id="__codelineno-0-389" name="__codelineno-0-389"></a>    <span class="p">)</span>
+<a id="__codelineno-0-383" name="__codelineno-0-383"></a>        <span class="c1"># Copy, not alias: a derived variable owns its own attributes dict, so a later</span>
+<a id="__codelineno-0-384" name="__codelineno-0-384"></a>        <span class="c1"># edit to the derivation can never leak back into the source (these derivations</span>
+<a id="__codelineno-0-385" name="__codelineno-0-385"></a>        <span class="c1"># are meant to be immutable).</span>
+<a id="__codelineno-0-386" name="__codelineno-0-386"></a>        <span class="n">attributes</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">attributes</span><span class="p">),</span>
+<a id="__codelineno-0-387" name="__codelineno-0-387"></a>        <span class="n">nodata</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">nodata</span><span class="p">,</span>
+<a id="__codelineno-0-388" name="__codelineno-0-388"></a>        <span class="n">units</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">units</span><span class="p">,</span>
+<a id="__codelineno-0-389" name="__codelineno-0-389"></a>        <span class="n">standard_name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">standard_name</span><span class="p">,</span>
+<a id="__codelineno-0-390" name="__codelineno-0-390"></a>        <span class="n">dimensions</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dimensions</span><span class="p">,</span>
+<a id="__codelineno-0-391" name="__codelineno-0-391"></a>        <span class="n">_data</span><span class="o">=</span><span class="n">data</span><span class="p">,</span>
+<a id="__codelineno-0-392" name="__codelineno-0-392"></a>    <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8470,10 +8538,7 @@ and inspection purposes.</p>
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>src/pyramids/netcdf/ugrid/models.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-392">392</a></span>
-<span class="normal"><a href="#__codelineno-0-393">393</a></span>
-<span class="normal"><a href="#__codelineno-0-394">394</a></span>
-<span class="normal"><a href="#__codelineno-0-395">395</a></span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-395">395</a></span>
 <span class="normal"><a href="#__codelineno-0-396">396</a></span>
 <span class="normal"><a href="#__codelineno-0-397">397</a></span>
 <span class="normal"><a href="#__codelineno-0-398">398</a></span>
@@ -8494,31 +8559,34 @@ and inspection purposes.</p>
 <span class="normal"><a href="#__codelineno-0-413">413</a></span>
 <span class="normal"><a href="#__codelineno-0-414">414</a></span>
 <span class="normal"><a href="#__codelineno-0-415">415</a></span>
-<span class="normal"><a href="#__codelineno-0-416">416</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-392" name="__codelineno-0-392"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-0-393" name="__codelineno-0-393"></a><span class="k">class</span><span class="w"> </span><span class="nc">UgridMetadata</span><span class="p">:</span>
-<a id="__codelineno-0-394" name="__codelineno-0-394"></a><span class="w">    </span><span class="sd">"""Full metadata summary for a UGRID dataset.</span>
-<a id="__codelineno-0-395" name="__codelineno-0-395"></a>
-<a id="__codelineno-0-396" name="__codelineno-0-396"></a><span class="sd">    Aggregates topology information, data variable inventory,</span>
-<a id="__codelineno-0-397" name="__codelineno-0-397"></a><span class="sd">    global attributes, and mesh element counts for display</span>
-<a id="__codelineno-0-398" name="__codelineno-0-398"></a><span class="sd">    and inspection purposes.</span>
-<a id="__codelineno-0-399" name="__codelineno-0-399"></a>
-<a id="__codelineno-0-400" name="__codelineno-0-400"></a><span class="sd">    Attributes:</span>
-<a id="__codelineno-0-401" name="__codelineno-0-401"></a><span class="sd">        mesh_topologies: List of parsed mesh topologies in the file.</span>
-<a id="__codelineno-0-402" name="__codelineno-0-402"></a><span class="sd">        data_variables: Mapping of variable name to location.</span>
-<a id="__codelineno-0-403" name="__codelineno-0-403"></a><span class="sd">        global_attributes: File-level NetCDF attributes.</span>
-<a id="__codelineno-0-404" name="__codelineno-0-404"></a><span class="sd">        conventions: Conventions string (e.g., "CF-1.8 UGRID-1.0").</span>
-<a id="__codelineno-0-405" name="__codelineno-0-405"></a><span class="sd">        n_nodes: Total number of mesh nodes.</span>
-<a id="__codelineno-0-406" name="__codelineno-0-406"></a><span class="sd">        n_faces: Total number of mesh faces.</span>
-<a id="__codelineno-0-407" name="__codelineno-0-407"></a><span class="sd">        n_edges: Total number of mesh edges.</span>
-<a id="__codelineno-0-408" name="__codelineno-0-408"></a><span class="sd">    """</span>
-<a id="__codelineno-0-409" name="__codelineno-0-409"></a>
-<a id="__codelineno-0-410" name="__codelineno-0-410"></a>    <span class="n">mesh_topologies</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">MeshTopologyInfo</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
-<a id="__codelineno-0-411" name="__codelineno-0-411"></a>    <span class="n">data_variables</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
-<a id="__codelineno-0-412" name="__codelineno-0-412"></a>    <span class="n">global_attributes</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
-<a id="__codelineno-0-413" name="__codelineno-0-413"></a>    <span class="n">conventions</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-<a id="__codelineno-0-414" name="__codelineno-0-414"></a>    <span class="n">n_nodes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-415" name="__codelineno-0-415"></a>    <span class="n">n_faces</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-0-416" name="__codelineno-0-416"></a>    <span class="n">n_edges</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="normal"><a href="#__codelineno-0-416">416</a></span>
+<span class="normal"><a href="#__codelineno-0-417">417</a></span>
+<span class="normal"><a href="#__codelineno-0-418">418</a></span>
+<span class="normal"><a href="#__codelineno-0-419">419</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-395" name="__codelineno-0-395"></a><span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-396" name="__codelineno-0-396"></a><span class="k">class</span><span class="w"> </span><span class="nc">UgridMetadata</span><span class="p">:</span>
+<a id="__codelineno-0-397" name="__codelineno-0-397"></a><span class="w">    </span><span class="sd">"""Full metadata summary for a UGRID dataset.</span>
+<a id="__codelineno-0-398" name="__codelineno-0-398"></a>
+<a id="__codelineno-0-399" name="__codelineno-0-399"></a><span class="sd">    Aggregates topology information, data variable inventory,</span>
+<a id="__codelineno-0-400" name="__codelineno-0-400"></a><span class="sd">    global attributes, and mesh element counts for display</span>
+<a id="__codelineno-0-401" name="__codelineno-0-401"></a><span class="sd">    and inspection purposes.</span>
+<a id="__codelineno-0-402" name="__codelineno-0-402"></a>
+<a id="__codelineno-0-403" name="__codelineno-0-403"></a><span class="sd">    Attributes:</span>
+<a id="__codelineno-0-404" name="__codelineno-0-404"></a><span class="sd">        mesh_topologies: List of parsed mesh topologies in the file.</span>
+<a id="__codelineno-0-405" name="__codelineno-0-405"></a><span class="sd">        data_variables: Mapping of variable name to location.</span>
+<a id="__codelineno-0-406" name="__codelineno-0-406"></a><span class="sd">        global_attributes: File-level NetCDF attributes.</span>
+<a id="__codelineno-0-407" name="__codelineno-0-407"></a><span class="sd">        conventions: Conventions string (e.g., "CF-1.8 UGRID-1.0").</span>
+<a id="__codelineno-0-408" name="__codelineno-0-408"></a><span class="sd">        n_nodes: Total number of mesh nodes.</span>
+<a id="__codelineno-0-409" name="__codelineno-0-409"></a><span class="sd">        n_faces: Total number of mesh faces.</span>
+<a id="__codelineno-0-410" name="__codelineno-0-410"></a><span class="sd">        n_edges: Total number of mesh edges.</span>
+<a id="__codelineno-0-411" name="__codelineno-0-411"></a><span class="sd">    """</span>
+<a id="__codelineno-0-412" name="__codelineno-0-412"></a>
+<a id="__codelineno-0-413" name="__codelineno-0-413"></a>    <span class="n">mesh_topologies</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">MeshTopologyInfo</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">()</span>
+<a id="__codelineno-0-414" name="__codelineno-0-414"></a>    <span class="n">data_variables</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+<a id="__codelineno-0-415" name="__codelineno-0-415"></a>    <span class="n">global_attributes</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+<a id="__codelineno-0-416" name="__codelineno-0-416"></a>    <span class="n">conventions</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-417" name="__codelineno-0-417"></a>    <span class="n">n_nodes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-418" name="__codelineno-0-418"></a>    <span class="n">n_faces</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-0-419" name="__codelineno-0-419"></a>    <span class="n">n_edges</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
 </code></pre></div></td></tr></table></div>
               </details>
 
