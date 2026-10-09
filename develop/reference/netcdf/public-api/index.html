@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -3151,34 +3151,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../examples/netcdf/fitting-smoothing-and-dicts/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Fitting a model, smoothing a series, and the cube as a dict
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../../../examples/netcdf/dask-lazy-netcdf/" class="md-nav__link">
         
   
@@ -3246,10 +3218,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11_8" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_11_7" >
         
           
-          <label class="md-nav__link" for="__nav_3_11_8" id="__nav_3_11_8_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3_11_7" id="__nav_3_11_7_label" tabindex="0">
             
   
   
@@ -3267,8 +3239,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_3_11_8_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_3_11_8">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_3_11_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_11_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -4795,34 +4767,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../dict_io/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Dict I/O
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../cf/" class="md-nav__link">
         
   
@@ -4862,10 +4806,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_13_10" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_13_9" >
         
           
-          <label class="md-nav__link" for="__nav_4_13_10" id="__nav_4_13_10_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_13_9" id="__nav_4_13_9_label" tabindex="0">
             
   
   
@@ -4883,8 +4827,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_4_13_10_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_13_10">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_4_13_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_13_9">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -6561,8 +6505,8 @@
 
 
 <h1 id="netcdf-public-api"><a class="toclink" href="#netcdf-public-api"><code>NetCDF</code> — public API</a><a class="headerlink" href="#netcdf-public-api" title="Permanent link">#</a></h1>
-<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 134 in all: 98 methods, 27 properties,
-8 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
+<p>A one-line map of every public member the <code>NetCDF</code> class itself defines — 130 in all: 95 methods, 27 properties,
+7 classmethods and 1 staticmethod, plus the four mapping dunders (<code>__getitem__</code>, <code>__contains__</code>, <code>__iter__</code>,
 <code>__len__</code>). <code>concat</code> and <code>merge</code> are counted among the methods: each is callable on the class
 (<code>NetCDF.concat([a, b], dim)</code>) and on a cube (<code>a.concat([b], dim)</code>, which joins the
 receiver first). For the full signatures, arguments and examples, see the rendered
@@ -6606,10 +6550,6 @@ members under <a href="../../dataset/analysis/#cell-wise-transforms">Cell-wise t
 <tr>
 <td><code>from_dataframe()</code></td>
 <td>Rebuilds a Container from a <code>MultiIndex</code> DataFrame — the inverse of <code>to_dataframe</code>.</td>
-</tr>
-<tr>
-<td><code>from_dict()</code></td>
-<td>Rebuilds a Container from a nested dict — the inverse of <code>to_dict</code>.</td>
 </tr>
 <tr>
 <td><code>from_xarray()</code></td>
@@ -6911,10 +6851,6 @@ A variable with no raster plane is the exception — see each member's docstring
 <td>Reduces a moving window along <code>dim</code>, keeping its length — <code>center</code>, <code>min_periods</code>.</td>
 </tr>
 <tr>
-<td><code>rolling_exp()</code></td>
-<td>Exponentially-weighted moving reduction along <code>dim</code> — <code>alpha</code>, <code>how</code>.</td>
-</tr>
-<tr>
 <td><code>diff()</code></td>
 <td>Differences neighbouring steps along <code>dim</code> — <code>n</code>, <code>label</code>.</td>
 </tr>
@@ -6967,10 +6903,6 @@ A variable with no raster plane is the exception — see each member's docstring
 <td>Per-cell least-squares coefficients along <code>dim</code>.</td>
 </tr>
 <tr>
-<td><code>curvefit()</code></td>
-<td>Per-cell least-squares fit of an arbitrary model along <code>dim</code> — <code>p0</code>/<code>bounds</code>/<code>full</code>.</td>
-</tr>
-<tr>
 <td><code>shift()</code></td>
 <td>Moves the values along <code>dim</code>, filling the vacated steps — <code>periods</code>, <code>fill_value</code>.</td>
 </tr>
@@ -6993,10 +6925,6 @@ A variable with no raster plane is the exception — see each member's docstring
 <tr>
 <td><code>to_dataframe()</code></td>
 <td>The cube as a pandas frame, indexed by its dimensions — <code>variables</code>, <code>dropna</code>.</td>
-</tr>
-<tr>
-<td><code>to_dict()</code></td>
-<td>The cube's whole structure as a nested dict — xarray's schema plus georeference.</td>
 </tr>
 <tr>
 <td><code>to_dask_dataframe()</code></td>
