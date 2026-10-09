@@ -25,7 +25,16 @@ from osgeo import gdal
 from pyproj import CRS, Transformer
 from shapely.geometry import LineString, box
 
-from pyramids.base._reductions import gaps_as_nan, reduce_by_label, weighted_statistic
+from pyramids.base._reductions import (
+    gaps_as_nan,
+    interpolated,
+    pushed,
+    reduce_axis,
+    reduce_by_label,
+    shifted,
+    weighted_statistic,
+    window_members,
+)
 from pyramids.base.crs import crs_from_user_input, crs_spec, sr_from_epsg
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
@@ -1189,6 +1198,240 @@ class UgridDataset:
         )
         return pd.DataFrame({stat: columns[stat] for stat in stats}, index=zones.index)
 
+    def _temporal_names(self) -> list[str]:
+        """Names of the variables that carry a real time dimension."""
+        return [name for name, var in self._data_variables.items() if var.has_time]
+
+    def _rebuild(self, data_variables: dict[str, MeshVariable]) -> UgridDataset:
+        """A new dataset with the same mesh/metadata but different data variables.
+
+        Every along-time member below is immutable — it derives a fresh dataset rather than
+        mutating in place — mirroring :meth:`sel_time` / :meth:`crop`. The mesh topology,
+        global attributes, topology info and CRS all carry over unchanged.
+        """
+        return UgridDataset(
+            mesh=self._mesh,
+            data_variables=data_variables,
+            global_attributes=self._global_attributes,
+            topology_info=self._topology_info,
+            crs_wkt=self._crs_wkt,
+        )
+
+    def _require_temporal(self, operation: str) -> list[str]:
+        """The temporal variable names, or a clear error when there are none."""
+        temporal = self._temporal_names()
+        if not temporal:
+            raise ValueError(
+                f"{operation} needs at least one variable with a time dimension; this "
+                f"dataset has none."
+            )
+        return temporal
+
+    def reduce(
+        self,
+        how: str,
+        *,
+        skipna: bool = True,
+        q: float | None = None,
+    ) -> UgridDataset:
+        """Collapse the time dimension of every temporal variable to a single statistic.
+
+        The mesh counterpart of :meth:`pyramids.netcdf.NetCDF.reduce` over time. Each
+        temporal variable is reduced along its time axis through the shared
+        :func:`pyramids.base._reductions.reduce_axis` — the very kernel the raster reductions
+        use — and becomes a static per-element variable. Non-temporal variables are kept
+        unchanged.
+
+        Args:
+            how: One of ``"mean"``, ``"sum"``, ``"min"``, ``"max"``, ``"std"``, ``"var"``,
+                ``"median"``, ``"prod"``, ``"quantile"``, ``"count"``, ``"all"`` or ``"any"``.
+            skipna: Skip the declared no-data value and NaN. Defaults to True.
+            q: The quantile for ``how="quantile"``; must stay ``None`` otherwise.
+
+        Returns:
+            UgridDataset: A new dataset; each temporal variable collapsed over time.
+
+        Raises:
+            ValueError: No variable has a time dimension.
+
+        Examples:
+            - Mean over two time steps of a per-face variable:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> mesh = UgridDataset.from_arrays(
+                ...     node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+                ...     node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+                ...     face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+                ...     data={"d": np.array([[1.0, 2.0], [3.0, 4.0]])},
+                ...     data_locations={"d": "face"},
+                ... )
+                >>> mesh["d"].has_time
+                True
+                >>> reduced = mesh.reduce("mean")
+                >>> reduced["d"].data.tolist()
+                [2.0, 3.0]
+                >>> reduced["d"].has_time
+                False
+
+                ```
+        """
+        self._require_temporal("reduce")
+        new_vars: dict[str, MeshVariable] = {}
+        for name, var in self._data_variables.items():
+            if not var.has_time:
+                new_vars[name] = var
+                continue
+            axis = cast("int", var.time_index)
+            data = var.data
+            if data is None:
+                raise ValueError(f"Variable {name!r} has no loaded data to reduce.")
+            reduced = reduce_axis(np.asarray(data), axis, how, skipna, var.nodata, q)
+            new_vars[name] = _static_from(var, np.asarray(reduced), axis)
+        return self._rebuild(new_vars)
+
+    def mean(self, *, skipna: bool = True) -> UgridDataset:
+        """Mean over time of every temporal variable. See :meth:`reduce`."""
+        return self.reduce("mean", skipna=skipna)
+
+    def sum(self, *, skipna: bool = True) -> UgridDataset:
+        """Sum over time of every temporal variable. See :meth:`reduce`."""
+        return self.reduce("sum", skipna=skipna)
+
+    def min(self, *, skipna: bool = True) -> UgridDataset:
+        """Minimum over time of every temporal variable. See :meth:`reduce`."""
+        return self.reduce("min", skipna=skipna)
+
+    def max(self, *, skipna: bool = True) -> UgridDataset:
+        """Maximum over time of every temporal variable. See :meth:`reduce`."""
+        return self.reduce("max", skipna=skipna)
+
+    def std(self, *, skipna: bool = True) -> UgridDataset:
+        """Standard deviation over time of every temporal variable. See :meth:`reduce`."""
+        return self.reduce("std", skipna=skipna)
+
+    def var(self, *, skipna: bool = True) -> UgridDataset:
+        """Variance over time of every temporal variable. See :meth:`reduce`."""
+        return self.reduce("var", skipna=skipna)
+
+    def _transform_time(self, operation: str, fn: Any) -> UgridDataset:
+        """Apply a shape-preserving ``fn(float_data, axis)`` to each temporal variable.
+
+        ``fn`` receives the variable's values as float64 with no-data blanked to NaN, and the
+        integer time axis, and returns an array of the same shape. Static variables are kept
+        unchanged. Shared by the cumulative, shift, fill and rolling members.
+        """
+        self._require_temporal(operation)
+        new_vars: dict[str, MeshVariable] = {}
+        for name, var in self._data_variables.items():
+            if not var.has_time:
+                new_vars[name] = var
+                continue
+            axis = cast("int", var.time_index)
+            data = var.data
+            if data is None:
+                raise ValueError(
+                    f"Variable {name!r} has no loaded data for {operation}."
+                )
+            transformed = fn(gaps_as_nan(np.asarray(data), var.nodata), axis)
+            new_vars[name] = var.with_data(np.asarray(transformed))
+        return self._rebuild(new_vars)
+
+    def cumsum(self) -> UgridDataset:
+        """Cumulative sum along time for every temporal variable."""
+        return self._transform_time("cumsum", lambda d, axis: np.cumsum(d, axis=axis))
+
+    def cumprod(self) -> UgridDataset:
+        """Cumulative product along time for every temporal variable."""
+        return self._transform_time("cumprod", lambda d, axis: np.cumprod(d, axis=axis))
+
+    def shift(self, periods: int = 1) -> UgridDataset:
+        """Shift each temporal variable ``periods`` steps along time, vacated steps NaN.
+
+        Args:
+            periods: Steps to shift; negative shifts towards the start. Defaults to 1.
+        """
+        return self._transform_time(
+            "shift", lambda d, axis: shifted(d, axis, periods, np.nan)
+        )
+
+    def ffill(self, *, limit: int | None = None) -> UgridDataset:
+        """Forward-fill gaps along time from the last valid step.
+
+        Args:
+            limit: Maximum consecutive gaps one valid step may fill, or ``None`` for no limit.
+        """
+        return self._transform_time(
+            "ffill", lambda d, axis: pushed(d, axis, limit, False)
+        )
+
+    def bfill(self, *, limit: int | None = None) -> UgridDataset:
+        """Back-fill gaps along time from the next valid step.
+
+        Args:
+            limit: Maximum consecutive gaps one valid step may fill, or ``None`` for no limit.
+        """
+        return self._transform_time(
+            "bfill", lambda d, axis: pushed(d, axis, limit, True)
+        )
+
+    def interpolate_na(
+        self, *, method: str = "linear", limit: int | None = None
+    ) -> UgridDataset:
+        """Fill each interior time gap by interpolating between the steps on either side.
+
+        Distance is measured by step position (an evenly-spaced time axis); a leading or
+        trailing gap has only one neighbour and is left alone.
+
+        Args:
+            method: ``"linear"`` (distance-weighted) or ``"nearest"``. Defaults to ``"linear"``.
+            limit: Maximum consecutive gaps a run may fill, or ``None`` for no limit.
+        """
+
+        def _fill(data: np.ndarray, axis: int) -> np.ndarray:
+            positions = np.arange(data.shape[axis], dtype="float64")
+            return interpolated(data, axis, positions, method, limit)
+
+        return self._transform_time("interpolate_na", _fill)
+
+    def rolling(
+        self,
+        window: int,
+        how: str = "mean",
+        *,
+        center: bool = False,
+        min_periods: int = 1,
+    ) -> UgridDataset:
+        """Rolling-window reduction along time for every temporal variable.
+
+        Each time step becomes a statistic of the window of steps it owns (ending at it, or
+        centred on it), cut where the window runs off the axis. Gaps are skipped; a step whose
+        window holds fewer than ``min_periods`` valid cells is NaN. The time dimension keeps
+        its length.
+
+        Args:
+            window: Steps per window.
+            how: The reduction over each window (``"mean"``, ``"sum"``, ``"min"``, ``"max"``,
+                ``"std"``, ``"var"``, ``"median"``). Defaults to ``"mean"``.
+            center: Centre each window on its step rather than ending at it. Defaults to False.
+            min_periods: Valid cells a window needs before its step holds a value. Defaults
+                to 1.
+        """
+
+        def _roll(data: np.ndarray, axis: int) -> np.ndarray:
+            moved = np.moveaxis(data, axis, 0)
+            size = moved.shape[0]
+            out = np.full_like(moved, np.nan, dtype="float64")
+            for step in range(size):
+                members = window_members(step, size, window, center)
+                block = moved[members]
+                valid = np.sum(~np.isnan(block), axis=0)
+                reduced = reduce_axis(block, 0, how, True, None, None)
+                out[step] = np.where(valid >= min_periods, reduced, np.nan)
+            return np.moveaxis(out, 0, axis)
+
+        return self._transform_time("rolling", _roll)
+
     def plot(
         self,
         variable_name: str,
@@ -1347,6 +1590,42 @@ class UgridDataset:
             f"variables={self.data_variable_names})"
         )
         return result
+
+
+def _static_from(
+    var: MeshVariable, data: np.typing.NDArray, time_axis: int
+) -> MeshVariable:
+    """A static (time-collapsed) copy of ``var`` carrying ``data``.
+
+    Drops the time dimension (at ``time_axis``) from the variable's ``dimensions`` so the
+    result reports ``has_time == False``, and takes its shape from ``data``. Used by
+    :meth:`UgridDataset.reduce` when a reduction collapses the time axis.
+
+    Args:
+        var: The source temporal variable.
+        data: The reduced values, with the time axis already gone.
+        time_axis: The index of the time dimension in ``var.dimensions`` that was collapsed.
+
+    Returns:
+        MeshVariable: The static result.
+    """
+    new_dims = (
+        tuple(d for i, d in enumerate(var.dimensions) if i != time_axis)
+        if var.dimensions
+        else ()
+    )
+    return MeshVariable(
+        name=var.name,
+        location=var.location,
+        mesh_name=var.mesh_name,
+        shape=data.shape,
+        attributes=var.attributes,
+        nodata=var.nodata,
+        units=var.units,
+        standard_name=var.standard_name,
+        dimensions=new_dims,
+        _data=data,
+    )
 
 
 def _make_variable_loader(path: str, var_name: str):
