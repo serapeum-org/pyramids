@@ -1874,10 +1874,21 @@ class _RollingExp(_AlongDim):
 
     `_Rolling`'s counterpart with an infinite window. Where `rolling` averages a fixed window
     with equal weights — losing the first `window - 1` steps to no-data and forgetting everything
-    older — this weights every earlier step, decaying geometrically:
-    `y[i] = alpha * x[i] + (1 - alpha) * y[i-1]`. So it answers from step 0 and never fully
-    forgets, which on a short or irregular satellite series is the difference between discarding
-    the earliest scenes and keeping them.
+    older — this weights every earlier step, decaying geometrically.
+
+    The operation is pandas' **adjusted** exponentially-weighted mean, which is a normalised
+    weighted sum over the steps seen so far rather than a bare recursion:
+
+        y[i] = sum_k (1-alpha)^k * x[i-k] / sum_k (1-alpha)^k,   k = 0 .. i
+
+    The bare recursion `y[i] = alpha*x[i] + (1-alpha)*y[i-1]` is pandas' `adjust=False` variant
+    and is **not** what runs here: on `[10, 10, 10, 20]` at `alpha=0.5` it gives `15.0` where
+    this gives `15.3333`. Both were quoted as the definition at one point; only the normalised
+    form matches the code.
+
+    `mean` and `sum` answer from step 0 and never fully forget, which on a short or irregular
+    satellite series is the difference between discarding the earliest scenes and keeping them.
+    `std` and `var` are NaN at step 0, since one step has no spread.
 
     `pandas.DataFrame.ewm` does the work. A cube is `(bands, y, x)` with the band axis first, so
     its cells are already columns: reshaped to `(steps, cells)` the whole cube goes through one

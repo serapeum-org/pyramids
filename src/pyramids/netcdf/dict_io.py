@@ -13,12 +13,24 @@ round trip silently drop it. Instead those four keys keep their xarray meaning e
 everything GDAL needs lives under one extra `pyramids` key. A reader that knows only xarray's
 schema still finds what it expects; a round trip through here loses nothing.
 
-What round-trips: dimensions and their order, every band dimension's coordinates, variable arrays
-and dtypes, per-variable attributes, the CRS, the geotransform, the no-data sentinels and the
-spatial dimension names. What does not: arbitrary *global* attributes. `from_array` takes globals
-as a `CFAttributes`, which is a fixed set of CF fields rather than a free mapping, so `to_dict`
-reports every global attribute it finds and `from_dict` restores the CF ones it recognises. That
-is a stated limit, not a silent loss — the dict is complete, the constructor is the narrow part.
+What round-trips: dimensions and their order, every band dimension's coordinates **and their CF
+attributes** (a time axis keeps its units and calendar), variable arrays and dtypes, the CRS, the
+geotransform, the no-data sentinels and the spatial dimension names.
+
+What does **not** round-trip, in both cases because `from_array` is the only constructor and it
+takes neither:
+
+- **Per-variable attributes.** `to_dict` reports every one it finds — 32 of them on this repo's
+  `cf__5v__1d4-3d1__geog__y-desc.nc` — and the rebuilt variable carries exactly one,
+  `grid_mapping`, which `from_array` regenerates itself. There is no per-variable attribute setter
+  on the class to restore them through. The payload is complete; the constructor is the narrow
+  part, and until it widens this is a real asymmetry rather than a stated-and-harmless one.
+- **Arbitrary global attributes.** `from_array` takes globals as a `CFAttributes`, a fixed set of
+  CF fields rather than a free mapping, so `from_dict` restores the CF ones it recognises and
+  drops the rest.
+
+A cube holding **non-gridded** variables is lossy for a third reason: they have no raster plane,
+so `from_array` cannot rebuild them, and `to_dict` drops them with a warning naming each.
 """
 
 from __future__ import annotations

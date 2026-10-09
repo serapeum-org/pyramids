@@ -4911,8 +4911,11 @@ class Selection(_Engine["NetCDF"]):
         `param` dimension, one slot per entry in `p0`, stamped positionally `0 .. n - 1`. The
         stamps are integers rather than the callable's parameter names because a text axis is
         inert to the rest of the library — `differentiate`, `integrate` and `interp` all refuse a
-        non-numeric one. A container's auxiliary variables spanning `dim` are therefore dropped
-        with a warning.
+        non-numeric one.
+
+        Because the output axis replaces the input one, a container's auxiliary variables spanning
+        `dim` are dropped with a warning — that follows from the axis changing, not from how the
+        new one is stamped.
 
         Gaps are dropped per cell rather than poisoning it, unlike `polyfit`: the fit runs over
         whatever steps remain, so a cell missing one scene still answers. A cell with fewer
@@ -5020,15 +5023,25 @@ class Selection(_Engine["NetCDF"]):
         :meth:`rolling` with an infinite window. `rolling` averages a fixed window with equal
         weights, which costs it the first `window - 1` steps to no-data and makes it forget
         everything older than the window. This weights every earlier step instead, decaying
-        geometrically:
+        geometrically — pandas' **adjusted** exponentially-weighted statistic, a normalised
+        weighted sum over the steps seen so far:
 
         ```
-        y[i] = alpha * x[i] + (1 - alpha) * y[i-1]
+        y[i] = sum_k (1-alpha)**k * x[i-k] / sum_k (1-alpha)**k,   k = 0 .. i
         ```
 
-        So it answers from step 0 and never fully forgets. On a short or irregular satellite
-        series that is the difference between discarding the earliest scenes and keeping them. At
-        `alpha=0.5` the normalised weights on lag 0, 1, 2, 3 are `0.508, 0.254, 0.127, 0.064`.
+        The bare recursion `y[i] = alpha*x[i] + (1-alpha)*y[i-1]` is pandas' `adjust=False`
+        variant and is **not** what runs here: on `[10, 10, 10, 20]` at `alpha=0.5` it gives
+        `15.0` where this member gives `15.3333`, the value the doctest below asserts.
+
+        `mean` and `sum` answer from step 0 and never fully forget, which on a short or irregular
+        satellite series is the difference between discarding the earliest scenes and keeping
+        them; `std` and `var` are no-data at step 0, one step having no spread. The relative
+        weight of each earlier step falls by `1 - alpha` per step, so at `alpha=0.5` each lag
+        counts half as much as the one after it. The absolute weights depend on how many steps
+        have been seen — `0.533, 0.267, 0.133, 0.067` over four steps, tending to
+        `0.5, 0.25, 0.125, 0.0625` as the series grows — because the normalisation divides by the
+        weight accumulated so far.
 
         Unlike the numerical members this is **step-based, not coordinate-aware**: it counts
         steps along `dim` and never reads its coordinates, exactly as `rolling` does, so an
@@ -5057,7 +5070,8 @@ class Selection(_Engine["NetCDF"]):
 
         Returns:
             NetCDF: A container for a container, a variable for a variable, the band layout
-            unchanged. Float64 declaring NaN, since a leading gap has nothing to average yet.
+            unchanged. Float64 declaring NaN — which step 0 holds for `std` and `var`, and which
+            a leading gap holds for all four.
 
         Raises:
             TypeError: `alpha` is not a number, or is a `bool`.
@@ -7288,7 +7302,7 @@ def _refuse_colliding_fit_dim(nc: NetCDF, name: str, caller: str) -> None:
     )
     if name in existing:
         raise ValueError(
-            f"{caller}() lands its coefficients on a dimension named {name!r}, which this cube "
+            f"{caller}() lands its fitted values on a dimension named {name!r}, which this cube "
             f"already has. Rename it first with rename_dims({name}=...) — without that the "
             f"rebuild reaches GDAL with two dimensions of one name and fails there instead."
         )
