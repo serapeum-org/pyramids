@@ -1534,11 +1534,46 @@ class UgridDataset:
         return self._rebuild(new_vars)
 
     def cumsum(self) -> UgridDataset:
-        """Cumulative sum along time for every temporal variable."""
+        """Cumulative sum along time for every temporal variable.
+
+        Returns:
+            UgridDataset: A new dataset in which each temporal variable holds the running
+            sum of its steps along the time axis; static variables are unchanged.
+
+        Raises:
+            ValueError: No variable has a time dimension, or a temporal variable has no
+                loaded data.
+
+        Examples:
+            - Running sum over three time steps of a per-face variable:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> mesh = UgridDataset.from_arrays(
+                ...     node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+                ...     node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+                ...     face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+                ...     data={"d": np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])},
+                ...     data_locations={"d": "face"},
+                ... )
+                >>> mesh.cumsum()["d"].data.tolist()
+                [[1.0, 2.0], [4.0, 6.0], [9.0, 12.0]]
+
+                ```
+        """
         return self._transform_time("cumsum", lambda d, axis: np.cumsum(d, axis=axis))
 
     def cumprod(self) -> UgridDataset:
-        """Cumulative product along time for every temporal variable."""
+        """Cumulative product along time for every temporal variable.
+
+        Returns:
+            UgridDataset: A new dataset in which each temporal variable holds the running
+            product of its steps along the time axis; static variables are unchanged.
+
+        Raises:
+            ValueError: No variable has a time dimension, or a temporal variable has no
+                loaded data.
+        """
         return self._transform_time("cumprod", lambda d, axis: np.cumprod(d, axis=axis))
 
     def shift(self, periods: int = 1) -> UgridDataset:
@@ -1546,6 +1581,14 @@ class UgridDataset:
 
         Args:
             periods: Steps to shift; negative shifts towards the start. Defaults to 1.
+
+        Returns:
+            UgridDataset: A new dataset with each temporal variable shifted along time, the
+            vacated steps filled with NaN; static variables are unchanged.
+
+        Raises:
+            ValueError: No variable has a time dimension, or a temporal variable has no
+                loaded data.
         """
         return self._transform_time(
             "shift", lambda d, axis: shifted(d, axis, periods, np.nan)
@@ -1556,6 +1599,14 @@ class UgridDataset:
 
         Args:
             limit: Maximum consecutive gaps one valid step may fill, or ``None`` for no limit.
+
+        Returns:
+            UgridDataset: A new dataset with each temporal variable's gaps carried forward
+            from the previous valid step; static variables are unchanged.
+
+        Raises:
+            ValueError: No variable has a time dimension, or a temporal variable has no
+                loaded data.
         """
         return self._transform_time(
             "ffill", lambda d, axis: pushed(d, axis, limit, False)
@@ -1566,6 +1617,14 @@ class UgridDataset:
 
         Args:
             limit: Maximum consecutive gaps one valid step may fill, or ``None`` for no limit.
+
+        Returns:
+            UgridDataset: A new dataset with each temporal variable's gaps carried backward
+            from the next valid step; static variables are unchanged.
+
+        Raises:
+            ValueError: No variable has a time dimension, or a temporal variable has no
+                loaded data.
         """
         return self._transform_time(
             "bfill", lambda d, axis: pushed(d, axis, limit, True)
@@ -1582,6 +1641,14 @@ class UgridDataset:
         Args:
             method: ``"linear"`` (distance-weighted) or ``"nearest"``. Defaults to ``"linear"``.
             limit: Maximum consecutive gaps a run may fill, or ``None`` for no limit.
+
+        Returns:
+            UgridDataset: A new dataset with each temporal variable's interior gaps
+            interpolated along time; static variables are unchanged.
+
+        Raises:
+            ValueError: No variable has a time dimension, or a temporal variable has no
+                loaded data.
         """
 
         def _fill(data: np.ndarray, axis: int) -> np.ndarray:
@@ -1612,6 +1679,14 @@ class UgridDataset:
             center: Centre each window on its step rather than ending at it. Defaults to False.
             min_periods: Valid cells a window needs before its step holds a value. Defaults
                 to 1.
+
+        Returns:
+            UgridDataset: A new dataset with each temporal variable replaced by its rolling
+            statistic along time; static variables are unchanged.
+
+        Raises:
+            ValueError: No variable has a time dimension, or a temporal variable has no
+                loaded data.
         """
 
         def _roll(data: np.ndarray, axis: int) -> np.ndarray:
@@ -1700,12 +1775,32 @@ class UgridDataset:
         return self._select_steps(indices)
 
     def head(self, n: int = 5) -> UgridDataset:
-        """Keep the first ``n`` time steps (fewer if the axis is shorter)."""
+        """Keep the first ``n`` time steps (fewer if the axis is shorter).
+
+        Args:
+            n: Number of leading steps to keep. Defaults to 5.
+
+        Returns:
+            UgridDataset: A new dataset trimmed to the first ``n`` steps.
+
+        Raises:
+            ValueError: No variable has a time dimension.
+        """
         length = self._time_length("head")
         return self._select_steps(np.arange(min(n, length)))
 
     def tail(self, n: int = 5) -> UgridDataset:
-        """Keep the last ``n`` time steps (fewer if the axis is shorter)."""
+        """Keep the last ``n`` time steps (fewer if the axis is shorter).
+
+        Args:
+            n: Number of trailing steps to keep. Defaults to 5.
+
+        Returns:
+            UgridDataset: A new dataset trimmed to the last ``n`` steps.
+
+        Raises:
+            ValueError: No variable has a time dimension.
+        """
         length = self._time_length("tail")
         return self._select_steps(np.arange(max(length - n, 0), length))
 
@@ -1714,6 +1809,9 @@ class UgridDataset:
 
         Args:
             step: Stride; must be >= 1.
+
+        Returns:
+            UgridDataset: A new dataset keeping every ``step``-th step.
 
         Raises:
             ValueError: ``step`` is less than 1, or no variable is temporal.
@@ -1724,7 +1822,18 @@ class UgridDataset:
         return self._select_steps(np.arange(0, length, step))
 
     def drop_isel(self, indices: int | list[int] | np.ndarray) -> UgridDataset:
-        """Drop the time steps at ``indices`` by position, keeping the rest."""
+        """Drop the time steps at ``indices`` by position, keeping the rest.
+
+        Args:
+            indices: A step position, or a sequence of them, to drop (negative indices
+                count from the end).
+
+        Returns:
+            UgridDataset: A new dataset without the dropped steps.
+
+        Raises:
+            ValueError: No variable has a time dimension.
+        """
         length = self._time_length("drop_isel")
         drop = {int(i) % length for i in np.atleast_1d(np.asarray(indices))}
         keep = np.array([i for i in range(length) if i not in drop], dtype=np.intp)
@@ -1735,6 +1844,13 @@ class UgridDataset:
 
         Mirrors :meth:`pyramids.netcdf.NetCDF.squeeze` for the time axis: a single-step
         temporal variable becomes static, a multi-step one is left alone.
+
+        Returns:
+            UgridDataset: A new dataset with single-step temporal variables collapsed to
+            static, or ``self`` when there is nothing to squeeze.
+
+        Raises:
+            ValueError: A single-step temporal variable has no loaded data.
         """
         temporal = self._temporal_names()
         if not temporal or self._data_variables[temporal[0]].n_time_steps != 1:
@@ -1761,6 +1877,14 @@ class UgridDataset:
 
         Args:
             n: The number of successive differences. Defaults to 1.
+
+        Returns:
+            UgridDataset: A new dataset with each temporal variable differenced along time
+            (its time axis shorter by ``n``); static variables are unchanged.
+
+        Raises:
+            ValueError: No variable has a time dimension, or a temporal variable has no
+                loaded data.
         """
         self._require_temporal("diff")
         new_vars: dict[str, MeshVariable] = {}
@@ -1822,6 +1946,12 @@ class UgridDataset:
 
         Args:
             values: A coordinate value, or a sequence of them, to drop.
+
+        Returns:
+            UgridDataset: A new dataset without the steps whose coordinate is in ``values``.
+
+        Raises:
+            ValueError: No variable has a time dimension.
         """
         coords = self._time_coords("drop_sel")
         drop = (
@@ -1833,13 +1963,27 @@ class UgridDataset:
         return self._select_steps(np.asarray(keep, dtype=np.intp))
 
     def sortby(self) -> UgridDataset:
-        """Sort the time steps by their coordinate value (stable)."""
+        """Sort the time steps by their coordinate value (stable).
+
+        Returns:
+            UgridDataset: A new dataset with steps ordered by ascending time coordinate.
+
+        Raises:
+            ValueError: No variable has a time dimension.
+        """
         coords = self._time_coords("sortby")
         order = np.argsort(np.asarray(coords), kind="stable")
         return self._select_steps(order)
 
     def drop_duplicates(self) -> UgridDataset:
-        """Keep the first step of each distinct time coordinate value."""
+        """Keep the first step of each distinct time coordinate value.
+
+        Returns:
+            UgridDataset: A new dataset with duplicate-coordinate steps removed, first kept.
+
+        Raises:
+            ValueError: No variable has a time dimension.
+        """
         coords = self._time_coords("drop_duplicates")
         seen: set = set()
         keep: list[int] = []
@@ -1863,6 +2007,10 @@ class UgridDataset:
 
         Returns:
             UgridDataset: A new dataset with the surviving steps.
+
+        Raises:
+            ValueError: No variable has a time dimension, or a temporal variable has no
+                loaded data.
         """
         temporal = self._require_temporal("dropna")
         length = self._time_length("dropna")
