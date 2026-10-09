@@ -562,27 +562,52 @@ def _label_grouped_stats(
     ids = np.arange(n_groups)
     starts = np.searchsorted(grouped_labels, ids, side="left")
     ends = np.searchsorted(grouped_labels, ids, side="right")
-    per_group = {
-        stat: np.full(n_groups, np.nan, dtype="float64") for stat in other_stats
-    }
-    for group in range(n_groups):
-        segment = grouped_values[starts[group] : ends[group]]
-        if segment.size == 0:
-            continue
-        if "min" in other_stats:
-            per_group["min"][group] = float(np.min(segment))
-        if "max" in other_stats:
-            per_group["max"][group] = float(np.max(segment))
-        if not weighted and "std" in other_stats:
-            per_group["std"][group] = float(np.std(segment))
-        if not weighted and "var" in other_stats:
-            per_group["var"][group] = float(np.var(segment))
+    per_group = _grouped_segment_stats(
+        other_stats, grouped_values, starts, ends, n_groups, weighted
+    )
     if weighted and ("std" in other_stats or "var" in other_stats):
         wvar = _weighted_group_var(lbl, val, w, wtotal, wmean, n_groups)
         if "var" in other_stats:
             per_group["var"] = wvar
         if "std" in other_stats:
             per_group["std"] = np.sqrt(wvar)
+    return per_group
+
+
+def _grouped_segment_stats(
+    other_stats: list[str],
+    grouped_values: np.ndarray,
+    starts: np.ndarray,
+    ends: np.ndarray,
+    n_groups: int,
+    weighted: bool,
+) -> dict[str, np.ndarray]:
+    """Per-group ``min`` / ``max`` and (unweighted) ``std`` / ``var`` from sorted segments.
+
+    One pass over the groups, slicing each group's contiguous run of the sorted values. An
+    empty group stays NaN. Weighted ``std`` / ``var`` are **not** computed here (the caller
+    does them vectorised via :func:`_weighted_group_var`); only the unweighted ones use
+    numpy's population functions, keeping the raster path bit-identical.
+    """
+    per_group = {
+        stat: np.full(n_groups, np.nan, dtype="float64") for stat in other_stats
+    }
+    want_min = "min" in other_stats
+    want_max = "max" in other_stats
+    want_std = not weighted and "std" in other_stats
+    want_var = not weighted and "var" in other_stats
+    for group in range(n_groups):
+        segment = grouped_values[starts[group] : ends[group]]
+        if segment.size == 0:
+            continue
+        if want_min:
+            per_group["min"][group] = float(np.min(segment))
+        if want_max:
+            per_group["max"][group] = float(np.max(segment))
+        if want_std:
+            per_group["std"][group] = float(np.std(segment))
+        if want_var:
+            per_group["var"][group] = float(np.var(segment))
     return per_group
 
 
