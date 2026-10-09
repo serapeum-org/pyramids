@@ -64,7 +64,7 @@
     
     
   <meta name="panzoom-theme" content="material">
-<meta name="panzoom-data" content='{"selectors": [".mermaid", ".d2"], "initial_zoom_level": 1.0}'> </head>
+<meta name="panzoom-data" content='{"selectors": [".d2", ".mermaid"], "initial_zoom_level": 1.0}'> </head>
   
   
     
@@ -7436,12 +7436,16 @@ positionally <code>0</code> and <code>1</code>. The stamps are integers rather t
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="c1"># `time` is untouched, so the result is (time, param, y, x): one fit per time step per cell.</span>
-<span class="n">coefficients</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">fit</span><span class="o">.</span><span class="n">read_array</span><span class="p">())</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="n">fit</span><span class="o">.</span><span class="n">_band_dim_sizes</span><span class="p">,</span> <span class="o">*</span><span class="n">rhum</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:])</span>
+<span class="n">coefficients</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">fit</span><span class="o">.</span><span class="n">read_array</span><span class="p">())</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span>
+    <span class="o">*</span><span class="n">fit</span><span class="o">.</span><span class="n">_band_dim_sizes</span><span class="p">,</span> <span class="o">*</span><span class="n">rhum</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:]</span>
+<span class="p">)</span>
 <span class="n">slope</span><span class="p">,</span> <span class="n">intercept</span> <span class="o">=</span> <span class="n">coefficients</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">coefficients</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span>
 <span class="nb">float</span><span class="p">(</span><span class="n">slope</span><span class="p">[</span><span class="mi">18</span><span class="p">,</span> <span class="mi">36</span><span class="p">]),</span> <span class="nb">float</span><span class="p">(</span><span class="n">intercept</span><span class="p">[</span><span class="mi">18</span><span class="p">,</span> <span class="mi">36</span><span class="p">])</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-4"># `time` is untouched, so the result is (time, param, y, x): one fit per time step per cell.
-coefficients = np.asarray(fit.read_array()).reshape(*fit._band_dim_sizes, *rhum.shape[-2:])
+coefficients = np.asarray(fit.read_array()).reshape(
+    *fit._band_dim_sizes, *rhum.shape[-2:]
+)
 slope, intercept = coefficients[0, 0], coefficients[0, 1]
 float(slope[18, 36]), float(intercept[18, 36])</div>
 </div>
@@ -7697,10 +7701,18 @@ print(f'cells above the 99th percentile of residual: {int(mask_me.sum())}')</div
 </div>
 </clipboard-copy>
 </div>
-<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">glyph</span> <span class="o">=</span> <span class="n">diagnosed</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">param</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">isel</span><span class="p">(</span><span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s1">'curvefit residual, first time step'</span><span class="p">)</span>
+<div class="highlight-ipynb hl-python"><pre><span></span><span class="n">glyph</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">diagnosed</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">param</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">isel</span><span class="p">(</span><span class="n">time</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s1">'curvefit residual, first time step'</span><span class="p">)</span>
+<span class="p">)</span>
 <span class="nb">type</span><span class="p">(</span><span class="n">glyph</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span>
 </pre></div>
-<div class="clipboard-copy-txt" id="cell-9">glyph = diagnosed.sel(param=-1).isel(time=0).plot(title='curvefit residual, first time step')
+<div class="clipboard-copy-txt" id="cell-9">glyph = (
+    diagnosed.sel(param=-1)
+    .isel(time=0)
+    .plot(title='curvefit residual, first time step')
+)
 type(glyph).__name__</div>
 </div>
 </div>
@@ -7765,14 +7777,22 @@ coordinates, exactly as <code>rolling</code> does.</p>
 </clipboard-copy>
 </div>
 <div class="highlight-ipynb hl-python"><pre><span></span><span class="n">smoothed</span> <span class="o">=</span> <span class="n">rhum</span><span class="o">.</span><span class="n">rolling_exp</span><span class="p">(</span><span class="s1">'time'</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">)</span>
-<span class="n">series_raw</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">rhum</span><span class="o">.</span><span class="n">read_array</span><span class="p">())</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="o">*</span><span class="n">rhum</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:])[:,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">18</span><span class="p">,</span> <span class="mi">36</span><span class="p">]</span>
-<span class="n">series_smooth</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">smoothed</span><span class="o">.</span><span class="n">read_array</span><span class="p">())</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="o">*</span><span class="n">rhum</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:])[:,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">18</span><span class="p">,</span> <span class="mi">36</span><span class="p">]</span>
+<span class="n">series_raw</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">rhum</span><span class="o">.</span><span class="n">read_array</span><span class="p">())</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="o">*</span><span class="n">rhum</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:])[</span>
+    <span class="p">:,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">18</span><span class="p">,</span> <span class="mi">36</span>
+<span class="p">]</span>
+<span class="n">series_smooth</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">smoothed</span><span class="o">.</span><span class="n">read_array</span><span class="p">())</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">12</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="o">*</span><span class="n">rhum</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:])[</span>
+    <span class="p">:,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">18</span><span class="p">,</span> <span class="mi">36</span>
+<span class="p">]</span>
 
 <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">series_raw</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
 </pre></div>
 <div class="clipboard-copy-txt" id="cell-10">smoothed = rhum.rolling_exp('time', 0.3)
-series_raw = np.asarray(rhum.read_array()).reshape(12, 4, *rhum.shape[-2:])[:, 0, 18, 36]
-series_smooth = np.asarray(smoothed.read_array()).reshape(12, 4, *rhum.shape[-2:])[:, 0, 18, 36]
+series_raw = np.asarray(rhum.read_array()).reshape(12, 4, *rhum.shape[-2:])[
+    :, 0, 18, 36
+]
+series_smooth = np.asarray(smoothed.read_array()).reshape(12, 4, *rhum.shape[-2:])[
+    :, 0, 18, 36
+]
 
 np.round(series_raw, 2).tolist()</div>
 </div>
