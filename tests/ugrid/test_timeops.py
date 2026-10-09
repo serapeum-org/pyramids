@@ -119,3 +119,54 @@ class TestRolling:
         # step 0 has only itself in a trailing window -> fewer than 2 valid -> NaN
         assert np.isnan(out[0]).all()
         assert out[1].tolist() == [2.0, 3.0]
+
+
+class TestSelection:
+    @pytest.fixture
+    def four(self) -> UgridDataset:
+        return _temporal_mesh(
+            np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]])
+        )
+
+    def test_isel_int_collapses(self, four):
+        out = four.isel(1)
+        assert out["d"].data.tolist() == [3.0, 4.0]
+        assert out["d"].has_time is False
+
+    def test_isel_slice_keeps_time(self, four):
+        out = four.isel(slice(1, 3))
+        assert out["d"].data.tolist() == [[3.0, 4.0], [5.0, 6.0]]
+        assert out["d"].has_time is True
+
+    def test_isel_list(self, four):
+        assert four.isel([0, 2])["d"].data.tolist() == [[1.0, 2.0], [5.0, 6.0]]
+
+    def test_head_tail_thin(self, four):
+        assert four.head(2)["d"].data.tolist() == [[1.0, 2.0], [3.0, 4.0]]
+        assert four.tail(2)["d"].data.tolist() == [[5.0, 6.0], [7.0, 8.0]]
+        assert four.thin(2)["d"].data.tolist() == [[1.0, 2.0], [5.0, 6.0]]
+
+    def test_drop_isel(self, four):
+        assert four.drop_isel([0, 1])["d"].data.tolist() == [[5.0, 6.0], [7.0, 8.0]]
+
+    def test_diff(self, four):
+        assert four.diff()["d"].data.tolist() == [[2.0, 2.0], [2.0, 2.0], [2.0, 2.0]]
+
+    def test_thin_rejects_zero(self, four):
+        with pytest.raises(ValueError, match="thin step"):
+            four.thin(0)
+
+    def test_squeeze_single_step(self):
+        mesh = _temporal_mesh(np.array([[9.0, 9.0]]))
+        out = mesh.squeeze()
+        assert out["d"].data.tolist() == [9.0, 9.0]
+        assert out["d"].has_time is False
+
+    def test_squeeze_multistep_is_noop(self, four):
+        assert four.squeeze()["d"].data.shape == (4, 2)
+
+    def test_time_values_trimmed(self):
+        mesh = _temporal_mesh(np.array([[1.0, 1.0], [2.0, 2.0], [3.0, 3.0]]))
+        mesh["d"].attributes = {"time_values": [10, 20, 30]}
+        assert mesh.isel([0, 2])["d"].attributes["time_values"] == [10, 30]
+        assert mesh.diff()["d"].attributes["time_values"] == [20, 30]

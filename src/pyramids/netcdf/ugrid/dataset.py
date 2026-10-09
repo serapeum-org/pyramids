@@ -1432,6 +1432,158 @@ class UgridDataset:
 
         return self._transform_time("rolling", _roll)
 
+    def _time_length(self, operation: str) -> int:
+        """The shared time-axis length, taken from the first temporal variable."""
+        temporal = self._require_temporal(operation)
+        first = self._data_variables[temporal[0]]
+        return first.n_time_steps
+
+    def _select_steps(self, indices: np.typing.NDArray) -> UgridDataset:
+        """Keep the time steps at ``indices`` (in order) for every temporal variable.
+
+        Trims each temporal variable's data along its time axis and, when the variable
+        carries a ``time_values`` coordinate attribute, trims that to match. Static variables
+        are kept unchanged. The time dimension is retained (shorter), so the result stays
+        temporal.
+        """
+        indices = np.asarray(indices, dtype=np.intp)
+        new_vars: dict[str, MeshVariable] = {}
+        for name, var in self._data_variables.items():
+            if not var.has_time:
+                new_vars[name] = var
+                continue
+            axis = cast("int", var.time_index)
+            data = var.data
+            if data is None:
+                raise ValueError(f"Variable {name!r} has no loaded data to select.")
+            new_var = var.with_data(np.take(np.asarray(data), indices, axis=axis))
+            times = var.attributes.get("time_values")
+            if times is not None:
+                new_var.attributes = {
+                    **var.attributes,
+                    "time_values": [times[int(i)] for i in indices],
+                }
+            new_vars[name] = new_var
+        return self._rebuild(new_vars)
+
+    def isel(self, time: int | slice | list[int] | np.ndarray) -> UgridDataset:
+        """Select time steps by position.
+
+        The mesh counterpart of :meth:`pyramids.netcdf.NetCDF.isel` over time. An integer
+        selects a single step and collapses the time dimension (the variables become static);
+        a slice or sequence keeps the time dimension, trimmed to the chosen steps.
+
+        Args:
+            time: An ``int`` step, a ``slice``, or a sequence of integer step positions.
+
+        Returns:
+            UgridDataset: A new dataset with the selected steps.
+
+        Raises:
+            ValueError: No variable has a time dimension.
+        """
+        n = self._time_length("isel")
+        if isinstance(time, (int, np.integer)):
+            index = int(time)
+            new_vars: dict[str, MeshVariable] = {}
+            for name, var in self._data_variables.items():
+                if not var.has_time:
+                    new_vars[name] = var
+                    continue
+                axis = cast("int", var.time_index)
+                data = var.data
+                if data is None:
+                    raise ValueError(f"Variable {name!r} has no loaded data to select.")
+                step = np.take(np.asarray(data), index, axis=axis)
+                new_vars[name] = _static_from(var, np.asarray(step), axis)
+            return self._rebuild(new_vars)
+        if isinstance(time, slice):
+            indices = np.arange(n)[time]
+        else:
+            indices = np.asarray(time, dtype=np.intp)
+        return self._select_steps(indices)
+
+    def head(self, n: int = 5) -> UgridDataset:
+        """Keep the first ``n`` time steps (fewer if the axis is shorter)."""
+        length = self._time_length("head")
+        return self._select_steps(np.arange(min(n, length)))
+
+    def tail(self, n: int = 5) -> UgridDataset:
+        """Keep the last ``n`` time steps (fewer if the axis is shorter)."""
+        length = self._time_length("tail")
+        return self._select_steps(np.arange(max(length - n, 0), length))
+
+    def thin(self, step: int) -> UgridDataset:
+        """Keep every ``step``-th time step.
+
+        Args:
+            step: Stride; must be >= 1.
+
+        Raises:
+            ValueError: ``step`` is less than 1, or no variable is temporal.
+        """
+        if step < 1:
+            raise ValueError(f"thin step must be >= 1, got {step}.")
+        length = self._time_length("thin")
+        return self._select_steps(np.arange(0, length, step))
+
+    def drop_isel(self, indices: int | list[int] | np.ndarray) -> UgridDataset:
+        """Drop the time steps at ``indices`` by position, keeping the rest."""
+        length = self._time_length("drop_isel")
+        drop = {int(i) % length for i in np.atleast_1d(np.asarray(indices))}
+        keep = np.array([i for i in range(length) if i not in drop], dtype=np.intp)
+        return self._select_steps(keep)
+
+    def squeeze(self) -> UgridDataset:
+        """Drop the time dimension when it has length 1; otherwise return unchanged.
+
+        Mirrors :meth:`pyramids.netcdf.NetCDF.squeeze` for the time axis: a single-step
+        temporal variable becomes static, a multi-step one is left alone.
+        """
+        temporal = self._temporal_names()
+        if not temporal or self._data_variables[temporal[0]].n_time_steps != 1:
+            return self
+        new_vars: dict[str, MeshVariable] = {}
+        for name, var in self._data_variables.items():
+            if not var.has_time or var.n_time_steps != 1:
+                new_vars[name] = var
+                continue
+            axis = cast("int", var.time_index)
+            data = var.data
+            if data is None:
+                raise ValueError(f"Variable {name!r} has no loaded data to squeeze.")
+            new_vars[name] = _static_from(
+                var, np.squeeze(np.asarray(data), axis=axis), axis
+            )
+        return self._rebuild(new_vars)
+
+    def diff(self, n: int = 1) -> UgridDataset:
+        """Discrete difference along time (``out[i] = x[i] - x[i-1]``), ``n`` times.
+
+        The time dimension shortens by ``n``; a ``time_values`` coordinate, if present, drops
+        its first ``n`` entries to stay aligned with the result.
+
+        Args:
+            n: The number of successive differences. Defaults to 1.
+        """
+        self._require_temporal("diff")
+        new_vars: dict[str, MeshVariable] = {}
+        for name, var in self._data_variables.items():
+            if not var.has_time:
+                new_vars[name] = var
+                continue
+            axis = cast("int", var.time_index)
+            data = var.data
+            if data is None:
+                raise ValueError(f"Variable {name!r} has no loaded data to diff.")
+            diffed = np.diff(gaps_as_nan(np.asarray(data), var.nodata), n=n, axis=axis)
+            new_var = var.with_data(diffed)
+            times = var.attributes.get("time_values")
+            if times is not None:
+                new_var.attributes = {**var.attributes, "time_values": list(times[n:])}
+            new_vars[name] = new_var
+        return self._rebuild(new_vars)
+
     def plot(
         self,
         variable_name: str,
