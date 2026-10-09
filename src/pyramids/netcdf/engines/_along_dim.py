@@ -28,6 +28,27 @@ import numpy as np
 from scipy.interpolate import interp1d
 from scipy.stats import rankdata
 
+from pyramids.base._reductions import (
+    gaps_as_nan as _gaps_as_nan,
+)
+from pyramids.base._reductions import (
+    interpolated as _interpolated,
+)
+from pyramids.base._reductions import (
+    pushed as _pushed,
+)
+from pyramids.base._reductions import (
+    resize_axis as _resize_axis,
+)
+from pyramids.base._reductions import (
+    shifted as _shifted,
+)
+from pyramids.base._reductions import (
+    window_coordinates as _window_coordinates,
+)
+from pyramids.base._reductions import (
+    window_members as _window_members,
+)
 from pyramids.base.crs import crs_spec
 from pyramids.dataset.transform import GeoTransform
 from pyramids.netcdf._mdim import scalar_no_data
@@ -1200,235 +1221,14 @@ class _Pad(_AlongDim):
         return _Applied(values, band_names, values_map, no_data)
 
 
-def _interpolated(
-    data: Any, axis: int, positions: np.ndarray, method: str, limit: int | None
-) -> Any:
-    """`data` with each interior gap filled from the valid cells on either side.
-
-    Both neighbours are found the way `_pushed` finds one — a running maximum of the last
-    valid position forwards, and the same backwards — so the whole array is filled in a
-    handful of vectorised passes rather than a loop over the cells.
-
-    Args:
-        data: The values as float64 with NaN gaps, numpy or dask.
-        axis: The axis to interpolate along.
-        positions: What distance is measured along, one per step.
-        method: `"linear"` or `"nearest"`.
-        limit: How many consecutive gaps a run may fill, or `None` for no limit.
-
-    Returns:
-        The values with the reachable interior gaps filled, the rest still NaN.
-    """
-    # Read once — see `_pushed` for why: the accumulations and the two gathers below
-    # would otherwise re-run a dask graph several times over for one call.
-    data = np.asarray(data)
-    size = data.shape[axis]
-    shape = [size if index == axis else 1 for index in range(data.ndim)]
-    steps = np.arange(size).reshape(shape)
-    axis_x = positions.reshape(shape)
-    valid = ~np.isnan(data)
-    before = np.maximum.accumulate(np.asarray(np.where(valid, steps, -1)), axis=axis)
-    flipped = np.flip(np.asarray(np.where(valid, steps, size)), axis=axis)
-    after = np.flip(np.minimum.accumulate(flipped, axis=axis), axis=axis)
-    inner = (before >= 0) & (after < size)
-    left = np.clip(before, 0, size - 1)
-    right = np.clip(after, 0, size - 1)
-    values = np.asarray(data)
-    low = np.take_along_axis(values, left, axis=axis)
-    high = np.take_along_axis(values, right, axis=axis)
-    low_x = np.take_along_axis(np.broadcast_to(axis_x, values.shape), left, axis=axis)
-    high_x = np.take_along_axis(np.broadcast_to(axis_x, values.shape), right, axis=axis)
-    span = np.where(high_x == low_x, 1.0, high_x - low_x)
-    weight = (np.broadcast_to(axis_x, values.shape) - low_x) / span
-    if method == "nearest":
-        between = np.where(weight <= 0.5, low, high)
-    else:
-        between = low + (high - low) * weight
-    reachable = inner
-    if limit is not None:
-        reachable = reachable & ((steps - before) <= limit)
-    return np.where(valid, values, np.where(reachable, between, np.nan))
-
-
-def _pushed(data: Any, axis: int, limit: int | None, backward: bool) -> Any:
-    """`data` with each gap taking the nearest valid value before it along `axis`.
-
-    Written as an index scan rather than a Python loop over the steps: the position of the
-    last valid cell is a running maximum, which one `np.maximum.accumulate` answers for every
-    cell at once, and `limit` is then a comparison against how far that position is.
-
-    Args:
-        data: The values as float64 with NaN gaps, numpy or dask.
-        axis: The axis to carry along.
-        limit: How many consecutive gaps one valid cell may fill, or `None` for no limit.
-        backward: Carry from the end towards the start instead.
-
-    Returns:
-        The values with the reachable gaps filled, the rest still NaN.
-    """
-    # One materialisation, before anything else touches it: every `np.asarray` on a
-    # dask-backed array re-runs the whole graph, so the scans below would each re-read
-    # the variable. The result is numpy either way, so nothing downstream loses laziness
-    # that it had.
-    data = np.asarray(data)
-    working = np.flip(data, axis=axis) if backward else data
-    size = working.shape[axis]
-    shape = [size if index == axis else 1 for index in range(working.ndim)]
-    positions = np.arange(size).reshape(shape)
-    source = np.where(~np.isnan(working), positions, -1)
-    source = np.maximum.accumulate(np.asarray(source), axis=axis)
-    reachable = source >= 0
-    if limit is not None:
-        reachable = reachable & ((positions - source) <= limit)
-    taken = np.take_along_axis(
-        np.asarray(working), np.clip(source, 0, size - 1), axis=axis
-    )
-    filled = np.where(reachable, taken, np.nan)
-    return np.flip(filled, axis=axis) if backward else filled
-
-
 _INDEX_NO_DATA = -1
 """The no-data value of a position band: a slice with no valid cell has no extremum, and a
 position is never negative, so it cannot be mistaken for one."""
 
 
-def _gaps_as_nan(arr: Any, ndv: Any) -> Any:
-    """A float64 copy of `arr` holding NaN wherever it holds a gap.
-
-    The gaps are found in the values **as stored**, before the cast, and against a sentinel in
-    the same type (`_sentinel_as_stored`). float64 carries 53 bits of mantissa, so two `int64`
-    values above `2**53` can land on the same float: masking after the cast — or against a
-    sentinel that has been through one — dropped a real value that merely sat next to the
-    sentinel. The cast still costs those values their exact magnitude, a limit of computing in
-    float64 that `reduce` and every member built on it share, but no longer costs them their
-    existence.
-
-    Args:
-        arr: The values, numpy or dask.
-        ndv: The sentinel as it appears in `arr`, or `None`.
-
-    Returns:
-        The float64 values, the sentinel and any NaN both NaN.
-    """
-    data = arr.astype("float64")
-    if ndv is None:
-        return data
-    return np.where(arr == _sentinel_as_stored(arr, ndv), np.nan, data)
-
-
-def _sentinel_as_stored(arr: Any, ndv: Any) -> Any:
-    """The no-data value in the array's own type, when that type can hold it exactly.
-
-    A sentinel that arrives as a float is compared against an integer array by promoting the
-    array to float64, which is the very comparison `_gaps_as_nan` avoids: two `int64` values
-    above `2**53` land on the same float, so a real value next to the sentinel would be masked
-    with it. Handing back an integer sentinel keeps the comparison in the stored type.
-
-    Args:
-        arr: The values, numpy or dask.
-        ndv: The sentinel as the variable declares it.
-
-    Returns:
-        The sentinel, narrowed to the array's dtype when it is an integer array holding a
-        whole number in range, and unchanged otherwise — a float array, a fractional or
-        NaN sentinel, or one the integer type could not represent.
-    """
-    sentinel = ndv
-    if np.issubdtype(arr.dtype, np.integer):
-        whole = float(ndv)
-        limits = np.iinfo(arr.dtype)
-        if whole.is_integer() and limits.min <= whole <= limits.max:
-            sentinel = arr.dtype.type(int(ndv))
-    return sentinel
-
-
-def _slice_axis(arr: Any, axis: int, start: int, stop: int) -> Any:
-    """`arr` cut to `start:stop` along `axis`.
-
-    Args:
-        arr: The values, numpy or dask.
-        axis: The axis to cut.
-        start: First position kept.
-        stop: One past the last position kept.
-
-    Returns:
-        The cut values.
-    """
-    index: list[Any] = [slice(None)] * arr.ndim
-    index[axis] = slice(start, stop)
-    return arr[tuple(index)]
-
-
-def _shifted(arr: Any, axis: int, periods: int, fill: Any) -> Any:
-    """`arr` moved `periods` steps along `axis`, the vacated steps holding `fill`.
-
-    Args:
-        arr: The values, numpy or dask.
-        axis: The axis to move along.
-        periods: Steps to move; negative moves towards the start.
-        fill: What a vacated step holds.
-
-    Returns:
-        The shifted values, the same shape and dtype as `arr`.
-    """
-    size = arr.shape[axis]
-    vacated = min(abs(periods), size)
-    if periods == 0:
-        result = arr
-    else:
-        shape = list(arr.shape)
-        shape[axis] = vacated
-        pad = np.full(shape, fill, dtype=arr.dtype)
-        if vacated == size:
-            result = pad
-        else:
-            kept = (
-                _slice_axis(arr, axis, 0, size - vacated)
-                if periods > 0
-                else _slice_axis(arr, axis, vacated, size)
-            )
-            parts = [pad, kept] if periods > 0 else [kept, pad]
-            result = np.concatenate(parts, axis=axis)
-    return result
-
-
 _COUNT_NO_DATA = -1
 """The no-data value of a rolling `count`: a window with too few valid cells. A count is never
 negative, so it cannot be mistaken for one."""
-
-
-def _window_members(position: int, size: int, window: int, center: bool) -> list[int]:
-    """The steps the window at `position` covers, cut to the axis.
-
-    A trailing window covers `position - window + 1 .. position`; a centred one starts
-    `window // 2` steps before `position`, so an even window reaches one step further back than
-    forward, as xarray places it. Both always include `position`, so no window is empty.
-
-    Args:
-        position: The step the window belongs to.
-        size: The axis length.
-        window: Steps per window.
-        center: Whether the window is centred on `position`.
-
-    Returns:
-        list[int]: The positions covered, ascending.
-
-    Examples:
-        - A trailing window of three near the start, and a centred one:
-
-          ```python
-          >>> from pyramids.netcdf.engines._along_dim import _window_members
-          >>> _window_members(1, 6, 3, False)
-          [0, 1]
-          >>> _window_members(1, 6, 3, True)
-          [0, 1, 2]
-          >>> _window_members(5, 6, 4, True)
-          [3, 4, 5]
-
-          ```
-    """
-    start = position - window // 2 if center else position - window + 1
-    return list(range(max(start, 0), min(start + window, size)))
 
 
 def _reduced_array(
@@ -2356,65 +2156,3 @@ def _read_no_data(var: NetCDF) -> Any:
     """
     ndv = scalar_no_data(var.no_data_value)
     return None if ndv is None else var.analysis._physical_no_data(0)
-
-
-def _resize_axis(arr: Any, axis: int, size: int) -> Any:
-    """Cut `axis` down to `size` steps, or pad it out to `size` with NaN gaps.
-
-    Padding casts to float64 first, so an integer band can hold the NaN. Under `skipna`
-    every reducer skips the padding; without it a statistic over a padded window is NaN,
-    `count` still leaves the padding out, and `all` / `any` read it as true. A `size` equal
-    to the current length takes the padding path too and returns a float64 copy. Both paths
-    stay lazy on a dask array.
-
-    Args:
-        arr: The unflattened array, numpy or dask.
-        axis: The axis to resize.
-        size: The length it should have.
-
-    Returns:
-        The resized array.
-    """
-    current = arr.shape[axis]
-    if size < current:
-        index: list[slice] = [slice(None)] * arr.ndim
-        index[axis] = slice(0, size)
-        result = arr[tuple(index)]
-    else:
-        padding_shape = list(arr.shape)
-        padding_shape[axis] = size - current
-        result = np.concatenate(
-            [arr.astype("float64"), np.full(padding_shape, np.nan)], axis=axis
-        )
-    return result
-
-
-def _window_coordinates(
-    coords: list | None, positions: list[np.ndarray], size: int
-) -> list | None:
-    """Label each window with the mean of its real members' coordinates.
-
-    Args:
-        coords: The dimension's coordinate values, or `None`.
-        positions: The positions each window covers, padding included.
-        size: The dimension's real length; positions at or past it are padding.
-
-    Returns:
-        list | None: One float per window when every coordinate is a number (a boolean does
-        not count as one), each window's first coordinate when some are not, and `None`
-        when there are none.
-    """
-    labels = None
-    if coords is not None:
-        numeric = all(
-            isinstance(value, Real) and not isinstance(value, (bool, np.bool_))
-            for value in coords
-        )
-        if numeric:
-            labels = [
-                float(np.mean([coords[int(i)] for i in members if i < size]))
-                for members in positions
-            ]
-        else:
-            labels = [coords[int(members[0])] for members in positions]
-    return labels
