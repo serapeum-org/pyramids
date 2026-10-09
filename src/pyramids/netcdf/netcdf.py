@@ -89,6 +89,7 @@ from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     detect_axis,
     write_attributes_to_md_array,
+    write_single_attr,
 )
 from pyramids.netcdf.engines import interop as _interop
 from pyramids.netcdf.engines import variables as _variables
@@ -14347,7 +14348,9 @@ class NetCDF(Dataset):
         Args:
             name: Attribute name (e.g. `"history"`,
                 `"Conventions"`).
-            value: Attribute value. Supports str, int, float.
+            value: Attribute value. Supports str, bool, int, float, and a numeric
+                `list`/`tuple` — the latter is written as a real CF vector attribute
+                (`Float64[n]`), not as its Python repr.
 
         Raises:
             ValueError: If the dataset has no root group
@@ -14360,25 +14363,10 @@ class NetCDF(Dataset):
                 "container. Open the file with "
                 "open_as_multi_dimensional=True."
             )
-        # Delete existing attribute if present (GDAL raises on duplicate)
-        try:
-            rg.DeleteAttribute(name)
-        except RuntimeError:
-            pass
-        if isinstance(value, str):
-            attr = rg.CreateAttribute(name, [], gdal.ExtendedDataType.CreateString())
-        elif isinstance(value, float):
-            attr = rg.CreateAttribute(
-                name, [], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
-            )
-        elif isinstance(value, int):
-            attr = rg.CreateAttribute(
-                name, [], gdal.ExtendedDataType.Create(gdal.GDT_Int32)
-            )
-        else:
-            attr = rg.CreateAttribute(name, [], gdal.ExtendedDataType.CreateString())
-            value = str(value)
-        attr.Write(value)
+        # Through the shared `cf` dispatch so a numeric sequence becomes a CF vector
+        # attribute. `overwrite=True` keeps this member an upsert (GDAL refuses a duplicate,
+        # so the attribute is deleted first).
+        write_single_attr(rg, name, value, overwrite=True)
         self._invalidate_caches()
 
     def delete_global_attribute(self, name: str):
