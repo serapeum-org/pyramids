@@ -2112,44 +2112,9 @@ class UgridDataset:
         new_vars: dict[str, MeshVariable] = {}
         for name, var in self._data_variables.items():
             if not var.has_time:
-                new_vars[name] = var
-                continue
-            axis = cast("int", var.time_index)
-            arrays = []
-            times: list[Any] = []
-            has_times = True
-            for part in parts:
-                pv = part._data_variables[name]
-                if not pv.has_time:
-                    # `var` is temporal (outer branch), so a static same-named variable in
-                    # another part cannot be concatenated along the time axis. Say so with a
-                    # domain message instead of letting np.concatenate raise a shape error.
-                    raise ValueError(
-                        f"concat: variable {name!r} is temporal in one dataset but static "
-                        "in another; they cannot be joined along time."
-                    )
-                data = pv.data
-                if data is None:
-                    raise ValueError(f"Variable {name!r} has no loaded data to concat.")
-                arrays.append(np.asarray(data))
-                part_times = pv.attributes.get("time_values")
-                if part_times is None:
-                    has_times = False
-                else:
-                    times.extend(list(part_times))
-            new_var = var.with_data(np.concatenate(arrays, axis=axis))
-            if has_times:
-                new_var.attributes = {**var.attributes, "time_values": times}
-            elif "time_values" in new_var.attributes:
-                # At least one part had no time coordinate, so the concatenated axis has
-                # none either. Drop the first part's stale, now-too-short `time_values`
-                # (carried over by with_data) rather than leave it mismatched with the data.
-                new_var.attributes = {
-                    key: value
-                    for key, value in new_var.attributes.items()
-                    if key != "time_values"
-                }
-            new_vars[name] = new_var
+                new_vars[name] = var  # a static variable is taken from self, as-is
+            else:
+                new_vars[name] = _concat_temporal_variable(name, var, parts)
         return self._rebuild(new_vars)
 
     def merge(self, others: UgridDataset | list[UgridDataset]) -> UgridDataset:
@@ -2411,6 +2376,62 @@ def _static_from(
         dimensions=new_dims,
         _data=data,
     )
+
+
+def _concat_temporal_variable(
+    name: str, var: MeshVariable, parts: list[UgridDataset]
+) -> MeshVariable:
+    """Concatenate one temporal variable's data across ``parts`` along its time axis.
+
+    The per-variable body of :meth:`UgridDataset.concat`. Joins each part's array along the
+    variable's time axis and its ``time_values`` coordinate when every part has one; if any
+    part lacks it, the result carries no (stale) coordinate.
+
+    Args:
+        name: The variable name (present in every part — concat validated that).
+        var: ``self``'s copy of the variable, whose time axis and attributes seed the result.
+        parts: The datasets to join, ``self`` first.
+
+    Returns:
+        MeshVariable: The concatenated temporal variable.
+
+    Raises:
+        ValueError: A part's same-named variable is static, or has no loaded data.
+    """
+    axis = cast("int", var.time_index)
+    arrays: list[np.typing.NDArray] = []
+    times: list[Any] = []
+    has_times = True
+    for part in parts:
+        pv = part._data_variables[name]
+        if not pv.has_time:
+            # `var` is temporal, so a static same-named variable in another part cannot join
+            # along time. Say so with a domain message, not a raw np.concatenate shape error.
+            raise ValueError(
+                f"concat: variable {name!r} is temporal in one dataset but static in "
+                "another; they cannot be joined along time."
+            )
+        data = pv.data
+        if data is None:
+            raise ValueError(f"Variable {name!r} has no loaded data to concat.")
+        arrays.append(np.asarray(data))
+        part_times = pv.attributes.get("time_values")
+        if part_times is None:
+            has_times = False
+        else:
+            times.extend(list(part_times))
+    new_var = var.with_data(np.concatenate(arrays, axis=axis))
+    if has_times:
+        new_var.attributes = {**var.attributes, "time_values": times}
+    elif "time_values" in new_var.attributes:
+        # Some part had no time coordinate, so the joined axis has none; drop the stale,
+        # too-short `time_values` carried over by with_data.
+        new_var.attributes = {
+            key: value
+            for key, value in new_var.attributes.items()
+            if key != "time_values"
+        }
+    return new_var
 
 
 def _make_variable_loader(path: str, var_name: str):

@@ -447,6 +447,45 @@ def reduce_by_label(
     """
     values = np.asarray(values)
     labels = np.asarray(labels)
+    flat_labels = labels.ravel()
+    flat_values = values.ravel().astype("float64")
+    _validate_reduce_by_label(
+        values, labels, n_groups, stats, flat_labels, weights, unassigned
+    )
+
+    valid = (flat_labels != unassigned) & ~np.isnan(flat_values)
+    lbl = flat_labels[valid].astype(np.intp)
+    val = flat_values[valid]
+    weighted = weights is not None
+    # Unweighted reduces by weighting every cell by 1.0: `1.0 * x` is exact in IEEE 754, so
+    # the sum/mean come out bit-identical to the plain bincount, and one code path serves both.
+    w = (
+        np.asarray(weights, dtype="float64").ravel()[valid]
+        if weighted
+        else np.ones_like(val)
+    )
+
+    out, wtotal, wmean = _label_core_stats(stats, lbl, val, w, n_groups)
+    other_stats = [s for s in stats if s not in _LABEL_BINCOUNT_STATS]
+    if other_stats:
+        out.update(
+            _label_grouped_stats(
+                other_stats, lbl, val, n_groups, weighted, w, wtotal, wmean
+            )
+        )
+    return out
+
+
+def _validate_reduce_by_label(
+    values: Any,
+    labels: Any,
+    n_groups: int,
+    stats: list[str],
+    flat_labels: np.ndarray,
+    weights: Any,
+    unassigned: int,
+) -> None:
+    """Raise if :func:`reduce_by_label`'s inputs are inconsistent (see its Raises)."""
     if values.size != labels.size:
         raise ValueError(
             f"reduce_by_label: values has {values.size} element(s) but labels has "
@@ -457,9 +496,6 @@ def reduce_by_label(
             raise ValueError(
                 f"unknown stat {stat!r}; supported: {sorted(_LABEL_STAT_FUNCS)}"
             )
-
-    flat_labels = labels.ravel()
-    flat_values = values.ravel().astype("float64")
     assigned = flat_labels != unassigned
     if assigned.any():
         lo = int(flat_labels[assigned].min())
@@ -469,101 +505,105 @@ def reduce_by_label(
                 f"reduce_by_label: assigned labels fall outside [0, {n_groups}); "
                 f"found {lo}..{hi}."
             )
-
     if weights is not None and np.asarray(weights).size != values.size:
         raise ValueError(
             f"reduce_by_label: weights has {np.asarray(weights).size} element(s) but "
             f"values has {values.size}; they must be the same size."
         )
 
-    valid = assigned & ~np.isnan(flat_values)
-    lbl = flat_labels[valid].astype(np.intp)
-    val = flat_values[valid]
-    wt = (
-        np.asarray(weights, dtype="float64").ravel()[valid]
-        if weights is not None
-        else None
-    )
-    counts = np.bincount(lbl, minlength=n_groups).astype("float64")
 
+def _label_core_stats(
+    stats: list[str], lbl: np.ndarray, val: np.ndarray, w: np.ndarray, n_groups: int
+) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray | None]:
+    """The bincount-expressible per-group stats (count / sum / mean), plus weight totals.
+
+    Returns the requested subset of ``count`` / ``sum`` / ``mean`` and the ``(wtotal, wmean)``
+    the grouped weighted variance reuses. ``count`` is the unweighted member count; ``sum`` is
+    ``Σ wᵢxᵢ`` and ``mean`` is ``Σ wᵢxᵢ / Σ wᵢ`` (with ``w`` all-ones for the unweighted case).
+    """
     out: dict[str, np.ndarray] = {}
-    other_stats = [s for s in stats if s not in _LABEL_BINCOUNT_STATS]
-    need_sum = "sum" in stats or "mean" in stats or (wt is not None and other_stats)
-
-    if wt is None:
-        # need_sum is True whenever "sum" or "mean" is requested, so sums is non-None on
-        # either branch that reads it.
-        sums = np.bincount(lbl, weights=val, minlength=n_groups) if need_sum else None
-        if "sum" in stats:
-            assert sums is not None  # nosec B101
-            out["sum"] = sums
-        if "count" in stats:
-            out["count"] = counts
-        if "mean" in stats:
-            assert sums is not None  # nosec B101
-            with np.errstate(invalid="ignore", divide="ignore"):
-                out["mean"] = np.where(counts > 0, sums / counts, np.nan)
-    else:
-        wtotal = np.bincount(lbl, weights=wt, minlength=n_groups)
-        wsum = (
-            np.bincount(lbl, weights=wt * val, minlength=n_groups) if need_sum else None
+    wtotal = np.bincount(lbl, weights=w, minlength=n_groups)
+    need_sum = bool({"sum", "mean", "std", "var"} & set(stats))
+    wsum = np.bincount(lbl, weights=w * val, minlength=n_groups) if need_sum else None
+    with np.errstate(invalid="ignore", divide="ignore"):
+        wmean = (
+            np.where(wtotal != 0, wsum / wtotal, np.nan) if wsum is not None else None
         )
-        with np.errstate(invalid="ignore", divide="ignore"):
-            wmean = (
-                np.where(wtotal != 0, wsum / wtotal, np.nan)
-                if wsum is not None
-                else None
-            )
-        if "sum" in stats:
-            assert wsum is not None  # nosec B101
-            out["sum"] = wsum
-        if "count" in stats:
-            out["count"] = counts
-        if "mean" in stats:
-            assert wmean is not None  # nosec B101
-            out["mean"] = wmean
+    if "count" in stats:
+        out["count"] = np.bincount(lbl, minlength=n_groups).astype("float64")
+    if "sum" in stats:
+        assert wsum is not None  # nosec B101 - need_sum covers "sum"
+        out["sum"] = wsum
+    if "mean" in stats:
+        assert wmean is not None  # nosec B101 - need_sum covers "mean"
+        out["mean"] = wmean
+    return out, wtotal, wmean
 
-    if other_stats:
-        order = np.argsort(lbl, kind="stable")
-        grouped_labels = lbl[order]
-        grouped_values = val[order]
-        ids = np.arange(n_groups)
-        starts = np.searchsorted(grouped_labels, ids, side="left")
-        ends = np.searchsorted(grouped_labels, ids, side="right")
-        per_group = {
-            stat: np.full(n_groups, np.nan, dtype="float64") for stat in other_stats
-        }
-        wvar = None
-        if wt is not None and ("std" in other_stats or "var" in other_stats):
-            # Stable weighted variance: Σ w·(x − group mean)² / Σ w, accumulated per group
-            # with bincount. A sum of non-negative terms, so it is never negative — unlike
-            # Σ w·x²/Σ w − mean², which cancels catastrophically for a near-constant group
-            # and can yield a tiny negative (then NaN under sqrt). Matches the definition in
-            # :func:`weighted_statistic`.
-            assert wmean is not None  # nosec B101 - computed above whenever std/var asked
-            deviations = wt * (val - np.asarray(wmean)[lbl]) ** 2
-            weighted_sq = np.bincount(lbl, weights=deviations, minlength=n_groups)
-            with np.errstate(invalid="ignore", divide="ignore"):
-                wvar = np.where(wtotal != 0, weighted_sq / wtotal, np.nan)
-        for group in range(n_groups):
-            segment = grouped_values[starts[group] : ends[group]]
-            if segment.size == 0:
-                continue
-            if "min" in other_stats:
-                per_group["min"][group] = float(np.min(segment))
-            if "max" in other_stats:
-                per_group["max"][group] = float(np.max(segment))
-            if wt is None and "std" in other_stats:
-                per_group["std"][group] = float(np.std(segment))
-            if wt is None and "var" in other_stats:
-                per_group["var"][group] = float(np.var(segment))
-        if wt is not None and "var" in other_stats:
-            per_group["var"] = np.asarray(wvar, dtype="float64")
-        if wt is not None and "std" in other_stats:
-            per_group["std"] = np.sqrt(np.asarray(wvar, dtype="float64"))
-        out.update(per_group)
 
-    return out
+def _label_grouped_stats(
+    other_stats: list[str],
+    lbl: np.ndarray,
+    val: np.ndarray,
+    n_groups: int,
+    weighted: bool,
+    w: np.ndarray,
+    wtotal: np.ndarray,
+    wmean: np.ndarray | None,
+) -> dict[str, np.ndarray]:
+    """The sorted-group stats: ``min`` / ``max`` (weight-invariant) and ``std`` / ``var``.
+
+    ``min`` / ``max`` come from each group's values directly. Unweighted ``std`` / ``var`` use
+    ``numpy``'s population functions (so the raster path stays bit-identical); weighted ones
+    use the stable ``Σ wᵢ(xᵢ−x̄)² / Σ wᵢ`` of :func:`_weighted_group_var`.
+    """
+    order = np.argsort(lbl, kind="stable")
+    grouped_labels = lbl[order]
+    grouped_values = val[order]
+    ids = np.arange(n_groups)
+    starts = np.searchsorted(grouped_labels, ids, side="left")
+    ends = np.searchsorted(grouped_labels, ids, side="right")
+    per_group = {
+        stat: np.full(n_groups, np.nan, dtype="float64") for stat in other_stats
+    }
+    for group in range(n_groups):
+        segment = grouped_values[starts[group] : ends[group]]
+        if segment.size == 0:
+            continue
+        if "min" in other_stats:
+            per_group["min"][group] = float(np.min(segment))
+        if "max" in other_stats:
+            per_group["max"][group] = float(np.max(segment))
+        if not weighted and "std" in other_stats:
+            per_group["std"][group] = float(np.std(segment))
+        if not weighted and "var" in other_stats:
+            per_group["var"][group] = float(np.var(segment))
+    if weighted and ("std" in other_stats or "var" in other_stats):
+        wvar = _weighted_group_var(lbl, val, w, wtotal, wmean, n_groups)
+        if "var" in other_stats:
+            per_group["var"] = wvar
+        if "std" in other_stats:
+            per_group["std"] = np.sqrt(wvar)
+    return per_group
+
+
+def _weighted_group_var(
+    lbl: np.ndarray,
+    val: np.ndarray,
+    w: np.ndarray,
+    wtotal: np.ndarray,
+    wmean: np.ndarray | None,
+    n_groups: int,
+) -> np.ndarray:
+    """Per-group weighted population variance ``Σ wᵢ(xᵢ−x̄)² / Σ wᵢ`` via bincount.
+
+    A sum of non-negative terms, so it is never negative — unlike ``Σ wᵢxᵢ²/Σ wᵢ − x̄²``,
+    which cancels catastrophically for a near-constant group. Matches :func:`weighted_statistic`.
+    """
+    assert wmean is not None  # nosec B101 - computed whenever std/var is requested
+    deviations = w * (val - np.asarray(wmean)[lbl]) ** 2
+    weighted_sq = np.bincount(lbl, weights=deviations, minlength=n_groups)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.asarray(np.where(wtotal != 0, weighted_sq / wtotal, np.nan))
 
 
 #: Per-operation ``(skipna_func, plain_func)`` pairs for the statistics ``reduce`` /
