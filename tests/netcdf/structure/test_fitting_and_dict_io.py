@@ -410,15 +410,40 @@ class TestCurveFit:
         )
 
     def test_a_param_dimension_collision_is_refused(self):
-        """The coefficients would otherwise reach GDAL as a second dimension of one name.
+        """The fitted values would otherwise reach GDAL as a second dimension of one name.
 
         Test scenario:
-            A cube whose band dimension is already called `param`.
+            A cube with a *second* band dimension already called `param`, fitted along the other
+            one, so `param` would survive the fit and collide.
+        """
+        array = np.arange(4 * 3 * NY * NX, dtype="float64").reshape(4, 3, NY, NX)
+        container = NetCDF.from_array(
+            array,
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="t",
+            dims=ExtraDimensions(
+                dims=[("level", [0.0, 1.0, 3.0, 6.0]), ("param", [1.0, 2.0, 3.0])]
+            ),
+        )
+
+        with pytest.raises(ValueError, match="already has"):
+            container.get_variable("t").curvefit("level", _line, [1.0, 1.0])
+
+    def test_fitting_along_param_itself_is_allowed(self):
+        """Fitting *along* `param` replaces it, so there is nothing left to collide with.
+
+        Refusing this rejected a legitimate call — refitting the output of one `curvefit`.
+
+        Test scenario:
+            A cube whose only band dimension is `param` fits along it.
         """
         var = _cube([1.0, 3.0, 7.0, 13.0], dim="param").get_variable("t")
 
-        with pytest.raises(ValueError, match="already has"):
-            var.curvefit("param", _line, [1.0, 1.0])
+        fit = var.curvefit("param", _line, [1.0, 1.0])
+
+        assert fit._band_dim_names == ("param",), fit._band_dim_names
+        values = np.asarray(fit.read_array()).reshape(2, NY, NX)
+        assert np.allclose(values[0], 2.0), values[0]
 
     def test_fits_every_variable_of_a_container(self):
         """The container route, which is the shape most callers use.
@@ -601,29 +626,35 @@ class TestRollingExp:
     def test_is_step_based_so_a_coordinateless_axis_works(self):
         """Deliberately unlike the numerical members, which refuse an axis with no coordinates.
 
+        `ExtraDimensions(values=None)` does **not** make such an axis — it stamps integer
+        indices, so the earlier version of this test passed for an implementation that read the
+        coordinates too, and pinned nothing. This uses a real store whose axis carries no values
+        at all, and asserts in the same place that a coordinate-aware member refuses it, so the
+        contrast the docstring draws is the thing being tested.
+
         Test scenario:
-            A band dimension carrying no coordinate values smooths anyway.
+            A genuinely unstamped store axis smooths, and `integrate` along it refuses.
         """
-        array = np.repeat(
-            np.repeat(
-                np.asarray([10.0, 10.0, 10.0, 20.0]).reshape(4, 1, 1), NY, axis=1
-            ),
-            NX,
-            axis=2,
+        path = DATA / "none__17v__1d1-2d5-3d6-4d5__stag-str.nc"
+        assert path.exists(), f"missing fixture {path}"
+        cube = NetCDF.read_file(str(path))
+        name, dim = None, "soil_layers_stag"
+        for candidate in cube.variable_names:
+            variable = cube.get_variable(str(candidate))
+            values_map = getattr(variable, "_band_dim_values_map", None) or {}
+            if values_map.get(dim, "missing") is None:
+                name = str(candidate)
+                break
+        assert name is not None, f"no variable has an unstamped {dim!r} axis"
+        variable = cube.get_variable(name)
+
+        smoothed = variable.rolling_exp(dim, 0.5)
+
+        assert smoothed._band_dim_sizes == variable._band_dim_sizes, (
+            smoothed._band_dim_sizes
         )
-        bare = NetCDF.from_array(
-            array,
-            geo_ref=_geo_ref(),
-            variable_name="t",
-            dims=ExtraDimensions(name="level", values=None),
-        ).get_variable("t")
-
-        smoothed = bare.rolling_exp("level", 0.5)
-
-        got = np.asarray(smoothed.read_array()).reshape(4, NY, NX)[:, 0, 0]
-        assert np.allclose(
-            got, pd.Series([10.0, 10.0, 10.0, 20.0]).ewm(alpha=0.5).mean().to_numpy()
-        ), got
+        with pytest.raises(ValueError):
+            variable.integrate(dim)
 
     def test_smooths_every_variable_of_a_container(self):
         """The container route.
@@ -1528,3 +1559,219 @@ class TestDictRoundTripOnStoresThatBiteBack:
             entry["shape"],
         )
         assert entry["dims"][-2:] == payload["pyramids"]["spatial_dims"], entry["dims"]
+
+
+class TestRollingExpNonFiniteInput:
+    """A gap and an infinity are different things."""
+
+    def test_an_infinite_cell_is_a_value_not_a_gap(self):
+        """Masking on `isfinite` made an infinity indistinguishable from an unobserved step.
+
+        Test scenario:
+            A series holding `inf` keeps a non-NaN answer at that step, while a NaN step is
+            masked.
+        """
+        var = _cube([10.0, np.inf, 10.0, 20.0]).get_variable("t")
+
+        got = np.asarray(var.rolling_exp("level", 0.5).read_array()).reshape(4, NY, NX)[
+            :, 0, 0
+        ]
+
+        assert not np.isnan(got[1]), (
+            f"an infinite input is a value the array holds, not a gap — got {got[1]}"
+        )
+
+    def test_alpha_one_returns_the_input_for_mean_but_not_for_std(self):
+        """The `alpha=1` identity holds for two of the four reductions.
+
+        Test scenario:
+            `mean` returns the input unchanged; `std` is all-NaN.
+        """
+        values = [10.0, 13.0, 12.0, 20.0]
+        var = _cube(values).get_variable("t")
+
+        mean = np.asarray(var.rolling_exp("level", 1.0).read_array()).reshape(
+            4, NY, NX
+        )[:, 0, 0]
+        spread = np.asarray(
+            var.rolling_exp("level", 1.0, how="std").read_array()
+        ).reshape(4, NY, NX)[:, 0, 0]
+
+        assert np.allclose(mean, values), mean
+        assert np.isnan(spread).all(), spread
+
+
+class TestCurveFitBoundsChecks:
+    """`_assert_bounds` names the caller's mistake instead of letting NumPy or scipy do it."""
+
+    def test_bounds_of_the_wrong_length_are_refused(self):
+        """`broadcast_to` would raise a NumPy shape message about its own arguments.
+
+        Test scenario:
+            A three-entry lower bound against a two-parameter `p0`.
+        """
+        var = _cube([1.0, 3.0, 7.0, 13.0]).get_variable("t")
+
+        with pytest.raises(ValueError, match="1 or 2 entries"):
+            var.curvefit(
+                "level", _line, [1.0, 1.0], bounds=([0.0, 0.0, 0.0], [9.0, 9.0, 9.0])
+            )
+
+    def test_an_inverted_bound_pair_is_refused(self):
+        """Otherwise `curve_fit` refuses per cell, which lands in the all-NaN-raster trap.
+
+        Test scenario:
+            A lower bound above its upper.
+        """
+        var = _cube([1.0, 3.0, 7.0, 13.0]).get_variable("t")
+
+        with pytest.raises(ValueError, match="at or below its upper"):
+            var.curvefit("level", _line, [1.0, 1.0], bounds=([5.0, 0.0], [1.0, 9.0]))
+
+
+class TestDictPayloadIsUntrustedThroughout:
+    """The keys that used to escape `_assert_payload`'s stated contract."""
+
+    @pytest.mark.parametrize(
+        ("dtype", "match"),
+        [
+            ("not-a-dtype", "not a NumPy type"),
+            ("O", "a raster band cannot hold"),
+            ("<U8", "a raster band cannot hold"),
+            ("M8[ns]", "a raster band cannot hold"),
+        ],
+    )
+    def test_a_dtype_a_raster_cannot_hold_is_refused(self, dtype, match):
+        """`'O'` reached GDAL, which is the outcome the validation exists to prevent.
+
+        Args:
+            dtype: The dtype string to plant.
+            match: A fragment of the expected message.
+
+        Test scenario:
+            Each unusable dtype is refused by name, before NumPy or GDAL sees it.
+        """
+        payload = _cube([1.0, 2.0, 3.0, 4.0]).to_dict()
+        payload["data_vars"]["t"]["dtype"] = dtype
+
+        with pytest.raises(ValueError, match=match):
+            NetCDF.from_dict(payload)
+
+    @pytest.mark.parametrize("stamped", [0, -1, "1", 1.0, True])
+    def test_a_malformed_schema_stamp_is_not_blamed_on_a_newer_writer(self, stamped):
+        """A zero or negative stamp is malformed, not from the future.
+
+        Args:
+            stamped: The schema value to plant.
+
+        Test scenario:
+            Each malformed stamp is refused as malformed rather than as too new.
+        """
+        payload = _cube([1.0, 2.0, 3.0, 4.0]).to_dict()
+        payload["pyramids"]["schema"] = stamped
+
+        with pytest.raises(ValueError, match="positive integer schema version"):
+            NetCDF.from_dict(payload)
+
+    def test_keys_that_collide_once_stringified_are_refused(self, monkeypatch):
+        """`1` and `"1"` both become `"1"`, so one would silently overwrite the other.
+
+        Args:
+            monkeypatch: pytest's patching fixture.
+
+        Test scenario:
+            A mapping whose keys collide after conversion is refused rather than losing one.
+        """
+        container = _cube([1.0, 2.0, 3.0, 4.0])
+        monkeypatch.setattr(
+            type(container), "attrs", property(lambda self: {1: "a", "1": "b"})
+        )
+
+        with pytest.raises(ValueError, match="keys collide"):
+            container.to_dict(data=False)
+
+
+class TestDictExportAcrossOpenModes:
+    """The cube shapes the exporter meets in the wild."""
+
+    def test_a_classically_opened_cube_names_the_open_mode(self):
+        """`open_as_multi_dimensional=False` is supported elsewhere, so say what is wrong.
+
+        Test scenario:
+            A classic open is refused with a message naming the open mode, not the data.
+        """
+        path = DATA / "cf__5v__1d4-3d1__geog__y-desc.nc"
+        assert path.exists(), f"missing fixture {path}"
+        classic = NetCDF.read_file(str(path), open_as_multi_dimensional=False)
+
+        with pytest.raises(ValueError, match="open_as_multi_dimensional=True"):
+            classic.to_dict(data=False)
+
+    def test_a_group_view_exports_its_own_group(self):
+        """A `get_group()` view is a distinct cube shape with its own working group.
+
+        Test scenario:
+            A grouped store's view exports the variables of that group.
+        """
+        path = DATA / "none__35v__1d35__groups-nc4.nc"
+        assert path.exists(), f"missing fixture {path}"
+        cube = NetCDF.read_file(str(path))
+        groups = [name for name in getattr(cube, "groups", []) or []]
+        if not groups:
+            pytest.skip("fixture exposes no groups")
+        view = cube.get_group(groups[0])
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
+                payload = view.to_dict(data=False)
+            except ValueError as error:
+                assert "describe as a grid" in str(error) or "working group" in str(
+                    error
+                ), str(error)
+                return
+
+        assert payload["data_vars"], "a group view with rasters should export them"
+
+    def test_the_variable_route_reports_the_containers_global_attrs(self):
+        """A variable's own `.attrs` are not the cube's globals.
+
+        Writing them into the payload's global slot duplicated them under `data_vars` and lost
+        the real globals, which `from_dict` would then apply as globals on the rebuilt cube.
+
+        Test scenario:
+            A variable's payload carries the container's global attributes.
+        """
+        path = DATA / "cf__5v__1d4-3d1__geog__y-desc.nc"
+        assert path.exists(), f"missing fixture {path}"
+        cube = NetCDF.read_file(str(path))
+        name = str(cube.variable_names[0])
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from_container = cube.to_dict(data=False)["attrs"]
+            from_variable = cube.get_variable(name).to_dict(data=False)["attrs"]
+
+        assert from_variable == from_container, (
+            "the variable route must report the container's globals, not the variable's own"
+        )
+
+    def test_structure_only_coordinates_carry_no_values(self):
+        """`data=False` has to mean the same thing for a coordinate as for a variable.
+
+        xarray's own `to_dict(data=False)` gives a coordinate `attrs`/`dims`/`dtype`/`shape` and
+        no values; emitting the stamps there made this neither mode.
+
+        Test scenario:
+            A coordinate entry has dtype and shape but no `data` under `data=False`, and `data`
+            under `data=True`.
+        """
+        cube = _cube([1.0, 2.0, 3.0, 4.0])
+
+        structure = cube.to_dict(data=False)["coords"]["level"]
+        full = cube.to_dict()["coords"]["level"]
+
+        assert "data" not in structure, sorted(structure)
+        assert structure["shape"] == [4], structure["shape"]
+        assert structure["dtype"], structure
+        assert full["data"] == UNEVEN, full["data"]

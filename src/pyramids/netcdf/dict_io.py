@@ -17,11 +17,22 @@ geotransform** — a `crs` attribute survives there only because it happens to r
 a GDAL-backed cube the georeferencing *is* the object, so matching xarray exactly would make the
 round trip silently drop it. Instead those four keys keep their xarray meaning exactly, and
 everything GDAL needs lives under one extra `pyramids` key. A reader that knows only xarray's
-schema still finds what it expects; a round trip through here loses nothing.
+schema still finds what it expects.
 
-What round-trips: dimensions and their order, every band dimension's coordinates **and their CF
+One limit on that: `coords` carries the **band** dimensions only, because those are the axes a
+cube stamps. The spatial axes are not coordinate arrays here — they are the `geotransform`, from
+which `y` and `x` are derived — so an xarray-only reader of this payload gets a `Dataset` with no
+spatial coordinates. `xr.Dataset.from_dict` accepts it, but the georeferencing is in the
+`pyramids` block, which by definition such a reader is not looking at.
+
+What round-trips: dimensions and their order, a band dimension's coordinates **and their CF
 attributes** (a time axis keeps its units and calendar), variable arrays and dtypes, the CRS, the
 geotransform, the no-data sentinels and the spatial dimension names.
+
+One caveat on the coordinates, which is upstream of this module rather than in it: when variables
+sit on *different* band axes, `add_variable` leaves the later ones' coordinate map empty, so those
+axes arrive here already unstamped and `from_dict` warns that it rebuilt them so. The warning
+names the payload because that is what it can see; the loss happened before `to_dict` was called.
 
 What does **not** round-trip, in both cases because `from_array` is the only constructor and it
 takes neither:
@@ -97,7 +108,15 @@ def _plain(value: Any) -> Any:
     elif isinstance(value, np.generic):
         result = value.item()
     elif isinstance(value, dict):
-        result = {str(key): _plain(item) for key, item in value.items()}
+        converted = {str(key): _plain(item) for key, item in value.items()}
+        if len(converted) != len(value):
+            # `1` and `"1"` both become `"1"`, so one would silently overwrite the other. Rare
+            # in a cube's metadata, but a silent loss is not worth the brevity of ignoring it.
+            raise ValueError(
+                f"to_dict() cannot convert a mapping whose keys collide once stringified: "
+                f"{sorted({str(key) for key in value})} from {len(value)} keys."
+            )
+        result = converted
     elif isinstance(value, (list, tuple)):
         result = [_plain(item) for item in value]
     else:
@@ -184,7 +203,9 @@ def _export_targets(
         ValueError: A variable whose parent container cannot be reached, or a container with no
             exportable variable.
     """
-    if _reduces_as_a_variable(nc):
+    variable_route = _reduces_as_a_variable(nc)
+    source: NetCDF = nc
+    if variable_route:
         parent = getattr(nc, "_parent_nc", None)
         own = getattr(nc, "_source_var_name", None)
         if parent is None or own is None:
@@ -192,7 +213,19 @@ def _export_targets(
                 "to_dict() cannot export this variable: it does not know which container it "
                 "came from, so its dimensions cannot be resolved. Export the container instead."
             )
-        return [(str(own), nc)], cast("NetCDF", parent), []
+        source = cast("NetCDF", parent)
+    if source._working_group() is None:
+        # `_working_group()` is None for a closed dataset and for one opened in classic
+        # (non-multidimensional) mode. Checked on the *container* — a variable has no working
+        # group of its own — because otherwise the classic case fell through to "no variable
+        # qualifies", which blames the data for the open mode.
+        raise ValueError(
+            "to_dict() needs a multidimensional open, and this cube has no working group — "
+            "it is closed, or it was opened with open_as_multi_dimensional=False. Reopen it "
+            "with open_as_multi_dimensional=True."
+        )
+    if variable_route:
+        return [(str(getattr(nc, "_source_var_name")), nc)], source, []
     pairs: list[tuple[str, NetCDF]] = []
     skipped: list[str] = []
     for name in nc.variable_names:
@@ -216,6 +249,10 @@ def _declared_shape(var: NetCDF) -> tuple[list[int], str]:
     This is what makes `data=False` mean what it says. `read_array()` would materialise the whole
     variable — the entire payload over the wire for a remote or dask-backed cube — to learn two
     facts the band sizes and the raster dimensions already carry.
+
+    "Reading no values" is exact: no `read_array` call is made. It is not the same as reading
+    *nothing* — the coordinate block still materialises each band dimension's stamps, which are a
+    per-axis vector rather than a per-cell array, and are what the mode exists to report.
 
     The dtype is the one the *values* have, not the one the store holds. Those differ whenever CF
     packing is declared: `read_array` unpacks through `scale_factor` / `add_offset` and returns
@@ -276,9 +313,11 @@ def cube_to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
 
     Args:
         nc: The container or variable to export.
-        data: Whether to include the values. `False` emits structure only — every variable keeps
-            its `dims`, `dtype`, `shape` and `attrs` but no `data` key — which is the useful mode
-            for inspecting or diffing two cubes without reading them.
+        data: Whether to include the values. `False` emits structure only — every variable and
+            every coordinate keeps its `dims`, `dtype`, `shape` and `attrs` but no `data` key —
+            which is the useful mode for inspecting or diffing two cubes. It makes **no**
+            `read_array` call, so no per-cell array is materialised; each band dimension's
+            coordinate vector still is, being the structure the mode reports.
 
     Returns:
         dict[str, Any]: The payload, keyed `dims`, `coords`, `data_vars`, `attrs` in their xarray
@@ -352,7 +391,7 @@ def cube_to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
         pyramids.netcdf.NetCDF.to_dataframe: The cube as a pandas frame instead, which is a
             flat table rather than the structure.
     """
-    pairs, dims_source, skipped = _export_targets(nc)
+    pairs, whole_cube, skipped = _export_targets(nc)
     if skipped:
         warnings.warn(
             f"to_dict() exported {len(pairs)} variable(s) and dropped {skipped}: each either "
@@ -371,7 +410,7 @@ def cube_to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
             "to_dict(data=False) describes a CRS-less cube without this refusal, since "
             "structure-only payloads are for inspection and from_dict() refuses them anyway."
         )
-    group = dims_source._working_group()
+    group = whole_cube._working_group()
     dims: dict[str, int] = {}
     coords: dict[str, Any] = {}
     data_vars: dict[str, Any] = {}
@@ -381,7 +420,7 @@ def cube_to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
         # `var` is the receiver itself on the variable route, so a subsetted variable describes
         # its own axis rather than the parent's.
         band = [str(entry) for entry in var._band_dim_names]
-        stored = [str(entry) for entry in dims_source._variable_dim_names(group, name)]
+        stored = [str(entry) for entry in whole_cube._variable_dim_names(group, name)]
         # The payload records **pyramids' own** layout, band axes first and `(y, x)` last, which
         # is the shape `read_array` returns and `_shaped_array` rebuilds. A store's declared
         # order is not that: variable `U` of this repo's `cf__48v…` fixture declares
@@ -407,11 +446,19 @@ def cube_to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
             # not cover would otherwise describe its own values wrongly.
             dtype_name = str(read_values.dtype)
         for coord_name, values in var.coords.items():
-            coords[str(coord_name)] = {
+            stamps = np.asarray(values)
+            entry_coord: dict[str, Any] = {
                 "dims": [str(coord_name)],
-                "data": _plain(np.asarray(values)),
                 "attrs": _coordinate_attrs(var, str(coord_name)),
+                "dtype": str(stamps.dtype),
+                "shape": [int(size) for size in stamps.shape],
             }
+            if data:
+                # Dropped under `data=False` so the two modes agree: xarray's own
+                # `to_dict(data=False)` gives a coordinate `attrs`/`dims`/`dtype`/`shape` and no
+                # values, and emitting the stamps there made this neither mode.
+                entry_coord["data"] = _plain(stamps)
+            coords[str(coord_name)] = entry_coord
         entry: dict[str, Any] = {
             "dims": declared,
             "attrs": _plain(dict(var.attrs)),
@@ -437,7 +484,10 @@ def cube_to_dict(nc: NetCDF, *, data: bool = True) -> dict[str, Any]:
         "dims": dims,
         "coords": coords,
         "data_vars": data_vars,
-        "attrs": _plain(dict(nc.attrs)),
+        # The **global** attributes, which on the variable route live on the container rather
+        # than on the receiver: a variable's `.attrs` is its own set, and writing those into the
+        # payload's global slot both duplicated them under `data_vars` and lost the real globals.
+        "attrs": _plain(dict(whole_cube.attrs)),
         "pyramids": {
             "schema": SCHEMA_VERSION,
             "epsg": None if epsg is None else int(epsg),
@@ -500,11 +550,12 @@ def _assert_payload(payload: Any) -> dict[str, Any]:
     if not payload["data_vars"]:
         raise ValueError("from_dict() needs at least one entry in 'data_vars'.")
     stamped = geo.get("schema", SCHEMA_VERSION)
-    if (
-        not isinstance(stamped, int)
-        or isinstance(stamped, bool)
-        or stamped > SCHEMA_VERSION
-    ):
+    if not isinstance(stamped, int) or isinstance(stamped, bool) or stamped < 1:
+        raise ValueError(
+            f"from_dict() needs a positive integer schema version, but this payload is stamped "
+            f"{stamped!r}."
+        )
+    if stamped > SCHEMA_VERSION:
         # Stamping a version and never reading it makes the stamp decoration. A payload from a
         # newer writer may carry keys whose meaning this reader does not know, so it is refused
         # rather than read with today's assumptions.
@@ -528,8 +579,9 @@ def _variable_array(name: str, entry: Any, dims: dict[str, Any]) -> np.ndarray:
 
     Raises:
         ValueError: The entry has no `data` (it came from `to_dict(data=False)`), declares a
-            dimension the payload's `dims` does not list, or holds an array whose shape disagrees
-            with those dimensions.
+            dimension the payload's `dims` does not list, holds an array whose shape disagrees
+            with those dimensions, or names a `dtype` that is not a NumPy type or that a raster
+            band cannot hold.
     """
     if not isinstance(entry, dict) or "data" not in entry:
         raise ValueError(
@@ -543,7 +595,24 @@ def _variable_array(name: str, entry: Any, dims: dict[str, Any]) -> np.ndarray:
             f"from_dict() cannot place {name!r}: it declares the dimensions {unknown}, which "
             f"the payload's 'dims' does not list."
         )
-    array = np.asarray(entry["data"], dtype=entry.get("dtype") or None)
+    wanted = entry.get("dtype") or None
+    if wanted is not None:
+        try:
+            resolved = np.dtype(wanted)
+        except TypeError as error:
+            raise ValueError(
+                f"from_dict() cannot read {name!r}: its dtype {wanted!r} is not a NumPy type."
+            ) from error
+        if resolved.kind in "OUSVMm":
+            # `kind` O/V are object and void, U/S are text, M/m are datetimes. GDAL takes none of
+            # them, and letting one through reached GDAL's own refusal — the outcome
+            # `_assert_payload` exists to prevent.
+            raise ValueError(
+                f"from_dict() cannot read {name!r}: its dtype {wanted!r} resolves to "
+                f"{resolved.name!r}, which a raster band cannot hold. Use a numeric type."
+            )
+        wanted = resolved
+    array = np.asarray(entry["data"], dtype=wanted)
     expected = tuple(int(dims[item]) for item in declared)
     if array.shape != expected:
         raise ValueError(

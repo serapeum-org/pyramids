@@ -1749,9 +1749,10 @@ class _CurveFit(_AlongDim):
 
     `polyfit`'s general case. Where a polynomial fit is linear in its coefficients and so
     vectorises over every cell in one `numpy.polyfit` call, an arbitrary model is not: each cell
-    runs its own `scipy.optimize.curve_fit`. That is ~195 us/cell and there is no vectorised
-    form — xarray's own `curvefit` goes per-cell through `apply_ufunc` for the same reason and
-    measured slightly slower, so the cost is inherent to the method rather than to this route.
+    runs its own `scipy.optimize.curve_fit`, and there is no vectorised form for that. The cost is
+    therefore linear in the number of cells and dominated by the per-cell solve, which is a
+    property of non-linear least squares rather than of this route — xarray's `curvefit` goes
+    per-cell through `apply_ufunc` for the same reason.
 
     The fitted dimension is **replaced** by a `param` dimension stamped `0 .. n - 1`, positionally
     rather than with the callable's parameter names: a text axis is inert to the rest of the
@@ -1776,7 +1777,7 @@ class _CurveFit(_AlongDim):
         func: The model, called as `func(x, *params)`.
         p0: The initial guess, positionally — its length fixes how many parameters are fitted.
         bounds: `(lower, upper)` for `curve_fit`, or `None` for unbounded.
-        full: Whether to append the residual-sum-of-squares slot.
+        full: Whether to prepend the residual-sum-of-squares slot, stamped `-1`.
         coord_name: The dimension the coefficients land on.
     """
 
@@ -1856,10 +1857,15 @@ class _CurveFit(_AlongDim):
                     # cell's data, TypeError a model that cannot take this many parameters.
                     unfittable += 1
                     continue
-                fitted[offset : offset + count, index] = best
                 if self.full:
+                    # Inside the same `try`: a model that raises when evaluated at its own
+                    # fitted parameters is one unfittable cell, not a failed call. `curve_fit`
+                    # has already evaluated it at `best`, so this is unlikely — but the
+                    # asymmetry of aborting here while tolerating a raise two lines above is
+                    # not defensible.
                     predicted = np.asarray(self.func(positions[finite], *best))
                     fitted[0, index] = float(np.sum((series[finite] - predicted) ** 2))
+                fitted[offset : offset + count, index] = best
         if unfittable:
             warnings.warn(
                 f"curvefit() could not fit {unfittable} of {columns.shape[1]} cells, which "
@@ -1904,14 +1910,16 @@ class _RollingExp(_AlongDim):
 
     `pandas.DataFrame.ewm` does the work. A cube is `(bands, y, x)` with the band axis first, so
     its cells are already columns: reshaped to `(steps, cells)` the whole cube goes through one
-    `ewm` call in C, ~19 us/cell, with no per-cell Python loop. This is also why the member needs
+    `ewm` call in C, with no per-cell Python loop. This is also why the member needs
     no new dependency — `pandas` is already core, and the `numbagg` requirement belongs to
     xarray's implementation, which raises `ImportError` without it.
 
     The dimension keeps its length and its coordinates.
 
     Attributes:
-        alpha: The smoothing factor, `0 < alpha <= 1`. Larger forgets faster.
+        alpha: The smoothing factor, `0 < alpha <= 1`. Larger forgets faster. At `alpha=1`
+            `mean` and `sum` return the input unchanged, while `std` and `var` are undefined and
+            come back all-NaN.
         how: The reduction: `mean`, `sum`, `std` or `var`.
     """
 
@@ -1953,7 +1961,11 @@ class _RollingExp(_AlongDim):
         # Re-mask the steps that were gaps. `ewm` carries the previous value through one, so
         # without this a masked step comes back finite and plausible while the result declares a
         # sentinel that appears nowhere in the array — the mask silently lost.
-        values = np.where(np.isfinite(data), values, np.nan)
+        #
+        # `isnan`, not `isfinite`: after `_gaps_as_nan` a gap is already NaN, while `±inf` is a
+        # value the array holds. Masking on `isfinite` made an infinite cell indistinguishable
+        # from an unobserved one.
+        values = np.where(np.isnan(data), np.nan, values)
         return _Applied(np.asarray(values), list(band_names), dict(values_map), np.nan)
 
 

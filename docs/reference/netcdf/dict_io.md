@@ -1,20 +1,23 @@
 # The cube as a nested dict
 
-Export a cube's whole structure to plain Python objects and rebuild it from them. Every other export goes to a
+Export a cube's whole structure to plain Python objects and rebuild it from them. It needs a
+multidimensional open — reopen with `open_as_multi_dimensional=True` if the cube was opened classically.
+
+Every other export goes to a
 *file* or a *foreign object* — `to_file`, `to_zarr`, `to_kerchunk`, `to_dataframe`, `to_xarray`, `to_stac_item`.
 This is the one that goes to nothing but `dict`, `list`, `str` and numbers, which is what inspection, diffing two
 cubes, JSON transport and asserting on structure in a test all want.
 
 ```python
 payload = cube.to_dict()           # values included
-structure = cube.to_dict(data=False)   # metadata only, reads nothing
+structure = cube.to_dict(data=False)   # structure only: no read_array call
 rebuilt = NetCDF.from_dict(payload)
 ```
 
 ## The schema is a superset of xarray's
 
-`dims`, `coords`, `data_vars` and `attrs` keep their xarray meanings exactly, so a reader that knows only
-xarray's schema finds what it expects. Everything GDAL needs rides under one extra `pyramids` key:
+`dims`, `coords`, `data_vars` and `attrs` keep their xarray meanings, so a reader that knows only xarray's
+schema finds what it expects. Everything GDAL needs rides under one extra `pyramids` key:
 
 | key | what it carries |
 |---|---|
@@ -23,6 +26,10 @@ xarray's schema finds what it expects. Everything GDAL needs rides under one ext
 | `geotransform` | the six affine coefficients |
 | `spatial_dims` | the `(y, x)` pair every variable in the payload shares |
 | `no_data_value` | the sentinel per variable |
+
+`coords` carries the **band** dimensions only — the spatial axes are the `geotransform` rather than coordinate
+arrays, so an xarray-only reader of this payload gets a `Dataset` with no spatial coordinates. Under
+`data=False` both variables and coordinates report `dims`/`dtype`/`shape`/`attrs` and no `data`.
 
 xarray's schema has **no slot for a CRS or a geotransform** — a `crs` attribute survives there only because it
 happens to ride in `attrs`. For a GDAL-backed cube the georeferencing *is* the object, so matching xarray exactly
@@ -34,9 +41,12 @@ this repo declares `['time', 'lat', 'lev', 'lon']`, interleaving a spatial axis 
 
 ## What round-trips, and what does not
 
-Round-trips: dimensions and their order, every band dimension's coordinates **and their CF attributes** (so a
-time axis keeps its units and calendar), variable arrays and dtypes, the CRS, the geotransform, the no-data
-sentinels and the spatial dimension names.
+Round-trips: dimensions and their order, a band dimension's coordinates **and their CF attributes** (so a time
+axis keeps its units and calendar), variable arrays and dtypes, the CRS, the geotransform, the no-data sentinels
+and the spatial dimension names.
+
+When variables sit on *different* band axes, `add_variable` leaves the later ones' coordinate map empty upstream
+of this module, so those axes arrive already unstamped and `from_dict` warns that it rebuilt them so.
 
 Does **not**, in each case because `from_array` is the only constructor and takes neither:
 

@@ -4903,9 +4903,10 @@ class Selection(_Engine["NetCDF"]):
 
         :meth:`polyfit`'s general case. A polynomial is linear in its coefficients, so a whole
         cube fits in one vectorised `numpy.polyfit` call; an arbitrary model is not, so each cell
-        runs its own `scipy.optimize.curve_fit`. That is ~195 us/cell — about 12 s for a
-        1-degree global grid and 200 s for a 0.25-degree one — and there is no vectorised form:
-        xarray's own `curvefit` goes per-cell for the same reason and measures slightly slower.
+        runs its own `scipy.optimize.curve_fit`, and there is no vectorised form for that. The
+        cost is linear in the number of cells and dominated by the per-cell solve, so a global
+        grid at fine resolution is minutes rather than seconds. xarray's own `curvefit` goes
+        per-cell for the same reason.
 
         The dimension's coordinates are the sample positions, so an uneven axis fits correctly.
         As with `polyfit` the **output axis is not the input axis**: `dim` is replaced by a
@@ -4928,9 +4929,10 @@ class Selection(_Engine["NetCDF"]):
         `ier=1` — a *success* code. Its covariance is no help and is inverted: a degenerate cell
         came back finite where a *perfect* fit came back `inf`. So failed cells arrive as a
         smooth region of exactly `p0`, indistinguishable from real results, which on a map is
-        worse than an obvious gap. `full=True` appends one slot, stamped `-1`, holding each
-        cell's residual sum of squares — the only quantity that separates the two, by a factor of
-        ~1e49 on the series this was measured against. Threshold it to build a quality mask. This
+        worse than an obvious gap. `full=True` prepends one slot, stamped `-1`, holding each
+        cell's residual sum of squares — the only quantity that separates the two, and by an
+        enormous margin: a degenerate cell's residual is many orders of magnitude above a real
+        fit's. Threshold it to build a quality mask. This
         follows `numpy.polyfit(full=True)` and xarray's own `polyfit(full=True)`, and matches
         what raster tools do generally (ArcGIS writes RMSE as a band of its trend raster).
 
@@ -4946,7 +4948,9 @@ class Selection(_Engine["NetCDF"]):
                 converges on nonsense.
             bounds: `(lower, upper)` passed to `curve_fit`, each a scalar or one entry per
                 parameter, or `None` for unbounded.
-            full: Whether to append the residual-sum-of-squares slot, stamped `-1`.
+            full: Whether to prepend the residual-sum-of-squares slot, stamped `-1`. It goes
+                first so the `param` axis stays ascending, which keeps the coordinate-aware
+                members usable on the result.
 
         Returns:
             NetCDF: A container for a container, a variable for a variable, with `dim` replaced
@@ -4958,7 +4962,7 @@ class Selection(_Engine["NetCDF"]):
                 entry, `p0` is not a sequence of numbers, or `bounds` is not a `(lower, upper)`
                 pair.
             ValueError: The container has no data variables; `dim` is a spatial axis, is not a
-                band dimension, carries no coordinate values, or is shorter than `len(p0)`
+                band dimension, resolves to no usable coordinates, or is shorter than `len(p0)`
                 steps, which is the fewest the fit is determined by; an entry of `p0` lies
                 outside its bounds; `p0` is empty; or the cube already carries a dimension named
                 `param`, which the fitted values would collide with. Unlike the other
@@ -5008,8 +5012,12 @@ class Selection(_Engine["NetCDF"]):
         """
         count = _assert_initial_guess(p0)
         _assert_model(func, count)
-        _assert_bounds(p0, bounds)
-        _refuse_colliding_fit_dim(self._ds, _PARAM_DIM, "curvefit")
+        _assert_bounds(p0, bounds, count)
+        if dim != _PARAM_DIM:
+            # Fitting *along* `param` replaces it, so there is nothing left to collide with —
+            # refusing that case rejected a legitimate call, such as fitting the output of one
+            # `curvefit` again.
+            _refuse_colliding_fit_dim(self._ds, _PARAM_DIM, "curvefit")
         return _run_numerical(
             self._ds,
             dim,
@@ -5075,8 +5083,9 @@ class Selection(_Engine["NetCDF"]):
 
         Args:
             dim: The non-spatial dimension to smooth along.
-            alpha: The smoothing factor, `0 < alpha <= 1`. Larger forgets faster; `alpha=1` is
-                the input unchanged.
+            alpha: The smoothing factor, `0 < alpha <= 1`. Larger forgets faster. At `alpha=1`
+                `mean` and `sum` return the input unchanged; `std` and `var` are undefined there
+                and come back all-NaN.
             how: The reduction: `mean`, `sum`, `std` or `var`. xarray also exposes `cov` and
                 `corr`, which need a second cube and so a different signature; they are not
                 here.
@@ -7278,11 +7287,7 @@ def _assert_model(func: Any, count: int) -> None:
     if variadic:
         return
     required = len(
-        [
-            parameter
-            for parameter in positional
-            if parameter.default is parameter.empty
-        ]
+        [parameter for parameter in positional if parameter.default is parameter.empty]
     )
     # A range, not an exact count: `def model(x, a, b, scale=2.0)` fitted with `p0=[1, 1]` is a
     # shape `curve_fit` accepts — the defaulted parameter simply keeps its default — and an
@@ -7296,7 +7301,7 @@ def _assert_model(func: Any, count: int) -> None:
         )
 
 
-def _assert_bounds(p0: Any, bounds: Any) -> None:
+def _assert_bounds(p0: Any, bounds: Any, count: int) -> None:
     """Refuse an initial guess that lies outside its own bounds.
 
     `curve_fit` raises `ValueError("x0 is infeasible")` for every cell in that case, which the
@@ -7306,10 +7311,12 @@ def _assert_bounds(p0: Any, bounds: Any) -> None:
     Args:
         p0: The initial guess.
         bounds: `(lower, upper)`, each a scalar or one entry per parameter, or `None`.
+        count: How many parameters `p0` declares.
 
     Raises:
         TypeError: `bounds` is not a two-item sequence.
-        ValueError: Any entry of `p0` lies outside its bounds.
+        ValueError: Either side has a length that is neither 1 nor `count`; a lower bound exceeds
+            its upper; or any entry of `p0` lies outside its bounds.
     """
     if bounds is None:
         return
@@ -7317,9 +7324,26 @@ def _assert_bounds(p0: Any, bounds: Any) -> None:
         raise TypeError(
             f"curvefit() needs bounds as a (lower, upper) pair, but got {bounds!r}."
         )
+    for label, side in (("lower", bounds[0]), ("upper", bounds[1])):
+        if isinstance(side, (list, tuple, np.ndarray)) and len(side) not in (1, count):
+            # Otherwise `broadcast_to` raises a NumPy shape message, which is the same class of
+            # caller mistake this function exists to name.
+            raise ValueError(
+                f"curvefit() needs the {label} bound to hold 1 or {count} entries, one per p0 "
+                f"entry, but it holds {len(side)}."
+            )
     start = np.asarray(list(p0), dtype="float64")
     lower = np.broadcast_to(np.asarray(bounds[0], dtype="float64"), start.shape)
     upper = np.broadcast_to(np.asarray(bounds[1], dtype="float64"), start.shape)
+    if bool(np.any(lower > upper)):
+        raise ValueError(
+            "curvefit() needs every lower bound at or below its upper, and "
+            + "; ".join(
+                f"lower[{index}]={lower[index]} > upper[{index}]={upper[index]}"
+                for index in np.flatnonzero(lower > upper)
+            )
+            + "."
+        )
     outside = (start < lower) | (start > upper)
     if bool(np.any(outside)):
         offenders = [
