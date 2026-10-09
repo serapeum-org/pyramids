@@ -211,3 +211,44 @@ class TestGlobalAttributesDiskRoundTrip:
         assert attrs["Conventions"] == "CF-1.8", (
             f"Expected 'CF-1.8', got {attrs['Conventions']}"
         )
+
+
+class TestNumericVectorAttribute:
+    """set_global_attribute with a numeric list/tuple writes a real CF vector, not a repr."""
+
+    def test_float_list_roundtrips_as_vector(self):
+        """A float list is stored as a numeric vector, readable back as its values.
+
+        Test scenario:
+            set_global_attribute("valid_range", [0.0, 100.0]) → reads back [0.0, 100.0],
+            not the string "[0.0, 100.0]".
+        """
+        nc = _make_nc()
+        nc.set_global_attribute("valid_range", [0.0, 100.0])
+        value = nc.global_attributes["valid_range"]
+        assert not isinstance(value, str), "numeric list stored as a string repr"
+        assert [float(v) for v in value] == [0.0, 100.0]
+
+    def test_int_list_roundtrips_as_vector(self):
+        """An int list is stored as a numeric vector (widened to float per CF).
+
+        Test scenario:
+            set_global_attribute("bounds", [1, 2, 3]) → reads back [1.0, 2.0, 3.0].
+        """
+        nc = _make_nc()
+        nc.set_global_attribute("bounds", [1, 2, 3])
+        value = nc.global_attributes["bounds"]
+        assert not isinstance(value, str)
+        assert [float(v) for v in value] == [1.0, 2.0, 3.0]
+
+    def test_tuple_accepted_like_list(self):
+        """A numeric tuple is stored as a vector too, not stringified.
+
+        Test scenario:
+            set_global_attribute("rng", (0.0, 1.0)) → reads back [0.0, 1.0].
+        """
+        nc = _make_nc()
+        nc.set_global_attribute("rng", (0.0, 1.0))
+        value = nc.global_attributes["rng"]
+        assert not isinstance(value, str)
+        assert [float(v) for v in value] == [0.0, 1.0]

@@ -185,3 +185,48 @@ class TestSampleNodeMethod:
         mesh = self._node_mesh()
         out = mesh.sample("h", x=[0.01, 0.99], y=[0.01, 0.01], method="nearest")
         assert out.tolist() == [1.0, 2.0]
+
+
+class TestZonalStatsMultiZone:
+    """Multi-zone, std/var, empty-zone and overlap behaviour of mesh zonal_stats.
+
+    unit_mesh: face 0 centroid ~ (2.667, 0.667), face 1 centroid ~ (1.333, 1.0),
+    depths [10, 20], areas [4.0, 2.0].
+    """
+
+    def _zones(self, geoms, crs="EPSG:4326"):
+        return FeatureCollection(
+            gpd.GeoDataFrame({"z": list(range(len(geoms)))}, geometry=geoms, crs=crs)
+        )
+
+    def test_three_zones_mean_and_count(self, unit_mesh):
+        zones = self._zones(
+            [box(2.0, 0.0, 4.0, 0.9), box(0.0, 0.9, 2.0, 1.5), box(10, 10, 11, 11)]
+        )
+        out = unit_mesh.zonal_stats(
+            zones, variable_name="depth", stats=("mean", "count"), weighted=False
+        )
+        assert out["count"].tolist() == [1.0, 1.0, 0.0]
+        assert out["mean"].iloc[0] == 10.0
+        assert out["mean"].iloc[1] == 20.0
+        assert np.isnan(out["mean"].iloc[2])  # empty zone -> NaN
+
+    def test_std_var_columns_single_face_is_zero(self, unit_mesh):
+        zones = self._zones([box(2.0, 0.0, 4.0, 0.9), box(0.0, 0.9, 2.0, 1.5)])
+        out = unit_mesh.zonal_stats(zones, variable_name="depth", stats=("std", "var"))
+        assert out["std"].tolist() == [0.0, 0.0]
+        assert out["var"].tolist() == [0.0, 0.0]
+
+    def test_empty_zone_std_is_nan(self, unit_mesh):
+        zones = self._zones([box(10, 10, 11, 11)])
+        out = unit_mesh.zonal_stats(
+            zones, variable_name="depth", stats=("std", "count")
+        )
+        assert out["count"].iloc[0] == 0.0
+        assert np.isnan(out["std"].iloc[0])
+
+    def test_overlapping_zones_first_wins(self, unit_mesh):
+        # Both boxes contain face 0's centroid; it must be counted in the first zone only.
+        zones = self._zones([box(2.0, 0.0, 4.0, 0.9), box(2.5, 0.5, 3.0, 0.8)])
+        out = unit_mesh.zonal_stats(zones, variable_name="depth", stats=("count",))
+        assert out["count"].tolist() == [1.0, 0.0]
