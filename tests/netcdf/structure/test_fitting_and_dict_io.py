@@ -19,8 +19,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import pyramids.netcdf.engines.selection as selection_module
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
-from pyramids.netcdf.dict_io import _plain
+from pyramids.netcdf.dict_io import _coordinate_attrs, _plain
 
 NY, NX = 2, 3
 GEO = (0.0, 1.0, 0.0, 2.0, 0.0, -1.0)
@@ -1233,3 +1234,185 @@ class TestDictPayloadValidation:
 
         with pytest.raises(ValueError, match="spatial pair"):
             NetCDF.from_dict(payload)
+
+
+class TestDictExportDefensivePaths:
+    """The refusals that only a malformed or unusual cube reaches."""
+
+    def test_a_variable_with_no_parent_container_is_refused(self, monkeypatch):
+        """A variable resolves its own name and dimensions through its container.
+
+        Args:
+            monkeypatch: pytest's patching fixture.
+
+        Test scenario:
+            A variable whose `_parent_nc` is gone is refused with a message saying to export the
+            container instead, rather than failing on an attribute later.
+        """
+        variable = _cube([1.0, 2.0, 3.0, 4.0]).get_variable("t")
+        monkeypatch.setattr(variable, "_parent_nc", None, raising=False)
+
+        with pytest.raises(ValueError, match="does not know which container"):
+            variable.to_dict()
+
+    def test_a_variable_without_two_spatial_dimensions_is_refused(self, monkeypatch):
+        """Everything downstream treats `(y, x)` as the trailing pair.
+
+        Args:
+            monkeypatch: pytest's patching fixture.
+
+        Test scenario:
+            A store reporting only one non-band dimension is refused by name.
+        """
+        container = _cube([1.0, 2.0, 3.0, 4.0])
+        monkeypatch.setattr(
+            type(container),
+            "_variable_dim_names",
+            lambda self, group, name: ["level", "x"],
+        )
+
+        with pytest.raises(ValueError, match="two spatial dimensions"):
+            container.to_dict(data=False)
+
+    def test_variables_on_different_grids_are_refused(self, monkeypatch):
+        """Last-variable-wins would have stamped one layout over the whole payload.
+
+        Args:
+            monkeypatch: pytest's patching fixture.
+
+        Test scenario:
+            Two variables reporting different spatial pairs are refused, naming both layouts.
+        """
+        container = _cube([1.0, 2.0, 3.0, 4.0])
+        container.add_variable(_cube([5.0, 6.0, 7.0, 8.0], name="u"), "u")
+        layouts = {"t": ["level", "y", "x"], "u": ["level", "row", "col"]}
+        monkeypatch.setattr(
+            type(container),
+            "_variable_dim_names",
+            lambda self, group, name: layouts[name],
+        )
+
+        with pytest.raises(ValueError, match="one grid"):
+            container.to_dict(data=False)
+
+    def test_a_non_time_axis_carries_no_cf_attributes(self):
+        """Only a recognised time axis carries a `(units, calendar)` pair.
+
+        A `level` axis declaring units keeps them in the store but not in
+        `_band_dim_time_attrs`, which is what the coordinate block reads, so its entry is empty
+        rather than half-filled.
+
+        Test scenario:
+            A pressure axis with units reports no coordinate attributes.
+        """
+        cube = NetCDF.from_array(
+            np.arange(4.0).reshape(4, 1, 1),
+            geo_ref=GeoReference(geo=GEO, epsg=4326),
+            variable_name="t",
+            dims=ExtraDimensions(
+                name="level",
+                values=[1000.0, 850.0, 700.0, 500.0],
+                attrs={"level": {"units": "hPa"}},
+            ),
+        )
+
+        attrs = cube.to_dict(data=False)["coords"]["level"]["attrs"]
+
+        assert attrs == {}, attrs
+
+    @pytest.mark.parametrize(
+        ("pair", "expected"),
+        [
+            (
+                ("days since 2000-01-01", "noleap"),
+                {"units": "days since 2000-01-01", "calendar": "noleap"},
+            ),
+            (("days since 2000-01-01", ""), {"units": "days since 2000-01-01"}),
+            (("", "noleap"), {"calendar": "noleap"}),
+            (("", ""), {}),
+            (None, {}),
+        ],
+    )
+    def test_half_declared_cf_pairs_emit_only_what_is_there(self, pair, expected):
+        """A store may declare one of the pair without the other.
+
+        Tested at the helper because the public route always fills both: a recognised time axis
+        defaults its calendar to `standard`, and a non-time axis carries no pair at all. The
+        guards still matter for a store that declares one side empty.
+
+        Args:
+            pair: The `(units, calendar)` pair the dimension declares.
+            expected: The attributes that should be emitted.
+
+        Test scenario:
+            Each combination emits exactly the keys that have a value.
+        """
+
+        class _Stub:
+            _band_dim_time_attrs = {"time": pair}
+
+        assert _coordinate_attrs(_Stub(), "time") == expected
+
+
+class TestCurveFitArgumentChecksOnOddCallables:
+    """The validator's escape hatches."""
+
+    def test_a_callable_with_no_inspectable_signature_is_accepted(self, monkeypatch):
+        """Refusing an uninspectable callable would rule out a legitimate model.
+
+        Some C-implemented callables expose no signature. `inspect.signature` is patched to
+        raise rather than hunting for one, because which builtins are inspectable varies by
+        version — `np.add` is inspectable in the NumPy pinned here — and the arm exists for the
+        condition, not for any particular callable.
+
+        Args:
+            monkeypatch: pytest's patching fixture.
+
+        Test scenario:
+            With `inspect.signature` raising, the model is accepted and the fit still runs.
+        """
+
+        def unreadable(x, a, b):
+            return a * x + b
+
+        def explode(_func):
+            raise ValueError("no signature for this callable")
+
+        monkeypatch.setattr(selection_module.inspect, "signature", explode)
+        var = _cube([1.0, 3.0, 7.0, 13.0]).get_variable("t")
+
+        fit = var.curvefit("level", unreadable, [1.0, 1.0])
+
+        assert fit._band_dim_sizes == (2,), fit._band_dim_sizes
+        values = np.asarray(fit.read_array()).reshape(2, NY, NX)
+        assert np.allclose(values[0], 2.0), values[0]
+
+    @pytest.mark.parametrize("bounds", [(0.0,), [1.0, 2.0, 3.0], "lo-hi", 5])
+    def test_bounds_that_are_not_a_pair_are_refused(self, bounds):
+        """`curve_fit` would raise from inside scipy about its own parameter names.
+
+        Args:
+            bounds: The malformed bounds under test.
+
+        Test scenario:
+            Each non-pair is refused by the member, naming what it wanted.
+        """
+        var = _cube([1.0, 3.0, 7.0, 13.0]).get_variable("t")
+
+        with pytest.raises(TypeError, match=r"\(lower, upper\) pair"):
+            var.curvefit("level", _line, [1.0, 1.0], bounds=bounds)
+
+    def test_a_non_monotonic_axis_is_still_refused_for_the_other_members(self):
+        """Relaxing the gate for the fit must not relax it for the four that need it.
+
+        Test scenario:
+            `integrate` still refuses the scattered axis `curvefit` accepts.
+        """
+        scattered = _cube(
+            [1.0, 7.0, 3.0, 13.0], stamps=[0.0, 3.0, 1.0, 6.0]
+        ).get_variable("t")
+
+        scattered.curvefit("level", _line, [1.0, 1.0])
+
+        with pytest.raises(ValueError, match="one direction"):
+            scattered.integrate("level")
