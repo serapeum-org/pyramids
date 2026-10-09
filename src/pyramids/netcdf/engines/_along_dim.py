@@ -1924,9 +1924,7 @@ class _RollingExp(_AlongDim):
         window = pd.DataFrame(columns).ewm(alpha=self.alpha)
         reduced = np.asarray(getattr(window, self.how)(), dtype="float64")
         values = np.moveaxis(reduced.reshape(moved.shape), 0, axis)
-        return _Applied(
-            np.asarray(values), list(band_names), dict(values_map), np.nan
-        )
+        return _Applied(np.asarray(values), list(band_names), dict(values_map), np.nan)
 
 
 @dataclass

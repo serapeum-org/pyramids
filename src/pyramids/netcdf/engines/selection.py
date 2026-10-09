@@ -5004,8 +5004,10 @@ class Selection(_Engine["NetCDF"]):
             self._ds,
             dim,
             _CurveFit(
-                func=func, p0=tuple(float(value) for value in p0),
-                bounds=bounds, full=bool(full),
+                func=func,
+                p0=tuple(float(value) for value in p0),
+                bounds=bounds,
+                full=bool(full),
             ),
             caller="curvefit",
             verb="fits",
@@ -7197,7 +7199,9 @@ def _assert_alpha(alpha: Any) -> None:
             `alpha=1`, and a caller writing it means something else.
         ValueError: `alpha` is not in `(0, 1]`.
     """
-    if isinstance(alpha, bool) or not isinstance(alpha, (int, float, np.integer, np.floating)):
+    if isinstance(alpha, bool) or not isinstance(
+        alpha, (int, float, np.integer, np.floating)
+    ):
         raise TypeError(
             f"rolling_exp() needs a numeric alpha, but got {type(alpha).__name__} ({alpha!r})."
         )
@@ -7253,7 +7257,9 @@ def _assert_initial_guess(p0: Any) -> int:
             "parameters the model has."
         )
     for value in values:
-        if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+        if isinstance(value, bool) or not isinstance(
+            value, (int, float, np.integer, np.floating)
+        ):
             raise TypeError(
                 f"curvefit() needs every p0 entry to be a number, but got "
                 f"{type(value).__name__} ({value!r})."

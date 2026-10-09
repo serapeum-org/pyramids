@@ -59,6 +59,7 @@ from pyramids.dataset.engines._read_window import resolve_read_window
 from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA
 from pyramids.dataset.engines.io import _caller_stacklevel
 from pyramids.dataset.transform import GeoTransform
+from pyramids.netcdf import dict_io as _dict_io
 from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import apply_unpack, build_lazy_array, mask_no_data
@@ -8047,6 +8048,15 @@ class NetCDF(Dataset):
         matching `read_array` and the other intentionally-divergent NetCDF facades.
         """
         return self.interop.to_dataframe(variables=variables, dropna=dropna)
+
+    def to_dict(self, *, data: bool = True) -> dict[str, Any]:
+        """Facade — :func:`to_dict <pyramids.netcdf.dict_io.to_dict>`."""
+        return _dict_io.to_dict(self, data=data)
+
+    @classmethod
+    def from_dict(cls, payload: Any) -> Container:
+        """Facade — :func:`from_dict <pyramids.netcdf.dict_io.from_dict>`."""
+        return _dict_io.from_dict(payload)
 
     def to_dask_dataframe(
         self, *, variables: Any = None, dropna: bool = False, chunks: Any = "auto"
