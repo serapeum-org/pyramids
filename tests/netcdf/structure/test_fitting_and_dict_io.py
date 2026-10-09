@@ -18,6 +18,7 @@ import pandas as pd
 import pytest
 
 from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+from pyramids.netcdf.dict_io import _plain
 
 NY, NX = 2, 3
 GEO = (0.0, 1.0, 0.0, 2.0, 0.0, -1.0)
@@ -293,6 +294,33 @@ class TestCurveFit:
             relevant[0].message
         )
         assert np.isnan(np.asarray(fit.read_array())).all()
+
+    def test_a_cell_whose_fit_raises_is_counted_as_unfittable(self):
+        """The other way a cell fails: `curve_fit` itself raises for it.
+
+        Distinct from having too few finite steps — this is the `except` path. An initial guess
+        outside the bounds makes `curve_fit` raise `ValueError` for every cell, so the member
+        must answer NaN and count them rather than propagating the exception.
+
+        Test scenario:
+            A `p0` of ones against bounds that exclude it.
+        """
+        var = _cube([1.0, 3.0, 7.0, 13.0]).get_variable("t")
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            fit = var.curvefit(
+                "level", _line, [1.0, 1.0], bounds=([10.0, 10.0], [20.0, 20.0])
+            )
+
+        assert np.isnan(np.asarray(fit.read_array())).all(), (
+            "a raising fit must answer NaN, not propagate"
+        )
+        relevant = [item for item in caught if "curvefit()" in str(item.message)]
+        assert len(relevant) == 1, f"expected one warning, got {len(relevant)}"
+        assert "the fit raised for it" in str(relevant[0].message), str(
+            relevant[0].message
+        )
 
     def test_a_param_dimension_collision_is_refused(self):
         """The coefficients would otherwise reach GDAL as a second dimension of one name.
@@ -762,6 +790,69 @@ class TestDictRoundTrip:
 
         with pytest.raises(ValueError, match="does not list"):
             NetCDF.from_dict(payload)
+
+    def test_round_trips_a_container_holding_two_variables(self):
+        """Each variable is rebuilt separately and merged, which is its own code path.
+
+        Test scenario:
+            A two-variable container round-trips with both variables and their own values.
+        """
+        container = _cube([1.0, 2.0, 3.0, 4.0])
+        container.add_variable(_cube([5.0, 6.0, 7.0, 8.0], name="u"), "u")
+
+        rebuilt = NetCDF.from_dict(container.to_dict())
+
+        assert sorted(rebuilt.variable_names) == ["t", "u"], rebuilt.variable_names
+        for name, expected in (
+            ("t", [1.0, 2.0, 3.0, 4.0]),
+            ("u", [5.0, 6.0, 7.0, 8.0]),
+        ):
+            got = np.asarray(rebuilt.get_variable(name).read_array()).reshape(4, NY, NX)
+            assert np.allclose(got[:, 0, 0], expected), f"{name}: {got[:, 0, 0]}"
+
+    def test_refuses_a_pyramids_block_that_is_not_a_dict(self):
+        """Test scenario:
+        A payload whose `pyramids` key holds a list rather than a mapping.
+        """
+        payload = _cube([1.0, 2.0, 3.0, 4.0]).to_dict()
+        payload["pyramids"] = ["epsg", 4326]
+
+        with pytest.raises(TypeError, match="'pyramids' key to hold a dict"):
+            NetCDF.from_dict(payload)
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (np.float64(1.5), 1.5),
+            (np.int64(3), 3),
+            (np.bool_(True), True),
+            (np.asarray([1.0, 2.0]), [1.0, 2.0]),
+            ({"a": np.int32(2)}, {"a": 2}),
+            ((np.float32(1.0), 2.0), [1.0, 2.0]),
+            ("plain", "plain"),
+            (None, None),
+        ],
+    )
+    def test_numpy_scalars_and_containers_become_plain_python(self, value, expected):
+        """The payload has to be plain Python or it will not serialise.
+
+        A NumPy scalar is the easy thing to miss: it compares equal to its Python counterpart,
+        so a test that only checks values passes while `json.dumps` still refuses it.
+
+        Args:
+            value: The value to convert.
+            expected: What it should become.
+
+        Test scenario:
+            Each NumPy shape converts, and plain values pass through untouched.
+        """
+        result = _plain(value)
+
+        assert result == expected, f"expected {expected!r}, got {result!r}"
+        assert not isinstance(result, (np.ndarray, np.generic)), (
+            f"{type(result).__name__} is still a NumPy type, so json.dumps would refuse it"
+        )
+        json.dumps({"probe": result})
 
     def test_to_dict_refuses_a_cube_that_declares_no_crs(self, monkeypatch):
         """Exporting without a CRS would rebuild into an unreferenced cube, silently.

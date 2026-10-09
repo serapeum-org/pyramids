@@ -346,27 +346,4 @@ def from_dict(payload: Any) -> Container:
             built = one
         else:
             built.add_variable(one, str(name))
-    return cast_container(built)
-
-
-def cast_container(built: Any) -> Container:
-    """Narrow the accumulated cube to `Container` for the type checker.
-
-    `built` cannot be `None` by the time this is reached — `_assert_payload` refuses an empty
-    `data_vars`, so the loop runs at least once — but the checker cannot see that through the
-    accumulator, and an `assert` would vanish under `-O`.
-
-    Args:
-        built: The cube the loop accumulated.
-
-    Returns:
-        Container: The same cube.
-
-    Raises:
-        ValueError: `built` is `None`, which would mean no variable was built at all.
-    """
-    if built is None:
-        raise ValueError(
-            "from_dict() built no variables, which 'data_vars' should have made impossible."
-        )
     return cast("Container", built)
