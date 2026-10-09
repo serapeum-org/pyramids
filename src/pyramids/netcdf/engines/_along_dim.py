@@ -293,7 +293,6 @@ class _Rolling(_AlongDim):
         arr, band_names, values_map, ndv = _materialize_inputs(nc, var)
         return _Applied(
             *_rolled_array(
-                nc,
                 arr,
                 band_names,
                 values_map,
@@ -326,7 +325,6 @@ def _materialize_inputs(
 
 
 def _rolled_array(
-    nc: NetCDF,
     arr: Any,
     band_names: list[str],
     values_map: dict[str, Any],

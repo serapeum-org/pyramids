@@ -239,7 +239,8 @@ class TestMappingSurface:
 
     def test_len_contains_iter(self, mesh):
         assert len(mesh) == 2
-        assert "a" in mesh and "z" not in mesh
+        assert "a" in mesh
+        assert "z" not in mesh
         assert sorted(iter(mesh)) == ["a", "b"]
 
     def test_keys_values_items_get(self, mesh):

@@ -144,7 +144,9 @@ class TestNonTimeFirstAxis:
         mesh = self._mesh_time_trailing()
         # step 0 along the trailing time axis is the per-face column [1.0, 10.0].
         s = mesh.stats("d", time_index=0)
-        assert s["min"] == 1.0 and s["max"] == 10.0 and s["count"] == 2.0
+        assert s["min"] == 1.0
+        assert s["max"] == 10.0
+        assert s["count"] == 2.0
 
     def test_weighted_matches_face_count(self):
         mesh = self._mesh_time_trailing()
