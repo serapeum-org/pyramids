@@ -1775,3 +1775,60 @@ class TestDictExportAcrossOpenModes:
         assert structure["shape"] == [4], structure["shape"]
         assert structure["dtype"], structure
         assert full["data"] == UNEVEN, full["data"]
+
+
+class TestDictAndFitRemainingPaths:
+    """The three escape hatches round 2's fixes added."""
+
+    def test_a_variable_whose_bands_declare_different_dtypes_is_refused(
+        self, monkeypatch
+    ):
+        """One payload entry carries one dtype, so disagreeing bands cannot be described.
+
+        The first version silently took the first band's type, which would have described the
+        other bands wrongly.
+
+        Args:
+            monkeypatch: pytest's patching fixture.
+
+        Test scenario:
+            A variable reporting `['int16', 'float64']` is refused, naming both.
+        """
+        variable = _cube([1.0, 2.0, 3.0, 4.0]).get_variable("t")
+        monkeypatch.setattr(
+            type(variable), "dtype", property(lambda self: ["int16", "float64"])
+        )
+
+        with pytest.raises(ValueError, match="bands disagree"):
+            variable.to_dict(data=False)
+
+    def test_a_payload_without_a_dtype_key_lets_numpy_choose(self):
+        """A hand-written payload need not declare a dtype.
+
+        Test scenario:
+            Dropping the key still rebuilds, with NumPy inferring the type from the values.
+        """
+        payload = _cube([1.0, 2.0, 3.0, 4.0]).to_dict()
+        del payload["data_vars"]["t"]["dtype"]
+
+        rebuilt = NetCDF.from_dict(payload)
+
+        got = np.asarray(rebuilt.get_variable("t").read_array()).reshape(4, NY, NX)
+        assert np.allclose(got[:, 0, 0], [1.0, 2.0, 3.0, 4.0]), got[:, 0, 0]
+
+    def test_a_variadic_model_skips_the_arity_check(self):
+        """`func(x, *params)` can take any number, so there is nothing to check.
+
+        Test scenario:
+            A model declared with `*params` fits without the arity check refusing it.
+        """
+
+        def variadic(x, *params):
+            return params[0] * x + params[1]
+
+        var = _cube([1.0, 3.0, 7.0, 13.0]).get_variable("t")
+
+        fit = var.curvefit("level", variadic, [1.0, 1.0])
+
+        values = np.asarray(fit.read_array()).reshape(2, NY, NX)
+        assert np.allclose(values[0], 2.0), values[0]
