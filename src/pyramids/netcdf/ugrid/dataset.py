@@ -1711,6 +1711,108 @@ class UgridDataset:
             new_vars[name] = new_var
         return self._rebuild(new_vars)
 
+    def _time_coords(self, operation: str) -> list:
+        """The time coordinate values, or a clear error when the dataset has no time."""
+        coords = self.time_values
+        if coords is None:
+            raise ValueError(
+                f"{operation} needs a time dimension; this dataset has none."
+            )
+        return list(coords)
+
+    def sel(self, time: Any) -> UgridDataset:
+        """Select time steps by coordinate value.
+
+        The mesh counterpart of :meth:`pyramids.netcdf.NetCDF.sel` over time. A scalar selects
+        one step and collapses the time dimension; a sequence keeps it. Values are matched
+        against the dataset's :attr:`time_values` (which fall back to step positions when the
+        file carries no explicit time coordinate).
+
+        Args:
+            time: A coordinate value, or a sequence of them.
+
+        Returns:
+            UgridDataset: A new dataset with the selected steps.
+
+        Raises:
+            ValueError: No time dimension, or a value is not among the time coordinates.
+        """
+        coords = self._time_coords("sel")
+        try:
+            if isinstance(time, (list, tuple, np.ndarray)):
+                positions = [coords.index(value) for value in time]
+                return self._select_steps(np.asarray(positions, dtype=np.intp))
+            return self.isel(coords.index(time))
+        except ValueError as exc:
+            raise ValueError(
+                f"sel: time value(s) {time!r} not found in the time coordinate."
+            ) from exc
+
+    def drop_sel(self, values: Any) -> UgridDataset:
+        """Drop the time steps whose coordinate is in ``values``, keeping the rest.
+
+        Args:
+            values: A coordinate value, or a sequence of them, to drop.
+        """
+        coords = self._time_coords("drop_sel")
+        drop = (
+            set(values)
+            if isinstance(values, (list, tuple, set))
+            else {*np.atleast_1d(np.asarray(values)).tolist()}
+        )
+        keep = [i for i, coord in enumerate(coords) if coord not in drop]
+        return self._select_steps(np.asarray(keep, dtype=np.intp))
+
+    def sortby(self) -> UgridDataset:
+        """Sort the time steps by their coordinate value (stable)."""
+        coords = self._time_coords("sortby")
+        order = np.argsort(np.asarray(coords), kind="stable")
+        return self._select_steps(order)
+
+    def drop_duplicates(self) -> UgridDataset:
+        """Keep the first step of each distinct time coordinate value."""
+        coords = self._time_coords("drop_duplicates")
+        seen: set = set()
+        keep: list[int] = []
+        for i, coord in enumerate(coords):
+            if coord not in seen:
+                seen.add(coord)
+                keep.append(i)
+        return self._select_steps(np.asarray(keep, dtype=np.intp))
+
+    def dropna(self, how: str = "any", thresh: int | None = None) -> UgridDataset:
+        """Drop time steps that do not hold enough valid cells.
+
+        A step is kept only when **every** temporal variable meets the threshold at that
+        step, so the variables stay time-aligned. ``how="any"`` requires every cell of a
+        variable to be valid (a single gap drops the step); ``how="all"`` requires at least
+        one; ``thresh`` overrides ``how`` with an explicit valid-cell count per variable.
+
+        Args:
+            how: ``"any"`` or ``"all"``. Defaults to ``"any"``.
+            thresh: Explicit minimum valid-cell count per variable, overriding ``how``.
+
+        Returns:
+            UgridDataset: A new dataset with the surviving steps.
+        """
+        temporal = self._require_temporal("dropna")
+        length = self._time_length("dropna")
+        keep = np.ones(length, dtype=bool)
+        for name in temporal:
+            var = self._data_variables[name]
+            axis = cast("int", var.time_index)
+            data = var.data
+            if data is None:
+                raise ValueError(f"Variable {name!r} has no loaded data to dropna.")
+            moved = np.moveaxis(gaps_as_nan(np.asarray(data), var.nodata), axis, 0)
+            flat = moved.reshape(moved.shape[0], -1)
+            per_step_valid = np.sum(~np.isnan(flat), axis=1)
+            needed = flat.shape[1] if how == "any" else 1
+            if thresh is not None:
+                needed = thresh
+            keep &= per_step_valid >= needed
+        return self._select_steps(np.flatnonzero(keep))
+
     def _assert_same_topology(self, other: UgridDataset, operation: str) -> None:
         """Refuse ``operation`` unless ``other`` sits on the same mesh as ``self``.
 

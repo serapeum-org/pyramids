@@ -292,3 +292,72 @@ class TestVariableManagement:
         two = mesh.with_variable("e", np.array([5.0, 6.0]))
         with pytest.raises(ValueError, match="already exists"):
             two.rename_variable("d", "e")
+
+
+class TestLabelSelection:
+    def _mesh(self, data: np.ndarray, time_values: list | None = None) -> UgridDataset:
+        m = UgridDataset.from_arrays(
+            node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={"d": data},
+            data_locations={"d": "face"},
+        )
+        if time_values is not None:
+            m["d"].attributes = {"time_values": time_values}
+        return m
+
+    def test_sel_scalar_collapses(self):
+        m = self._mesh(np.array([[1.0, 2.0], [3.0, 4.0]]), [10, 20])
+        out = m.sel(20)
+        assert out["d"].data.tolist() == [3.0, 4.0]
+        assert out["d"].has_time is False
+
+    def test_sel_sequence(self):
+        m = self._mesh(np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]), [10, 20, 30])
+        assert m.sel([10, 30])["d"].data.tolist() == [[1.0, 2.0], [5.0, 6.0]]
+
+    def test_sel_missing_raises(self):
+        m = self._mesh(np.array([[1.0, 2.0]]), [10])
+        with pytest.raises(ValueError, match="not found"):
+            m.sel(999)
+
+    def test_drop_sel(self):
+        m = self._mesh(np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]), [10, 20, 30])
+        assert m.drop_sel(20)["d"].data.tolist() == [[1.0, 2.0], [5.0, 6.0]]
+
+    def test_sortby(self):
+        m = self._mesh(np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]), [10, 30, 20])
+        out = m.sortby()
+        assert out["d"].data.tolist() == [[1.0, 2.0], [5.0, 6.0], [3.0, 4.0]]
+        assert out["d"].attributes["time_values"] == [10, 20, 30]
+
+    def test_drop_duplicates(self):
+        m = self._mesh(np.array([[1.0, 1.0], [2.0, 2.0], [3.0, 3.0]]), [5, 5, 9])
+        out = m.drop_duplicates()
+        assert out["d"].data.tolist() == [[1.0, 1.0], [3.0, 3.0]]
+        assert out["d"].attributes["time_values"] == [5, 9]
+
+
+class TestDropna:
+    def _mesh(self, data: np.ndarray) -> UgridDataset:
+        return UgridDataset.from_arrays(
+            node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={"d": data},
+            data_locations={"d": "face"},
+        )
+
+    def test_dropna_any_drops_steps_with_a_gap(self):
+        m = self._mesh(np.array([[1.0, 2.0], [np.nan, 4.0], [5.0, 6.0]]))
+        assert m.dropna("any")["d"].data.tolist() == [[1.0, 2.0], [5.0, 6.0]]
+
+    def test_dropna_all_keeps_partial_steps(self):
+        m = self._mesh(np.array([[1.0, 2.0], [np.nan, 4.0], [np.nan, np.nan]]))
+        out = m.dropna("all")["d"].data
+        assert out.shape == (2, 2)  # the all-NaN step is dropped, the partial one kept
+
+    def test_dropna_thresh(self):
+        m = self._mesh(np.array([[1.0, 2.0], [np.nan, 4.0]]))
+        assert m.dropna(thresh=2)["d"].data.tolist() == [[1.0, 2.0]]
