@@ -422,3 +422,56 @@ class TestReviewFixes:
         )
         with pytest.raises(ValueError, match="temporal in one dataset but static"):
             temporal.concat(static)
+
+
+class TestRound2Fixes:
+    def _two_temporal(self, len_a: int, len_b: int) -> UgridDataset:
+        return UgridDataset.from_arrays(
+            node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={
+                "a": np.ones((len_a, 2)),
+                "b": np.ones((len_b, 2)),
+            },
+            data_locations={"a": "face", "b": "face"},
+        )
+
+    def test_m1_mismatched_time_lengths_raise(self):
+        mesh = self._two_temporal(3, 2)
+        with pytest.raises(ValueError, match="share one time length"):
+            mesh.isel(2)
+
+    def test_m4_rolling_rejects_counting_how(self):
+        mesh = _temporal_mesh(np.array([[1.0, 2.0], [3.0, 4.0]]))
+        with pytest.raises(ValueError, match="rolling how"):
+            mesh.rolling(2, "all")
+
+    def test_l2_squeeze_squeezes_a_later_single_step_var(self):
+        mesh = UgridDataset.from_arrays(
+            node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={"multi": np.ones((3, 2)), "single": np.ones((1, 2))},
+            data_locations={"multi": "face", "single": "face"},
+        )
+        out = mesh.squeeze()
+        assert out["single"].has_time is False  # squeezed despite not being first
+        assert out["multi"].has_time is True
+
+    def test_l3_concat_static_in_self_temporal_in_other_raises(self):
+        static = UgridDataset.from_arrays(
+            node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={"d": np.array([1.0, 2.0])},
+            data_locations={"d": "face"},
+        )
+        temporal = _temporal_mesh(np.array([[1.0, 2.0], [3.0, 4.0]]))
+        with pytest.raises(ValueError, match="static in one dataset but temporal"):
+            static.concat(temporal)
+
+    def test_n2_reduce_all_declares_flag_nodata(self):
+        mesh = _temporal_mesh(np.array([[1.0, 0.0], [1.0, 1.0]]))
+        out = mesh.reduce("any")
+        assert out["d"].nodata == 255

@@ -232,3 +232,35 @@ class TestZonalStatsMultiZone:
         zones = self._zones([box(2.0, 0.0, 4.0, 0.9), box(2.5, 0.5, 3.0, 0.8)])
         out = unit_mesh.zonal_stats(zones, variable_name="depth", stats=("count",))
         assert out["count"].tolist() == [1.0, 0.0]
+
+
+class TestRound2AnalysisFixes:
+    def test_m2_zonal_sum_is_plain_not_area_weighted(self, unit_mesh):
+        zones = FeatureCollection(
+            gpd.GeoDataFrame({"z": [0]}, geometry=[box(-1, -1, 5, 3)], crs="EPSG:4326")
+        )
+        out = unit_mesh.zonal_stats(zones, variable_name="depth", stats=("sum",))
+        # plain Σ value = 10 + 20 = 30, NOT the area-weighted integral 10*4 + 20*2 = 80.
+        assert out["sum"].iloc[0] == 30.0
+
+    def _layered_mesh(self) -> UgridDataset:
+        mesh = UgridDataset.from_arrays(
+            node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={"layered": np.array([[1.0, 2.0], [3.0, 4.0]])},
+            data_locations={"layered": "face"},
+        )
+        mesh["layered"].dimensions = ("n_layers", "nMesh2d_face")  # non-temporal, 2-D
+        return mesh
+
+    def test_m3_weighted_rejects_layered_variable(self):
+        mesh = self._layered_mesh()
+        assert mesh["layered"].has_time is False
+        with pytest.raises(ValueError, match="not per-element"):
+            mesh.weighted("layered")
+
+    def test_m3_stats_rejects_layered_variable(self):
+        mesh = self._layered_mesh()
+        with pytest.raises(ValueError, match="not per-element"):
+            mesh.stats("layered")

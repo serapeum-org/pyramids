@@ -27,6 +27,7 @@ from shapely.geometry import LineString, box
 
 from pyramids.base._reductions import (
     COUNTING_REDUCERS,
+    FLAG_NO_DATA,
     REDUCERS,
     WEIGHTED_HOWS,
     gaps_as_nan,
@@ -439,7 +440,9 @@ class UgridDataset:
         if data is None:
             raise ValueError(f"Variable '{variable_name}' has no data loaded.")
         if var.has_time:
-            data = data[0]
+            # First step along the variable's own time axis (not blindly axis 0, which for
+            # a trailing-time variable would take the first face) — see `_element_values`.
+            data = np.take(np.asarray(data), 0, axis=cast("int", var.time_index))
 
         grid_array, geotransform = mesh_to_grid(
             mesh=self._mesh,
@@ -1080,7 +1083,8 @@ class UgridDataset:
             tuple: The :class:`MeshVariable` and its ``(n_elements,)`` float64 values.
 
         Raises:
-            ValueError: The variable has no loaded data.
+            ValueError: The variable has no loaded data, or is not per-element after the
+                time collapse (e.g. a layered ``(n_layers, n_face)`` non-temporal variable).
         """
         var = self.get_data(variable_name)
         data = var.data
@@ -1093,7 +1097,17 @@ class UgridDataset:
             data = np.take(
                 np.asarray(data), time_index, axis=cast("int", var.time_index)
             )
-        return var, gaps_as_nan(np.asarray(data), var.nodata)
+        result = gaps_as_nan(np.asarray(data), var.nodata)
+        if result.ndim != 1:
+            # A non-temporal multi-dimensional variable (e.g. layered (n_layers, n_face))
+            # has no single per-element vector; reducing it over an arbitrary axis would
+            # silently return a per-column scalar. Refuse rather than mislead.
+            raise ValueError(
+                f"Variable {variable_name!r} is not per-element after the time collapse "
+                f"(shape {result.shape}); the analysis members need a 1-D variable. A "
+                "layered/multi-dimensional non-temporal variable is not supported here."
+            )
+        return var, result
 
     def stats(self, variable_name: str, *, time_index: int = 0) -> dict[str, float]:
         """Summary statistics of a mesh variable over its elements.
@@ -1244,8 +1258,8 @@ class UgridDataset:
             float: The area-weighted statistic over all faces.
 
         Raises:
-            ValueError: The variable is not face-located, or its length does not match the
-                number of faces.
+            ValueError: ``how`` is not one of ``WEIGHTED_HOWS``; the variable is not
+                face-located; or its length does not match the number of faces.
 
         Examples:
             - Area-weighted mean: the larger face (area 4, value 10) outweighs the
@@ -1303,8 +1317,10 @@ class UgridDataset:
         is assigned to the zone whose polygon contains its centroid (the mesh analogue of a
         raster pixel's cell centre), then the shared
         :func:`pyramids.base._reductions.reduce_by_label` reduces the face values per zone.
-        With ``weighted`` (the default) each face is weighted by its area, so a zone's mean
-        is area-exact — a capability the raster path does not yet have.
+        With ``weighted`` (the default) the **averaging** statistics (``mean`` / ``std`` /
+        ``var``) are area-weighted, so a zone's mean is area-exact — a capability the raster
+        path does not yet have. ``sum`` is always the plain Σ value (never an area integral),
+        and ``count`` / ``min`` / ``max`` are weight-invariant.
 
         Args:
             zones: Polygons, as a :class:`~pyramids.feature.FeatureCollection` (or any
@@ -1313,8 +1329,8 @@ class UgridDataset:
             variable_name: Name of a **face-located** data variable.
             stats: Statistics per zone, any of ``"mean"``, ``"sum"``, ``"min"``, ``"max"``,
                 ``"std"``, ``"var"``, ``"count"``. Defaults to ``("mean",)``.
-            weighted: Weight each face by its area. Defaults to True. ``count`` and
-                ``min`` / ``max`` are weight-invariant.
+            weighted: Area-weight the averaging statistics (``mean`` / ``std`` / ``var``).
+                Defaults to True. ``sum`` / ``count`` / ``min`` / ``max`` are unaffected.
             time_index: Step for a temporal variable. Defaults to 0.
 
         Returns:
@@ -1350,10 +1366,23 @@ class UgridDataset:
         for face_i, zone_i in zip(centroid_idx, zone_idx):
             if labels[face_i] == -1:
                 labels[face_i] = zone_i
-        weights = self._mesh.face_areas if weighted else None
-        columns = reduce_by_label(
-            arr, labels, len(geometries), list(stats), unassigned=-1, weights=weights
-        )
+        n_zones = len(geometries)
+        columns: dict[str, np.typing.NDArray] = {}
+        # Area weighting applies only to the averaging statistics. `sum` stays the plain
+        # Σ value (a weighted sum would be an area integral — a different quantity, and a
+        # silent surprise); `count` / `min` / `max` are weight-invariant anyway.
+        averaging = [s for s in stats if s in ("mean", "std", "var")]
+        plain = [s for s in stats if s not in ("mean", "std", "var")]
+        if weighted and averaging:
+            columns.update(
+                reduce_by_label(
+                    arr, labels, n_zones, averaging, weights=self._mesh.face_areas
+                )
+            )
+            if plain:
+                columns.update(reduce_by_label(arr, labels, n_zones, plain))
+        else:
+            columns.update(reduce_by_label(arr, labels, n_zones, list(stats)))
         return pd.DataFrame({stat: columns[stat] for stat in stats}, index=zones.index)
 
     def _temporal_names(self) -> list[str]:
@@ -1410,7 +1439,9 @@ class UgridDataset:
             UgridDataset: A new dataset; each temporal variable collapsed over time.
 
         Raises:
-            ValueError: No variable has a time dimension.
+            ValueError: ``how`` is not a known reduction; ``q`` is given for a non-quantile
+                ``how`` or missing for ``how="quantile"``; no variable has a time dimension;
+                or a temporal variable has no loaded data.
 
         Examples:
             - Mean over two time steps of a per-face variable:
@@ -1436,6 +1467,9 @@ class UgridDataset:
         """
         _check_reduce_how(how, q)
         self._require_temporal("reduce")
+        # all/any collapse to a uint8 flag band whose all-gap value is FLAG_NO_DATA (255);
+        # the collapsed variable must declare that so a consumer does not read 255 as data.
+        result_nodata = FLAG_NO_DATA if how in ("all", "any") else None
         new_vars: dict[str, MeshVariable] = {}
         for name, var in self._data_variables.items():
             if not var.has_time:
@@ -1446,7 +1480,8 @@ class UgridDataset:
             if data is None:
                 raise ValueError(f"Variable {name!r} has no loaded data to reduce.")
             reduced = reduce_axis(np.asarray(data), axis, how, skipna, var.nodata, q)
-            new_vars[name] = _static_from(var, np.asarray(reduced), axis)
+            nodata = result_nodata if result_nodata is not None else var.nodata
+            new_vars[name] = _static_from(var, np.asarray(reduced), axis, nodata=nodata)
         return self._rebuild(new_vars)
 
     def mean(self, *, skipna: bool = True) -> UgridDataset:
@@ -1711,7 +1746,13 @@ class UgridDataset:
             ValueError: ``how`` is not a known reduction, no variable has a time dimension,
                 or a temporal variable has no loaded data.
         """
-        _check_reduce_how(how, None, allow_quantile=False)
+        if how not in _ROLLING_HOWS:
+            # Restrict to the documented statistics. The counting reductions
+            # (count/all/any) are excluded on purpose: a window's all/any flag carries the
+            # 255 FLAG_NO_DATA sentinel, which would surface as a literal data value here.
+            raise ValueError(
+                f"rolling how must be one of {sorted(_ROLLING_HOWS)}, got {how!r}."
+            )
 
         def _roll(data: np.ndarray, axis: int) -> np.ndarray:
             moved = np.moveaxis(data, axis, 0)
@@ -1728,10 +1769,25 @@ class UgridDataset:
         return self._transform_time("rolling", _roll)
 
     def _time_length(self, operation: str) -> int:
-        """The shared time-axis length, taken from the first temporal variable."""
+        """The shared time-axis length across all temporal variables.
+
+        The positional/label selectors build one index set and apply it to every temporal
+        variable, so they require a single shared length. Validate that here rather than let
+        a mismatch leak a raw numpy ``IndexError`` (or silently trim against the wrong axis).
+
+        Raises:
+            ValueError: No variable has a time dimension, or temporal variables disagree on
+                their time length.
+        """
         temporal = self._require_temporal(operation)
-        first = self._data_variables[temporal[0]]
-        return first.n_time_steps
+        lengths = {name: self._data_variables[name].n_time_steps for name in temporal}
+        distinct = set(lengths.values())
+        if len(distinct) > 1:
+            raise ValueError(
+                f"{operation} needs every temporal variable to share one time length, but "
+                f"they differ: {lengths}. Select per variable, or align them first."
+            )
+        return distinct.pop()
 
     def _select_steps(self, indices: np.typing.NDArray) -> UgridDataset:
         """Keep the time steps at ``indices`` (in order) for every temporal variable.
@@ -1876,8 +1932,12 @@ class UgridDataset:
         Raises:
             ValueError: A single-step temporal variable has no loaded data.
         """
-        temporal = self._temporal_names()
-        if not temporal or self._data_variables[temporal[0]].n_time_steps != 1:
+        # Decide per variable, not from the first temporal one: with mixed time lengths a
+        # later single-step variable must still be squeezed even if the first has many steps.
+        if not any(
+            var.has_time and var.n_time_steps == 1
+            for var in self._data_variables.values()
+        ):
             return self
         new_vars: dict[str, MeshVariable] = {}
         for name, var in self._data_variables.items():
@@ -2112,6 +2172,14 @@ class UgridDataset:
         new_vars: dict[str, MeshVariable] = {}
         for name, var in self._data_variables.items():
             if not var.has_time:
+                # Static in self: refuse if any other part has it temporal, rather than
+                # silently drop that part's time series (the mirror of the temporal-in-self
+                # / static-in-other case _concat_temporal_variable rejects).
+                if any(part._data_variables[name].has_time for part in parts[1:]):
+                    raise ValueError(
+                        f"concat: variable {name!r} is static in one dataset but temporal "
+                        "in another; they cannot be joined along time."
+                    )
                 new_vars[name] = var  # a static variable is taken from self, as-is
             else:
                 new_vars[name] = _concat_temporal_variable(name, var, parts)
@@ -2232,7 +2300,8 @@ class UgridDataset:
         if data is None:
             raise ValueError(f"Variable {variable_name!r} has no loaded data to plot.")
         if var.has_time:
-            data = data[0]
+            # First step along the variable's own time axis (see `_element_values`).
+            data = np.take(np.asarray(data), 0, axis=cast("int", var.time_index))
         if title is None:
             title = variable_name
         if basemap and self.epsg is None:
@@ -2306,6 +2375,14 @@ class UgridDataset:
         return result
 
 
+#: The statistics :meth:`UgridDataset.rolling` supports — the collapsing reducers that make
+#: sense per window. The counting reducers (``count``/``all``/``any``) are excluded: their
+#: flag bands carry the ``FLAG_NO_DATA`` sentinel, which must not surface as a data value.
+_ROLLING_HOWS: frozenset[str] = frozenset(
+    {"mean", "sum", "min", "max", "std", "var", "median"}
+)
+
+
 def _check_reduce_how(
     how: str, q: float | None, *, allow_quantile: bool = True
 ) -> None:
@@ -2337,7 +2414,10 @@ def _check_reduce_how(
 
 
 def _static_from(
-    var: MeshVariable, data: np.typing.NDArray, time_axis: int
+    var: MeshVariable,
+    data: np.typing.NDArray,
+    time_axis: int,
+    nodata: float | None = None,
 ) -> MeshVariable:
     """A static (time-collapsed) copy of ``var`` carrying ``data``.
 
@@ -2349,6 +2429,9 @@ def _static_from(
         var: The source temporal variable.
         data: The reduced values, with the time axis already gone.
         time_axis: The index of the time dimension in ``var.dimensions`` that was collapsed.
+        nodata: The no-data value the result declares. Defaults to ``None``, which keeps the
+            source's — a reduction that introduces its own sentinel (``all`` / ``any`` emit
+            the ``255`` flag) passes it so the result does not hide that value as data.
 
     Returns:
         MeshVariable: The static result.
@@ -2370,7 +2453,7 @@ def _static_from(
         mesh_name=var.mesh_name,
         shape=data.shape,
         attributes=attributes,
-        nodata=var.nodata,
+        nodata=var.nodata if nodata is None else nodata,
         units=var.units,
         standard_name=var.standard_name,
         dimensions=new_dims,
