@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import shapely
 
 if TYPE_CHECKING:
@@ -24,6 +25,7 @@ from osgeo import gdal
 from pyproj import CRS, Transformer
 from shapely.geometry import LineString, box
 
+from pyramids.base._reductions import gaps_as_nan, reduce_by_label, weighted_statistic
 from pyramids.base.crs import crs_from_user_input, crs_spec, sr_from_epsg
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
@@ -917,6 +919,275 @@ class UgridDataset:
             crs_wkt=crs_wkt,
         )
         return result
+
+    def _element_values(
+        self, variable_name: str, time_index: int = 0
+    ) -> tuple[MeshVariable, np.typing.NDArray]:
+        """The per-element values of a variable, no-data blanked to NaN.
+
+        Shared by the analysis members (:meth:`stats`, :meth:`sample`,
+        :meth:`weighted`, :meth:`zonal_stats`). A temporal variable is reduced to one
+        step (``time_index``, the first by default) so the returned array is
+        ``(n_elements,)``, matching the single-step contract :meth:`plot` and
+        :meth:`to_dataset` already use. The variable's declared no-data value is turned
+        into NaN through the shared :func:`pyramids.base._reductions.gaps_as_nan`, so
+        every statistic leaves gaps out.
+
+        Args:
+            variable_name: Name of the data variable.
+            time_index: Which step to take for a temporal variable. Defaults to 0.
+
+        Returns:
+            tuple: The :class:`MeshVariable` and its ``(n_elements,)`` float64 values.
+
+        Raises:
+            ValueError: The variable has no loaded data.
+        """
+        var = self.get_data(variable_name)
+        data = var.data
+        if data is None:
+            raise ValueError(f"Variable {variable_name!r} has no loaded data.")
+        if var.has_time:
+            data = data[time_index]
+        return var, gaps_as_nan(np.asarray(data), var.nodata)
+
+    def stats(self, variable_name: str, *, time_index: int = 0) -> dict[str, float]:
+        """Summary statistics of a mesh variable over its elements.
+
+        The mesh counterpart of :meth:`pyramids.dataset.Dataset.stats`. Computes
+        ``min`` / ``max`` / ``mean`` / ``std`` / ``count`` over the variable's elements
+        (nodes, faces or edges), with the declared no-data value left out. For a temporal
+        variable the statistics are over the step ``time_index`` (the first by default).
+
+        Args:
+            variable_name: Name of the data variable.
+            time_index: Step for a temporal variable. Defaults to 0.
+
+        Returns:
+            dict[str, float]: ``{"min", "max", "mean", "std", "count"}``. A variable with
+            no valid element yields NaN for every statistic and ``count`` of ``0.0``.
+
+        Examples:
+            - Per-face statistics of a two-triangle mesh:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> mesh = UgridDataset.from_arrays(
+                ...     node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+                ...     node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+                ...     face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+                ...     data={"depth": np.array([2.0, 4.0])},
+                ... )
+                >>> s = mesh.stats("depth")
+                >>> (s["min"], s["max"], s["mean"], s["count"])
+                (2.0, 4.0, 3.0, 2.0)
+
+                ```
+        """
+        _, arr = self._element_values(variable_name, time_index=time_index)
+        valid = arr[~np.isnan(arr)]
+        if valid.size == 0:
+            return {
+                "min": float("nan"),
+                "max": float("nan"),
+                "mean": float("nan"),
+                "std": float("nan"),
+                "count": 0.0,
+            }
+        return {
+            "min": float(valid.min()),
+            "max": float(valid.max()),
+            "mean": float(valid.mean()),
+            "std": float(valid.std()),
+            "count": float(valid.size),
+        }
+
+    def sample(
+        self,
+        variable_name: str,
+        x: float | np.ndarray,
+        y: float | np.ndarray,
+        *,
+        method: str = "contains",
+        time_index: int = 0,
+    ) -> np.typing.NDArray:
+        """Sample a mesh variable at point locations.
+
+        The mesh counterpart of :meth:`pyramids.dataset.Dataset.sample`. Where the raster
+        version inverts an affine geotransform to find the pixel under each point, a mesh
+        resolves the point to an element through :class:`MeshSpatialIndex`: a face-located
+        variable by which face contains the point (``method="contains"``) or the nearest
+        face centroid (``method="nearest"``); a node-located variable by nearest node.
+
+        Args:
+            variable_name: Name of the data variable.
+            x: Query x-coordinate(s), in the mesh CRS.
+            y: Query y-coordinate(s), in the mesh CRS.
+            method: ``"contains"`` (point-in-face, face variables only) or ``"nearest"``.
+                Defaults to ``"contains"``.
+            time_index: Step for a temporal variable. Defaults to 0.
+
+        Returns:
+            numpy.ndarray: One value per query point; NaN where a ``"contains"`` query
+            falls outside every face.
+
+        Raises:
+            ValueError: An unknown ``method``, ``"contains"`` on a non-face variable, or a
+                variable located on edges (unsupported).
+        """
+        var, arr = self._element_values(variable_name, time_index=time_index)
+        xs = np.atleast_1d(np.asarray(x, dtype="float64"))
+        ys = np.atleast_1d(np.asarray(y, dtype="float64"))
+        index = MeshSpatialIndex(self._mesh)
+        if var.location == "face":
+            if method == "contains":
+                idx = index.locate_faces(xs, ys)
+            elif method == "nearest":
+                idx = np.atleast_1d(index.locate_nearest_face(xs, ys)).ravel()
+            else:
+                raise ValueError(
+                    f"sample method must be 'contains' or 'nearest', got {method!r}"
+                )
+        elif var.location == "node":
+            idx = np.atleast_1d(index.locate_nearest_node(xs, ys)).ravel()
+        else:
+            raise ValueError(
+                f"sample supports 'face' and 'node' variables; {variable_name!r} is on "
+                f"{var.location!r}."
+            )
+        out = np.full(len(xs), np.nan, dtype="float64")
+        inside = idx >= 0
+        out[inside] = arr[idx[inside]]
+        return out
+
+    def weighted(
+        self,
+        variable_name: str,
+        *,
+        how: str = "mean",
+        time_index: int = 0,
+    ) -> float:
+        """Area-weighted statistic of a face variable over the mesh.
+
+        An irregular mesh has faces of different sizes, so the meaningful aggregate weights
+        each face by its area. Delegates to the shared
+        :func:`pyramids.base._reductions.weighted_statistic` with :attr:`Mesh2d.face_areas`
+        as the weights — the same kernel the raster ``weighted`` reduction uses.
+
+        Args:
+            variable_name: Name of a **face-located** data variable.
+            how: One of ``"mean"``, ``"sum"``, ``"sum_of_weights"``, ``"std"``, ``"var"``.
+                Defaults to ``"mean"``.
+            time_index: Step for a temporal variable. Defaults to 0.
+
+        Returns:
+            float: The area-weighted statistic over all faces.
+
+        Raises:
+            ValueError: The variable is not face-located, or its length does not match the
+                number of faces.
+
+        Examples:
+            - Area-weighted mean: the larger face (area 4, value 10) outweighs the
+              smaller (area 2, value 20), pulling the mean below the unweighted 15.0:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> mesh = UgridDataset.from_arrays(
+                ...     node_x=np.array([0.0, 4.0, 4.0, 0.0]),
+                ...     node_y=np.array([0.0, 0.0, 2.0, 1.0]),
+                ...     face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+                ...     data={"v": np.array([10.0, 20.0])},
+                ... )
+                >>> round(mesh.weighted("v"), 3)
+                13.333
+
+                ```
+        """
+        var, arr = self._element_values(variable_name, time_index=time_index)
+        if var.location != "face":
+            raise ValueError(
+                "area-weighted statistics need a face-located variable; "
+                f"{variable_name!r} is on {var.location!r}."
+            )
+        areas = self._mesh.face_areas
+        if arr.shape[-1] != areas.shape[0]:
+            raise ValueError(
+                f"variable {variable_name!r} has {arr.shape[-1]} face value(s) but the "
+                f"mesh has {areas.shape[0]} face(s)."
+            )
+        # `arr` already carries NaN for gaps, so `ndv=None` and `skipna=True` reduce over
+        # the single face axis; the kernel keeps the axis as length 1, squeezed off here.
+        result = weighted_statistic(arr, areas, (0,), how, None, True)
+        return float(np.asarray(result).ravel()[0])
+
+    def zonal_stats(
+        self,
+        zones: Any,
+        *,
+        variable_name: str,
+        stats: tuple[str, ...] = ("mean",),
+        weighted: bool = True,
+        time_index: int = 0,
+    ) -> pd.DataFrame:
+        """Aggregate a face variable within polygons, weighted by face area.
+
+        The mesh counterpart of :func:`pyramids.dataset.ops._zonal.zonal_stats`. Each face
+        is assigned to the zone whose polygon contains its centroid (the mesh analogue of a
+        raster pixel's cell centre), then the shared
+        :func:`pyramids.base._reductions.reduce_by_label` reduces the face values per zone.
+        With ``weighted`` (the default) each face is weighted by its area, so a zone's mean
+        is area-exact — a capability the raster path does not yet have.
+
+        Args:
+            zones: Polygons, as a :class:`~pyramids.feature.FeatureCollection` (or any
+                object exposing ``geometry``, ``index`` and ``len``). CRS must match the
+                mesh; reproject first if not.
+            variable_name: Name of a **face-located** data variable.
+            stats: Statistics per zone, any of ``"mean"``, ``"sum"``, ``"min"``, ``"max"``,
+                ``"std"``, ``"var"``, ``"count"``. Defaults to ``("mean",)``.
+            weighted: Weight each face by its area. Defaults to True. ``count`` and
+                ``min`` / ``max`` are weight-invariant.
+            time_index: Step for a temporal variable. Defaults to 0.
+
+        Returns:
+            pandas.DataFrame: Indexed like ``zones``; one column per statistic. A zone
+            containing no face centroid is NaN (``count`` ``0.0``).
+
+        Raises:
+            ValueError: The variable is not face-located, or the zones' CRS disagrees with
+                the mesh CRS.
+        """
+        var, arr = self._element_values(variable_name, time_index=time_index)
+        if var.location != "face":
+            raise ValueError(
+                "mesh zonal_stats needs a face-located variable; "
+                f"{variable_name!r} is on {var.location!r}."
+            )
+        zone_crs = getattr(zones, "crs", None)
+        if zone_crs is not None and self.epsg is not None:
+            zone_epsg = zone_crs.to_epsg()
+            if zone_epsg is not None and zone_epsg != self.epsg:
+                raise ValueError(
+                    f"zonal_stats: zones CRS (EPSG:{zone_epsg}) does not match mesh CRS "
+                    f"(EPSG:{self.epsg}). Reproject the zones to the mesh CRS first."
+                )
+        geometries = list(zones.geometry)
+        cx, cy = self._mesh.face_centroids
+        centroids = shapely.points(cx, cy)
+        tree = shapely.STRtree(geometries)
+        # Face centroid within a zone polygon -> that zone. A centroid in more than one
+        # (overlapping zones) keeps the first, mirroring a raster pixel landing in one cell.
+        centroid_idx, zone_idx = tree.query(centroids, predicate="within")
+        labels = np.full(self._mesh.n_face, -1, dtype=np.intp)
+        for face_i, zone_i in zip(centroid_idx, zone_idx):
+            if labels[face_i] == -1:
+                labels[face_i] = zone_i
+        weights = self._mesh.face_areas if weighted else None
+        columns = reduce_by_label(
+            arr, labels, len(geometries), list(stats), unassigned=-1, weights=weights
+        )
+        return pd.DataFrame({stat: columns[stat] for stat in stats}, index=zones.index)
 
     def plot(
         self,
