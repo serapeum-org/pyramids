@@ -17,6 +17,7 @@ methods still use them.
 
 from __future__ import annotations
 
+import inspect
 import math
 import operator
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -70,6 +71,7 @@ from pyramids.netcdf.engines._along_dim import (
     _CumProd,
     _CumSum,
     _CumulativeIntegrate,
+    _CurveFit,
     _Diff,
     _Differentiate,
     _DropNa,
@@ -85,6 +87,7 @@ from pyramids.netcdf.engines._along_dim import (
     _reduces_as_a_variable,
     _Reduction,
     _Rolling,
+    _RollingExp,
     _Shift,
     _TakeSteps,
 )
@@ -4876,18 +4879,7 @@ class Selection(_Engine["NetCDF"]):
               ```
         """
         _assert_degree(deg)
-        existing = (
-            set(self._ds._band_dim_names)
-            if _reduces_as_a_variable(self._ds)
-            else set(_gridded_band_dimensions(self._ds, "polyfit"))
-        )
-        if _COEFFICIENT_DIM in existing:
-            raise ValueError(
-                f"polyfit() lands its coefficients on a dimension named "
-                f"{_COEFFICIENT_DIM!r}, which this cube already has. Rename it first with "
-                f"rename_dims({_COEFFICIENT_DIM}=...) — without that the rebuild reaches GDAL "
-                f"with two dimensions of one name and fails there instead."
-            )
+        _refuse_colliding_fit_dim(self._ds, _COEFFICIENT_DIM, "polyfit")
         return _run_numerical(
             self._ds,
             dim,
@@ -4896,6 +4888,260 @@ class Selection(_Engine["NetCDF"]):
             verb="fits",
             minimum=int(deg) + 1,
         )
+
+    def curvefit(
+        self,
+        dim: str,
+        func: Callable[..., Any],
+        p0: Sequence[float],
+        *,
+        bounds: tuple[Any, Any] | None = None,
+        full: bool = False,
+    ) -> NetCDF:
+        """Fit an arbitrary model per cell along a non-spatial dimension.
+
+        :meth:`polyfit`'s general case. A polynomial is linear in its coefficients, so a whole
+        cube fits in one vectorised `numpy.polyfit` call; an arbitrary model is not, so each cell
+        runs its own `scipy.optimize.curve_fit`, and there is no vectorised form for that. The
+        cost is linear in the number of cells and dominated by the per-cell solve, so a global
+        grid at fine resolution is minutes rather than seconds. xarray's own `curvefit` goes
+        per-cell for the same reason.
+
+        The dimension's coordinates are the sample positions, so an uneven axis fits correctly.
+        As with `polyfit` the **output axis is not the input axis**: `dim` is replaced by a
+        `param` dimension, one slot per entry in `p0`, stamped positionally `0 .. n - 1`. The
+        stamps are integers rather than the callable's parameter names because a text axis is
+        inert to the rest of the library — `differentiate`, `integrate` and `interp` all refuse a
+        non-numeric one.
+
+        Because the output axis replaces the input one, a container's auxiliary variables spanning
+        `dim` are dropped with a warning — that follows from the axis changing, not from how the
+        new one is stamped.
+
+        Gaps are dropped per cell rather than poisoning it, unlike `polyfit`: the fit runs over
+        whatever steps remain, so a cell missing one scene still answers. A cell with fewer
+        finite steps than parameters, or one whose fit raises, is all-NaN; those are counted and
+        reported as a single warning rather than one per cell.
+
+        **`full=True` is strongly recommended, and here is why.** `curve_fit` does not report a
+        failed fit. On a degenerate series it returns `p0` unchanged, does not raise, and reports
+        `ier=1` — a *success* code. Its covariance is no help and is inverted: a degenerate cell
+        came back finite where a *perfect* fit came back `inf`. So failed cells arrive as a
+        smooth region of exactly `p0`, indistinguishable from real results, which on a map is
+        worse than an obvious gap. `full=True` prepends one slot, stamped `-1`, holding each
+        cell's residual sum of squares — the only quantity that separates the two, and by an
+        enormous margin: a degenerate cell's residual is many orders of magnitude above a real
+        fit's. Threshold it to build a quality mask. This
+        follows `numpy.polyfit(full=True)` and xarray's own `polyfit(full=True)`, and matches
+        what raster tools do generally (ArcGIS writes RMSE as a band of its trend raster).
+
+        Works on a container, fitting every variable that has `dim`, and on a single variable,
+        returning a variable.
+
+        Args:
+            dim: The non-spatial dimension to fit along.
+            func: The model, called as `func(x, *params)` with `x` the dimension's coordinates.
+            p0: The initial guess, positionally. Its length fixes how many parameters are
+                fitted, so it is required rather than defaulted — `curve_fit` would otherwise
+                guess all-ones from the signature, and a wrong guess is how a fit silently
+                converges on nonsense.
+            bounds: `(lower, upper)` passed to `curve_fit`, each a scalar or one entry per
+                parameter, or `None` for unbounded.
+            full: Whether to prepend the residual-sum-of-squares slot, stamped `-1`. It goes
+                first so the `param` axis stays ascending, which keeps the coordinate-aware
+                members usable on the result.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, with `dim` replaced
+            by `param` of length `len(p0)`, or `len(p0) + 1` with `full`. Float64 declaring NaN,
+            which is also what an unfittable cell holds.
+
+        Raises:
+            TypeError: `func` is not callable, does not take `x` plus one parameter per `p0`
+                entry, `p0` is not a sequence of numbers, or `bounds` is not a `(lower, upper)`
+                pair.
+            ValueError: The container has no data variables; `dim` is a spatial axis, is not a
+                band dimension, resolves to no usable coordinates, or is shorter than `len(p0)`
+                steps, which is the fewest the fit is determined by; an entry of `p0` lies
+                outside its bounds; `p0` is empty; or the cube already carries a dimension named
+                `param`, which the fitted values would collide with. Unlike the other
+                coordinate-aware members this does **not** require a monotonic axis: a
+                least-squares fit treats the coordinates as scattered samples and is indifferent
+                to their order.
+
+        Examples:
+            - A straight line recovered as a two-parameter model:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 3.0, 5.0, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0, 3.0]),
+              ... ).get_variable("t")
+              >>> fit = var.curvefit("time", lambda x, a, b: a * x + b, [1.0, 1.0])
+              >>> fit._band_dim_names, fit._band_dim_sizes
+              (('param',), (2,))
+              >>> [round(value, 6) for value in fit.read_array().ravel().tolist()]
+              [2.0, 1.0]
+
+              ```
+            - With `full`, the residual rides on stamp `-1`, and is ~0 for an exact fit:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([1.0, 3.0, 5.0, 7.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 1.0, 2.0, 3.0]),
+              ... ).get_variable("t")
+              >>> fit = var.curvefit(
+              ...     "time", lambda x, a, b: a * x + b, [1.0, 1.0], full=True
+              ... )
+              >>> np.asarray(fit.coords["param"]).tolist()
+              [-1, 0, 1]
+              >>> round(float(fit.read_array().ravel()[0]), 10)
+              0.0
+
+              ```
+        """
+        count = _assert_initial_guess(p0)
+        _assert_model(func, count)
+        _assert_bounds(p0, bounds, count)
+        if dim != _PARAM_DIM:
+            # Fitting *along* `param` replaces it, so there is nothing left to collide with —
+            # refusing that case rejected a legitimate call, such as fitting the output of one
+            # `curvefit` again.
+            _refuse_colliding_fit_dim(self._ds, _PARAM_DIM, "curvefit")
+        return _run_numerical(
+            self._ds,
+            dim,
+            _CurveFit(
+                func=func,
+                p0=tuple(float(value) for value in p0),
+                bounds=bounds,
+                full=bool(full),
+            ),
+            caller="curvefit",
+            verb="fits",
+            minimum=count,
+            monotonic=False,
+        )
+
+    def rolling_exp(self, dim: str, alpha: float, *, how: str = "mean") -> NetCDF:
+        """Smooth along a non-spatial dimension with exponentially decaying weights.
+
+        :meth:`rolling` with an infinite window. `rolling` averages a fixed window with equal
+        weights, which costs it the first `window - 1` steps to no-data and makes it forget
+        everything older than the window. This weights every earlier step instead, decaying
+        geometrically — pandas' **adjusted** exponentially-weighted statistic, a normalised
+        weighted sum over the steps seen so far:
+
+        ```
+        y[i] = sum_k (1-alpha)**k * x[i-k] / sum_k (1-alpha)**k,   k = 0 .. i
+        ```
+
+        The bare recursion `y[i] = alpha*x[i] + (1-alpha)*y[i-1]` is pandas' `adjust=False`
+        variant and is **not** what runs here: on `[10, 10, 10, 20]` at `alpha=0.5` it gives
+        `15.0` where this member gives `15.3333`, the value the doctest below asserts.
+
+        `mean` and `sum` answer from step 0 and never fully forget, which on a short or irregular
+        satellite series is the difference between discarding the earliest scenes and keeping
+        them; `std` and `var` are no-data at step 0, one step having no spread. The relative
+        weight of each earlier step falls by `1 - alpha` per step, so at `alpha=0.5` each lag
+        counts half as much as the one after it. The absolute weights depend on how many steps
+        have been seen — `0.533, 0.267, 0.133, 0.067` over four steps, tending to
+        `0.5, 0.25, 0.125, 0.0625` as the series grows — because the normalisation divides by the
+        weight accumulated so far.
+
+        Unlike the numerical members this is **step-based, not coordinate-aware**: it counts
+        steps along `dim` and never reads its coordinates, exactly as `rolling` does, so an
+        unevenly spaced or coordinate-less axis is fine and the stamps pass through untouched.
+
+        The values are `pandas`' — the member is `DataFrame.ewm(alpha=...)` over the cube with
+        its cells as columns, one call in C rather than a per-cell loop, ~19 us/cell. pandas'
+        `adjust=True` default is kept, so output is **pandas-identical at every step the input
+        observes**. It differs at a step that was no-data, which pandas fills with the carried
+        value and this member leaves a gap — see below. It is deliberately not
+        promised to be xarray-identical: xarray's `rolling_exp` is implemented on `numbagg`,
+        which is not a dependency here, so there is nothing to test such a promise against.
+
+        A gap does not blank the rest of the series: it contributes nothing, the decay carries
+        through it, and every later step still answers. **The gap step itself stays a gap.** That
+        is the one place this departs from raw `ewm`, which fills it with the carried value — a
+        finite, plausible number with nothing marking it unobserved. For the cloud-masked scene
+        this member is for, that would be fabricated data in a GIS product, and `rolling` leaves
+        its own unanswered steps no-data too. `dim` keeps its length and coordinates.
+
+        Works on a container, smoothing every variable that has `dim`, and on a single variable,
+        returning a variable.
+
+        Args:
+            dim: The non-spatial dimension to smooth along.
+            alpha: The smoothing factor, `0 < alpha <= 1`. Larger forgets faster. At `alpha=1`
+                `mean` and `sum` return the input unchanged; `std` and `var` are undefined there
+                and come back all-NaN.
+            how: The reduction: `mean`, `sum`, `std` or `var`. xarray also exposes `cov` and
+                `corr`, which need a second cube and so a different signature; they are not
+                here.
+
+        Returns:
+            NetCDF: A container for a container, a variable for a variable, the band layout
+            unchanged. Float64 declaring NaN — which step 0 holds for `std` and `var`, and which
+            a leading gap holds for all four.
+
+        Raises:
+            TypeError: `alpha` is not a number, or is a `bool`.
+            ValueError: The container has no data variables; `dim` is a spatial axis or is not a
+                band dimension; `alpha` is outside `(0, 1]`; or `how` is not one of the four.
+
+        Examples:
+            - The weights decay, so a step change is approached rather than snapped to:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([10.0, 10.0, 10.0, 20.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> smoothed = var.rolling_exp("time", 0.5)
+              >>> [round(value, 4) for value in smoothed.read_array().ravel().tolist()]
+              [10.0, 10.0, 10.0, 15.3333]
+
+              ```
+            - Every step answers, where `rolling` leaves the first window short:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import ExtraDimensions, GeoReference, NetCDF
+              >>> var = NetCDF.from_array(
+              ...     np.array([10.0, 10.0, 10.0, 20.0]).reshape(4, 1, 1),
+              ...     geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 1.0, 0.0, -1.0), epsg=4326),
+              ...     variable_name="t",
+              ...     dims=ExtraDimensions(name="time", values=[0.0, 6.0, 12.0, 18.0]),
+              ... ).get_variable("t")
+              >>> var.rolling_exp("time", 0.5)._band_dim_sizes
+              (4,)
+
+              ```
+        """
+        nc = self._ds
+        _assert_alpha(alpha)
+        _check_how(how, set(_ROLLING_EXP_HOWS))
+        _refuse_spatial_band_op(nc, dim, caller="rolling_exp", verb="smooths")
+        op = _RollingExp(alpha=float(alpha), how=how)
+        if _reduces_as_a_variable(nc):
+            result = _apply_to_variable(nc, dim, op)
+        else:
+            result = _apply_to_container(nc, dim, op)
+        return result
 
     def cumulative(self, dim: str) -> CumulativeAccessor:
         """Accumulate along a non-spatial dimension, in xarray's accessor form.
@@ -6961,6 +7207,221 @@ def _gridded_band_coordinates(nc: NetCDF, dim: str) -> Any:
     return nc.get_dimension_values(dim)
 
 
+_PARAM_DIM = "param"
+"""The dimension `curvefit` lands its coefficients on, as `_COEFFICIENT_DIM` is for `polyfit`."""
+
+_ROLLING_EXP_HOWS = ("mean", "sum", "std", "var")
+"""The reductions `rolling_exp` offers.
+
+xarray exposes `cov` and `corr` as well, and `pandas.ewm` implements all six, but those two take
+a *second* operand and so a different signature than `how=` can carry. Left out rather than bolted
+on.
+"""
+
+
+def _assert_alpha(alpha: Any) -> None:
+    """Refuse a smoothing factor outside `(0, 1]`.
+
+    `alpha=0` never moves off the first step and `alpha<0` or `alpha>1` make `ewm` raise from
+    inside pandas with a message about its own parameters, which says nothing about the member the
+    caller used. Mirrors `_assert_degree`.
+
+    Args:
+        alpha: The smoothing factor the caller passed.
+
+    Raises:
+        TypeError: `alpha` is not a number, or is a `bool` — `rolling_exp(dim, True)` would mean
+            `alpha=1`, and a caller writing it means something else.
+        ValueError: `alpha` is not in `(0, 1]`.
+    """
+    if isinstance(alpha, bool) or not isinstance(
+        alpha, (int, float, np.integer, np.floating)
+    ):
+        raise TypeError(
+            f"rolling_exp() needs a numeric alpha, but got {type(alpha).__name__} ({alpha!r})."
+        )
+    if not 0.0 < float(alpha) <= 1.0:
+        raise ValueError(
+            f"rolling_exp() needs an alpha in (0, 1], but got {alpha!r}. Larger forgets faster; "
+            f"1 is the input unchanged."
+        )
+
+
+def _assert_model(func: Any, count: int) -> None:
+    """Refuse a model that cannot be called, or that does not take as many parameters as `p0`.
+
+    The arity check matters because without it an arity mistake is indistinguishable from a data
+    problem: `curve_fit` raises `TypeError` for *every* cell, the member counts them all as
+    unfittable, and the caller gets an all-NaN raster and a warning pointing at their data.
+
+    Args:
+        func: The model the caller passed.
+        count: How many parameters `p0` declares.
+
+    Raises:
+        TypeError: `func` is not callable, or its signature cannot accept `x` plus `count`
+            parameters.
+    """
+    if not callable(func):
+        raise TypeError(
+            f"curvefit() needs a callable model called as func(x, *params), but got "
+            f"{type(func).__name__}."
+        )
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        # A builtin or a C-implemented callable may expose no signature. Nothing to check, and
+        # refusing it would rule out a legitimate model.
+        return
+    positional = [
+        parameter
+        for parameter in signature.parameters.values()
+        if parameter.kind
+        in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    variadic = any(
+        parameter.kind is parameter.VAR_POSITIONAL
+        for parameter in signature.parameters.values()
+    )
+    if variadic:
+        return
+    required = len(
+        [parameter for parameter in positional if parameter.default is parameter.empty]
+    )
+    # A range, not an exact count: `def model(x, a, b, scale=2.0)` fitted with `p0=[1, 1]` is a
+    # shape `curve_fit` accepts — the defaulted parameter simply keeps its default — and an
+    # exact-arity check refused it. What is genuinely wrong is a call that cannot supply every
+    # required parameter, or that supplies more than the model can take.
+    if not required <= count + 1 <= len(positional):
+        raise TypeError(
+            f"curvefit() needs a model it can call as func(x, *p0) with {count} parameter(s), "
+            f"but {getattr(func, '__name__', 'the model')} takes "
+            f"{required}-{len(positional)} positional argument(s) including x."
+        )
+
+
+def _assert_bounds(p0: Any, bounds: Any, count: int) -> None:
+    """Refuse an initial guess that lies outside its own bounds.
+
+    `curve_fit` raises `ValueError("x0 is infeasible")` for every cell in that case, which the
+    per-cell handler counts as unfittable — so a typo in `p0` or `bounds` produced an all-NaN
+    raster and a warning blaming the data.
+
+    Args:
+        p0: The initial guess.
+        bounds: `(lower, upper)`, each a scalar or one entry per parameter, or `None`.
+        count: How many parameters `p0` declares.
+
+    Raises:
+        TypeError: `bounds` is not a two-item sequence.
+        ValueError: Either side has a length that is neither 1 nor `count`; a lower bound exceeds
+            its upper; or any entry of `p0` lies outside its bounds.
+    """
+    if bounds is None:
+        return
+    if not isinstance(bounds, (tuple, list)) or len(bounds) != 2:
+        raise TypeError(
+            f"curvefit() needs bounds as a (lower, upper) pair, but got {bounds!r}."
+        )
+    for label, side in (("lower", bounds[0]), ("upper", bounds[1])):
+        if isinstance(side, (list, tuple, np.ndarray)) and len(side) not in (1, count):
+            # Otherwise `broadcast_to` raises a NumPy shape message, which is the same class of
+            # caller mistake this function exists to name.
+            raise ValueError(
+                f"curvefit() needs the {label} bound to hold 1 or {count} entries, one per p0 "
+                f"entry, but it holds {len(side)}."
+            )
+    start = np.asarray(list(p0), dtype="float64")
+    lower = np.broadcast_to(np.asarray(bounds[0], dtype="float64"), start.shape)
+    upper = np.broadcast_to(np.asarray(bounds[1], dtype="float64"), start.shape)
+    if bool(np.any(lower > upper)):
+        raise ValueError(
+            "curvefit() needs every lower bound at or below its upper, and "
+            + "; ".join(
+                f"lower[{index}]={lower[index]} > upper[{index}]={upper[index]}"
+                for index in np.flatnonzero(lower > upper)
+            )
+            + "."
+        )
+    outside = (start < lower) | (start > upper)
+    if bool(np.any(outside)):
+        offenders = [
+            f"p0[{index}]={start[index]} not in [{lower[index]}, {upper[index]}]"
+            for index in np.flatnonzero(outside)
+        ]
+        raise ValueError(
+            "curvefit() needs every p0 entry inside its bounds, and "
+            + "; ".join(offenders)
+            + "."
+        )
+
+
+def _assert_initial_guess(p0: Any) -> int:
+    """Refuse an initial guess that is not a non-empty sequence of numbers.
+
+    `p0` is required rather than defaulted because its length is what fixes how many parameters
+    are fitted. `curve_fit` would otherwise read the count off the callable's signature and guess
+    all-ones, and a silently wrong starting point is how a non-linear fit converges on nonsense.
+
+    Args:
+        p0: The initial guess the caller passed.
+
+    Returns:
+        int: How many parameters it declares.
+
+    Raises:
+        TypeError: `p0` is not a sequence, or holds something that is not a number.
+        ValueError: `p0` is empty.
+    """
+    if isinstance(p0, (str, bytes)) or not isinstance(p0, (list, tuple, np.ndarray)):
+        raise TypeError(
+            f"curvefit() needs p0 as a sequence of numbers, one per parameter, but got "
+            f"{type(p0).__name__}."
+        )
+    values = list(p0)
+    if not values:
+        raise ValueError(
+            "curvefit() needs at least one entry in p0: its length is what says how many "
+            "parameters the model has."
+        )
+    for value in values:
+        if isinstance(value, bool) or not isinstance(
+            value, (int, float, np.integer, np.floating)
+        ):
+            raise TypeError(
+                f"curvefit() needs every p0 entry to be a number, but got "
+                f"{type(value).__name__} ({value!r})."
+            )
+    return len(values)
+
+
+def _refuse_colliding_fit_dim(nc: NetCDF, name: str, caller: str) -> None:
+    """Refuse to land fitted coefficients on a dimension name the cube already uses.
+
+    Without this the rebuild reaches GDAL with two dimensions of one name and fails there, with a
+    message about the store rather than about the call. Shared by `polyfit` and `curvefit`.
+
+    Args:
+        nc: The container or variable the member was called on.
+        name: The dimension the coefficients would land on.
+        caller: The member the user called, named in the refusal.
+
+    Raises:
+        ValueError: The cube already carries a dimension of that name.
+    """
+    existing = (
+        set(nc._band_dim_names)
+        if _reduces_as_a_variable(nc)
+        else set(_gridded_band_dimensions(nc, caller))
+    )
+    if name in existing:
+        raise ValueError(
+            f"{caller}() lands its fitted values on a dimension named {name!r}, which this cube "
+            f"already has. Rename it first with rename_dims({name}=...) — without that the "
+            f"rebuild reaches GDAL with two dimensions of one name and fails there instead."
+        )
+
+
 _COEFFICIENT_DIM = "degree"
 """The dimension :meth:`Selection.polyfit` lands its coefficients on."""
 
@@ -7449,6 +7910,7 @@ def _run_numerical(
     caller: str,
     verb: str,
     minimum: int = 2,
+    monotonic: bool = True,
 ) -> NetCDF:
     """Run a coordinate-aware numerical operation along one band dimension.
 
@@ -7466,6 +7928,11 @@ def _run_numerical(
         verb: How the spatial refusal names what the member does.
         minimum: The fewest steps the operation needs. Two for a difference, a trapezoid or a
             running integral; `deg + 1` for a fit, which is underdetermined below that.
+        monotonic: Whether the axis has to run in one direction. True for the members whose
+            arithmetic depends on it — a derivative or an integral over an out-of-order axis is
+            defined but meaningless, the signed areas simply cancelling. False for a
+            least-squares fit, which treats the coordinates as scattered samples and is
+            indifferent to their order.
 
     Returns:
         NetCDF: The result, a container for a container and a variable for a variable.
@@ -7489,7 +7956,11 @@ def _run_numerical(
             f"finite. Restamp the axis with assign_coords first."
         )
     steps = np.diff(positions)
-    if positions.size > 1 and not (np.all(steps > 0) or np.all(steps < 0)):
+    if (
+        monotonic
+        and positions.size > 1
+        and not (np.all(steps > 0) or np.all(steps < 0))
+    ):
         # A derivative or an integral over an out-of-order axis is arithmetically defined and
         # physically meaningless — the signed areas of an integral simply cancel — so it is
         # refused rather than answered. `sortby` is the remedy and is named.

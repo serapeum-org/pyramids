@@ -59,6 +59,7 @@ from pyramids.dataset.engines._read_window import resolve_read_window
 from pyramids.dataset.engines.analysis import _DERIVE_NO_DATA
 from pyramids.dataset.engines.io import _caller_stacklevel
 from pyramids.dataset.transform import GeoTransform
+from pyramids.netcdf import dict_io as _dict_io
 from pyramids.netcdf._axis import detect_axis_indices
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import apply_unpack, build_lazy_array, mask_no_data
@@ -7952,6 +7953,22 @@ class NetCDF(Dataset):
         """Facade — :meth:`Selection.polyfit <pyramids.netcdf.engines.selection.Selection.polyfit>`."""
         return self.selection.polyfit(dim, deg)
 
+    def curvefit(
+        self,
+        dim: str,
+        func: Callable[..., Any],
+        p0: Sequence[float],
+        *,
+        bounds: tuple[Any, Any] | None = None,
+        full: bool = False,
+    ) -> NetCDF:
+        """Facade — :meth:`Selection.curvefit <pyramids.netcdf.engines.selection.Selection.curvefit>`."""
+        return self.selection.curvefit(dim, func, p0, bounds=bounds, full=full)
+
+    def rolling_exp(self, dim: str, alpha: float, *, how: str = "mean") -> NetCDF:
+        """Facade — :meth:`Selection.rolling_exp <pyramids.netcdf.engines.selection.Selection.rolling_exp>`."""
+        return self.selection.rolling_exp(dim, alpha, how=how)
+
     def cumulative(self, dim: str) -> CumulativeAccessor:
         """Facade — :meth:`Selection.cumulative <pyramids.netcdf.engines.selection.Selection.cumulative>`."""
         return self.selection.cumulative(dim)
@@ -8005,6 +8022,20 @@ class NetCDF(Dataset):
         matching `read_array` and the other intentionally-divergent NetCDF facades.
         """
         return self.interop.to_dataframe(variables=variables, dropna=dropna)
+
+    def to_dict(self, *, data: bool = True) -> dict[str, Any]:
+        """Facade — :func:`cube_to_dict <pyramids.netcdf.dict_io.cube_to_dict>`."""
+        return _dict_io.cube_to_dict(self, data=data)
+
+    @classmethod
+    def from_dict(cls, payload: Any) -> Container:
+        """Facade — :func:`cube_from_dict <pyramids.netcdf.dict_io.cube_from_dict>`.
+
+        A `classmethod` that does not use `cls`, exactly as :meth:`from_array`,
+        :meth:`from_bytes` and :meth:`from_xarray` are: each always builds a `Container`
+        whatever subtype it is invoked on, and `from_array`'s docstring records that choice.
+        """
+        return _dict_io.cube_from_dict(payload)
 
     def to_dask_dataframe(
         self, *, variables: Any = None, dropna: bool = False, chunks: Any = "auto"

@@ -196,6 +196,7 @@ nav:
           - Editing dimensions & variables (rename, restamp, drop, update): examples/netcdf/editing-dimensions-and-variables.ipynb
           - Broadcasting & coordinate roles (broadcast_like, set_coords): examples/netcdf/broadcasting-and-coordinate-roles.ipynb
           - Calculus & calendars (differentiate, integrate, polyfit): examples/netcdf/calculus-and-calendars.ipynb
+          - Fitting, smoothing and dicts: examples/netcdf/fitting-smoothing-and-dicts.ipynb
           - Dask (ERA5 on AWS): examples/netcdf/dask-lazy-netcdf.ipynb
           - Dask — NetCDF (complete cookbook): examples/netcdf/lazy-netcdf-complete.ipynb
           - UGRID:
@@ -240,6 +241,7 @@ nav:
       - Metadata: reference/netcdf/metadata.md
       - Dimensions: reference/netcdf/dimensions.md
       - Utilities: reference/netcdf/utils.md
+      - Dict I/O: reference/netcdf/dict_io.md
       - CF Conventions: reference/netcdf/cf/index.md
       - UGRID:
         - Overview: reference/netcdf/ugrid/index.md

@@ -1,7 +1,7 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 130 in all: 95 methods, 27 properties,
-7 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
+A one-line map of every public member the `NetCDF` class itself defines — 134 in all: 98 methods, 27 properties,
+8 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). `concat` and `merge` are counted among the methods: each is callable on the class
 (`NetCDF.concat([a, b], dim)`) and on a cube (`a.concat([b], dim)`, which joins the
 receiver first). For the full signatures, arguments and examples, see the rendered
@@ -32,6 +32,7 @@ Two object shapes share this class, and several members behave differently acros
 | `from_bytes()`  | Opens a NetCDF held in memory as a byte string.                                  |
 | `from_array()`  | Builds a Container from a NumPy array plus a geo-reference.                      |
 | `from_dataframe()` | Rebuilds a Container from a `MultiIndex` DataFrame — the inverse of `to_dataframe`. |
+| `from_dict()`   | Rebuilds a Container from a nested dict — the inverse of `to_dict`.              |
 | `from_xarray()` | Builds a `NetCDF` from an `xarray.Dataset` (needs the optional xarray peer dep). |
 | `copy()`        | Deep, standalone copy of this dataset, optionally written to `path`.             |
 | `close()`       | Releases every GDAL handle this container holds, then closes the base.           |
@@ -123,6 +124,7 @@ A variable with no raster plane is the exception — see each member's docstring
 | `coarsen()`              | Reduces fixed-size windows along `dim` — `window`, `boundary`, `how`.                 |
 | `groupby_bins()`         | Reduces `dim` binned into value intervals — `bins`, `right`, `include_lowest`, `how`. |
 | `rolling()`              | Reduces a moving window along `dim`, keeping its length — `center`, `min_periods`.    |
+| `rolling_exp()`          | Exponentially-weighted moving reduction along `dim` — `alpha`, `how`.                 |
 | `diff()`                 | Differences neighbouring steps along `dim` — `n`, `label`.                            |
 | `interp()`               | Interpolates band `dim`(s) onto new coordinate values — `method`, `**coords`.         |
 | `interp_like()`          | Interpolates shared band dims onto another cube's coordinates — `other`, `method`.    |
@@ -136,12 +138,14 @@ A variable with no raster plane is the exception — see each member's docstring
 | `integrate()`            | Trapezoidal integral along `dim`, which it consumes.                                  |
 | `cumulative_integrate()` | Running trapezoidal integral along `dim`.                                             |
 | `polyfit()`              | Per-cell least-squares coefficients along `dim`.                                      |
+| `curvefit()`             | Per-cell least-squares fit of an arbitrary model along `dim` — `p0`/`bounds`/`full`.  |
 | `shift()`                | Moves the values along `dim`, filling the vacated steps — `periods`, `fill_value`.    |
 | `ffill()`                | Carries the last valid value along `dim` into the gaps after it — `limit`.            |
 | `bfill()`                | Carries the next valid value along `dim` back into the gaps before it — `limit`.      |
 | `dropna()`               | Removes the steps of `dim` whose cells are missing — `how`, `thresh`.                 |
 | `interpolate_na()`       | Fills the interior gaps along `dim` from both sides — `method`, `limit`.              |
 | `to_dataframe()`         | The cube as a pandas frame, indexed by its dimensions — `variables`, `dropna`.        |
+| `to_dict()`              | The cube's whole structure as a nested dict — xarray's schema plus georeference.      |
 | `to_dask_dataframe()`    | The lazy sibling of `to_dataframe` — a tidy `dask.dataframe`, read lazily.            |
 | `concat()`               | Joins cubes end to end along `dim` (classmethod).                                     |
 | `merge()`                | Puts several cubes' variables on one grid (classmethod) — `compat`.                   |
