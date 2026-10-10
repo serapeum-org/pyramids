@@ -1299,6 +1299,22 @@ class UgridDataset:
                 13.333
 
                 ```
+            - The area-weighted quantile clamps to the data range at the extremes:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> mesh = UgridDataset.from_arrays(
+                ...     node_x=np.array([0.0, 4.0, 4.0, 0.0]),
+                ...     node_y=np.array([0.0, 0.0, 2.0, 1.0]),
+                ...     face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+                ...     data={"v": np.array([10.0, 20.0])},
+                ... )
+                >>> mesh.weighted("v", how="quantile", q=0.0)
+                10.0
+                >>> mesh.weighted("v", how="quantile", q=1.0)
+                20.0
+
+                ```
         """
         if how not in WEIGHTED_HOWS:
             # Validate up front, mirroring the raster weighted path: the kernel's catch-all

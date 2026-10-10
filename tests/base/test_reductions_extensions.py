@@ -15,6 +15,12 @@ class TestInterpolatedHigherOrder:
         )
         assert out.tolist() == [1.0, 2.0, 3.0]
 
+    def test_nearest_takes_the_closer_neighbour(self):
+        out = interpolated(
+            np.array([1.0, np.nan, 5.0]), 0, np.arange(3.0), "nearest", None
+        )
+        assert out[1] == 1.0
+
     def test_cubic_recovers_a_quadratic(self):
         # y = x**2; a cubic through four points of a quadratic reproduces it, so the x=2 gap
         # comes back 4.0 — which a two-point linear fill (giving 5.0) could not.
