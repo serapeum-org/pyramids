@@ -1,6 +1,6 @@
 """Tests for the UgridDataset analysis members (Phase 3A).
 
-stats / sample / weighted / zonal_stats on an in-memory two-triangle mesh. These reuse the
+summary / sample / weighted / zonal_stats on an in-memory two-triangle mesh. These reuse the
 shared pure kernels in ``pyramids.base._reductions`` but are exercised here through the
 mesh-facing API.
 """
@@ -31,14 +31,20 @@ def unit_mesh() -> UgridDataset:
     )
 
 
-class TestStats:
-    def test_basic_stats(self, unit_mesh):
-        s = unit_mesh.stats("depth")
-        assert s["min"] == 10.0
-        assert s["max"] == 20.0
-        assert s["mean"] == 15.0
-        assert s["count"] == 2.0
-        assert s["std"] == pytest.approx(5.0)
+class TestSummary:
+    def test_basic_summary(self, unit_mesh):
+        row = unit_mesh.summary().loc["depth"]
+        assert row["min"] == 10.0
+        assert row["max"] == 20.0
+        assert row["mean"] == 15.0
+        assert row["count"] == 2
+        assert row["std"] == pytest.approx(5.0)
+
+    def test_index_and_count_dtype(self, unit_mesh):
+        df = unit_mesh.summary()
+        assert df.index.name == "variable"
+        assert list(df.index) == ["depth"]
+        assert df["count"].dtype == np.int64
 
     def test_nodata_is_excluded(self):
         mesh = UgridDataset.from_arrays(
@@ -48,9 +54,19 @@ class TestStats:
             data={"v": np.array([5.0, -9999.0])},
         )
         mesh["v"].nodata = -9999.0
-        s = mesh.stats("v")
-        assert s["count"] == 1.0
-        assert s["mean"] == 5.0
+        row = mesh.summary().loc["v"]
+        assert row["count"] == 1
+        assert row["mean"] == 5.0
+
+    def test_metrics_selection_and_unknown(self, unit_mesh):
+        df = unit_mesh.summary(metrics=("mean", "median"))
+        assert list(df.columns) == ["mean", "median"]
+        with pytest.raises(ValueError, match="unknown summary metric"):
+            unit_mesh.summary(metrics=("bogus",))
+
+    def test_unknown_variable_raises(self, unit_mesh):
+        with pytest.raises(KeyError):
+            unit_mesh.summary(variables=["missing"])
 
 
 class TestSample:
@@ -84,7 +100,8 @@ class TestWeighted:
 
     def test_differs_from_unweighted_mean(self, unit_mesh):
         assert (
-            unit_mesh.weighted("depth", how="mean") != unit_mesh.stats("depth")["mean"]
+            unit_mesh.weighted("depth", how="mean")
+            != unit_mesh.summary().loc["depth", "mean"]
         )
 
 
@@ -140,13 +157,14 @@ class TestNonTimeFirstAxis:
         mesh = self._mesh_time_trailing()
         assert mesh["d"].time_index == 1
 
-    def test_stats_uses_the_right_axis(self):
+    def test_summary_reduces_over_all_steps(self):
         mesh = self._mesh_time_trailing()
-        # step 0 along the trailing time axis is the per-face column [1.0, 10.0].
-        s = mesh.stats("d", time_index=0)
-        assert s["min"] == 1.0
-        assert s["max"] == 10.0
-        assert s["count"] == 2.0
+        # summary reduces over every element AND every step: all 6 values 1..30.
+        row = mesh.summary().loc["d"]
+        assert row["count"] == 6
+        assert row["min"] == 1.0
+        assert row["max"] == 30.0
+        assert row["mean"] == pytest.approx(66.0 / 6.0)
 
     def test_weighted_matches_face_count(self):
         mesh = self._mesh_time_trailing()
@@ -260,7 +278,12 @@ class TestRound2AnalysisFixes:
         with pytest.raises(ValueError, match="not per-element"):
             mesh.weighted("layered")
 
-    def test_m3_stats_rejects_layered_variable(self):
+    def test_summary_reduces_layered_variable_over_all_axes(self):
+        # Unlike the per-element analysis members, summary collapses every axis, so a layered
+        # (n_layers, n_face) variable is summarised over all its values rather than rejected.
         mesh = self._layered_mesh()
-        with pytest.raises(ValueError, match="not per-element"):
-            mesh.stats("layered")
+        layered = np.asarray(mesh["layered"].data)
+        row = mesh.summary().loc["layered"]
+        assert row["count"] == layered.size
+        assert row["min"] == float(layered.min())
+        assert row["max"] == float(layered.max())

@@ -27,6 +27,8 @@ from osgeo import gdal, osr
 from pyramids import _io
 from pyramids.base._axes import AXIS_NAMES
 from pyramids.base._file_manager import discard_path_handles
+from pyramids.base._reductions import gaps_as_nan
+from pyramids.base._summary import DEFAULT_METRICS, variable_summary
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
     _is_identity_packing,
@@ -5151,6 +5153,102 @@ class NetCDF(Dataset):
         """Container-guarded facade for `Dataset.stats`."""
         self._check_not_container("stats")
         return super().stats(*args, **kwargs)
+
+    def summary(
+        self,
+        variables: Sequence[str] | None = None,
+        *,
+        metrics: Sequence[str] = DEFAULT_METRICS,
+        skipna: bool = True,
+        ddof: int = 0,
+    ) -> pd.DataFrame:
+        """A per-variable summary table over the whole cube.
+
+        Where `stats` reports one row per band of a single variable, `summary` reports one row
+        per *variable*, each reduced over **all** of its values — every band / time step and every
+        cell. It therefore works on a container, which `stats` refuses. Values are read in physical
+        units (CF `scale_factor` / `add_offset` applied) with no-data left out, exactly as
+        `read_array` returns them.
+
+        Built on the shared :func:`pyramids.base._summary.variable_summary`, so this answers in the
+        identical shape to :meth:`pyramids.netcdf.ugrid.UgridDataset.summary`.
+
+        Args:
+            variables: Which variables to summarise, in output-row order. `None` (the default)
+                takes every variable in :attr:`data_vars`. An unknown name raises `KeyError`.
+            metrics: Which statistics to report, in column order. Defaults to
+                `("count", "min", "max", "mean", "std")`; `median` / `var` / `sum` / `prod` are
+                available too.
+            skipna: Leave no-data out of the statistics (the default) or let it propagate.
+            ddof: Delta degrees of freedom for `std` / `var`. Defaults to 0.
+
+        Returns:
+            pandas.DataFrame: One row per variable (index name `"variable"`), one column per metric.
+            `count` is `int64`; the rest are `float64`. A variable with no valid cell yields NaN
+            statistics and a `count` of 0.
+
+        Raises:
+            KeyError: A requested variable is not in :attr:`data_vars`.
+            TypeError: A requested variable is non-numeric.
+            ValueError: An unknown metric.
+
+        Examples:
+            - Summarise every variable of a multi-variable file:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> df = nc.summary()
+              >>> list(df.index)
+              ['area', 'msk_rgn', 'pr', 'tas', 'ua']
+              >>> list(df.columns)
+              ['count', 'min', 'max', 'mean', 'std']
+
+              ```
+        """
+        mapping = self.data_vars
+        names = list(mapping) if variables is None else list(variables)
+        arrays: dict[str, np.ndarray] = {}
+        for name in names:
+            if name not in mapping:
+                raise KeyError(name)
+            var = mapping[name]
+            if hasattr(var, "read_array"):
+                # A spatial variable is a NetCDF subset: read it in physical units with
+                # its no-data cells masked, exactly as `read_array` would answer.
+                raw = np.ma.asarray(var.read_array(masked=True))
+                numeric = np.issubdtype(raw.dtype, np.number)
+                physical = (
+                    np.asarray(np.ma.filled(raw.astype("float64"), np.nan))
+                    if numeric
+                    else None
+                )
+            else:
+                # A non-spatial variable is a LabeledArray: its `values` stay packed, so
+                # blank the stored no-data to NaN and apply CF unpacking here to match.
+                vals = np.asarray(var.values)
+                numeric = np.issubdtype(vals.dtype, np.number)
+                if numeric:
+                    masked = gaps_as_nan(vals, getattr(var, "no_data_value", None))
+                    scale = getattr(var, "scale", None)
+                    offset = getattr(var, "offset", None)
+                    if scale is not None:
+                        masked = masked * scale
+                    if offset is not None:
+                        masked = masked + offset
+                    physical = np.asarray(masked)
+                else:
+                    physical = None
+            if physical is None:
+                if variables is None:
+                    warnings.warn(
+                        f"skipping non-numeric variable {name!r} in summary",
+                        stacklevel=2,
+                    )
+                    continue
+                raise TypeError(f"variable {name!r} is non-numeric; cannot summarise")
+            arrays[name] = physical
+        return variable_summary(arrays, metrics=metrics, skipna=skipna, ddof=ddof)
 
     def slope(self, *args, **kwargs):  # type: ignore[override]
         """Container-guarded facade for `Dataset.slope`."""
