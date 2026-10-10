@@ -59,6 +59,8 @@ def test_empty_mapping_yields_empty_framed_columns():
     assert list(df.columns) == list(DEFAULT_METRICS)
     assert df.index.name == "variable"
     assert len(df) == 0
+    assert df["count"].dtype == np.int64
+    assert df["mean"].dtype == np.float64
 
 
 def test_metric_selection_order_preserved():

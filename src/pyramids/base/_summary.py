@@ -96,6 +96,10 @@ def variable_summary(
     }
     frame = pd.DataFrame(rows.values(), index=list(rows.keys()), columns=columns)
     frame.index.name = "variable"
-    if "count" in frame.columns:
-        frame["count"] = frame["count"].fillna(0).astype("int64")
+    for metric in columns:
+        # Pin the dtypes so an empty frame keeps the promised int64 count / float64 stats,
+        # where pandas would otherwise give the empty columns object dtype.
+        frame[metric] = frame[metric].astype(
+            "int64" if metric == "count" else "float64"
+        )
     return frame
