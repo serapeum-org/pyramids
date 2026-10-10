@@ -94,6 +94,151 @@ def _resolve_asset_href(item: Any, asset_key: str) -> str:
     return asset_href(asset, item=item, asset_key=asset_key)
 
 
+def _asset_key_for(item: Any, asset_key: str, cfg: Any) -> tuple[str, str | None]:
+    """Resolve one item's asset key and collection id through `cfg`.
+
+    Alias resolution runs **per item**, because an ItemCollection can span
+    collections and `cfg` is keyed by collection id — and it runs **before**
+    href resolution, or the real asset key is never looked up.
+
+    Args:
+        item: A STAC Item (pystac object or raw dict).
+        asset_key: The asset key, or the alias, the caller asked for.
+        cfg: The `stac_cfg`-style mapping (see :mod:`pyramids.stac._config`), or
+            `None`.
+
+    Returns:
+        The real asset key and the item's collection id — `asset_key` unchanged
+        and `None` when no `cfg` was given.
+    """
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.stac._config import item_collection_id, resolve_alias
+
+    collection_id: str | None = None
+    resolved = asset_key
+    if cfg is not None:
+        collection_id = item_collection_id(item)
+        resolved = resolve_alias(cfg, collection_id, asset_key)
+    return resolved, collection_id
+
+
+def _materialise_asset(
+    item: Any,
+    asset_key: str,
+    href: str,
+    out_path: str,
+    *,
+    rescale: bool,
+    cfg: Any,
+    collection_id: str | None,
+    gdal_env: dict[str, str] | None,
+    tolerate: bool = False,
+) -> str | None:
+    """Write a physical-unit / override-stamped copy of one asset, or `None`.
+
+    The `from_stac` counterpart of :func:`pyramids.stac._loader._apply_overrides`
+    — it shares the same resolver and the same materialiser, but writes the
+    result to a file, because a collection is backed by paths rather than by
+    open handles.
+
+    Args:
+        item: The STAC Item the asset belongs to.
+        asset_key: The (already alias-resolved) asset key.
+        href: The asset href to open, already signed.
+        out_path: Where the materialised copy is written.
+        rescale: Apply the asset's `raster:bands` `scale` / `offset`.
+        cfg: The `stac_cfg`-style mapping, or `None`.
+        collection_id: The item's collection id, or `None`.
+        gdal_env: Signer GDAL config installed around the read.
+        tolerate: Answer `None` instead of raising when the asset cannot be
+            read, leaving the caller's `errors_as_nodata` path to report it.
+
+    Returns:
+        `out_path` when a copy was written, or `None` when nothing had to be
+        applied (so the caller keeps backing the timestep with `href` itself).
+
+    Raises:
+        OSError: The asset could not be read and `tolerate` is `False`.
+        RuntimeError: GDAL failed to read the asset and `tolerate` is `False`.
+    """
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.dataset.dataset import Dataset
+    from pyramids.stac._config import materialise, resolve_overrides
+
+    written: str | None = None
+    overrides = resolve_overrides(
+        item, asset_key, rescale=rescale, cfg=cfg, collection_id=collection_id
+    )
+    if not overrides.is_empty:
+        try:
+            with cloud_config_from_env(gdal_env, path=[href]):
+                dataset = Dataset.read_file(href)
+                built = materialise(dataset, overrides)
+        except (OSError, RuntimeError):
+            # Silent on purpose: the caller's errors_as_nodata path opens the
+            # same href again and owns the substitution warning.
+            if not tolerate:
+                raise
+        else:
+            if built is not dataset:
+                built.to_file(out_path)
+                written = out_path
+    return written
+
+
+def _single_asset_hrefs(
+    item_list: list[Any],
+    asset: str,
+    sign: Callable[[str], str],
+    *,
+    cfg: Any,
+    rescale: bool,
+    gdal_env: dict[str, str] | None,
+    tolerate: bool,
+) -> list[str]:
+    """Resolve one asset per item, materialising it when overrides apply.
+
+    Args:
+        item_list: The (already filtered) STAC items.
+        asset: The asset key, or alias, to read from each item.
+        sign: The combined `patch_url` + `signer.sign_href` href rewriter.
+        cfg: The `stac_cfg`-style mapping, or `None`.
+        rescale: Apply each asset's `raster:bands` `scale` / `offset`.
+        gdal_env: Signer GDAL config installed around the materialising reads.
+        tolerate: Pass an unreadable asset through to the caller's
+            `errors_as_nodata` path instead of raising.
+
+    Returns:
+        One backing path per item: the resolved href, or the materialised copy
+        when `rescale` / `cfg` had something to apply.
+
+    Raises:
+        StacAssetError: An item is missing the requested asset.
+    """
+    out_dir = artifact_dir() if rescale or cfg is not None else None
+    hrefs: list[str] = []
+    for index, item in enumerate(item_list):
+        key, collection_id = _asset_key_for(item, asset, cfg)
+        href = sign(_resolve_asset_href(item, key))
+        if out_dir is not None:
+            copy = _materialise_asset(
+                item,
+                key,
+                href,
+                os.path.join(out_dir, f"asset_{index:04d}.tif"),
+                rescale=rescale,
+                cfg=cfg,
+                collection_id=collection_id,
+                gdal_env=gdal_env,
+                tolerate=tolerate,
+            )
+            href = href if copy is None else copy
+        hrefs.append(href)
+    return hrefs
+
+
 def _horizontal_bounds(b: Sequence[float]) -> tuple[float, float, float, float]:
     """Extract `(west, south, east, north)` from a 2D or 3D bbox.
 
@@ -211,6 +356,8 @@ def from_stac(
     method: str = "first",
     fuse_func: Callable[[np.ndarray, np.ndarray], None] | None = None,
     errors_as_nodata: bool = False,
+    rescale: bool = False,
+    cfg: Any = None,
 ) -> DatasetCollection:
     """Build a :class:`DatasetCollection` from a STAC ItemCollection.
 
@@ -356,6 +503,31 @@ def from_stac(
             href (the hrefs themselves stay the collection's backing files, so
             reads remain lazy); a lazy build cannot discover an unreadable URL
             until it is too late to substitute anything.
+        rescale: Return **physical units** rather than stored counts, applying
+            `real = stored * scale + offset` from each asset's `raster:bands`
+            metadata, with no-data masked before the scaling and `NaN` as the
+            result's no-data. Off by default. Only GDAL assets
+            (GeoTIFF/COG/JPEG2000) are rescaled; netCDF / Zarr / GRIB already
+            unpack the CF packing their own metadata declares.
+
+            **It changes how the cube is backed.** Single-asset mode normally
+            backs each timestep with the asset URL itself and stays lazy over
+            `/vsicurl`; a scale cannot be stamped onto a read-only remote
+            handle, so `rescale=True` instead **materialises every timestep**
+            that declares a non-identity packing into a local raster under the
+            process artefact root. An asset that declares no `raster:bands`, or
+            only the identity, keeps its lazy URL. The grouped and multi-asset
+            modes already materialise, so they only change in value.
+        cfg: Optional `stac_cfg`-style mapping (see
+            :mod:`pyramids.stac._config`) supplying per-asset metadata the items
+            omit (`data_type`, `nodata`, `unit`) and **band aliases**, so
+            `asset="rededge"` can read the asset a catalog calls `"B05"`. Keyed
+            by collection id — resolved per item from `item["collection"]` /
+            `item.collection_id` — with a `"*"` section for cross-collection
+            defaults. Overrides fill gaps only: a value an asset already
+            declares is kept, and the skip warns unless the collection sets
+            `warnings: "ignore"`. Like `rescale`, applying one materialises the
+            affected timestep; `None` (the default) changes nothing.
         grid: Optional :class:`~pyramids.dataset.Grid` describing the target
             output grid; every timestep of the built cube is reprojected /
             resampled onto it (via :meth:`DatasetCollection.align`), guaranteeing
@@ -438,9 +610,19 @@ def from_stac(
             errors_as_nodata=errors_as_nodata,
             skip_missing=skip_missing,
             reference=target_grid,
+            rescale=rescale,
+            cfg=cfg,
         )
     elif isinstance(asset, str):
-        hrefs = [_sign(_resolve_asset_href(item, asset)) for item in item_list]
+        hrefs = _single_asset_hrefs(
+            item_list,
+            asset,
+            _sign,
+            cfg=cfg,
+            rescale=rescale,
+            gdal_env=gdal_env,
+            tolerate=errors_as_nodata,
+        )
         if errors_as_nodata:
             collection = _single_asset_tolerant(
                 hrefs, gdal_env, DatasetCollection, target_grid
@@ -458,6 +640,8 @@ def from_stac(
             DatasetCollection,
             errors_as_nodata=errors_as_nodata,
             reference=target_grid,
+            rescale=rescale,
+            cfg=cfg,
         )
 
     if target_grid is not None:
@@ -1010,6 +1194,8 @@ def _from_stac_grouped(
     errors_as_nodata: bool = False,
     skip_missing: bool = False,
     reference: Any = None,
+    rescale: bool = False,
+    cfg: Any = None,
 ) -> DatasetCollection:
     """Mosaic each group of items of one asset into a single timestep.
 
@@ -1037,6 +1223,11 @@ def _from_stac_grouped(
         skip_missing: Drop items lacking the asset key instead of raising.
         reference: The `grid=` template Dataset used as the no-data plane's
             grid, or `None`.
+        rescale: Apply each source's `raster:bands` `scale` / `offset` before
+            it is mosaicked, so a group fuses physical values rather than
+            stored counts.
+        cfg: The `stac_cfg`-style mapping supplying per-asset overrides and
+            band aliases, or `None`.
 
     Returns:
         DatasetCollection: One timestep per distinct group key.
@@ -1051,16 +1242,37 @@ def _from_stac_grouped(
         raise ValueError("from_stac(groupby=...) received no items.")
 
     gdal_env = signer.gdal_env() if signer is not None else None
+    # Materialising a source has to open it, so those hrefs are signed here
+    # rather than by the merge -- and the merge's own signer is then dropped, or
+    # an already-signed href would be signed twice.
+    prepare = rescale or cfg is not None
+    source_signer = None if prepare else signer
+    source_dir = artifact_dir() if prepare else None
     groups: dict[Hashable, list[str]] = defaultdict(list)
-    for item in item_list:
+    for index, item in enumerate(item_list):
+        key, collection_id = _asset_key_for(item, asset, cfg)
         try:
-            href = _resolve_asset_href(item, asset)
+            href = _resolve_asset_href(item, key)
         except StacAssetError:
             if skip_missing:
                 continue
             raise
         if patch_url is not None:
             href = patch_url(href)
+        if source_dir is not None:
+            href = _sign_href(href, signer)
+            copy = _materialise_asset(
+                item,
+                key,
+                href,
+                os.path.join(source_dir, f"source_{index:04d}.tif"),
+                rescale=rescale,
+                cfg=cfg,
+                collection_id=collection_id,
+                gdal_env=gdal_env,
+                tolerate=errors_as_nodata,
+            )
+            href = href if copy is None else copy
         groups[_group_key(item, key_fn)].append(href)
 
     if not groups:
@@ -1076,25 +1288,77 @@ def _from_stac_grouped(
         out_path = os.path.join(out_dir, f"{index:04d}_{_group_slug(key)}.tif")
         sources = groups[key]
         if errors_as_nodata:
-            sources, spec = _readable_hrefs(sources, signer, gdal_env, spec)
+            sources, spec = _readable_hrefs(sources, source_signer, gdal_env, spec)
         if not sources:
             _write_nodata_plane(
                 spec, out_path, reason=f" The empty group is key {key!r}."
             )
         elif fuse_func is not None:
             spec = _fuse_group(
-                [_sign_href(href, signer) for href in sources],
+                [_sign_href(href, source_signer) for href in sources],
                 out_path,
                 fuse_func,
                 gdal_env,
             )
         else:
-            merge_rasters(sources, out_path, method=method, signer=signer)
+            merge_rasters(sources, out_path, method=method, signer=source_signer)
         group_paths.append(out_path)
 
     # collection_cls is always the real DatasetCollection class (passed by every
     # caller); typed Any here only to dodge the import cycle noted above.
     return cast("DatasetCollection", collection_cls.from_files(group_paths))
+
+
+def _item_band_hrefs(
+    item: Any,
+    asset_keys: list[str],
+    sign: Callable[[str], str],
+    out_dir: str,
+    index: int,
+    *,
+    rescale: bool,
+    cfg: Any,
+    gdal_env: dict[str, str] | None,
+    tolerate: bool,
+) -> list[str]:
+    """Resolve one item's band assets, materialising those with overrides.
+
+    Args:
+        item: The STAC Item.
+        asset_keys: The asset keys (or aliases) to stack, in band order.
+        sign: The combined `patch_url` + `signer.sign_href` href rewriter.
+        out_dir: Directory the materialised copies are written to.
+        index: The item's position, used to name those copies.
+        rescale: Apply each asset's `raster:bands` `scale` / `offset`.
+        cfg: The `stac_cfg`-style mapping, or `None`.
+        gdal_env: Signer GDAL config installed around the materialising reads.
+        tolerate: Pass an unreadable asset through instead of raising.
+
+    Returns:
+        One path per requested asset, in band order.
+
+    Raises:
+        StacAssetError: The item lacks one of the requested assets.
+    """
+    hrefs: list[str] = []
+    for position, asset_key in enumerate(asset_keys):
+        key, collection_id = _asset_key_for(item, asset_key, cfg)
+        href = sign(_resolve_asset_href(item, key))
+        if rescale or cfg is not None:
+            copy = _materialise_asset(
+                item,
+                key,
+                href,
+                os.path.join(out_dir, f"stac_item_{index}_band_{position}.tif"),
+                rescale=rescale,
+                cfg=cfg,
+                collection_id=collection_id,
+                gdal_env=gdal_env,
+                tolerate=tolerate,
+            )
+            href = href if copy is None else copy
+        hrefs.append(href)
+    return hrefs
 
 
 def _from_stac_multi_asset(
@@ -1108,6 +1372,8 @@ def _from_stac_multi_asset(
     *,
     errors_as_nodata: bool = False,
     reference: Any = None,
+    rescale: bool = False,
+    cfg: Any = None,
 ) -> DatasetCollection:
     """Stack multiple assets per item into a band axis, then time-stack them.
 
@@ -1129,6 +1395,12 @@ def _from_stac_multi_asset(
             are declared but cannot be read, instead of raising.
         reference: The `grid=` template Dataset used as the no-data plane's
             grid, or `None` (the first readable item's grid is then used).
+        rescale: Apply each asset's own `raster:bands` `scale` / `offset`
+            **before** the band stacking, so bands with different packings end
+            up in one comparable physical-unit raster.
+        cfg: The `stac_cfg`-style mapping supplying per-asset overrides and
+            band aliases, or `None`. Band names stay the keys the caller asked
+            for, alias or not.
 
     Returns:
         DatasetCollection: One multi-band timestep per kept item.
@@ -1148,7 +1420,17 @@ def _from_stac_multi_asset(
     spec = None if reference is None else _grid_spec(reference)
     for idx, item in enumerate(item_list):
         try:
-            hrefs = [sign(_resolve_asset_href(item, key)) for key in asset_keys]
+            hrefs = _item_band_hrefs(
+                item,
+                asset_keys,
+                sign,
+                out_dir,
+                idx,
+                rescale=rescale,
+                cfg=cfg,
+                gdal_env=gdal_env,
+                tolerate=errors_as_nodata,
+            )
         except StacAssetError:
             if skip_missing:
                 continue

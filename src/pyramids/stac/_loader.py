@@ -12,7 +12,7 @@ asset href, and opens it with the right GDAL-backed reader chosen by the asset's
 | `application/wmo-grib2` / `.grib2` `.grb` | :func:`pyramids.grib.open_grib` |
 | `application/vnd+zarr` / `.zarr`            | :meth:`NetCDF.read_file` (GDAL Zarr) |
 
-Two opt-ins sit on top of that dispatch, both off by default so an existing read
+Four opt-ins sit on top of that dispatch, all off by default so an existing read
 behaves exactly as before:
 
 * `alternate=` prefers an `alternate-assets` href (an `s3://` mirror over the
@@ -20,6 +20,18 @@ behaves exactly as before:
 * `verify=` pre-flights the href with one HEAD (:func:`verify_asset`) and warns
   when it is unreachable or serves a content type contradicting the declared
   one. HTTP(S) only, and never requested unless asked for.
+* `rescale=` returns physical units instead of stored counts, applying the
+  asset's `raster:bands` `scale` / `offset` with no-data masked first. GDAL
+  (GeoTIFF/COG/JPEG2000) assets only — netCDF, Zarr and GRIB carry their own CF
+  packing, which the readers already unpack.
+* `cfg=` supplies per-asset metadata a thin catalog omits (`data_type`,
+  `nodata`, `unit`) and resolves **band aliases** to real asset keys. See
+  :mod:`pyramids.stac._config` for the schema.
+
+The last two cannot be stamped onto the opened handle — an asset is opened
+read-only, and a remote `/vsicurl` COG rejects every metadata setter — so they
+materialise a writable in-memory copy instead
+(:func:`pyramids.stac._config.materialise`).
 
 Everything is duck-typed — pyramids does **not** import or depend on pystac; the
 Item / Asset contract is read via `getattr` + dict lookup (`pystac.Asset` has
@@ -45,6 +57,12 @@ from pyramids.dataset.ops._geobox_zarr import detect_data_var
 from pyramids.dataset.ops._zarr import _resolve_store
 from pyramids.grib import open_grib
 from pyramids.netcdf import NetCDF
+from pyramids.stac._config import (
+    item_collection_id,
+    materialise,
+    resolve_alias,
+    resolve_overrides,
+)
 from pyramids.stac._item import asset_media_type, get_asset, preferred_asset_href
 
 _GEOTIFF_EXTS = (".tif", ".tiff")
@@ -651,6 +669,9 @@ def load_asset(
     alternate: str | Sequence[str] | None = None,
     verify: bool = False,
     verify_strict: bool = False,
+    rescale: bool = False,
+    cfg: Any = None,
+    collection_id: str | None = None,
 ) -> Dataset:
     """Open a STAC asset as a pyramids `Dataset` / `NetCDF`.
 
@@ -691,6 +712,33 @@ def load_asset(
         verify_strict: With `verify=True`, raise
             :class:`~pyramids.base._errors.StacError` on a failed verification
             instead of emitting an :class:`AssetVerificationWarning`.
+        rescale: Return **physical units** rather than stored counts, applying
+            `real = stored * scale + offset` from the asset's `raster:bands`
+            `scale` / `offset`. No-data is masked *before* scaling and the
+            result's no-data becomes `NaN`, so a sentinel is never scaled into a
+            plausible-looking value; the returned raster declares identity
+            packing, so a later `read_array(unpack=True)` cannot apply the same
+            factor twice. Costs a **materialised** (in-memory, `float32`) copy —
+            the opened handle is read-only, so the factor cannot be stamped onto
+            it — and is therefore a no-op when the asset declares no
+            `raster:bands`, or when every band is the identity. **GDAL assets
+            only**: netCDF / Zarr / GRIB are left untouched, because their
+            readers already unpack the CF packing their own metadata declares,
+            and applying the STAC factor on top would scale them twice.
+        cfg: Optional `stac_cfg`-style mapping supplying per-asset metadata the
+            item omits (`data_type`, `nodata`, `unit`) and **band aliases**
+            (`{"aliases": {"rededge": "B05"}}` makes `asset_key="rededge"` read
+            the `B05` asset). Keyed by collection id, with a `"*"` section for
+            cross-collection defaults; :mod:`pyramids.stac._config` documents
+            the full schema. Overrides fill gaps only — a value the asset
+            already declares is kept, and the skip warns unless the collection
+            sets `warnings: "ignore"`. Applying one materialises a writable copy
+            (the same read-only constraint as `rescale`), so nothing is paid
+            when no override actually applies. GDAL assets only.
+        collection_id: The collection `cfg` is read under. `None` (the default)
+            takes it from the item (`item["collection"]` /
+            `item.collection_id`), leaving `cfg`'s `"*"` section as the only one
+            that can apply to a bare asset dict.
 
     Returns:
         A :class:`~pyramids.dataset.Dataset` for COG/GeoTIFF assets, or a
@@ -699,7 +747,8 @@ def load_asset(
 
     Raises:
         KeyError: The asset is missing or has no href.
-        ValueError: The asset's type/extension matches no supported reader.
+        ValueError: The asset's type/extension matches no supported reader, or
+            `cfg` configures a `data_type` numpy does not know.
         StacError: `verify_strict=True` and verification failed.
 
     Examples:
@@ -730,7 +779,28 @@ def load_asset(
             >>> ds = load_asset(asset, signer=AWSRequesterPaysSigner(region="us-west-2"))  # doctest: +SKIP
 
             ```
+        - Read a packed asset in physical units (`raster:bands` scale 0.0001):
+            ```python
+            >>> from pyramids.stac import load_asset  # doctest: +SKIP
+            >>> ds = load_asset(item, "B04", rescale=True)  # doctest: +SKIP
+
+            ```
+        - Name an asset by alias and supply the nodata the catalog omits:
+            ```python
+            >>> cfg = {"sentinel-2-l2a": {  # doctest: +SKIP
+            ...     "assets": {"*": {"nodata": 0}},
+            ...     "aliases": {"red": "B04"},
+            ... }}
+            >>> ds = load_asset(item, "red", cfg=cfg)  # doctest: +SKIP
+
+            ```
     """
+    if cfg is not None:
+        if collection_id is None:
+            collection_id = item_collection_id(item_or_asset)
+        if asset_key is not None:
+            # Before _resolve_asset, or the aliased key is never looked up.
+            asset_key = resolve_alias(cfg, collection_id, asset_key)
     href, media_type = _resolve_asset(item_or_asset, asset_key, alternate)
     if signer is not None:
         href = signer.sign_href(href)
@@ -741,6 +811,9 @@ def load_asset(
     with _open_config(href, engine, signer_env):
         if engine == "gdal":
             result: Any = Dataset.read_file(href, vsi=vsi, gdal_env=signer_env)
+            result = _apply_overrides(
+                result, item_or_asset, asset_key, rescale, cfg, collection_id
+            )
         elif engine == "zarr":
             # Read through zarr/fsspec, which never consults GDAL config — so
             # nothing is captured on the result either (see _persist_gdal_env).
@@ -753,6 +826,45 @@ def load_asset(
             # signer env is attached to the opened object instead.
             _persist_gdal_env(result, signer_env)
     return cast(Dataset, result)
+
+
+def _apply_overrides(
+    dataset: Any,
+    item_or_asset: Any,
+    asset_key: str | None,
+    rescale: bool,
+    cfg: Any,
+    collection_id: str | None,
+) -> Any:
+    """Apply `rescale` / `cfg` to a freshly opened GDAL asset.
+
+    Called inside the open's GDAL-config context, because materialising reads
+    the asset's pixels and a remote handle needs the signer's credentials still
+    installed for that read.
+
+    Args:
+        dataset: The opened raster.
+        item_or_asset: The STAC Item or Asset the read came from.
+        asset_key: The (already alias-resolved) asset key, or `None`.
+        rescale: Apply the asset's `raster:bands` packing.
+        cfg: The `stac_cfg`-style mapping, or `None`.
+        collection_id: The resolved collection id, or `None`.
+
+    Returns:
+        A materialised raster when an override applied, else `dataset`.
+    """
+    result = dataset
+    if rescale or cfg is not None:
+        overrides = resolve_overrides(
+            item_or_asset,
+            asset_key,
+            rescale=rescale,
+            cfg=cfg,
+            collection_id=collection_id,
+        )
+        if not overrides.is_empty:
+            result = materialise(dataset, overrides)
+    return result
 
 
 def _persist_gdal_env(result: Any, env: dict[str, str] | None) -> None:
