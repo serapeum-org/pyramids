@@ -21,18 +21,93 @@ from pyramids.netcdf.utils import is_cf_time_units
 logger = logging.getLogger(__name__)
 
 
+def write_single_attr(
+    target: Any,
+    name: str,
+    value: Any,
+    *,
+    overwrite: bool = False,
+) -> None:
+    """Write one attribute to a GDAL object (MDArray or Group).
+
+    The single type dispatch every attribute writer in the package shares. Both
+    `gdal.MDArray` and `gdal.Group` expose the same `CreateAttribute` interface, so this
+    serves the MDArray writers, `write_global_attributes`, and
+    `NetCDF.set_global_attribute` alike.
+
+    Handles str, bool (stored as int32, since NetCDF has no bool type), int, float, a
+    non-empty numeric `list`/`tuple` (written as a real CF vector attribute rather than its
+    Python repr), and fallback-to-string for everything else.
+
+    Exceptions propagate. Callers that want the per-attribute "skip and log" behaviour wrap
+    the call themselves — `_write_attrs` does, `set_global_attribute` deliberately does not.
+
+    Args:
+        target: A GDAL MDArray or Group with `CreateAttribute`.
+        name: Attribute name.
+        value: Attribute value.
+        overwrite: When True, delete any attribute of that name first, making the write an
+            upsert. GDAL refuses to create a duplicate, so without this an existing
+            attribute is *not* replaced. Defaults to False.
+    """
+    if overwrite:
+        try:
+            target.DeleteAttribute(name)
+        except RuntimeError:
+            pass  # nosec B110 - no attribute of that name to replace
+    if isinstance(value, bool):
+        attr = target.CreateAttribute(
+            name,
+            [],
+            gdal.ExtendedDataType.Create(gdal.GDT_Int32),
+        )
+        value = int(value)
+    elif isinstance(value, str):
+        attr = target.CreateAttribute(name, [], gdal.ExtendedDataType.CreateString())
+    elif isinstance(value, float):
+        attr = target.CreateAttribute(
+            name,
+            [],
+            gdal.ExtendedDataType.Create(gdal.GDT_Float64),
+        )
+    elif isinstance(value, int):
+        attr = target.CreateAttribute(
+            name,
+            [],
+            gdal.ExtendedDataType.Create(gdal.GDT_Int32),
+        )
+    elif isinstance(value, (list, tuple)) and len(value) > 0:
+        if isinstance(value[0], (int, float)):
+            # A numeric sequence is a CF vector attribute (`valid_range`, `bounds`), so it
+            # is written as Float64[n]. Stringifying it would emit the Python repr and make
+            # the file CF-invalid.
+            attr = target.CreateAttribute(
+                name,
+                [len(value)],
+                gdal.ExtendedDataType.Create(gdal.GDT_Float64),
+            )
+            value = list(value)
+        else:
+            attr = target.CreateAttribute(
+                name,
+                [],
+                gdal.ExtendedDataType.CreateString(),
+            )
+            value = str(value)
+    else:
+        attr = target.CreateAttribute(name, [], gdal.ExtendedDataType.CreateString())
+        value = str(value)
+    attr.Write(value)
+
+
 def _write_attrs(target: Any, attrs: dict[str, Any]) -> None:
-    """Write attributes to a GDAL object (MDArray or Group).
+    """Write a dict of attributes to a GDAL object (MDArray or Group).
 
-    Both `gdal.MDArray` and `gdal.Group` expose the same
-    `CreateAttribute` interface, so this single helper serves
-    both `write_attributes_to_md_array` and
-    `write_global_attributes`.
+    Logs a DEBUG message and skips attributes that can't be written (e.g. due to GDAL
+    driver limitations or type mismatches), so one bad attribute never fails a whole write.
 
-    Handles str, bool (stored as int32, since NetCDF has no bool
-    type), int, float, list-of-numbers, and fallback-to-string.
-    Logs a DEBUG message and skips attributes that can't be written
-    (e.g. due to GDAL driver limitations or type mismatches).
+    Writes are **not** upserts: GDAL refuses to create an attribute that already exists, so
+    a key already present on `target` is skipped with a DEBUG log rather than replaced.
 
     Args:
         target: A GDAL MDArray or Group with CreateAttribute.
@@ -40,49 +115,7 @@ def _write_attrs(target: Any, attrs: dict[str, Any]) -> None:
     """
     for key, value in attrs.items():
         try:
-            if isinstance(value, bool):
-                attr = target.CreateAttribute(
-                    key,
-                    [],
-                    gdal.ExtendedDataType.Create(gdal.GDT_Int32),
-                )
-                value = int(value)
-            elif isinstance(value, str):
-                attr = target.CreateAttribute(
-                    key, [], gdal.ExtendedDataType.CreateString()
-                )
-            elif isinstance(value, float):
-                attr = target.CreateAttribute(
-                    key,
-                    [],
-                    gdal.ExtendedDataType.Create(gdal.GDT_Float64),
-                )
-            elif isinstance(value, int):
-                attr = target.CreateAttribute(
-                    key,
-                    [],
-                    gdal.ExtendedDataType.Create(gdal.GDT_Int32),
-                )
-            elif isinstance(value, list) and len(value) > 0:
-                if isinstance(value[0], (int, float)):
-                    attr = target.CreateAttribute(
-                        key,
-                        [len(value)],
-                        gdal.ExtendedDataType.Create(gdal.GDT_Float64),
-                    )
-                else:
-                    attr = target.CreateAttribute(
-                        key,
-                        [],
-                        gdal.ExtendedDataType.CreateString(),
-                    )
-                    value = str(value)
-            else:
-                attr = target.CreateAttribute(
-                    key, [], gdal.ExtendedDataType.CreateString()
-                )
-                value = str(value)
-            attr.Write(value)
+            write_single_attr(target, key, value)
         except Exception as e:
             logger.debug(f"Failed to write attribute '{key}': {e}")
 

@@ -26,17 +26,16 @@ it, since a NetCDF records coordinate values and one value carries no spacing. S
 
 from __future__ import annotations
 
-import warnings
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+from pyramids.base._reductions import weighted_statistic as _weighted_statistic
 from pyramids.base.crs import crs_from_user_input, crs_spec, require_crs_spec
 from pyramids.netcdf.dimensions import COLUMN_AXIS, ROW_AXIS
 from pyramids.netcdf.engines._along_dim import (
     _Applied,
     _carry_auxiliaries,
-    _gaps_as_nan,
     _read_no_data,
     _reduces_as_a_variable,
     _stamped,
@@ -617,70 +616,6 @@ def _area_weights(var: NetCDF) -> np.ndarray:
             f"negative and is not an area. Crop it to the globe, or pass an array of weights."
         )
     return np.cos(np.deg2rad(latitudes)).reshape(var.rows, 1)
-
-
-def _weighted_statistic(
-    arr: Any, spread: Any, axes: tuple[int, ...], how: str, ndv: Any, skipna: bool
-) -> Any:
-    """The weighted statistic of `arr` over `axes`, the reduced axes kept as length 1.
-
-    A gap leaves both sums, so a weighted mean is the mean of the cells there are. A slice with
-    no valid cell has no statistic at all and comes back NaN. A slice whose weights total zero
-    loses only what divides by that total — `mean`, `std` and `var` — while `sum` answers the
-    sum it computed (weights of `[1, -1, 1, -1]` over `[1, 2, 3, 4]` give `-2.0`, as xarray
-    answers) and `sum_of_weights` answers the total it found, `0.0` included, where xarray
-    answers NaN for it.
-
-    A NaN is left out of both sums whatever `skipna` says, since the sums are masked on
-    `~isnan` either way; `skipna` only decides whether the declared sentinel becomes a NaN
-    first. So `skipna=False` weights the sentinel as an ordinary value but still skips NaN,
-    where xarray's `skipna=False` makes the whole answer NaN.
-
-    Args:
-        arr: The unflattened values, numpy or dask.
-        spread: The weights, shaped to broadcast against `arr`.
-        axes: The axes to reduce.
-        how: One of `_WEIGHTED_HOWS`.
-        ndv: The sentinel as it appears in `arr`, or `None`.
-        skipna: Whether the declared sentinel counts as a gap.
-
-    Returns:
-        The statistic, float64.
-    """
-    data = _gaps_as_nan(arr, ndv) if skipna else arr.astype("float64")
-    valid = ~np.isnan(data)
-    weights = np.broadcast_to(spread, data.shape)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        total = np.sum(np.where(valid, weights, 0.0), axis=axes, keepdims=True)
-        anything = np.any(valid, axis=axes, keepdims=True)
-        weighted_sum = np.sum(
-            np.where(valid, weights * np.where(valid, data, 0.0), 0.0),
-            axis=axes,
-            keepdims=True,
-        )
-        # A sum needs no non-zero total; only the division by it does.
-        usable = anything & (total != 0)
-        safe = np.where(total == 0, 1.0, total)
-        mean = weighted_sum / safe
-        if how == "sum_of_weights":
-            values = np.where(anything, total, np.nan)
-        elif how == "sum":
-            values = np.where(anything, weighted_sum, np.nan)
-        elif how == "mean":
-            values = np.where(usable, mean, np.nan)
-        else:
-            deviation = np.sum(
-                np.where(valid, weights * np.where(valid, data - mean, 0.0) ** 2, 0.0),
-                axis=axes,
-                keepdims=True,
-            )
-            variance = deviation / safe
-            values = np.where(
-                usable, variance if how == "var" else np.sqrt(variance), np.nan
-            )
-        result = np.asarray(values)
-    return result
 
 
 def _weighted_geotransform(var: NetCDF, rows: bool, columns: bool) -> tuple:

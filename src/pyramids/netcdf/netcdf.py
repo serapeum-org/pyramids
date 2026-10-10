@@ -90,6 +90,7 @@ from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     detect_axis,
     write_attributes_to_md_array,
+    write_single_attr,
 )
 from pyramids.netcdf.engines import interop as _interop
 from pyramids.netcdf.engines import variables as _variables
@@ -526,33 +527,6 @@ def _reconstruct_netcdf(
         result = container
     return result
 
-
-_REDUCERS: dict[str, tuple[Any, Any]] = {
-    "mean": (np.nanmean, np.mean),
-    "sum": (np.nansum, np.sum),
-    "min": (np.nanmin, np.min),
-    "max": (np.nanmax, np.max),
-    "std": (np.nanstd, np.std),
-    "var": (np.nanvar, np.var),
-    "median": (np.nanmedian, np.median),
-    "prod": (np.nanprod, np.prod),
-    "quantile": (np.nanquantile, np.quantile),
-}
-"""Per-operation `(skipna_func, plain_func)` pairs for the statistics `NetCDF.reduce` and
-`NetCDF.coarsen` compute. Under `skipna`, `NetCDF._reduce_axis` runs the first on float64, so
-the result is float64; without it, the second runs on the raw values in the dtype numpy gives
-that reduction — the `min` of an `int16` band stays `int16`. `quantile` is the one that takes
-an extra argument, `q`."""
-
-_COUNTING_REDUCERS: frozenset[str] = frozenset({"count", "all", "any"})
-"""Reductions answering a count or a truth flag rather than a float statistic.
-
-They cannot share the float rule in `NetCDF._reduce_axis` — cast to float64, turn gaps into
-NaN, restore the sentinel on an all-gap column — because a count is an integer that is never
-missing and a flag is a boolean GDAL has no band type for."""
-
-_FLAG_NO_DATA = 255
-"""The no-data value of a `uint8` 0/1 flag band: the value the comparison operators declare."""
 
 # GDAL's WKT ``PROJECTION`` node value for the CF geostationary projection
 # (set by ``osr.SpatialReference.SetGEOS`` / reconstructed from a
@@ -8533,144 +8507,6 @@ class NetCDF(Dataset):
             times = self.get_time_variable(var_name=dim, time_format=instant)
         return times
 
-    def _reduce_variable_array(
-        self,
-        arr,
-        axis,
-        dim,
-        band_names,
-        values_map,
-        how,
-        skipna,
-        ndv,
-        groupby,
-        group_positions,
-        q=None,
-    ):
-        """Reduce one variable's array along `axis`; return new array + dims."""
-        if group_positions is None:
-            new_arr = self._reduce_axis(arr, axis, how, skipna, ndv, q)
-            new_band_names = [name for name in band_names if name != dim]
-            new_values_map = {name: values_map.get(name) for name in new_band_names}
-        else:
-            covered = sum(len(positions) for positions in group_positions)
-            if covered != arr.shape[axis]:
-                raise ValueError(
-                    f"groupby covers {covered} positions but dimension {dim!r} "
-                    f"has size {arr.shape[axis]}."
-                )
-            slices = [
-                self._reduce_axis(
-                    np.take(arr, positions, axis=axis), axis, how, skipna, ndv, q
-                )
-                for positions in group_positions
-            ]
-            new_arr = np.stack(slices, axis=axis)
-            coord = values_map.get(dim)
-            new_band_names = list(band_names)
-            new_values_map = dict(values_map)
-            new_values_map[dim] = (
-                [coord[int(positions[0])] for positions in group_positions]
-                if coord is not None
-                else None
-            )
-        return new_arr, new_band_names, new_values_map
-
-    @staticmethod
-    def _reduce_axis(arr, axis, how, skipna, ndv, q=None):
-        """Apply one reduction over `axis`, masking no-data when `skipna`.
-
-        `count`, `all` and `any` go to `_count_axis`; every other `how` is looked up in
-        `_REDUCERS`. Under `skipna` the values are cast to float64 and the sentinel and NaN
-        are skipped, and a column with no valid cell, or whose statistic comes out NaN,
-        answers `ndv` (NaN when `ndv` is `None`). Without `skipna` numpy's plain function
-        reduces the raw values, sentinel and NaN included, in the dtype numpy gives it.
-
-        Args:
-            arr: The unflattened array, numpy or dask.
-            axis: The axis to reduce.
-            how: A key of `_REDUCERS`, or `"count"`, `"all"` or `"any"`.
-            skipna: Whether the sentinel and NaN are skipped.
-            ndv: The sentinel as it appears in `arr`, or `None` — unpacked, for a CF-packed
-                variable read unpacked (`_read_no_data`).
-            q: Forwarded as `q=` to the `_REDUCERS` function whenever it is not `None`, so
-                it must stay `None` for every statistic but `quantile`; `Selection.reduce`
-                and `Selection.coarsen` refuse it before calling. The counting reductions
-                ignore it.
-
-        Returns:
-            The reduced array, a dask array when `arr` is one: float64 for a statistic
-            under `skipna`, `int64` for `count`, `uint8` for `all` / `any`.
-
-        Raises:
-            KeyError: `how` is in neither registry.
-            TypeError: `q` is given with a statistic whose numpy function takes no `q`.
-        """
-        if how in _COUNTING_REDUCERS:
-            result = NetCDF._count_axis(arr, axis, how, skipna, ndv)
-        else:
-            nan_func, plain_func = _REDUCERS[how]
-            extra = {} if q is None else {"q": q}
-            if skipna:
-                data = arr.astype("float64")
-                if ndv is not None:
-                    data = np.where(data == ndv, np.nan, data)
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", RuntimeWarning)
-                    out = nan_func(data, axis=axis, **extra)
-                # nansum and nanprod return a number (0 and 1), not NaN, for an
-                # all-NoData slice, so detect fully-masked positions explicitly and
-                # restore NoData for every reducer rather than leaking a spurious 0 or 1.
-                all_masked = np.all(np.isnan(data), axis=axis)
-                fill = ndv if ndv is not None else np.nan
-                out = np.where(np.isnan(out) | all_masked, fill, out)
-                result = out
-            else:
-                result = plain_func(arr, axis=axis, **extra)
-        return result
-
-    @staticmethod
-    def _count_axis(arr, axis, how, skipna, ndv):
-        """Count the valid cells along `axis`, or test them for truth.
-
-        A cell is valid when it is neither NaN nor `ndv`. `count` answers
-        an `int64` count of them — 0 for a column with none — whatever `skipna` says, since
-        a count has nothing to skip. `all` and `any` answer a `uint8` 0/1 flag: with `skipna`
-        a gap is neutral (true for `all`, false for `any`) and a column with no valid cell
-        answers `_FLAG_NO_DATA`; without it the raw values are tested, where a non-zero
-        sentinel and NaN are both true, as they are to numpy.
-
-        Args:
-            arr: The unflattened array, numpy or dask.
-            axis: The axis to reduce.
-            how: `"count"`, `"all"` or `"any"`.
-            skipna: Whether gaps are skipped, for `all`/`any`.
-            ndv: The sentinel as it appears in `arr`, or `None`. For a CF-packed variable read
-                unpacked that is the unpacked `_FillValue`, not the stored one — every caller
-                passes it that way (`_read_no_data`).
-
-        Returns:
-            The reduced array: `int64` for `count`, `uint8` for `all`/`any`.
-        """
-        valid = np.ones_like(arr, dtype=bool)
-        if np.issubdtype(arr.dtype, np.floating):
-            valid = ~np.isnan(arr)
-        if ndv is not None:
-            valid = valid & (arr != ndv)
-        if how == "count":
-            result = np.sum(valid, axis=axis, dtype=np.int64)
-        else:
-            test = np.all if how == "all" else np.any
-            if skipna:
-                gap = how == "all"
-                flags = test(np.where(valid, arr != 0, gap), axis=axis)
-                result = np.where(
-                    np.any(valid, axis=axis), flags.astype(np.uint8), _FLAG_NO_DATA
-                ).astype(np.uint8)
-            else:
-                result = test(arr != 0, axis=axis).astype(np.uint8)
-        return result
-
     @staticmethod
     def _carried_axis_metadata(
         source: NetCDF | None,
@@ -14378,7 +14214,9 @@ class NetCDF(Dataset):
         Args:
             name: Attribute name (e.g. `"history"`,
                 `"Conventions"`).
-            value: Attribute value. Supports str, int, float.
+            value: Attribute value. Supports str, bool, int, float, and a numeric
+                `list`/`tuple` — the latter is written as a real CF vector attribute
+                (`Float64[n]`), not as its Python repr.
 
         Raises:
             ValueError: If the dataset has no root group
@@ -14391,25 +14229,10 @@ class NetCDF(Dataset):
                 "container. Open the file with "
                 "open_as_multi_dimensional=True."
             )
-        # Delete existing attribute if present (GDAL raises on duplicate)
-        try:
-            rg.DeleteAttribute(name)
-        except RuntimeError:
-            pass
-        if isinstance(value, str):
-            attr = rg.CreateAttribute(name, [], gdal.ExtendedDataType.CreateString())
-        elif isinstance(value, float):
-            attr = rg.CreateAttribute(
-                name, [], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
-            )
-        elif isinstance(value, int):
-            attr = rg.CreateAttribute(
-                name, [], gdal.ExtendedDataType.Create(gdal.GDT_Int32)
-            )
-        else:
-            attr = rg.CreateAttribute(name, [], gdal.ExtendedDataType.CreateString())
-            value = str(value)
-        attr.Write(value)
+        # Through the shared `cf` dispatch so a numeric sequence becomes a CF vector
+        # attribute. `overwrite=True` keeps this member an upsert (GDAL refuses a duplicate,
+        # so the attribute is deleted first).
+        write_single_attr(rg, name, value, overwrite=True)
         self._invalidate_caches()
 
     def delete_global_attribute(self, name: str):

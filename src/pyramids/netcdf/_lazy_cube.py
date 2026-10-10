@@ -345,6 +345,7 @@ class LazyNetCDF:
             LazyNetCDF | NetCDF: A lazy cube for a pinned variable; an eager coarsened cube for a
             multi-variable container.
         """
+        from pyramids.base._reductions import COUNTING_REDUCERS, REDUCERS
         from pyramids.netcdf.engines.selection import (
             _BOUNDARIES,
             _check_how,
@@ -352,9 +353,8 @@ class LazyNetCDF:
             _check_window,
             _coarsen_windows,
         )
-        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS
 
-        _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
+        _check_how(how, {*REDUCERS, *COUNTING_REDUCERS})
         q = _check_quantile(how, q)
         length = _check_window(window, caller="coarsen")
         if boundary not in _BOUNDARIES:
@@ -406,6 +406,7 @@ class LazyNetCDF:
         Returns:
             LazyNetCDF | NetCDF: A lazy cube for a pinned variable; an eager rolled cube otherwise.
         """
+        from pyramids.base._reductions import COUNTING_REDUCERS, REDUCERS
         from pyramids.netcdf.engines._along_dim import _rolled_array
         from pyramids.netcdf.engines.selection import (
             _check_how,
@@ -413,9 +414,8 @@ class LazyNetCDF:
             _check_quantile,
             _check_window,
         )
-        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS
 
-        _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
+        _check_how(how, {*REDUCERS, *COUNTING_REDUCERS})
         q = _check_quantile(how, q)
         length = _check_window(window, caller="rolling")
         needed = _check_min_periods(min_periods, length)

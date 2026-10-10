@@ -2439,13 +2439,12 @@ class Selection(_Engine["NetCDF"]):
 
               ```
         """
-        # Local import breaks the netcdf.py <-> engines.selection import cycle
-        # (netcdf.py imports this module at top level for wiring); the reducer registries
-        # are module-level there, shared with the reduce helpers.
-        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS
+        # The reducer registries live in the cycle-free `pyramids.base._reductions`; kept a
+        # local import here for consistency with this method's other local imports.
+        from pyramids.base._reductions import COUNTING_REDUCERS, REDUCERS
 
         nc = self._ds
-        _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
+        _check_how(how, {*REDUCERS, *COUNTING_REDUCERS})
         q = _check_quantile(how, q)
         op = _Reduction(
             how=how,
@@ -2618,11 +2617,11 @@ class Selection(_Engine["NetCDF"]):
 
               ```
         """
-        # Local import breaks the netcdf.py <-> engines.selection import cycle.
-        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS
+        # The reducer registries live in the cycle-free `pyramids.base._reductions`.
+        from pyramids.base._reductions import COUNTING_REDUCERS, REDUCERS
 
         nc = self._ds
-        _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
+        _check_how(how, {*REDUCERS, *COUNTING_REDUCERS})
         q = _check_quantile(how, q)
         length = _check_window(window, caller="coarsen")
         if boundary not in _BOUNDARIES:
@@ -2734,11 +2733,11 @@ class Selection(_Engine["NetCDF"]):
             NetCDF.reduce: group by equal labels or a calendar window.
             NetCDF.coarsen: reduce fixed-size positional windows.
         """
-        # Local import breaks the netcdf.py <-> engines.selection import cycle, as `reduce` does.
-        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS
+        # The reducer registries live in the cycle-free `pyramids.base._reductions`, as `reduce` uses.
+        from pyramids.base._reductions import COUNTING_REDUCERS, REDUCERS
 
         nc = self._ds
-        _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
+        _check_how(how, {*REDUCERS, *COUNTING_REDUCERS})
         q = _check_quantile(how, q)
         coords = _bin_coordinates(nc, dim)
         edges, codes = _bin_membership(
@@ -2906,11 +2905,11 @@ class Selection(_Engine["NetCDF"]):
 
               ```
         """
-        # Local import breaks the netcdf.py <-> engines.selection import cycle.
-        from pyramids.netcdf.netcdf import _COUNTING_REDUCERS, _REDUCERS
+        # The reducer registries live in the cycle-free `pyramids.base._reductions`.
+        from pyramids.base._reductions import COUNTING_REDUCERS, REDUCERS
 
         nc = self._ds
-        _check_how(how, {*_REDUCERS, *_COUNTING_REDUCERS})
+        _check_how(how, {*REDUCERS, *COUNTING_REDUCERS})
         q = _check_quantile(how, q)
         length = _check_window(window, caller="rolling")
         needed = _check_min_periods(min_periods, length)

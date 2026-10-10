@@ -67,6 +67,62 @@ class MeshTopologyInfo:
     crs_wkt: str | None = None
 
 
+def read_mesh_variable(
+    path: str,
+    var_name: str,
+    *,
+    window: tuple[int, int | None] | None = None,
+    context: str = "variable read",
+) -> np.typing.NDArray | None:
+    """Re-open ``path`` and read one mesh MDArray, optionally a leading-axis window.
+
+    The shared body of the two UGRID lazy readers — the whole-variable loader built by
+    :func:`pyramids.netcdf.ugrid.dataset._make_variable_loader` and the windowed time-slab
+    reader :func:`_read_time_slab`. Both re-open the (already-closed) store on demand and
+    read a single MDArray; this is the common open → root group → resolve → read → close.
+
+    ``ReadAsArray`` returns a fresh, numpy-owned array, so the result stays valid after the
+    dataset is closed in ``finally``. The deterministic close keeps Windows from holding a
+    read handle on the file (review N3).
+
+    Args:
+        path: File to re-open (MDIM mode).
+        var_name: Name of the MDArray to read.
+        window: ``(start, count)`` along the **leading** (time) axis, or ``None`` to read
+            the whole array. ``count`` is ``None`` for a single leading step; the caller
+            drops the leading axis itself when it wants a single step squeezed out.
+        context: Short phrase naming the caller, used in the re-open error message.
+
+    Returns:
+        The array as read (leading axis **not** squeezed), or ``None`` when the MDArray has
+        no readable values.
+
+    Raises:
+        ValueError: If the file cannot be re-opened, or the variable is no longer present.
+    """
+    ds = gdal.OpenEx(str(path), gdal.OF_MULTIDIM_RASTER | gdal.OF_VERBOSE_ERROR)
+    if ds is None:
+        raise ValueError(f"GDAL cannot re-open {path!r} for a {context}.")
+    try:
+        rg = ds.GetRootGroup()
+        md = open_mdarray(rg, var_name) if rg is not None else None
+        if md is None:
+            raise ValueError(f"Variable {var_name!r} is no longer present in {path!r}.")
+        if window is None:
+            data: np.typing.NDArray | None = md.ReadAsArray()
+        else:
+            start, count = window
+            sizes = [d.GetSize() for d in md.GetDimensions()]
+            start_idx = [0] * len(sizes)
+            start_idx[0] = start
+            counts = list(sizes)
+            counts[0] = 1 if count is None else count
+            data = md.ReadAsArray(array_start_idx=start_idx, count=counts)
+    finally:
+        ds = None
+    return data
+
+
 def _read_time_slab(
     path: str, var_name: str, start: int, stop: int | None
 ) -> np.typing.NDArray | None:
@@ -77,25 +133,10 @@ def _read_time_slab(
     ``(n_time, n_elements)`` array (issue #982). The leading axis is dropped for a single step, so the
     result matches ``data[index]``.
     """
-    ds = gdal.OpenEx(str(path), gdal.OF_MULTIDIM_RASTER | gdal.OF_VERBOSE_ERROR)
-    if ds is None:
-        raise ValueError(f"GDAL cannot re-open {path!r} for a windowed variable read.")
-    try:
-        rg = ds.GetRootGroup()
-        md = open_mdarray(rg, var_name) if rg is not None else None
-        if md is None:
-            raise ValueError(f"Variable {var_name!r} is no longer present in {path!r}.")
-        sizes = [d.GetSize() for d in md.GetDimensions()]
-        start_idx = [0] * len(sizes)
-        start_idx[0] = start
-        count = list(sizes)
-        count[0] = 1 if stop is None else stop - start
-        # `ReadAsArray` returns a fresh, numpy-owned array, so the slab stays valid after the
-        # dataset is closed in `finally` (closing the per-selection reopen deterministically keeps
-        # Windows from holding a read handle on the file — review N3).
-        slab = md.ReadAsArray(array_start_idx=start_idx, count=count)
-    finally:
-        ds = None
+    count = None if stop is None else stop - start
+    slab = read_mesh_variable(
+        path, var_name, window=(start, count), context="windowed variable read"
+    )
     if slab is None:
         result = None
     else:
@@ -339,7 +380,10 @@ class MeshVariable:
             location=self.location,
             mesh_name=self.mesh_name,
             shape=data.shape if data is not None else self.shape,
-            attributes=self.attributes,
+            # Copy, not alias: a derived variable owns its own attributes dict, so a later
+            # edit to the derivation can never leak back into the source (these derivations
+            # are meant to be immutable).
+            attributes=dict(self.attributes),
             nodata=self.nodata,
             units=self.units,
             standard_name=self.standard_name,
