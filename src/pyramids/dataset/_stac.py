@@ -15,6 +15,15 @@ or depend on pystac; the STAC Item / Asset contract is interpreted
 via :func:`getattr` + dict lookup. Users typically build Items via
 :mod:`pystac-client` (which carries pystac transitively) or from
 raw JSON.
+
+Per-timestep STAC provenance (`properties=`) is stored on the built collection
+as a flat list of plain dicts, one per emitted timestep, behind the read-only
+:attr:`DatasetCollection.time_attrs` property (written here through its
+`_attach_time_attrs` hook). `DatasetCollection` had no per-timestep attribute
+store — only the scalar `time` coordinate, whose length contract this mirrors —
+so a minimal additive one was added rather than a labelled-coordinate layer:
+the dicts stay JSON-able, so they survive pickling to dask workers and the
+Zarr / netCDF writers untouched.
 """
 
 from __future__ import annotations
@@ -358,6 +367,9 @@ def from_stac(
     errors_as_nodata: bool = False,
     rescale: bool = False,
     cfg: Any = None,
+    resampling: str | dict[str, str] | None = None,
+    properties: bool | str | Sequence[str] = False,
+    eo_band_names: bool = False,
 ) -> DatasetCollection:
     """Build a :class:`DatasetCollection` from a STAC ItemCollection.
 
@@ -535,6 +547,39 @@ def from_stac(
             each timestep's native grid. Use `Grid(like=<Dataset>)` to match an
             existing grid, or `Grid(crs=..., resolution=..., bounds=...)` for an
             explicit one.
+        resampling: Multi-asset only. Which algorithm aligns mixed-resolution
+            assets onto the first requested asset's grid. `None` (default)
+            keeps nearest neighbour for every band — today's behaviour. A
+            method name (`"bilinear"`, `"cubic"`, `"average"`, …) applies to
+            every band; a `{asset key: method}` mapping sets it per band, so
+            reflectance can be interpolated while a categorical mask stays on
+            nearest (`resampling={"B04": "bilinear", "SCL": "nearest"}`). Keys
+            are the asset keys requested in `asset` (which are the band names),
+            and a key naming an asset that is not being stacked raises. Requires
+            `align=True`; passing it in single-asset or grouped mode raises,
+            since neither stacks assets onto a band axis.
+        properties: Which STAC Item `properties` to carry onto the built cube as
+            per-timestep attributes, readable afterwards through
+            :attr:`DatasetCollection.time_attrs`. `False` (default) attaches
+            nothing and leaves `time_attrs` as `None`. `True` attaches every
+            property of every item; a `str` or a sequence of strings attaches
+            only those keys (an item lacking one gets `None` for it, so every
+            dict has the same keys). The result is always one plain dict per
+            **emitted timestep**, so `len(time_attrs) == time_length`.
+
+            **Grouped modes.** With a `groupby`, several items collapse into one
+            timestep, so the attributes of the group's **first item in item
+            order** represent the group — the same item order the mosaic's
+            `method="first"` resolves overlap by. Properties that differ within
+            a group (a per-granule cloud cover) are therefore the
+            representative's value, not an aggregate.
+        eo_band_names: Multi-asset only. When `True`, name the output bands from
+            each asset's `eo:bands` metadata (its `name`, else its
+            `common_name`) instead of the raw asset keys, falling back to the
+            asset key for any asset that declares no usable `eo:bands`. `False`
+            (default) keeps the asset keys, unchanged. Note that a `resampling`
+            mapping is still keyed by **asset key**, which is resolved before
+            any renaming.
 
     Returns:
         DatasetCollection: A file-backed collection whose `time_length`
@@ -592,13 +637,17 @@ def from_stac(
 
     target_grid = _resolve_target_grid(grid)
     _validate_overlap_options(groupby, method, fuse_func)
+    _validate_band_options(asset, groupby, resampling, eo_band_names)
 
+    # The items that produced the emitted timesteps, in emitted order — the
+    # source of the per-timestep `properties` attributes. One item per timestep
+    # in the ungrouped modes; the group's representative in the grouped ones.
     if groupby is not None:
         if not isinstance(asset, str):
             raise ValueError(
                 "groupby supports a single asset (str), not a multi-asset sequence."
             )
-        collection = _from_stac_grouped(
+        collection, timestep_items = _from_stac_grouped(
             item_list,
             asset,
             _resolve_groupby(groupby),
@@ -629,8 +678,9 @@ def from_stac(
             )
         else:
             collection = DatasetCollection.from_files(hrefs, gdal_env=gdal_env)
+        timestep_items = item_list
     else:
-        collection = _from_stac_multi_asset(
+        collection, timestep_items = _from_stac_multi_asset(
             item_list,
             list(asset),
             _sign,
@@ -642,13 +692,132 @@ def from_stac(
             reference=target_grid,
             rescale=rescale,
             cfg=cfg,
+            resampling=resampling,
+            eo_band_names=eo_band_names,
         )
 
     if target_grid is not None:
         # align()'s default inplace=False (used here) always returns a new
         # collection; only inplace=True returns None.
         collection = cast("DatasetCollection", collection.align(target_grid))
+    # After the align, which builds a fresh collection that would not inherit
+    # them (see DatasetCollection.time_attrs).
+    time_attrs = _collect_time_attrs(timestep_items, properties)
+    if time_attrs is not None:
+        collection._attach_time_attrs(time_attrs)
     return collection
+
+
+def _validate_band_options(
+    asset: str | Sequence[str],
+    groupby: Any,
+    resampling: str | dict[str, str] | None,
+    eo_band_names: bool,
+) -> None:
+    """Reject `resampling` / `eo_band_names` outside the multi-asset mode.
+
+    Both describe the band axis that only the multi-asset mode builds: the
+    single-asset and grouped modes emit whatever bands their source rasters
+    carry, so neither option could be honoured there. Failing loudly beats
+    ignoring an argument the caller clearly meant.
+
+    Args:
+        asset: The `asset` spec given to :func:`from_stac`.
+        groupby: The `groupby` spec given to :func:`from_stac`.
+        resampling: The requested per-band resampling, or `None`.
+        eo_band_names: Whether `eo:bands` names were requested.
+
+    Raises:
+        ValueError: Either option was combined with a single-asset or grouped
+            build.
+    """
+    multi_asset = groupby is None and not isinstance(asset, str)
+    if not multi_asset:
+        if resampling is not None:
+            raise ValueError(
+                "resampling only applies to a multi-asset build, which is the only "
+                "mode that resamples assets onto one band axis. Pass a sequence of "
+                "asset keys (and no groupby), or drop resampling."
+            )
+        if eo_band_names:
+            raise ValueError(
+                "eo_band_names only applies to a multi-asset build, which is the "
+                "only mode that names bands after the requested assets. Pass a "
+                "sequence of asset keys (and no groupby), or drop eo_band_names."
+            )
+
+
+def _property_keys(properties: bool | str | Sequence[str]) -> list[str] | None:
+    """Normalise a `properties` spec to the key list to keep, or `None` for all.
+
+    Args:
+        properties: `True` (every property), a single key, or a sequence of keys.
+            `False` is handled by the caller and never reaches here.
+
+    Returns:
+        The explicit keys to keep, or `None` when every property is wanted.
+
+    Raises:
+        TypeError: `properties` is neither a bool, a string nor a sequence of
+            strings.
+    """
+    if properties is True:
+        keys = None
+    elif isinstance(properties, str):
+        keys = [properties]
+    elif isinstance(properties, Sequence):
+        if not all(isinstance(key, str) for key in properties):
+            raise TypeError(
+                f"properties must contain only property-key strings, got {properties!r}."
+            )
+        keys = list(properties)
+    else:
+        raise TypeError(
+            "properties must be a bool, a property-key string, or a sequence of "
+            f"them, got {type(properties).__name__}."
+        )
+    return keys
+
+
+def _collect_time_attrs(
+    item_list: list[Any],
+    properties: bool | str | Sequence[str],
+) -> list[dict[str, Any]] | None:
+    """Collect the per-timestep attribute dicts requested by `properties`.
+
+    One dict per entry of `item_list`, which the caller has already reduced to
+    one item per **emitted** timestep (the group's representative in the grouped
+    modes), so the result's length matches `time_length` by construction.
+
+    Args:
+        item_list: One STAC item per emitted timestep, in emitted order.
+        properties: The `from_stac` `properties` spec. `False` (and an empty
+            sequence) means "attach nothing".
+
+    Returns:
+        One plain dict per timestep, or `None` when nothing was requested. With
+        explicit keys every dict carries all of them, `None` filling the ones an
+        item does not declare, so the attribute table is rectangular.
+
+    Raises:
+        TypeError: `properties` is not a bool / string / sequence of strings.
+    """
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.stac._item import item_properties
+
+    attrs: list[dict[str, Any]] | None = None
+    if properties is not False:
+        keys = _property_keys(properties)
+        # `keys == []` is an explicitly empty selection: nothing to attach.
+        if keys is None or keys:
+            attrs = []
+            for item in item_list:
+                props = dict(item_properties(item))
+                attrs.append(
+                    props if keys is None else {key: props.get(key) for key in keys}
+                )
+    return attrs
 
 
 def _resolve_target_grid(grid: Grid | None) -> Any:
@@ -1196,7 +1365,7 @@ def _from_stac_grouped(
     reference: Any = None,
     rescale: bool = False,
     cfg: Any = None,
-) -> DatasetCollection:
+) -> tuple[DatasetCollection, list[Any]]:
     """Mosaic each group of items of one asset into a single timestep.
 
     Items are bucketed by `key_fn` (built by :func:`_resolve_groupby`), and each
@@ -1230,7 +1399,10 @@ def _from_stac_grouped(
             band aliases, or `None`.
 
     Returns:
-        DatasetCollection: One timestep per distinct group key.
+        The collection — one timestep per distinct group key — and each group's
+        **representative item** (the first item of the group in item order) in
+        the same emitted order, so the caller can derive per-timestep
+        attributes without re-deriving the grouping.
 
     Raises:
         ValueError: No items remain to group, or a group needs a no-data plane
@@ -1249,6 +1421,9 @@ def _from_stac_grouped(
     source_signer = None if prepare else signer
     source_dir = artifact_dir() if prepare else None
     groups: dict[Hashable, list[str]] = defaultdict(list)
+    # First item per group, in item order — the group's documented representative
+    # for the per-timestep attributes (`from_stac(properties=...)`).
+    representatives: dict[Hashable, Any] = {}
     for index, item in enumerate(item_list):
         key, collection_id = _asset_key_for(item, asset, cfg)
         try:
@@ -1273,7 +1448,9 @@ def _from_stac_grouped(
                 tolerate=errors_as_nodata,
             )
             href = href if copy is None else copy
-        groups[_group_key(item, key_fn)].append(href)
+        group_key = _group_key(item, key_fn)
+        groups[group_key].append(href)
+        representatives.setdefault(group_key, item)
 
     if not groups:
         raise ValueError(
@@ -1284,7 +1461,8 @@ def _from_stac_grouped(
     spec = None if reference is None else _grid_spec(reference)
     out_dir = artifact_dir()
     group_paths: list[str] = []
-    for index, key in enumerate(_sorted_group_keys(groups)):
+    ordered_keys = _sorted_group_keys(groups)
+    for index, key in enumerate(ordered_keys):
         out_path = os.path.join(out_dir, f"{index:04d}_{_group_slug(key)}.tif")
         sources = groups[key]
         if errors_as_nodata:
@@ -1306,7 +1484,8 @@ def _from_stac_grouped(
 
     # collection_cls is always the real DatasetCollection class (passed by every
     # caller); typed Any here only to dodge the import cycle noted above.
-    return cast("DatasetCollection", collection_cls.from_files(group_paths))
+    collection = cast("DatasetCollection", collection_cls.from_files(group_paths))
+    return collection, [representatives[key] for key in ordered_keys]
 
 
 def _item_band_hrefs(
@@ -1361,6 +1540,67 @@ def _item_band_hrefs(
     return hrefs
 
 
+def _eo_band_names(item: Any, asset_keys: list[str], cfg: Any) -> list[str]:
+    """Name one item's bands from `eo:bands`, falling back to the asset keys.
+
+    An asset's `eo:bands` may name several bands, but a `from_stac` band is one
+    whole asset, so only a single-entry `eo:bands` can rename it; anything else
+    (absent, nameless, or multi-band) keeps the asset key. A name that would
+    collide with another band's also keeps the key, because
+    :meth:`Dataset.band_names` must stay one unique name per band.
+
+    Args:
+        item: The STAC Item whose assets are being stacked.
+        asset_keys: The asset keys (or aliases) being stacked, in band order.
+        cfg: The `stac_cfg`-style mapping used to resolve an alias, or `None`.
+
+    Returns:
+        One band name per requested asset, in band order.
+    """
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.stac._extensions import read_extension_metadata
+
+    names: list[str] = []
+    for asset_key in asset_keys:
+        key, _collection_id = _asset_key_for(item, asset_key, cfg)
+        derived = read_extension_metadata(item, key).get("band_names")
+        candidate = derived[0] if derived and len(derived) == 1 else asset_key
+        names.append(candidate if candidate not in names else asset_key)
+    return names
+
+
+def _rekey_resampling(
+    resampling: str | dict[str, str] | None,
+    asset_keys: list[str],
+    band_names: list[str],
+) -> str | dict[str, str] | None:
+    """Re-key an asset-keyed `resampling` mapping onto the output band names.
+
+    A caller keys `resampling` by asset key (what they asked for), while
+    :meth:`Dataset.from_band_files` matches it against the band names — which
+    `eo_band_names` may have renamed. A scalar method and `None` pass straight
+    through.
+
+    Args:
+        resampling: The `from_stac` `resampling` spec.
+        asset_keys: The requested asset keys, in band order.
+        band_names: The output band names, in the same order.
+
+    Returns:
+        The spec as :meth:`Dataset.from_band_files` expects it.
+    """
+    if isinstance(resampling, dict):
+        positions = {key: index for index, key in enumerate(asset_keys)}
+        rekeyed: str | dict[str, str] | None = {
+            band_names[positions[key]] if key in positions else key: method
+            for key, method in resampling.items()
+        }
+    else:
+        rekeyed = resampling
+    return rekeyed
+
+
 def _from_stac_multi_asset(
     item_list: list[Any],
     asset_keys: list[str],
@@ -1374,7 +1614,9 @@ def _from_stac_multi_asset(
     reference: Any = None,
     rescale: bool = False,
     cfg: Any = None,
-) -> DatasetCollection:
+    resampling: str | dict[str, str] | None = None,
+    eo_band_names: bool = False,
+) -> tuple[DatasetCollection, list[Any]]:
     """Stack multiple assets per item into a band axis, then time-stack them.
 
     For each item, the named assets are resolved, signed, and stacked
@@ -1401,9 +1643,17 @@ def _from_stac_multi_asset(
         cfg: The `stac_cfg`-style mapping supplying per-asset overrides and
             band aliases, or `None`. Band names stay the keys the caller asked
             for, alias or not.
+        resampling: Per-band (or global) resampling method handed to
+            :meth:`Dataset.from_band_files` for the alignment, keyed by asset
+            key. `None` keeps nearest neighbour.
+        eo_band_names: Name the bands from each asset's `eo:bands` metadata
+            instead of the asset keys, per item, falling back to the asset key
+            where that metadata is absent.
 
     Returns:
-        DatasetCollection: One multi-band timestep per kept item.
+        The collection — one multi-band timestep per kept item — and the kept
+        items themselves, in emitted order (items dropped by `skip_missing` are
+        absent), so the caller can derive per-timestep attributes.
 
     Raises:
         StacAssetError: An item lacks a requested asset and `skip_missing`
@@ -1416,6 +1666,7 @@ def _from_stac_multi_asset(
 
     out_dir = artifact_dir()
     per_item_paths: list[str] = []
+    kept_items: list[Any] = []
     unreadable: list[int] = []
     spec = None if reference is None else _grid_spec(reference)
     for idx, item in enumerate(item_list):
@@ -1436,10 +1687,17 @@ def _from_stac_multi_asset(
                 continue
             raise
         out_path = os.path.join(out_dir, f"stac_item_{idx}.tif")
+        band_names = (
+            _eo_band_names(item, asset_keys, cfg) if eo_band_names else asset_keys
+        )
         try:
             with cloud_config_from_env(gdal_env, path=hrefs):
                 Dataset.from_band_files(
-                    hrefs, band_names=asset_keys, align=align, path=out_path
+                    hrefs,
+                    band_names=band_names,
+                    align=align,
+                    resampling=_rekey_resampling(resampling, asset_keys, band_names),
+                    path=out_path,
                 )
         except (OSError, RuntimeError) as exc:
             if not errors_as_nodata:
@@ -1452,6 +1710,7 @@ def _from_stac_multi_asset(
             if spec is None:
                 spec = _grid_spec(Dataset.read_file(out_path))
         per_item_paths.append(out_path)
+        kept_items.append(item)
 
     if not per_item_paths:
         raise ValueError(
@@ -1467,7 +1726,8 @@ def _from_stac_multi_asset(
         )
     # collection_cls is always the real DatasetCollection class (passed by every
     # caller); typed Any here only to dodge the import cycle noted above.
-    return cast("DatasetCollection", collection_cls.from_files(per_item_paths))
+    collection = cast("DatasetCollection", collection_cls.from_files(per_item_paths))
+    return collection, kept_items
 
 
 DEFAULT_STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"

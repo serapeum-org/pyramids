@@ -896,6 +896,11 @@ class DatasetCollection:
         # so reading one timestep opens one file instead of all N via `datasets`
         # (ARC-44). Only used before the bulk `_datasets` list is materialised.
         self._handle_cache: dict[int, Dataset] = {}
+        # Optional per-timestep provenance dicts, one per timestep, attached by
+        # `from_stac(properties=...)` through `_attach_time_attrs`. Deliberately a
+        # plain list of plain dicts (never a labelled-coordinate layer) so it
+        # pickles to dask workers and serialises to Zarr/netCDF untouched.
+        self._time_attrs: list[dict[str, Any]] | None = None
 
     def __getstate__(self):
         """Pickle state — drop the lazy `_datasets` cache.
@@ -1136,6 +1141,57 @@ class DatasetCollection:
                     f"{self._time_length} timesteps."
                 )
         self._time = value
+
+    @property
+    def time_attrs(self) -> list[dict[str, Any]] | None:
+        """Per-timestep attribute dicts, or ``None`` when none were attached.
+
+        One plain dict per timestep (so ``len(time_attrs) == time_length``),
+        carrying the STAC Item ``properties`` that
+        :meth:`from_stac` was asked for via its ``properties=`` argument —
+        ``eo:cloud_cover``, ``datetime``, ``sat:relative_orbit``, … Filtering a
+        cube by provenance is then a plain comprehension over the indices::
+
+            coll = DatasetCollection.from_stac(items, asset="B04",
+                                               properties=["eo:cloud_cover"])
+            clear = [i for i, a in enumerate(coll.time_attrs)
+                     if (a.get("eo:cloud_cover") or 0) < 20]
+            cube = coll.values[clear]
+
+        ``None`` is the default and the unchanged state: nothing attaches
+        attributes except ``from_stac(properties=...)``. The store is
+        deliberately a flat list of dicts rather than a labelled-coordinate
+        layer, and is read-only — a derived collection (the result of
+        :meth:`crop` / :meth:`to_crs` / :meth:`align` / any other per-timestep
+        op) starts out with ``None`` again, because an op is free to change the
+        timestep count.
+        """
+        return self._time_attrs
+
+    def _attach_time_attrs(self, attrs: Sequence[dict[str, Any]] | None) -> None:
+        """Attach (or clear) the per-timestep attribute dicts.
+
+        Private because :attr:`time_attrs` is a read-only view: the only
+        supported producer is :func:`pyramids.dataset._stac.from_stac`, which
+        calls this once the final timestep count is known.
+
+        Args:
+            attrs: One dict per timestep, or ``None`` to clear.
+
+        Raises:
+            ValueError: ``attrs`` does not have exactly :attr:`time_length`
+                entries.
+        """
+        if attrs is None:
+            self._time_attrs = None
+        else:
+            materialised = [dict(entry) for entry in attrs]
+            if len(materialised) != self._time_length:
+                raise ValueError(
+                    f"time_attrs has length {len(materialised)} but the collection "
+                    f"has {self._time_length} timesteps."
+                )
+            self._time_attrs = materialised
 
     @property
     def rows(self):
@@ -1924,6 +1980,9 @@ class DatasetCollection:
         method: str = "first",
         fuse_func: Callable[[np.ndarray, np.ndarray], None] | None = None,
         errors_as_nodata: bool = False,
+        resampling: str | dict[str, str] | None = None,
+        properties: bool | str | Sequence[str] = False,
+        eo_band_names: bool = False,
     ) -> DatasetCollection:
         """Build a collection from a STAC ItemCollection.
 
@@ -2034,6 +2093,22 @@ class DatasetCollection:
                 was given, a `ValueError` is raised — so pair this with `grid=`
                 when a total outage must still produce a cube. In single-asset
                 mode it forces an eager open probe of every href.
+            resampling: Multi-asset only — which algorithm aligns
+                mixed-resolution assets onto the first asset's grid. `None`
+                (default) keeps nearest neighbour; a method name applies to
+                every band; a `{asset key: method}` mapping sets it per band
+                (`{"B04": "bilinear", "SCL": "nearest"}`), so a categorical
+                band can stay on nearest while the rest is interpolated.
+            properties: Which STAC Item `properties` to carry onto the cube as
+                per-timestep attributes, read back through
+                :attr:`time_attrs`. `False` (default) attaches nothing, `True`
+                attaches all of them, and a key / sequence of keys attaches just
+                those. Always one dict per emitted timestep; in a grouped build
+                the group's first item represents the group.
+            eo_band_names: Multi-asset only — name the output bands from each
+                asset's `eo:bands` metadata instead of the raw asset keys
+                (`False`, the default), falling back to the asset key where that
+                metadata is missing.
 
         Returns:
             DatasetCollection: File-backed collection (or grid-aligned
@@ -2053,6 +2128,9 @@ class DatasetCollection:
             method=method,
             fuse_func=fuse_func,
             errors_as_nodata=errors_as_nodata,
+            resampling=resampling,
+            properties=properties,
+            eo_band_names=eo_band_names,
         )
 
     @classmethod
