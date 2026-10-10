@@ -1980,6 +1980,8 @@ class DatasetCollection:
         method: str = "first",
         fuse_func: Callable[[np.ndarray, np.ndarray], None] | None = None,
         errors_as_nodata: bool = False,
+        rescale: bool = False,
+        cfg: Any = None,
         resampling: str | dict[str, str] | None = None,
         properties: bool | str | Sequence[str] = False,
         eo_band_names: bool = False,
@@ -2093,6 +2095,20 @@ class DatasetCollection:
                 was given, a `ValueError` is raised — so pair this with `grid=`
                 when a total outage must still produce a cube. In single-asset
                 mode it forces an eager open probe of every href.
+            rescale: Apply each asset's `raster:bands` scale/offset so values
+                come back in physical units instead of raw DN, masking nodata
+                before scaling. `False` (default) returns the stored counts.
+                Only the GDAL engine is affected — NetCDF/Zarr/GRIB readers
+                already unpack the CF packing their own metadata declares, so
+                applying the STAC factor on top would scale twice. On the
+                single-asset path a timestep declaring a non-identity scale is
+                materialised and can no longer be backed by its remote URL.
+            cfg: Optional odc-style override/alias config supplying metadata a
+                thin catalog omits and mapping band aliases, e.g.
+                `{"<collection>": {"assets": {"*": {"nodata": 0}},
+                "aliases": {"red": "B04"}}}`. `nodata` and `unit` fill gaps
+                only — a value the asset already declares wins and the skip
+                warns with `AssetMetadataWarning`.
             resampling: Multi-asset only — which algorithm aligns
                 mixed-resolution assets onto the first asset's grid. `None`
                 (default) keeps nearest neighbour; a method name applies to
@@ -2128,6 +2144,8 @@ class DatasetCollection:
             method=method,
             fuse_func=fuse_func,
             errors_as_nodata=errors_as_nodata,
+            rescale=rescale,
+            cfg=cfg,
             resampling=resampling,
             properties=properties,
             eo_band_names=eo_band_names,

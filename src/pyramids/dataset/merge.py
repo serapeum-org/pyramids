@@ -2276,6 +2276,7 @@ def stack_bands(
     *,
     band_names: list[str] | None = None,
     align: bool = False,
+    resampling: str | dict[str, str] | None = None,
     no_data_value: Any = INHERIT_NO_DATA,
     path: str | Path | None = None,
     signer: Any = None,
@@ -2291,6 +2292,12 @@ def stack_bands(
             file names.
         align: When ``True``, resample mismatched inputs onto ``files[0]``'s
             grid instead of raising :class:`~pyramids.base._errors.AlignmentError`.
+        resampling: Which algorithm ``align`` uses. ``None`` (default) keeps
+            nearest neighbour; a method name applies to every band; a
+            ``{band name: method}`` mapping sets it per band, so a categorical
+            band can stay nearest while a continuous one interpolates. Requires
+            ``align=True`` — passing it otherwise raises, since it could not be
+            honoured.
         no_data_value: No-data value stamped on the output bands. Omitted means
             **inherit from the source rasters**: the first file that declares
             one wins, a disagreement warns, and if none declares one the output
@@ -2379,6 +2386,7 @@ def stack_bands(
             files,
             band_names=band_names,
             align=align,
+            resampling=resampling,
             no_data_value=no_data_value,
             path=path,
         )
