@@ -397,7 +397,7 @@ B2 (eo:bands).
   `parse_number`.
 
 **Tests.**
-- Round-trip: build a small `Dataset` with known scale/offset/nodata → 
+- Round-trip: build a small `Dataset` with known scale/offset/nodata →
   `to_stac_item(..., with_stats=True, with_histogram=True, with_eo=True)` →
   `read_extension_metadata` recovers band names, and the raster-band dict carries
   `statistics`/`histogram`/`scale`/`offset` with the exact key spellings.
