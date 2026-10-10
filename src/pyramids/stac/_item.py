@@ -247,6 +247,134 @@ def asset_href(asset: Any, *, item: Any = None, asset_key: str | None = None) ->
     return str(href)
 
 
+def asset_alternate_href(asset: Any, name: str) -> str | None:
+    """Return `asset["alternate"][name]["href"]`, or `None` when absent.
+
+    Reads the STAC `alternate-assets` extension, which publishes the same data
+    at several locations — typically a public `https` href next to an `s3`
+    mirror that is cheaper (or the only readable one) from inside the cloud
+    region hosting it.
+
+    Resolution goes through :func:`asset_field`, so the block is found both as a
+    top-level `"alternate"` key on a raw asset dict and in a `pystac.Asset`'s
+    `extra_fields`.
+
+    Args:
+        asset: A STAC Asset (pystac object or raw dict).
+        name: The alternate key to look up (e.g. `"s3"`, `"gs"`).
+
+    Returns:
+        The alternate href as a string, or `None` when the asset carries no
+        `alternate` block, no entry under `name`, or an entry without an href.
+
+    Examples:
+        - Read an `s3` mirror published beside the canonical href:
+            ```python
+            >>> from pyramids.stac._item import asset_alternate_href
+            >>> asset = {
+            ...     "href": "https://h/a.tif",
+            ...     "alternate": {"s3": {"href": "s3://b/a.tif"}},
+            ... }
+            >>> asset_alternate_href(asset, "s3")
+            's3://b/a.tif'
+
+            ```
+        - An absent alternate answers `None` rather than raising:
+            ```python
+            >>> asset_alternate_href(asset, "gs") is None
+            True
+
+            ```
+
+    See Also:
+        - :func:`preferred_asset_href`: picks an alternate with the canonical
+          href as the fallback.
+    """
+    alternate = asset_field(asset, "alternate")
+    href: Any = None
+    if isinstance(alternate, Mapping):
+        entry = alternate.get(name)
+        if isinstance(entry, Mapping):
+            href = entry.get("href")
+    return str(href) if href else None
+
+
+def preferred_asset_href(
+    asset: Any,
+    alternate: str | Sequence[str] | None = None,
+    *,
+    item: Any = None,
+    asset_key: str | None = None,
+) -> str:
+    """Return the first available alternate href, else the canonical `href`.
+
+    `alternate` is a *preference*, never a requirement: an asset that publishes
+    no `alternate` block, or none under the requested keys, falls back to its
+    canonical href silently. That keeps a single call site working across a
+    mixed item collection where only some assets carry the extension.
+
+    pyramids accepts one key or an ordered sequence of them; stac-asset's
+    `Config.alternate_assets` is always a list. Passing a bare string here is
+    the single-key spelling of a one-element list, not a different contract.
+
+    Args:
+        asset: A STAC Asset (pystac object or raw dict).
+        alternate: An alternate key (`"s3"`) or keys in preference order
+            (`["s3", "gs"]`). `None` (the default) uses the canonical href.
+        item: The owning Item, used only to enrich the error message.
+        asset_key: The asset key, used only to enrich the error message.
+
+    Returns:
+        The preferred href as a string.
+
+    Raises:
+        StacAssetError: No alternate matched and the asset has no canonical
+            `href` (subclasses :class:`KeyError`).
+
+    Examples:
+        - A requested alternate wins over the canonical href:
+            ```python
+            >>> from pyramids.stac._item import preferred_asset_href
+            >>> asset = {
+            ...     "href": "https://h/a.tif",
+            ...     "alternate": {"s3": {"href": "s3://b/a.tif"}},
+            ... }
+            >>> preferred_asset_href(asset, "s3")
+            's3://b/a.tif'
+
+            ```
+        - The first key that resolves wins, and an unmatched preference falls
+          back to the canonical href:
+            ```python
+            >>> preferred_asset_href(asset, ["gs", "s3"])
+            's3://b/a.tif'
+            >>> preferred_asset_href(asset, "gs")
+            'https://h/a.tif'
+
+            ```
+        - No preference at all keeps today's behaviour:
+            ```python
+            >>> preferred_asset_href(asset)
+            'https://h/a.tif'
+
+            ```
+    """
+    if alternate is None:
+        names: tuple[str, ...] = ()
+    elif isinstance(alternate, str):
+        names = (alternate,)
+    else:
+        names = tuple(alternate)
+    href: str | None = None
+    for name in names:
+        href = asset_alternate_href(asset, name)
+        if href is not None:
+            break
+    if href is None:
+        href = asset_href(asset, item=item, asset_key=asset_key)
+    return href
+
+
 def asset_media_type(asset: Any) -> str | None:
     """Return an asset's media type, or `None` when absent.
 
@@ -318,6 +446,7 @@ def asset_field(asset: Any, key: str, default: Any = None) -> Any:
 
 
 __all__ = [
+    "asset_alternate_href",
     "asset_field",
     "asset_href",
     "asset_media_type",
@@ -326,4 +455,5 @@ __all__ = [
     "item_bbox",
     "item_id",
     "item_properties",
+    "preferred_asset_href",
 ]
