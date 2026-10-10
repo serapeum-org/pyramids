@@ -16,6 +16,7 @@ raw JSON.
 
 from __future__ import annotations
 
+import math
 import os
 import warnings
 from collections import defaultdict
@@ -24,8 +25,11 @@ from datetime import UTC, timedelta
 from datetime import datetime as _datetime_cls
 from typing import TYPE_CHECKING, Any, cast
 
+import numpy as np
+import shapely
 from osgeo import osr
 from pyproj import Transformer
+from shapely.geometry import MultiPolygon, box, mapping, shape
 
 from pyramids.base._artifacts import artifact_dir
 from pyramids.base._errors import StacAssetError
@@ -840,6 +844,38 @@ def _bbox_ring(bbox: Sequence[float]) -> dict[str, Any]:
     }
 
 
+def _transform_to_4326(
+    points: Sequence[tuple[float, float]], epsg: int, precision: int
+) -> list[tuple[float, float]]:
+    """Reproject `(x, y)` pairs from `epsg` into lon/lat, rounded to `precision`.
+
+    The single reprojection path for everything this module emits — the bbox
+    ring and the valid-data footprint both go through it, so their axis order
+    can never diverge.
+
+    Args:
+        points: The native-CRS coordinate pairs to reproject.
+        epsg: The source EPSG code.
+        precision: Decimal places to round the lon/lat output to.
+
+    Returns:
+        The rounded `(lon, lat)` pairs, in the input order.
+    """
+    if int(epsg) != 4326:
+        # `sr_from_user_input` already stamps traditional axis order, which is
+        # the whole reason both operands were being built by hand here.
+        src = sr_from_user_input(int(epsg))
+        dst = sr_from_user_input(4326)
+        transform = osr.CoordinateTransformation(src, dst)
+        out = [
+            (round(x, precision), round(y, precision))
+            for x, y, *_ in transform.TransformPoints([tuple(p) for p in points])
+        ]
+    else:
+        out = [(round(x, precision), round(y, precision)) for x, y in points]
+    return out
+
+
 def _footprint_4326(
     native_bbox: Sequence[float], epsg: int | None, precision: int
 ) -> tuple[dict[str, Any], list[float]]:
@@ -866,24 +902,267 @@ def _footprint_4326(
         world = [-180.0, -90.0, 180.0, 90.0]
         return _bbox_ring(world), world
 
-    corners = [(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy), (minx, miny)]
-    if int(epsg) != 4326:
-        # `sr_from_user_input` already stamps traditional axis order, which is
-        # the whole reason both operands were being built by hand here.
-        src = sr_from_user_input(int(epsg))
-        dst = sr_from_user_input(4326)
-        transform = osr.CoordinateTransformation(src, dst)
-        corners = [
-            (round(x, precision), round(y, precision))
-            for x, y, *_ in transform.TransformPoints(corners)
-        ]
-    else:
-        corners = [(round(x, precision), round(y, precision)) for x, y in corners]
+    ring = [(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy), (minx, miny)]
+    corners = _transform_to_4326(ring, int(epsg), precision)
 
     lons = [c[0] for c in corners]
     lats = [c[1] for c in corners]
     geometry = {"type": "Polygon", "coordinates": [[list(c) for c in corners]]}
     return geometry, [min(lons), min(lats), max(lons), max(lats)]
+
+
+def _round_coords(value: Any, precision: int) -> Any:
+    """Convert a GeoJSON coordinate tree to rounded, plain Python lists.
+
+    Args:
+        value: A coordinate tree (nested sequences) or a single number.
+        precision: Decimal places to round every coordinate to.
+
+    Returns:
+        The same tree with `list` containers and rounded `float` leaves.
+    """
+    if isinstance(value, list | tuple):
+        rounded: Any = [_round_coords(item, precision) for item in value]
+    else:
+        rounded = round(float(value), precision)
+    return rounded
+
+
+def _geojson_geometry(geom: Any, precision: int) -> dict[str, Any]:
+    """Serialise a shapely geometry as a GeoJSON dict with rounded list coordinates.
+
+    Args:
+        geom: The shapely geometry to serialise (already in EPSG:4326).
+        precision: Decimal places to round every coordinate to.
+
+    Returns:
+        A GeoJSON geometry dict (`type` + `coordinates`).
+    """
+    mapped = mapping(geom)
+    return {
+        "type": mapped["type"],
+        "coordinates": _round_coords(mapped["coordinates"], precision),
+    }
+
+
+def _reproject_geometry_4326(geom: Any, epsg: int, precision: int) -> Any:
+    """Reproject an arbitrary shapely geometry into EPSG:4326.
+
+    Args:
+        geom: The shapely geometry, in the CRS `epsg` describes.
+        epsg: The source EPSG code.
+        precision: Decimal places to round the lon/lat output to.
+
+    Returns:
+        The reprojected shapely geometry.
+    """
+
+    def _project(coords: np.ndarray) -> np.ndarray:
+        pairs = _transform_to_4326(
+            [(float(x), float(y)) for x, y in coords], epsg, precision
+        )
+        return np.asarray(pairs, dtype="float64").reshape(len(pairs), 2)
+
+    return shapely.transform(geom, _project)
+
+
+def _shift_lon(geom: Any, offset: float) -> Any:
+    """Return `geom` with every longitude moved by `offset` degrees.
+
+    Args:
+        geom: A shapely geometry in lon/lat.
+        offset: The longitude shift in degrees (e.g. `-360.0`).
+
+    Returns:
+        The shifted shapely geometry.
+    """
+    return shapely.transform(
+        geom, lambda c: np.column_stack([c[:, 0] + offset, c[:, 1]])
+    )
+
+
+def _unwrap_lon(geom: Any) -> Any:
+    """Lift negative longitudes into a continuous `[0, 360)` frame.
+
+    Args:
+        geom: A shapely geometry whose longitudes all sit in `[-180, 180]` but
+            which wraps the antimeridian.
+
+    Returns:
+        The geometry with its eastern-hemisphere (negative) longitudes raised
+        by 360 degrees, so the ring is continuous across the seam.
+    """
+    return shapely.transform(
+        geom,
+        lambda c: np.column_stack(
+            [np.where(c[:, 0] < 0.0, c[:, 0] + 360.0, c[:, 0]), c[:, 1]]
+        ),
+    )
+
+
+def _polygon_parts(geom: Any) -> list[Any]:
+    """Return the non-empty polygonal parts of a possibly mixed geometry.
+
+    Args:
+        geom: Any shapely geometry (a clip can yield a collection).
+
+    Returns:
+        The `Polygon` parts, dropping empties and lower-dimension leftovers.
+    """
+    geoms = list(getattr(geom, "geoms", [geom]))
+    return [g for g in geoms if g.geom_type == "Polygon" and not g.is_empty]
+
+
+def _split_at_seam(
+    geom: Any, precision: int
+) -> tuple[dict[str, Any], list[float]] | None:
+    """Cut a continuous-longitude geometry at the +180 meridian.
+
+    Args:
+        geom: A shapely geometry whose longitudes run continuously across the
+            seam (so some of them exceed +180 or fall below -180).
+        precision: Decimal places to round the emitted coordinates to.
+
+    Returns:
+        A `(geometry, bbox)` tuple whose geometry is a `MultiPolygon` and whose
+        bbox follows the RFC 7946 antimeridian convention (`west > east`), or
+        `None` when the geometry turns out to sit wholly on one side of the
+        seam (nothing to split).
+    """
+    coords = shapely.get_coordinates(geom)
+    miny, maxy = float(coords[:, 1].min()), float(coords[:, 1].max())
+    minx, maxx = float(coords[:, 0].min()), float(coords[:, 0].max())
+    pad = 1.0
+    western = geom.intersection(box(minx - pad, miny - pad, 180.0, maxy + pad))
+    eastern = geom.intersection(box(180.0, miny - pad, maxx + pad, maxy + pad))
+    west_parts = _polygon_parts(western)
+    east_parts = _polygon_parts(_shift_lon(eastern, -360.0))
+    if not west_parts or not east_parts:
+        result = None
+    else:
+        merged = MultiPolygon(west_parts + east_parts)
+        west = min(shapely.get_coordinates(p)[:, 0].min() for p in west_parts)
+        east = max(shapely.get_coordinates(p)[:, 0].max() for p in east_parts)
+        bbox = [
+            round(float(west), precision),
+            round(miny, precision),
+            round(float(east), precision),
+            round(maxy, precision),
+        ]
+        result = (_geojson_geometry(merged, precision), bbox)
+    return result
+
+
+def _split_antimeridian(
+    geometry: dict[str, Any], bbox: list[float], precision: int
+) -> tuple[dict[str, Any], list[float]]:
+    """Split an emitted EPSG:4326 footprint that crosses the antimeridian.
+
+    GeoJSON cannot carry a ring that wraps +/-180, so a crossing footprint is
+    cut at the seam into a two-part `MultiPolygon` and its bbox is emitted with
+    `west > east` (RFC 7946 section 5.2) rather than collapsed to the whole
+    globe. A footprint that does not cross is returned untouched, so the
+    default (`footprint="bbox"`) output is unchanged.
+
+    Crossing is detected from the emitted coordinates: longitudes outside
+    `[-180, 180]` (a grid that simply runs past the seam), or a longitude span
+    wider than 180 degrees (a reprojected scene whose corners landed on both
+    sides of it). A geometry that reaches both -180 and +180 is treated as a
+    global extent and left alone.
+
+    Args:
+        geometry: The emitted GeoJSON geometry in EPSG:4326.
+        bbox: Its `[w, s, e, n]` bbox.
+        precision: Decimal places to round re-emitted coordinates to.
+
+    Returns:
+        A `(geometry, bbox)` tuple — the inputs unchanged when there is no
+        crossing, otherwise a `MultiPolygon` and a `west > east` bbox.
+    """
+    geom = shape(geometry)
+    lons = shapely.get_coordinates(geom)[:, 0]
+    west, east = float(lons.min()), float(lons.max())
+    global_extent = west <= -180.0 and east >= 180.0
+    crossing = not global_extent and (
+        east > 180.0 or west < -180.0 or east - west > 180.0
+    )
+    result = (geometry, bbox)
+    if crossing:
+        if west >= -180.0 and east <= 180.0:
+            geom = _unwrap_lon(geom)
+        split = _split_at_seam(geom, precision)
+        if split is not None:
+            result = split
+        elif east > 180.0 or west < -180.0:
+            # Wholly beyond the seam (e.g. a grid at lon 181..185): wrap it back
+            # into [-180, 180] as a plain polygon rather than leaving it invalid.
+            shifted = _shift_lon(geom, -360.0 if west >= 180.0 else 360.0)
+            coords = shapely.get_coordinates(shifted)
+            result = (
+                _geojson_geometry(shifted, precision),
+                [
+                    round(float(coords[:, 0].min()), precision),
+                    round(float(coords[:, 1].min()), precision),
+                    round(float(coords[:, 0].max()), precision),
+                    round(float(coords[:, 1].max()), precision),
+                ],
+            )
+    return result
+
+
+def _data_footprint_4326(
+    dataset: Any,
+    epsg: int,
+    precision: int,
+    *,
+    band: int,
+    max_samples: int | None,
+    simplify_tolerance: float | None,
+    densify: float | None,
+) -> tuple[dict[str, Any], list[float]]:
+    """Build the valid-pixel footprint of a dataset in EPSG:4326.
+
+    Uses :meth:`pyramids.dataset.Dataset.footprint` (the polygonised non-nodata
+    mask, in the dataset CRS), densifies it in native units, reprojects it
+    through the same path as the bbox ring, then optionally simplifies it in
+    degrees. Multi-part coverage stays a `MultiPolygon` — it is never merged to
+    a convex hull.
+
+    Args:
+        dataset: The dataset to footprint.
+        epsg: The dataset's EPSG code.
+        precision: Decimal places to round the reprojected coordinates to.
+        band: Zero-based band index to footprint.
+        max_samples: Approximate pixel budget for the mask read — accuracy
+            traded for speed — or `None` for an exact read.
+        simplify_tolerance: Douglas-Peucker tolerance **in degrees**, applied
+            after reprojection, or `None` to keep every vertex.
+        densify: Maximum segment length **in native CRS units**, applied before
+            reprojection so long edges bend with the projection, or `None`/`0`
+            to leave the edges alone.
+
+    Returns:
+        A `(geometry, bbox)` tuple in EPSG:4326. Falls back to the bbox ring
+        (with a warning) when the band holds no valid pixels.
+    """
+    gdf = dataset.footprint(band=band, max_samples=max_samples)
+    if gdf is None:
+        warnings.warn(
+            "footprint='data' found no valid pixels; falling back to the bbox "
+            "footprint.",
+            stacklevel=3,
+        )
+        result = _footprint_4326(list(dataset.bbox), epsg, precision)
+    else:
+        geom = gdf.geometry.union_all()
+        if densify:
+            geom = shapely.segmentize(geom, max_segment_length=densify)
+        geom = _reproject_geometry_4326(geom, int(epsg), precision)
+        if simplify_tolerance is not None:
+            geom = geom.simplify(simplify_tolerance, preserve_topology=True)
+        bounds = [round(float(v), precision) for v in geom.bounds]
+        result = (_geojson_geometry(geom, precision), bounds)
+    return result
 
 
 def _to_iso(value: Any) -> Any:
@@ -904,16 +1183,145 @@ def _proj_fields(
     }
 
 
-def _raster_bands(dataset: Any) -> list[dict[str, Any]]:
-    """Build the ``raster:bands`` list (per-band ``data_type`` + optional ``nodata``)."""
+def _encode_nodata(nd: Any) -> Any:
+    """Encode a nodata value the way the raster extension expects.
+
+    A non-finite sentinel cannot be written as JSON, so the schema spells it as
+    the strings `"nan"`, `"inf"` or `"-inf"`. A finite sentinel is passed
+    through **as it came in**, so existing output is unchanged.
+
+    Args:
+        nd: The band's nodata value.
+
+    Returns:
+        The sentinel itself when finite, or its string spelling when not.
+    """
+    try:
+        value = float(nd)
+    except (TypeError, ValueError):
+        encoded: Any = nd
+    else:
+        if math.isnan(value):
+            encoded = "nan"
+        elif math.isinf(value):
+            encoded = "inf" if value > 0 else "-inf"
+        else:
+            encoded = nd
+    return encoded
+
+
+def _band_statistics(
+    dataset: Any, index: int, approx_ok: bool
+) -> dict[str, float] | None:
+    """Build a raster-extension `statistics` object for one band.
+
+    Args:
+        dataset: The dataset to read statistics from.
+        index: Zero-based band index.
+        approx_ok: Let GDAL answer from overviews / a subsample.
+
+    Returns:
+        `{minimum, maximum, mean, stddev}` in physical units, or `None` when
+        GDAL cannot compute them (a band with no valid pixels), in which case a
+        warning is emitted.
+    """
+    try:
+        row = dataset.stats(band=index, approx_ok=approx_ok).iloc[0]
+    except RuntimeError:
+        warnings.warn(
+            f"band {index} has no valid pixels; omitting raster statistics",
+            stacklevel=3,
+        )
+        stats = None
+    else:
+        stats = {
+            "minimum": float(row["min"]),
+            "maximum": float(row["max"]),
+            "mean": float(row["mean"]),
+            "stddev": float(row["std"]),
+        }
+    return stats
+
+
+def _band_histogram(dataset: Any, index: int, bins: int) -> dict[str, Any] | None:
+    """Build a raster-extension `histogram` object for one band.
+
+    Args:
+        dataset: The dataset to read the histogram from.
+        index: Zero-based band index.
+        bins: Number of buckets to ask for.
+
+    Returns:
+        `{count, min, max, buckets}` with `count` the number of buckets (the
+        schema's meaning), or `None` when GDAL cannot bucket the band — a
+        constant or all-nodata band has no range to split — in which case a
+        warning is emitted.
+    """
+    try:
+        counts, edges = dataset.get_histogram(band=index, bins=bins)
+    except RuntimeError:
+        warnings.warn(
+            f"band {index} has no value range; omitting the raster histogram",
+            stacklevel=3,
+        )
+        histogram = None
+    else:
+        bounds = [float(v) for edge in edges for v in edge]
+        histogram = {
+            "count": len(counts),
+            "min": min(bounds),
+            "max": max(bounds),
+            "buckets": [int(c) for c in counts],
+        }
+    return histogram
+
+
+def _raster_bands(
+    dataset: Any,
+    *,
+    with_stats: bool = False,
+    with_histogram: bool = False,
+    histogram_bins: int = 10,
+    stats_approx_ok: bool = True,
+) -> list[dict[str, Any]]:
+    """Build the ``raster:bands`` list for an asset.
+
+    Always emits per-band `data_type` and (when set) `nodata`, plus `scale` /
+    `offset` for a band whose CF packing is non-identity. `statistics` and
+    `histogram` are opt-in, since both ask GDAL to look at pixels.
+
+    Args:
+        dataset: The dataset whose bands are described.
+        with_stats: Add a `statistics` object per band.
+        with_histogram: Add a `histogram` object per band.
+        histogram_bins: Number of histogram buckets when `with_histogram`.
+        stats_approx_ok: Let GDAL answer statistics approximately.
+
+    Returns:
+        One dict per band, in band order.
+    """
     nodata = dataset.no_data_value
     dtypes = dataset.dtype
+    scales = dataset.scale
+    offsets = dataset.offset
     bands: list[dict[str, Any]] = []
     for i in range(dataset.band_count):
         band: dict[str, Any] = {"data_type": dtypes[i]}
         nd = nodata[i] if i < len(nodata) else None
         if nd is not None:
-            band["nodata"] = nd
+            band["nodata"] = _encode_nodata(nd)
+        if i < len(scales) and scales[i] not in (None, 1.0):
+            band["scale"] = float(scales[i])
+        if i < len(offsets) and offsets[i] not in (None, 0.0):
+            band["offset"] = float(offsets[i])
+        if with_stats:
+            stats = _band_statistics(dataset, i, stats_approx_ok)
+            if stats is not None:
+                band["statistics"] = stats
+        if with_histogram:
+            histogram = _band_histogram(dataset, i, histogram_bins)
+            if histogram is not None:
+                band["histogram"] = histogram
         bands.append(band)
     return bands
 
@@ -931,6 +1339,16 @@ def to_stac_item(
     asset_roles: Sequence[str] = ("data",),
     with_proj: bool = True,
     with_raster: bool = True,
+    with_stats: bool = False,
+    with_histogram: bool = False,
+    histogram_bins: int = 10,
+    with_eo: bool = False,
+    stats_approx_ok: bool = True,
+    footprint: str = "bbox",
+    footprint_band: int = 0,
+    footprint_max_samples: int | None = None,
+    simplify_tolerance: float | None = None,
+    densify: float | None = None,
     precision: int = 6,
 ) -> dict[str, Any]:
     """Describe a pyramids :class:`~pyramids.dataset.Dataset` as a STAC Item dict.
@@ -938,9 +1356,14 @@ def to_stac_item(
     The inverse of :func:`from_stac`: emit a STAC-JSON Item (GeoJSON Feature)
     from a dataset's own metadata, with the `proj` and `raster` extensions
     populated. The footprint is the dataset's bounding rectangle reprojected to
-    EPSG:4326 (the default footprint mode). pystac is **not** required —
-    a plain dict is returned, ready to serialise or feed back into
-    :func:`from_stac`.
+    EPSG:4326 (the default footprint mode), or — with `footprint="data"` — the
+    polygonised extent of its valid (non-nodata) pixels. Either way a footprint
+    that crosses the antimeridian is split into a `MultiPolygon` and gets a
+    `west > east` bbox. pystac is **not** required — a plain dict is returned,
+    ready to serialise or feed back into :func:`from_stac`.
+
+    The band-metadata and footprint keywords are all opt-in: with none of them
+    passed the emitted Item is exactly what earlier versions produced.
 
     Args:
         dataset: A :class:`~pyramids.dataset.Dataset` (read via its public
@@ -963,13 +1386,39 @@ def to_stac_item(
         asset_roles: Roles for the asset (default `("data",)`).
         with_proj: Populate the `proj` extension (epsg/code/shape/transform/bbox)
             from the dataset grid.
-        with_raster: Populate `raster:bands` (per-band `data_type` + `nodata`)
-            on the asset.
+        with_raster: Populate `raster:bands` (per-band `data_type` + `nodata`,
+            plus `scale`/`offset` for a CF-packed band) on the asset.
+        with_stats: Add a per-band `statistics` object (`minimum`, `maximum`,
+            `mean`, `stddev`, in physical units) to `raster:bands`. A band with
+            no valid pixels is skipped with a warning.
+        with_histogram: Add a per-band `histogram` object (`count`, `min`,
+            `max`, `buckets`) to `raster:bands`. A band with no value range
+            (constant or all-nodata) is skipped with a warning.
+        histogram_bins: Number of histogram buckets when `with_histogram`.
+        with_eo: Add `eo:bands` (band names) to the asset and the `eo` schema
+            to `stac_extensions`.
+        stats_approx_ok: Let GDAL answer `with_stats` from overviews or a
+            subsample (fast); pass `False` for exact figures.
+        footprint: `"bbox"` (default) for the dataset's bounding rectangle, or
+            `"data"` for the polygonised extent of its valid pixels. A
+            CRS-less dataset always uses the bbox path.
+        footprint_band: Zero-based band to footprint when `footprint="data"`.
+        footprint_max_samples: Approximate pixel budget for the valid-pixel
+            mask — accuracy traded for speed — or `None` for an exact read.
+        simplify_tolerance: Douglas-Peucker tolerance **in degrees**, applied
+            to the data footprint after reprojection, or `None` to keep every
+            vertex.
+        densify: Maximum segment length **in native CRS units**, applied to the
+            data footprint before reprojection so long edges follow the
+            projection's curvature; `None`/`0` leaves the edges alone.
         precision: Decimal places for the reprojected footprint coordinates.
 
     Returns:
         A STAC Item as a dict (a GeoJSON Feature with `properties`, `assets`,
         `bbox`, `geometry`, and `stac_extensions`).
+
+    Raises:
+        ValueError: `footprint` is neither `"bbox"` nor `"data"`.
 
     Examples:
         - Round-trip a dataset to a STAC Item dict (via the Dataset method):
@@ -997,9 +1446,26 @@ def to_stac_item(
     # projection at all. Either way a falsy `epsg` here (empty `dataset.crs`, or a
     # WKT-only CRS whose `epsg` is None) makes the world-bbox branch fire and the
     # proj:epsg field be omitted; the WKT stays available on `dataset.crs`.
+    if footprint not in ("bbox", "data"):
+        raise ValueError(f"footprint must be 'bbox' or 'data', got {footprint!r}.")
+
     epsg = dataset.epsg if dataset.crs else None
     native_bbox = list(dataset.bbox)
-    geometry, bbox_4326 = _footprint_4326(native_bbox, epsg, precision)
+    if footprint == "data" and epsg:
+        geometry, bbox_4326 = _data_footprint_4326(
+            dataset,
+            int(epsg),
+            precision,
+            band=footprint_band,
+            max_samples=footprint_max_samples,
+            simplify_tolerance=simplify_tolerance,
+            densify=densify,
+        )
+    else:
+        # "bbox" mode, or a CRS-less dataset (which falls through to the
+        # world-extent branch inside `_footprint_4326`).
+        geometry, bbox_4326 = _footprint_4326(native_bbox, epsg, precision)
+    geometry, bbox_4326 = _split_antimeridian(geometry, bbox_4326, precision)
 
     # A null `datetime` is only STAC-valid alongside a start/end range. When the
     # caller gives neither, default to "now" so the Item is always valid
@@ -1026,9 +1492,21 @@ def to_stac_item(
         asset["type"] = asset_media_type
 
     if with_raster:
-        asset["raster:bands"] = _raster_bands(dataset)
+        asset["raster:bands"] = _raster_bands(
+            dataset,
+            with_stats=with_stats,
+            with_histogram=with_histogram,
+            histogram_bins=histogram_bins,
+            stats_approx_ok=stats_approx_ok,
+        )
         stac_extensions.append(
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
+        )
+
+    if with_eo:
+        asset["eo:bands"] = [{"name": name} for name in dataset.band_names]
+        stac_extensions.append(
+            "https://stac-extensions.github.io/eo/v1.1.0/schema.json"
         )
 
     return {

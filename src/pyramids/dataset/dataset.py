@@ -3978,6 +3978,16 @@ class Dataset(RasterBase):
         asset_media_type: str | None = None,
         with_proj: bool = True,
         with_raster: bool = True,
+        with_stats: bool = False,
+        with_histogram: bool = False,
+        histogram_bins: int = 10,
+        with_eo: bool = False,
+        stats_approx_ok: bool = True,
+        footprint: str = "bbox",
+        footprint_band: int = 0,
+        footprint_max_samples: int | None = None,
+        simplify_tolerance: float | None = None,
+        densify: float | None = None,
         precision: int = 6,
     ) -> dict:
         """Describe this raster as a STAC Item dict (proj + raster extensions).
@@ -3985,7 +3995,8 @@ class Dataset(RasterBase):
         Thin forwarder to :func:`pyramids.dataset._stac.to_stac_item` — the
         inverse of :meth:`DatasetCollection.from_stac`. Returns a plain
         STAC-JSON dict (pystac not required); the footprint is this dataset's
-        bounding rectangle reprojected to EPSG:4326.
+        bounding rectangle reprojected to EPSG:4326, or the polygonised extent
+        of its valid pixels with `footprint="data"`.
 
         Args:
             item_id: The STAC Item id.
@@ -4001,7 +4012,20 @@ class Dataset(RasterBase):
             asset_key: Key for the data asset (default `"data"`).
             asset_media_type: Optional media type for the asset.
             with_proj: Populate the `proj` extension from the grid.
-            with_raster: Populate `raster:bands` (data_type + nodata).
+            with_raster: Populate `raster:bands` (data_type + nodata, plus
+                scale/offset for a CF-packed band).
+            with_stats: Add a per-band `statistics` object to `raster:bands`.
+            with_histogram: Add a per-band `histogram` object to `raster:bands`.
+            histogram_bins: Number of histogram buckets when `with_histogram`.
+            with_eo: Add `eo:bands` (band names) to the asset.
+            stats_approx_ok: Let GDAL answer `with_stats` approximately.
+            footprint: `"bbox"` (default) or `"data"` (valid-pixel extent).
+            footprint_band: Band to footprint when `footprint="data"`.
+            footprint_max_samples: Pixel budget for the valid-pixel mask.
+            simplify_tolerance: Simplify tolerance in degrees for the data
+                footprint, applied after reprojection.
+            densify: Maximum segment length in native CRS units for the data
+                footprint, applied before reprojection.
             precision: Decimal places for the reprojected footprint.
 
         Returns:
@@ -4021,6 +4045,16 @@ class Dataset(RasterBase):
             asset_media_type=asset_media_type,
             with_proj=with_proj,
             with_raster=with_raster,
+            with_stats=with_stats,
+            with_histogram=with_histogram,
+            histogram_bins=histogram_bins,
+            with_eo=with_eo,
+            stats_approx_ok=stats_approx_ok,
+            footprint=footprint,
+            footprint_band=footprint_band,
+            footprint_max_samples=footprint_max_samples,
+            simplify_tolerance=simplify_tolerance,
+            densify=densify,
             precision=precision,
         )
 
