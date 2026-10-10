@@ -1165,6 +1165,15 @@ class DatasetCollection:
         :meth:`crop` / :meth:`to_crs` / :meth:`align` / any other per-timestep
         op) starts out with ``None`` again, because an op is free to change the
         timestep count.
+
+        Returns:
+            list[dict] | None: One plain dict per timestep, in timestep order
+                (``time_attrs[i]`` describes ``datasets[i]``), holding the STAC
+                Item ``properties`` that were requested. ``None`` when nothing
+                attached any — a collection built by any route other than
+                :meth:`from_stac`, a ``from_stac`` call made without
+                ``properties=``, and a collection derived from one by
+                :meth:`crop` / :meth:`to_crs` / :meth:`align`.
         """
         return self._time_attrs
 

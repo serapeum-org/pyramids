@@ -140,6 +140,12 @@ class _HeaderCapture:
     """
 
     def __init__(self, opener: Any = None) -> None:
+        """Store the opener to delegate to, and start with no captured headers.
+
+        Args:
+            opener: Anything exposing `.open(target, timeout=...)`, or `None` to
+                delegate to :func:`urllib.request.urlopen` at call time.
+        """
         self._opener = opener
         self.headers: dict[str, str] = {}
 

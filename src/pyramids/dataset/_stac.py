@@ -960,7 +960,19 @@ def _solar_day(item: Any) -> str:
 
 
 def _item_time_key(item: Any) -> str:
-    """Return an item's datetime as an ISO 8601 string (the `groupby="time"` key)."""
+    """Return an item's datetime as an ISO 8601 string (the `groupby="time"` key).
+
+    Items sharing an acquisition instant land in one group; unlike
+    :func:`_solar_day` nothing is rounded to a date, so two passes on the same
+    day stay apart.
+
+    Args:
+        item: A STAC Item (pystac object or raw dict).
+
+    Returns:
+        The item's datetime, as returned by :func:`_item_datetime`, in ISO 8601
+        form — a string, so the key sorts chronologically.
+    """
     return _item_datetime(item).isoformat()
 
 
@@ -992,6 +1004,23 @@ def _resolve_groupby(
     from pyramids.stac._item import item_id, item_properties
 
     def _by_property(item: Any, _key: str = str(groupby)) -> Hashable:
+        """Group by the value of one item property — the non-reserved fallback.
+
+        The property name is bound as a default argument rather than read from
+        the enclosing scope, so the resolved name travels with the returned key
+        function.
+
+        Args:
+            item: The STAC item being grouped.
+            _key: The property name, bound from the enclosing `groupby`.
+
+        Returns:
+            The item's value for that property, used as-is as the group key.
+
+        Raises:
+            ValueError: The item does not declare the property. Every item has
+                to carry it, because a missing key cannot be grouped.
+        """
         properties = item_properties(item)
         if _key not in properties:
             raise ValueError(
@@ -1060,6 +1089,13 @@ def _sorted_group_keys(keys: Any) -> list[Any]:
     Keys of one type sort naturally (dates, ids, orbit numbers). A property that
     yields mutually-unorderable types (e.g. `1` and `"1"`) would raise, so those
     are ordered by `str(key)` instead of failing the build.
+
+    Args:
+        keys: Any iterable of group keys (typically the grouping dict's keys).
+
+    Returns:
+        A new list holding the same keys, sorted — natively when they compare,
+        by their `str` form otherwise. The keys themselves are not converted.
     """
     try:
         ordered = sorted(keys)
@@ -1069,7 +1105,21 @@ def _sorted_group_keys(keys: Any) -> list[Any]:
 
 
 def _group_slug(key: Any) -> str:
-    """Return a filename-safe label for a group key."""
+    """Return a filename-safe label for a group key.
+
+    The key is stringified, every character outside `A-Za-z0-9_.+-` is replaced
+    by an underscore, and the result is cut to 60 characters, so a key holding a
+    path separator, a colon or a very long property value still names a file.
+
+    Args:
+        key: A group key of any type (a date string, an item id, a property
+            value, whatever the `groupby` key function returned).
+
+    Returns:
+        The sanitised label, at most 60 characters. It is not unique by itself —
+        two keys can slug the same — so the caller prefixes it with the group's
+        ordinal when building the file name.
+    """
     return re.sub(r"[^A-Za-z0-9_.+-]", "_", str(key))[:60]
 
 
@@ -1125,6 +1175,13 @@ def _sign_href(href: str, signer: Any) -> str:
     The grouped path hands raw hrefs to `merge_rasters`, which signs them
     itself; the fusing and probing paths open the hrefs directly and so have to
     sign them here, with the same hook, to stay consistent with the merge.
+
+    Args:
+        href: The asset href to sign.
+        signer: A signer exposing `sign_href(href)`, or `None`.
+
+    Returns:
+        The signed href, or `href` unchanged when `signer` is `None`.
     """
     return href if signer is None else signer.sign_href(href)
 
@@ -1134,6 +1191,14 @@ def _grid_spec(dataset: Any) -> tuple[Any, Any, int, int, int]:
 
     Only the grid is kept, not the dataset, so a reference grid can outlive the
     raster it was learned from without holding a GDAL handle open.
+
+    Args:
+        dataset: An open :class:`~pyramids.dataset.dataset.Dataset` whose grid
+            is to be remembered.
+
+    Returns:
+        A plain `(geotransform, epsg, rows, columns, bands)` tuple — the three
+        counts cast to `int` — in the shape :func:`_write_nodata_plane` expects.
     """
     return (
         dataset.geotransform,
@@ -1185,7 +1250,14 @@ def _write_nodata_plane(
 
 
 def _warn_unreadable(href: str, exc: Exception) -> None:
-    """Warn that `href` could not be read, with its credentials redacted."""
+    """Warn that `href` could not be read, with its credentials redacted.
+
+    Args:
+        href: The unreadable asset href; it is passed through
+            :func:`redact_credentials` before it reaches the message, so a
+            signed URL does not leak its token into the warning.
+        exc: The exception the open failed with, quoted in the message.
+    """
     warnings.warn(
         f"errors_as_nodata: substituting a no-data plane for unreadable asset "
         f"{redact_credentials(href)}: {exc}",
@@ -1200,6 +1272,14 @@ def _nan_array(dataset: Any) -> np.ndarray:
     `fuse_func` callbacks detect "still empty" cells by testing for `NaN`, so
     every array handed to one has to share that convention regardless of the
     sentinel the source file declares.
+
+    Args:
+        dataset: An open :class:`~pyramids.dataset.dataset.Dataset` to read.
+
+    Returns:
+        The dataset's values as a plain (unmasked) `float64` array, with every
+        masked cell replaced by `NaN`. The shape is whatever
+        :meth:`Dataset.read_array` returns for that raster.
     """
     values = np.ma.asanyarray(dataset.read_array(masked=True)).astype("float64")
     return np.ma.filled(values, np.nan)
@@ -2051,6 +2131,21 @@ def _reproject_geometry_4326(geom: Any, epsg: int, precision: int) -> Any:
     """
 
     def _project(coords: np.ndarray) -> np.ndarray:
+        """Reproject one coordinate block, the callback :func:`shapely.transform` calls.
+
+        Shapely hands every ring of the geometry over as a single array and
+        rebuilds the geometry from what comes back, so the rounding and the
+        axis order are applied by the same :func:`_transform_to_4326` the bbox
+        ring uses.
+
+        Args:
+            coords: An `(n, 2)` array of `(x, y)` pairs in the CRS `epsg`
+                describes.
+
+        Returns:
+            An `(n, 2)` `float64` array of the rounded `(lon, lat)` pairs, in
+            the input order.
+        """
         pairs = _transform_to_4326(
             [(float(x), float(y)) for x, y in coords], epsg, precision
         )

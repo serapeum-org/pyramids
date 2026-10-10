@@ -349,7 +349,13 @@ class AssetOverrides:
 
     @property
     def rescales(self) -> bool:
-        """Whether any band declares a non-identity `scale` / `offset`."""
+        """Whether any band declares a non-identity `scale` / `offset`.
+
+        Returns:
+            `True` when at least one band index covered by `scales` / `offsets`
+            carries a packing other than `(1.0, 0.0)`, `False` when every
+            declared band is the identity (and when nothing is declared at all).
+        """
         # Not a zip over the two tuples: a declaration carrying only one of the
         # pair leaves the other empty, and zip would truncate it away.
         return any(
@@ -359,7 +365,14 @@ class AssetOverrides:
 
     @property
     def is_empty(self) -> bool:
-        """Whether there is nothing to apply, so the opened handle can be kept."""
+        """Whether there is nothing to apply, so the opened handle can be kept.
+
+        Returns:
+            `True` when no band rescales and no `no_data_value`, `data_type` or
+            `unit` is configured — :func:`materialise` then hands the dataset
+            back untouched instead of rebuilding it. `False` when any one of
+            them is set.
+        """
         return not (
             self.rescales
             or self.no_data_value is not None
