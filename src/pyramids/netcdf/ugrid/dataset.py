@@ -1762,7 +1762,8 @@ class UgridDataset:
             # Validate up front, before the time check, so a bogus method is reported as such
             # even on a mesh with no temporal variable — matching the raster interpolate_na.
             raise ValueError(
-                f"interpolate method must be one of {list(INTERP_METHODS)}, got {method!r}."
+                f"interpolate_na() takes method="
+                f"{' or '.join(repr(one) for one in INTERP_METHODS)}, got {method!r}."
             )
 
         def _fill(data: np.ndarray, axis: int) -> np.ndarray:

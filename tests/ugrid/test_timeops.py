@@ -118,7 +118,7 @@ class TestFill:
             data={"d": np.array([1.0, 2.0])},
             data_locations={"d": "face"},
         )
-        with pytest.raises(ValueError, match="interpolate method must be one of"):
+        with pytest.raises(ValueError, match=r"interpolate_na\(\) takes method="):
             static.interpolate_na(method="bogus")
 
     def test_interpolate_na_cubic_recovers_quadratic(self):
