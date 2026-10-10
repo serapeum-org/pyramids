@@ -25,6 +25,18 @@ pytestmark = pytest.mark.core
 
 _GEO = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
 
+# MODIS Sinusoidal: a real projection with no EPSG authority code, so
+# `Dataset.epsg` is `None` for it and only the WKT identifies it.
+_SINUSOIDAL_WKT = (
+    'PROJCS["MODIS Sinusoidal",'
+    'GEOGCS["Unknown datum based upon the custom spheroid",'
+    'DATUM["Not specified",SPHEROID["Custom spheroid",6371007.181,0]],'
+    'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],'
+    'PROJECTION["Sinusoidal"],PARAMETER["longitude_of_center",0],'
+    'PARAMETER["false_easting",0],PARAMETER["false_northing",0],'
+    'UNIT["metre",1,AUTHORITY["EPSG","9001"]]]'
+)
+
 
 def _write(tmp_path, name, array, no_data_value):
     """Write a small raster and return its path.
@@ -67,6 +79,64 @@ def nodataless(tmp_path):
     return _write(
         tmp_path, "nodataless.tif", np.array([[1, 2], [3, 4]], dtype="int16"), None
     )
+
+
+@pytest.fixture
+def file_packed_counts(tmp_path):
+    """The packed counts with the scale 0.01 written into the file itself.
+
+    `packed_counts` deliberately leaves the file's packing at identity, so a
+    rebuilt result's `scale == [1.0]` is true of the source too. Here the source
+    declares `0.01`, so "the result declares identity packing" is a claim the
+    two sides can disagree on.
+    """
+    path = str(tmp_path / "file_packed.tif")
+    source = Dataset.from_array(
+        np.array([[0, 100], [200, 300]], dtype="int16"), no_data_value=0, geo_ref=_GEO
+    )
+    source.scale = [0.01]
+    source.to_file(path)
+    return path
+
+
+@pytest.fixture
+def file_packed_asset(file_packed_counts):
+    """A STAC asset over `file_packed_counts` declaring the same scale 0.01."""
+    return {
+        "href": file_packed_counts,
+        "type": "image/tiff",
+        "raster:bands": [{"scale": 0.01, "offset": 0.0, "nodata": 0}],
+    }
+
+
+@pytest.fixture
+def sinusoidal_counts(tmp_path):
+    """The packed counts on MODIS Sinusoidal — a CRS with no EPSG code."""
+    path = str(tmp_path / "sinusoidal.tif")
+    source = Dataset.from_array(
+        np.array([[0, 100], [200, 300]], dtype="int16"),
+        no_data_value=0,
+        geo_ref=GeoReference(geo=(0.0, 1000.0, 0.0, 2000.0, 0.0, -1000.0), epsg=None),
+    )
+    source.crs = _SINUSOIDAL_WKT
+    source.to_file(path)
+    return path
+
+
+@pytest.fixture
+def named_bands(tmp_path):
+    """A two-band raster carrying band names, band metadata and band units."""
+    path = str(tmp_path / "named_bands.tif")
+    source = Dataset.from_array(
+        np.array([[[100, 100], [100, 100]], [[200, 200], [200, 200]]], dtype="int16"),
+        no_data_value=None,
+        geo_ref=_GEO,
+    )
+    source.band_names = ["red", "nir"]
+    source.bands.metadata = [{"WAVELENGTH": "665"}, {"WAVELENGTH": "842"}]
+    source.band_units = ["reflectance", "reflectance"]
+    source.to_file(path)
+    return path
 
 
 class TestResolveAlias:
@@ -380,17 +450,23 @@ class TestMaterialise:
         """The no-data sentinel is masked first, so it is never scaled.
 
         Test scenario:
-            Counts [[0, 100], [200, 300]] with nodata 0 and scale 0.01.
+            Counts [[0, 100], [200, 300]] with nodata 0, scale 0.01 and a
+            **non-zero** offset of 10. The offset is what makes the two orders
+            distinguishable: masking first leaves the sentinel cell NaN, while
+            scaling first turns the stored `0` into `0 * 0.01 + 10 == 10.0`,
+            which no longer equals the sentinel and so survives the fill as a
+            plausible-looking physical value.
         """
         dataset = Dataset.read_file(packed_counts)
-        result = materialise(dataset, AssetOverrides(scales=(0.01,)))
+        result = materialise(dataset, AssetOverrides(scales=(0.01,), offsets=(10.0,)))
         values = result.read_array()
         assert np.isnan(values[0, 0]), (
-            f"the masked sentinel must come back as NaN, got {values[0, 0]}"
+            "mask -> scale must leave the sentinel NaN; scaling first would "
+            f"have produced 0 * 0.01 + 10 = 10.0, got {values[0, 0]}"
         )
-        assert values[0, 1] == pytest.approx(1.0), f"100 * 0.01 != {values[0, 1]}"
-        assert values[1, 0] == pytest.approx(2.0), f"200 * 0.01 != {values[1, 0]}"
-        assert values[1, 1] == pytest.approx(3.0), f"300 * 0.01 != {values[1, 1]}"
+        assert values[0, 1] == pytest.approx(11.0), f"100 * 0.01 + 10 != {values[0, 1]}"
+        assert values[1, 0] == pytest.approx(12.0), f"200 * 0.01 + 10 != {values[1, 0]}"
+        assert values[1, 1] == pytest.approx(13.0), f"300 * 0.01 + 10 != {values[1, 1]}"
 
     def test_offset_is_applied(self, packed_counts):
         """The additive half of the packing is applied to valid pixels only.
@@ -405,19 +481,92 @@ class TestMaterialise:
         assert values[1, 1] == pytest.approx(13.0), f"300 * 0.01 + 10 != {values[1, 1]}"
         assert np.isnan(values[0, 0]), "the sentinel must not pick up the offset"
 
-    def test_result_declares_identity_packing(self, packed_counts):
-        """The rebuilt raster declares no packing, so no read double-applies.
+    def test_result_declares_identity_packing(self, file_packed_counts):
+        """The rebuilt raster drops the source's packing, so no read re-applies.
 
         Test scenario:
-            A rescaled result's scale/offset slots.
+            The source file itself declares scale 0.01, and the STAC asset
+            declares the same 0.01. The materialiser reads raw counts and
+            applies the STAC packing once, so carrying the file's scale onto the
+            result would make an unpacking read return 300 * 0.01 * 0.01 = 0.03
+            instead of 3.0.
         """
-        result = materialise(
-            Dataset.read_file(packed_counts), AssetOverrides(scales=(0.01,))
+        source = Dataset.read_file(file_packed_counts)
+        assert source.scale == [0.01], (
+            f"fixture must declare the scale in the file, got {source.scale}"
         )
-        assert result.scale == [1.0], f"expected identity scale, got {result.scale}"
+        result = materialise(source, AssetOverrides(scales=(0.01,)))
+        assert result.scale == [1.0], (
+            f"the rebuild must not carry the source scale 0.01, got {result.scale}"
+        )
         assert result.offset == [0.0], f"expected identity offset, got {result.offset}"
+        assert result.read_array(unpack=True)[1, 1] == pytest.approx(3.0), (
+            "an unpacking read of the result must not apply a scale a second "
+            f"time, got {result.read_array(unpack=True)[1, 1]}"
+        )
         assert np.isnan(result.no_data_value[0]), (
             f"expected NaN no-data, got {result.no_data_value}"
+        )
+
+    def test_wkt_only_crs_survives_the_rebuild(self, sinusoidal_counts):
+        """A CRS with no EPSG code is carried through as WKT, not dropped.
+
+        Test scenario:
+            A MODIS Sinusoidal source (`epsg is None`) rescaled through the
+            materialiser. Rebuilding from `epsg=dataset.epsg` alone leaves the
+            result's CRS unset, which silently breaks every later `to_crs`,
+            `crop(bbox)`, `align` and write.
+        """
+        source = Dataset.read_file(sinusoidal_counts)
+        assert source.epsg is None, f"fixture must have no EPSG code, got {source.epsg}"
+        assert source.crs, "fixture must carry a WKT projection"
+        result = materialise(source, AssetOverrides(scales=(0.01,)))
+        assert result.crs == source.crs, (
+            f"the source projection must survive the rebuild, got {result.crs!r}"
+        )
+        assert "Sinusoidal" in result.crs, (
+            f"the result must still be on the sinusoidal projection, got "
+            f"{result.crs[:60]!r}"
+        )
+
+    def test_band_names_survive_the_rebuild(self, named_bands):
+        """Band names are carried onto the rebuilt raster.
+
+        Test scenario:
+            A two-band source named ["red", "nir"] rescaled through the
+            materialiser; `from_array` would otherwise name the bands
+            "Band_1" / "Band_2".
+        """
+        source = Dataset.read_file(named_bands)
+        result = materialise(source, AssetOverrides(scales=(0.01, 0.01)))
+        assert result.band_names == ["red", "nir"], (
+            f"expected the source band names, got {result.band_names}"
+        )
+
+    def test_band_metadata_survives_the_rebuild(self, named_bands):
+        """Per-band metadata items are carried onto the rebuilt raster.
+
+        Test scenario:
+            The same two-band source, whose bands carry a WAVELENGTH item.
+        """
+        source = Dataset.read_file(named_bands)
+        result = materialise(source, AssetOverrides(scales=(0.01, 0.01)))
+        assert result.bands.metadata == [
+            {"WAVELENGTH": "665"},
+            {"WAVELENGTH": "842"},
+        ], f"expected the source band metadata, got {result.bands.metadata}"
+
+    def test_native_band_units_survive_the_rebuild(self, named_bands):
+        """A source's own unit labels are kept when no unit override applies.
+
+        Test scenario:
+            The two-band source labels both bands "reflectance" and the
+            overrides configure no unit at all.
+        """
+        source = Dataset.read_file(named_bands)
+        result = materialise(source, AssetOverrides(scales=(0.01, 0.01)))
+        assert result.band_units == ["reflectance", "reflectance"], (
+            f"expected the source band units, got {result.band_units}"
         )
 
     def test_per_band_packing(self, tmp_path):
@@ -592,19 +741,30 @@ class TestLoadAssetRescale:
             "the no-data sentinel must stay no-data, not become 0.0"
         )
 
-    def test_rescale_no_double_apply(self, packed_asset):
-        """The rescaled dataset declares identity packing.
+    def test_rescale_no_double_apply(self, file_packed_asset):
+        """The rescaled dataset declares identity packing, not the file's.
 
         Test scenario:
-            A second unpacking read must not scale again.
+            The asset's file declares scale 0.01 **and** the asset's
+            raster:bands declares 0.01. `load_asset(rescale=True)` applies the
+            packing exactly once, so the returned raster must declare identity:
+            otherwise `read_array(unpack=True)` returns 0.03 for the cell whose
+            physical value is 3.0.
         """
-        dataset = load_asset(packed_asset, rescale=True)
-        assert dataset.scale == [1.0], f"expected identity scale, got {dataset.scale}"
+        raw = load_asset(file_packed_asset)
+        assert raw.scale == [0.01], (
+            f"the asset's file must declare the scale, got {raw.scale}"
+        )
+        dataset = load_asset(file_packed_asset, rescale=True)
+        assert dataset.scale == [1.0], (
+            f"the rescaled raster must not carry the file scale, got {dataset.scale}"
+        )
         assert dataset.offset == [0.0], (
             f"expected identity offset, got {dataset.offset}"
         )
         assert dataset.read_array(unpack=True)[1, 1] == pytest.approx(3.0), (
-            "an unpacking read must not apply the STAC scale a second time"
+            "an unpacking read must not apply the scale a second time, got "
+            f"{dataset.read_array(unpack=True)[1, 1]}"
         )
 
     def test_rescale_without_raster_bands_is_a_no_op(self, packed_counts):

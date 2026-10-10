@@ -568,6 +568,45 @@ def _collapse(values: list[Any]) -> Any:
     return values[0] if len(set(map(repr, values))) == 1 else values
 
 
+def _carry_identity(source: Any, target: Any, units: list[str] | None) -> None:
+    """Copy the source raster's identity onto the rebuilt one.
+
+    `Dataset.from_array` builds from a bare numpy stack, so everything that is
+    not a pixel has to be put back by hand. Three things are carried:
+
+    1. **The projection, as WKT.** `GeoReference` only takes an `epsg` code, and
+       `AbstractDataset.epsg` is `None` for any CRS with no EPSG authority
+       (MODIS sinusoidal, a geostationary product, a custom LCC) — so rebuilding
+       from the code alone leaves such a result with no CRS at all, which
+       silently breaks every later `to_crs`, `crop(bbox)`, `align` and write.
+       The same WKT carry is what `Spatial._correct_wrap_cutline_error` does
+       for the same reason. A source with no projection is skipped: assigning
+       its empty WKT would wipe the `from_array` default.
+    2. **Band names and per-band metadata**, which identify the bands of a
+       multi-asset or `eo:bands`-named raster; without them the result's bands
+       come back as `Band_1`, `Band_2`, with no wavelength or description.
+    3. **Band units** — the resolved `units` when an override supplied them,
+       else the source's own labels.
+
+    Args:
+        source: The opened raster the rebuild came from.
+        target: The freshly built raster, which must be writable.
+        units: The unit labels resolved by :func:`_unit_targets`, or `None` when
+            no override applies and the source's own labels should be kept.
+    """
+    if source.crs:
+        target.crs = source.crs
+    names = list(source.band_names)
+    if names != list(target.band_names):
+        target.bands.apply_names(names, source="the materialised asset")
+    metadata = source.bands.metadata
+    if any(metadata):
+        target.bands.metadata = metadata
+    labels = units or [str(unit or "") for unit in source.band_units]
+    if any(labels):
+        target.band_units = labels
+
+
 def materialise(
     dataset: Any, overrides: AssetOverrides, *, path: str | None = None
 ) -> Any:
@@ -589,7 +628,13 @@ def materialise(
 
     The result is built by :meth:`Dataset.from_array`, so it declares **identity
     packing** (`scale == 1`, `offset == 0`): a later `read_array(unpack=True)`
-    cannot apply the STAC scale a second time.
+    cannot apply the STAC scale a second time, even when the source *file*
+    declared the same packing.
+
+    Building from a bare array also means nothing but the pixels comes across on
+    its own, so :func:`_carry_identity` puts the source's projection (as WKT,
+    since a CRS with no EPSG code cannot travel as `epsg`), band names, per-band
+    metadata and band units back onto the result.
 
     Args:
         dataset: The opened raster (read-only is fine; it is never mutated).
@@ -660,8 +705,9 @@ def materialise(
             geo_ref=GeoReference(geo=tuple(dataset.geotransform), epsg=dataset.epsg),
             path=path,
         )
-        if units:
-            result.band_units = units
+        # `epsg` above is `None` for a WKT-only CRS, and the array carries no
+        # band identity at all, so both are put back here.
+        _carry_identity(dataset, result, units)
     return result
 
 
