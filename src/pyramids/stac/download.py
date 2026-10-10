@@ -67,7 +67,9 @@ def _coerce_strategy(module: Any, value: Any, enum_name: str) -> Any:
             coerced = enum_class[value.strip().upper()]
         except KeyError as exc:
             allowed = ", ".join(repr(member.name.lower()) for member in enum_class)
-            raise ValueError(f"Unknown {enum_name} {value!r}; expected one of {allowed}.") from exc
+            raise ValueError(
+                f"Unknown {enum_name} {value!r}; expected one of {allowed}."
+            ) from exc
     return coerced
 
 
@@ -96,9 +98,13 @@ def _config_kwargs(module: Any, options: dict[str, Any]) -> dict[str, Any]:
     if options["alternate_assets"]:
         kwargs["alternate_assets"] = list(options["alternate_assets"])
     if options["file_name_strategy"] is not None:
-        kwargs["file_name_strategy"] = _coerce_strategy(module, options["file_name_strategy"], "FileNameStrategy")
+        kwargs["file_name_strategy"] = _coerce_strategy(
+            module, options["file_name_strategy"], "FileNameStrategy"
+        )
     if options["error_strategy"] is not None:
-        kwargs["error_strategy"] = _coerce_strategy(module, options["error_strategy"], "ErrorStrategy")
+        kwargs["error_strategy"] = _coerce_strategy(
+            module, options["error_strategy"], "ErrorStrategy"
+        )
     if options["fail_fast"] is not None:
         kwargs["fail_fast"] = bool(options["fail_fast"])
     if options["warn"] is not None:
@@ -106,7 +112,9 @@ def _config_kwargs(module: Any, options: dict[str, Any]) -> dict[str, Any]:
     return kwargs
 
 
-def _download(function_name: str, target: Any, directory: str | Path, **options: Any) -> Any:
+def _download(
+    function_name: str, target: Any, directory: str | Path, **options: Any
+) -> Any:
     """Guard the optional dependency, build the `Config`, and run a downloader.
 
     Shared body of the three public wrappers: they differ only in which
@@ -132,7 +140,11 @@ def _download(function_name: str, target: Any, directory: str | Path, **options:
 
     max_concurrent = options.pop("max_concurrent", None)
     config = stac_asset.Config(**_config_kwargs(stac_asset, options))
-    extra: dict[str, Any] = {} if max_concurrent is None else {"max_concurrent_downloads": int(max_concurrent)}
+    extra: dict[str, Any] = (
+        {}
+        if max_concurrent is None
+        else {"max_concurrent_downloads": int(max_concurrent)}
+    )
     downloader = getattr(stac_asset.blocking, function_name)
     return downloader(target, str(directory), config=config, **extra)
 

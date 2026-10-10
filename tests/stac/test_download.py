@@ -16,7 +16,11 @@ import pytest
 
 import pyramids.stac.download as dl_mod
 from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.stac.download import download_collection, download_item, download_item_collection
+from pyramids.stac.download import (
+    download_collection,
+    download_item,
+    download_item_collection,
+)
 
 pytestmark = pytest.mark.core
 
@@ -44,7 +48,9 @@ class FakeErrorStrategy(enum.Enum):
 class TestDownloadGuards:
     """The missing-stac-asset guard fires before any download."""
 
-    @pytest.mark.parametrize("func, name", DOWNLOADERS, ids=[name for _, name in DOWNLOADERS])
+    @pytest.mark.parametrize(
+        "func, name", DOWNLOADERS, ids=[name for _, name in DOWNLOADERS]
+    )
     def test_missing_dependency_raises(self, monkeypatch, func, name):
         """Every wrapper raises OptionalPackageDoesNotExist when absent.
 
@@ -162,8 +168,12 @@ class TestDownloadItemWiring:
             f"no downloader kwargs expected, got {fake_stac_asset['kwargs']}"
         )
 
-    @pytest.mark.parametrize("func, name", DOWNLOADERS, ids=[name for _, name in DOWNLOADERS])
-    def test_each_wrapper_calls_its_own_downloader(self, fake_stac_asset, tmp_path, func, name):
+    @pytest.mark.parametrize(
+        "func, name", DOWNLOADERS, ids=[name for _, name in DOWNLOADERS]
+    )
+    def test_each_wrapper_calls_its_own_downloader(
+        self, fake_stac_asset, tmp_path, func, name
+    ):
         """Each wrapper targets the matching stac_asset.blocking function.
 
         Test scenario:
@@ -218,7 +228,9 @@ class TestWidenedOptions:
         monkeypatch.setattr(dl_mod, "import_stac_asset", lambda *a, **k: None)
         return captured
 
-    @pytest.mark.parametrize("func, name", DOWNLOADERS, ids=[name for _, name in DOWNLOADERS])
+    @pytest.mark.parametrize(
+        "func, name", DOWNLOADERS, ids=[name for _, name in DOWNLOADERS]
+    )
     def test_every_option_forwarded(self, fake_stac_asset, tmp_path, func, name):
         """All widened options land in Config, except the concurrency cap.
 
@@ -291,8 +303,12 @@ class TestWidenedOptions:
             alternate_assets=("s3",),
         )
         config = fake_stac_asset["config"]
-        assert config["include"] == ["B04", "B03"], f"include should be a list, got {config['include']}"
-        assert config["exclude"] == ["thumbnail"], f"exclude should be a list, got {config['exclude']}"
+        assert config["include"] == ["B04", "B03"], (
+            f"include should be a list, got {config['include']}"
+        )
+        assert config["exclude"] == ["thumbnail"], (
+            f"exclude should be a list, got {config['exclude']}"
+        )
         assert config["alternate_assets"] == ["s3"], (
             f"alternate_assets should be a list, got {config['alternate_assets']}"
         )
@@ -324,9 +340,9 @@ class TestWidenedOptions:
             " Key " resolves to FileNameStrategy.KEY.
         """
         download_item("ITEM", tmp_path, file_name_strategy=" Key ")
-        assert fake_stac_asset["config"]["file_name_strategy"] is FakeFileNameStrategy.KEY, (
-            "a padded, mixed-case name should resolve"
-        )
+        assert (
+            fake_stac_asset["config"]["file_name_strategy"] is FakeFileNameStrategy.KEY
+        ), "a padded, mixed-case name should resolve"
 
     @pytest.mark.parametrize("option", ["file_name_strategy", "error_strategy"])
     def test_unknown_strategy_name_raises(self, fake_stac_asset, tmp_path, option):
@@ -346,5 +362,9 @@ class TestWidenedOptions:
         """
         download_item("ITEM", tmp_path, fail_fast=False, warn=False)
         config = fake_stac_asset["config"]
-        assert config["fail_fast"] is False, f"fail_fast should be forwarded, got {config.get('fail_fast')}"
-        assert config["warn"] is False, f"warn should be forwarded, got {config.get('warn')}"
+        assert config["fail_fast"] is False, (
+            f"fail_fast should be forwarded, got {config.get('fail_fast')}"
+        )
+        assert config["warn"] is False, (
+            f"warn should be forwarded, got {config.get('warn')}"
+        )

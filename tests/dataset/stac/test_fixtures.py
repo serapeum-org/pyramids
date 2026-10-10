@@ -53,7 +53,9 @@ class TestSharedStacFixtures:
             A property `groupby` must collapse these to two groups, so the orbit
             split and the datetime ordering both matter.
         """
-        assert len(three_local_items) == 3, f"expected 3 items, got {len(three_local_items)}"
+        assert len(three_local_items) == 3, (
+            f"expected 3 items, got {len(three_local_items)}"
+        )
         orbits = [item["properties"]["orbit"] for item in three_local_items]
         assert orbits == [1, 1, 2], f"expected orbits [1,1,2], got {orbits}"
         stamps = [item["properties"]["datetime"] for item in three_local_items]

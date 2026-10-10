@@ -58,9 +58,7 @@ def all_nodata_dataset():
 @pytest.fixture
 def antimeridian_dataset():
     """A 4x8 EPSG:4326 dataset whose x extent runs 178 -> 186, past the seam."""
-    return _wgs84_from_array(
-        np.ones((4, 8), dtype="float32"), top_left=(178.0, 2.0)
-    )
+    return _wgs84_from_array(np.ones((4, 8), dtype="float32"), top_left=(178.0, 2.0))
 
 
 class TestToStacItem:

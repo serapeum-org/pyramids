@@ -11,6 +11,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from osgeo import gdal, osr
+
+from pyramids.base._errors import OutOfBoundsError, UnsupportedAssetError
+from pyramids.dataset import Dataset
+from pyramids.stac import _windowed
 from pyramids.stac._windowed import (
     STAC_WINDOW_CRS,
     geometry_bounds,
@@ -19,10 +23,6 @@ from pyramids.stac._windowed import (
     read_item_point,
     read_item_preview,
 )
-
-from pyramids.base._errors import OutOfBoundsError, UnsupportedAssetError
-from pyramids.dataset import Dataset
-from pyramids.stac import _windowed
 
 pytestmark = pytest.mark.core
 
