@@ -5949,10 +5949,10 @@ class Selection(_Engine["NetCDF"]):
 
         Raises:
             TypeError: `limit` is not an integer, or is a boolean.
-            ValueError: `method` is neither `"linear"` nor `"nearest"`; `limit` is below 1;
-                `use_coordinate` was asked for and `dim`'s stamps are not numeric; the
-                container has no data variables; or `dim` is not a band dimension of any
-                gridded variable.
+            ValueError: `method` is not one of `"linear"`, `"nearest"`, `"slinear"`,
+                `"quadratic"` or `"cubic"`; `limit` is below 1; `use_coordinate` was asked for
+                and `dim`'s stamps are not numeric; the container has no data variables; or `dim`
+                is not a band dimension of any gridded variable.
 
         Examples:
             - An interior gap is placed between its neighbours; the edges are left alone:

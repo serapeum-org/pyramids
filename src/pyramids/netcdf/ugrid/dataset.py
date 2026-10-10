@@ -30,6 +30,7 @@ from shapely.geometry import LineString, box
 from pyramids.base._reductions import (
     COUNTING_REDUCERS,
     FLAG_NO_DATA,
+    INTERP_METHODS,
     REDUCERS,
     WEIGHTED_HOWS,
     gaps_as_nan,
@@ -1751,9 +1752,15 @@ class UgridDataset:
             interpolated along time; static variables are unchanged.
 
         Raises:
-            ValueError: No variable has a time dimension, or a temporal variable has no
-                loaded data.
+            ValueError: ``method`` is not one of the accepted interpolations; no variable has a
+                time dimension; or a temporal variable has no loaded data.
         """
+        if method not in INTERP_METHODS:
+            # Validate up front, before the time check, so a bogus method is reported as such
+            # even on a mesh with no temporal variable — matching the raster interpolate_na.
+            raise ValueError(
+                f"interpolate method must be one of {list(INTERP_METHODS)}, got {method!r}."
+            )
 
         def _fill(data: np.ndarray, axis: int) -> np.ndarray:
             positions = np.arange(data.shape[axis], dtype="float64")
