@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import fnmatch
 import numbers
 import re
@@ -1166,16 +1167,27 @@ class DatasetCollection:
         op) starts out with ``None`` again, because an op is free to change the
         timestep count.
 
+        Read-only is enforced, not merely asked for: each read returns a deep
+        copy, so ``coll.time_attrs[0]["eo:cloud_cover"] = 0`` and
+        ``coll.time_attrs.append({})`` both act on the snapshot and leave the
+        collection untouched — the second would otherwise desynchronise the
+        store from :attr:`time_length`. The copy is deep because STAC properties
+        nest (``proj:transform``, ``eo:bands``), and a per-entry shallow copy
+        would still hand out the live inner lists. Bind the result once rather
+        than re-reading it in a loop if the cube is long.
+
         Returns:
             list[dict] | None: One plain dict per timestep, in timestep order
                 (``time_attrs[i]`` describes ``datasets[i]``), holding the STAC
-                Item ``properties`` that were requested. ``None`` when nothing
-                attached any — a collection built by any route other than
-                :meth:`from_stac`, a ``from_stac`` call made without
+                Item ``properties`` that were requested — a deep copy of the
+                store, so mutating it is a no-op on the collection. ``None``
+                when nothing attached any — a collection built by any route
+                other than :meth:`from_stac`, a ``from_stac`` call made without
                 ``properties=``, and a collection derived from one by
                 :meth:`crop` / :meth:`to_crs` / :meth:`align`.
         """
-        return self._time_attrs
+        attrs = None if self._time_attrs is None else copy.deepcopy(self._time_attrs)
+        return attrs
 
     def _attach_time_attrs(self, attrs: Sequence[dict[str, Any]] | None) -> None:
         """Attach (or clear) the per-timestep attribute dicts.
@@ -1183,6 +1195,12 @@ class DatasetCollection:
         Private because :attr:`time_attrs` is a read-only view: the only
         supported producer is :func:`pyramids.dataset._stac.from_stac`, which
         calls this once the final timestep count is known.
+
+        The entries are deep-copied in, the same depth :attr:`time_attrs` copies
+        out: the dicts handed here come straight off the STAC Items' nested
+        ``properties``, so a shallow copy would leave the collection sharing the
+        Items' inner lists and a later edit to an Item would rewrite the cube's
+        metadata.
 
         Args:
             attrs: One dict per timestep, or ``None`` to clear.
@@ -1194,7 +1212,7 @@ class DatasetCollection:
         if attrs is None:
             self._time_attrs = None
         else:
-            materialised = [dict(entry) for entry in attrs]
+            materialised = [copy.deepcopy(dict(entry)) for entry in attrs]
             if len(materialised) != self._time_length:
                 raise ValueError(
                     f"time_attrs has length {len(materialised)} but the collection "

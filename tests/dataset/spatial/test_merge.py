@@ -386,8 +386,6 @@ class TestMergeMethod:
             Monkeypatching gdal.BuildVRT to return None triggers the defensive
             guard in the last/first path.
         """
-        from pyramids.dataset import merge as merge_mod
-
         pa, pb = overlapping_pair
         monkeypatch.setattr(merge_mod.gdal, "BuildVRT", lambda *a, **k: None)
         with pytest.raises(
@@ -402,14 +400,14 @@ class TestMergeMethod:
             Monkeypatching gdal.BuildVRT to return None triggers the defensive
             guard inside _merge_reduce.
         """
-        from pyramids.dataset import merge as merge_mod
-
         pa, pb = overlapping_pair
         monkeypatch.setattr(merge_mod.gdal, "BuildVRT", lambda *a, **k: None)
         with pytest.raises(RuntimeError) as excinfo:
             merge_rasters([pa, pb], tmp_path / "x.tif", method="sum")
         message = str(excinfo.value)
-        assert "building the union mosaic returned no raster" in message, message
+        assert "building the union mosaic returned no raster" in message, (
+            f"the guard did not say which GDAL step produced nothing: {message}"
+        )
         assert Path(pa).name in message, f"sources are not named: {message}"
         assert "Swig Object" not in message, f"a SWIG proxy leaked: {message}"
 
@@ -467,7 +465,7 @@ class TestMergeCountAndMean:
         """
         pa, pb = overlapping_pair
         out = tmp_path / "count.tif"
-        merge_rasters([pa, pb], out, no_data_value=-9999.0, method="count")
+        merge_rasters([pa, pb], out, method="count")
         arr = Dataset.read_file(str(out)).read_array()
         assert arr.shape == (4, 6), f"Expected union shape (4, 6), got {arr.shape}"
         assert arr[0, 2] == pytest.approx(2.0) and arr[0, 3] == pytest.approx(2.0), (
@@ -530,7 +528,7 @@ class TestMergeCountAndMean:
         """
         pa, pb, pc = holed_trio
         out = tmp_path / "trio_count.tif"
-        merge_rasters([pa, pb, pc], out, no_data_value=-1.0, method="count")
+        merge_rasters([pa, pb, pc], out, method="count")
         arr = Dataset.read_file(str(out)).read_array()
         assert arr[0, 0] == pytest.approx(2.0), (
             f"the holed column should count 2 contributions, got {arr[0, 0]}"
@@ -545,12 +543,12 @@ class TestMergeCountAndMean:
         Test scenario:
             Two corner tiles leave two quadrants bare. "No source contributed here"
             is exactly a count of 0, and no covered cell can hold it, so the gaps
-            stay distinguishable without borrowing the marker -- which for a count
-            would report -1 contributions.
+            stay distinguishable without borrowing a marker -- which for a count
+            would report -9999 contributions.
         """
         pa, pb = gappy_pair
         out = tmp_path / "gappy_count.tif"
-        merge_rasters([pa, pb], out, no_data_value=-1.0, method="count")
+        merge_rasters([pa, pb], out, method="count")
         arr = Dataset.read_file(str(out)).read_array()
         assert arr[0, 0] == pytest.approx(1.0), (
             f"the covered top-left should count 1, got {arr[0, 0]}"
@@ -563,6 +561,56 @@ class TestMergeCountAndMean:
         )
         assert arr[3, 0] == pytest.approx(0.0), (
             f"the uncovered bottom-left should count 0, got {arr[3, 0]}"
+        )
+
+    def test_count_declares_no_marker_whatever_the_sources_declared(self, tmp_path):
+        """A count mosaic carries no no-data marker, so no tally can be masked.
+
+        Test scenario:
+            Two corner tiles declaring ``0`` as their own no-data -- the standard
+            marker of Sentinel-2, Landsat Collection 2 and most integer EO products
+            -- leave two of four quadrants bare. Inheriting that ``0`` onto the
+            count mosaic would mask every uncovered cell's honest tally of ``0``,
+            so the output must declare nothing at all and read with no cell masked.
+        """
+        a = np.full((2, 2), 5.0, dtype="float32")
+        b = np.full((2, 2), 7.0, dtype="float32")
+        pa = write_raster(tmp_path / "eo_tl.tif", a, (0, 4), nodata=0.0)
+        pb = write_raster(tmp_path / "eo_br.tif", b, (2, 2), nodata=0.0)
+        out = tmp_path / "eo_count.tif"
+        merge_rasters([pa, pb], out, method="count")
+        handle = gdal.Open(str(out))
+        marker = handle.GetRasterBand(1).GetNoDataValue()
+        handle = None
+        assert marker is None, (
+            "a count mosaic must declare no marker, since every cell holds a real "
+            f"tally that a marker could mask; it declared {marker}"
+        )
+        mosaic = Dataset.read_file(str(out))
+        masked = mosaic.read_array(masked=True)
+        masked = masked[0] if masked.ndim == 3 else masked
+        assert int(masked.size - masked.count()) == 0, (
+            "no cell of a count mosaic may read as masked; the uncovered quadrants' "
+            "tally of 0 was taken for the inherited no-data value"
+        )
+
+    def test_count_warns_when_it_drops_an_explicit_marker(self, gappy_pair, tmp_path):
+        """An explicitly passed marker is refused on a count mosaic, out loud.
+
+        Test scenario:
+            ``no_data_value=-1`` is a legal request on every other reduction, but a
+            count mosaic declares nothing, so the request is dropped -- and dropping
+            a caller's explicit argument silently is what the warning prevents.
+        """
+        pa, pb = gappy_pair
+        out = tmp_path / "explicit_count.tif"
+        with pytest.warns(UserWarning, match="count"):
+            merge_rasters([pa, pb], out, no_data_value=-1.0, method="count")
+        handle = gdal.Open(str(out))
+        marker = handle.GetRasterBand(1).GetNoDataValue()
+        handle = None
+        assert marker is None, (
+            f"the dropped marker must not reach the output band, got {marker}"
         )
 
     def test_mean_fills_uncovered_cells_with_the_marker(self, gappy_pair, tmp_path):
@@ -604,7 +652,7 @@ class TestMergeCountAndMean:
         pb = write_raster(tmp_path / "band_b.tif", b, (0, 3))
         counted = tmp_path / "band_count.tif"
         averaged = tmp_path / "band_mean.tif"
-        merge_rasters([pa, pb], counted, no_data_value=-1.0, method="count")
+        merge_rasters([pa, pb], counted, method="count")
         merge_rasters([pa, pb], averaged, no_data_value=-1.0, method="mean")
         tally = Dataset.read_file(str(counted)).read_array()
         mean = Dataset.read_file(str(averaged)).read_array()
@@ -1932,8 +1980,6 @@ class TestDatasetCollectionMergeMethod:
             A file-backed collection of the two overlapping rasters merged with
             method='sum' yields 30 in the overlap.
         """
-        from pyramids.dataset.collection import DatasetCollection
-
         pa, pb = overlapping_pair
         collection = DatasetCollection.read_multiple_files(
             [pa, pb], with_order=False, date=False
@@ -2108,8 +2154,6 @@ class TestMergeRastersDstCrs:
             With ``dst_crs=3857`` forcing a reproject, monkeypatching gdal.Warp
             to return None trips the defensive guard in ``_prepare_sources``.
         """
-        from pyramids.dataset import merge as merge_mod
-
         pa, pb = shared_crs_pair
         monkeypatch.setattr(merge_mod.gdal, "Warp", lambda *a, **k: None)
         with pytest.raises(
@@ -2149,14 +2193,14 @@ class TestMergeRastersDstCrs:
             Monkeypatching gdal.Open to return None trips the guard in the
             CRS-probe loop of ``_prepare_sources``.
         """
-        from pyramids.dataset import merge as merge_mod
-
         pa, pb = shared_crs_pair
         monkeypatch.setattr(merge_mod.gdal, "Open", lambda *a, **k: None)
         with pytest.raises(RuntimeError) as excinfo:
             merge_rasters([pa, pb], tmp_path / "x.tif")
         message = str(excinfo.value)
-        assert "GDAL returned no dataset" in message, message
+        assert "GDAL returned no dataset" in message, (
+            f"the CRS probe did not report the failed open as such: {message}"
+        )
         assert Path(pa).name in message, f"the failing source is not named: {message}"
         assert "1/2" in message, f"the source position is missing: {message}"
 
@@ -2514,8 +2558,6 @@ class TestMergeRastersSigner:
             A spy on gdal.BuildVRT reads the signer's sentinel config option at
             call time; it must see the value, proving CloudConfig was entered.
         """
-        from pyramids.dataset import merge as merge_mod
-
         seen = {}
         real_build_vrt = merge_mod.gdal.BuildVRT
 
@@ -2544,8 +2586,6 @@ class TestMergeRastersSigner:
             With ``signer=None`` the sentinel config option is unset (None) when
             gdal.BuildVRT runs — the nullcontext path installs nothing.
         """
-        from pyramids.dataset import merge as merge_mod
-
         seen = {}
         real_build_vrt = merge_mod.gdal.BuildVRT
 
@@ -2696,8 +2736,6 @@ class TestStackBandsSigner:
             A spy on Dataset.from_band_files reads the sentinel config option at
             call time and must see it, proving CloudConfig was entered.
         """
-        from pyramids.dataset import merge as merge_mod
-
         seen = {}
         real_from_band_files = merge_mod.Dataset.from_band_files
 
@@ -2832,7 +2870,9 @@ class TestMergeNoneGuards:
         with pytest.raises(RuntimeError) as excinfo:
             _merge_reduce([pa, pb], out, "min", -1.0, "nan")
         message = str(excinfo.value)
-        assert "warping onto the union grid returned no raster" in message, message
+        assert "warping onto the union grid returned no raster" in message, (
+            f"the guard did not say which GDAL step produced nothing: {message}"
+        )
         assert Path(pa).name in message, f"the failing source is not named: {message}"
 
     def test_reduce_path_names_the_failing_source(

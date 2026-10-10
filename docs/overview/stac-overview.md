@@ -288,7 +288,8 @@ stac = ["pystac-client>=0.8.0", "stac-asset>=0.4.7"]
 
 | Feature | Extra needed |
 |---|---|
-| `read_extension_metadata`, `load_asset`, `build_vrt_from_stac`, `Dataset.to_stac_item`, signers, `from_stac` (from raw dicts) | **core only** |
+| `read_extension_metadata`, `load_asset`, `build_vrt_from_stac` | **core only** |
+| `Dataset.to_stac_item`, signers, `from_stac` (from raw dicts) | **core only** |
 | `open_client`, `search`, `download_item`, `from_point` | `[stac]` (pystac-client / stac-asset) |
 | `to_geoparquet` / `from_geoparquet` | `[parquet]` (pyarrow) |
 | Zarr assets via `load_asset` | `[lazy]` (zarr) |

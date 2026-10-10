@@ -1303,8 +1303,9 @@ def merge_rasters(
             :meth:`~pyramids.dataset.Dataset.stats`. The reduction methods
             write Float64 and take ``NaN``, which no real cell can hold,
             whatever the sources' footprints — except ``method="count"``, whose
-            uncovered cells hold a real ``0`` and so leave the declared marker
-            unused. The z-order methods take the value
+            uncovered cells hold a real ``0`` and which therefore declares no
+            marker at all, since any value a tally can hold would mask real
+            counts (see `method`). The z-order methods take the value
             those pixels would otherwise hold, `init` — so ``NaN`` too on a
             floating mosaic, the common case. Where the band cannot store
             ``NaN``, the footprints decide. Sources that **tile their whole
@@ -1371,9 +1372,15 @@ def merge_rasters(
             ``2``. Its **uncovered cells hold a real ``0``** rather than the
             no-data fill every other reduction writes there: zero contributions
             is the honest tally, no covered cell can hold it, and the alternative
-            would be to report ``-9999`` contributions. The output still declares
-            whatever marker was inherited or passed, but on a count mosaic
-            nothing holds it, since every cell carries a real tally.
+            would be to report ``-9999`` contributions. A count mosaic therefore
+            **declares no no-data value at all**, whatever was inherited or
+            passed: every cell holds a tally in ``0..len(src_paths)``, and a
+            marker inside that range masks the cells really holding that number.
+            The case that forces it is ``0`` — the standard no-data of
+            Sentinel-2, Landsat Collection 2 and most integer EO products, and
+            the very tally every uncovered cell holds, so inheriting it would
+            mask exactly the gaps this method reports honestly. An explicitly
+            passed ``no_data_value`` is dropped here too, with a warning.
 
             ``"mean"`` divides each cell's total by that same valid count, so a
             cell covered by two of three sources averages the two values it
@@ -1520,7 +1527,10 @@ def merge_rasters(
             without one. Those four arise only while the marker is being
             inherited. Passing `no_data_value` explicitly silences them and
             raises one of its own where the value does not fit the output band:
-            GDAL then drops it and the mosaic carries no marker at all.
+            GDAL then drops it and the mosaic carries no marker at all. An
+            explicit `no_data_value` under ``method="count"`` warns too, and is
+            likewise dropped — see `method` for why a count mosaic declares
+            nothing.
 
     Examples:
         - Mosaic two tiles, keeping the larger value wherever they overlap:
@@ -1688,6 +1698,22 @@ def merge_rasters(
                 # storable and no real cell can hold it -- the same rule the
                 # z-order path applies, answered by the dtype it writes.
                 resolved_no_data = float("nan")
+            if (
+                method == "count"
+                and not inheriting
+                and resolved_no_data is not None
+                and not np.isnan(float(resolved_no_data))
+            ):
+                # Dropped by `_merge_reduce` because a count mosaic declares no
+                # marker; say so rather than ignoring an explicit argument.
+                warnings.warn(
+                    f"no_data_value={resolved_no_data!r} is dropped on "
+                    "method='count': every cell of a count mosaic holds a real "
+                    "tally, so a declared marker would mask the cells holding that "
+                    "number -- starting with the uncovered cells' honest 0. The "
+                    "mosaic is written with no no-data value.",
+                    stacklevel=2,
+                )
             _merge_reduce(
                 labelled, str(dst), method, resolved_no_data, n, bbox, bbox_crs
             )
@@ -2149,8 +2175,11 @@ def _merge_reduce(
     exact union grid makes the strip reduction byte-identical to a whole-grid pass.
     Pixels with no source coverage are written as `no_data_value`, or as ``NaN``
     when that is `None` -- except under ``method="count"``, where they hold the
-    real tally ``0``. The output is Float64 whatever the sources' dtype, since
-    the fold works in NaN-aware floating point throughout.
+    real tally ``0`` and the output declares no marker at all, `no_data_value`
+    included: a count mosaic's cells span ``0..len(src_paths)``, so a declared
+    marker inside that range masks real tallies, and the commonly inherited ``0``
+    masks precisely the uncovered cells. The output is Float64 whatever the
+    sources' dtype, since the fold works in NaN-aware floating point throughout.
 
     Args:
         src_paths: Sources as :class:`_Source` pairs (so a failure names the
@@ -2164,7 +2193,9 @@ def _merge_reduce(
             filled with NaN and the output declares nothing -- the same answer
             the z-order path gives for that request. "Nothing was inherited" is
             resolved to NaN by :func:`merge_rasters` before it calls here, so
-            that case arrives as a value and is declared.
+            that case arrives as a value and is declared. Ignored for
+            ``method="count"``, which declares no marker whatever is passed;
+            :func:`merge_rasters` warns when it drops an explicit one.
         n: Source pixel value to treat as no-data (``"nan"`` means none).
         bbox: Optional ``(west, south, east, north)`` window. When given, the union
             grid is clipped to it before the output is created, so only the window
@@ -2237,7 +2268,12 @@ def _merge_reduce(
     )
     out_ds.SetGeoTransform(geotransform)
     out_ds.SetProjection(projection)
-    if no_data_value is not None:
+    # `"count"` declares nothing, whatever was inherited or passed: its cells hold
+    # a tally in 0..len(sources), so any marker inside that range masks real counts
+    # -- and `0`, the standard no-data of Sentinel-2 and Landsat Collection 2, is
+    # both the most commonly inherited marker and the tally every uncovered cell
+    # holds, so inheriting it masked exactly the gaps this method reports honestly.
+    if no_data_value is not None and method != "count":
         for band_index in range(band_count):
             out_ds.GetRasterBand(band_index + 1).SetNoDataValue(fill)
 
