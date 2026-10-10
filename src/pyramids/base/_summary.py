@@ -35,16 +35,18 @@ ALLOWED_METRICS: tuple[str, ...] = ("count",) + tuple(
 def _one_metric(values: np.ndarray, metric: str, *, skipna: bool, ddof: int) -> float:
     """One statistic of a flat float64 array; NaN when nothing valid remains."""
     if metric == "count":
-        return float(int(np.isfinite(values).sum()))
-    if values.size == 0 or (skipna and not np.isfinite(values).any()):
-        return float("nan")
-    nan_fn, plain_fn = REDUCERS[metric]
-    fn = nan_fn if skipna else plain_fn
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        if metric in ("std", "var"):
-            return float(fn(values, ddof=ddof))
-        return float(fn(values))
+        result = float(int(np.isfinite(values).sum()))
+    elif values.size == 0 or (skipna and not np.isfinite(values).any()):
+        result = float("nan")
+    else:
+        nan_fn, plain_fn = REDUCERS[metric]
+        fn = nan_fn if skipna else plain_fn
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            result = float(
+                fn(values, ddof=ddof) if metric in ("std", "var") else fn(values)
+            )
+    return result
 
 
 def variable_summary(
