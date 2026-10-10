@@ -4292,6 +4292,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#pyramids.stac.search.item_search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        item_search
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pyramids.stac.search.search" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6477,6 +6488,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#pyramids.stac.search.item_search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        item_search
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pyramids.stac.search.search" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6615,13 +6637,43 @@ Hold "Ctrl" to enable pan &amp; zoom
 <td><a href="assets/">Assets</a></td>
 </tr>
 <tr>
-<td>Download assets to local files (<code>[stac]</code> extra)</td>
-<td><code>download_item</code></td>
+<td>Item search, un-executed (hit count, paging)</td>
+<td><code>item_search</code></td>
+<td><a href="#search">Client &amp; search</a></td>
+</tr>
+<tr>
+<td>Discover collections</td>
+<td><code>list_collections</code> · <code>search_collections</code> · <code>get_queryables</code></td>
+<td><a href="#search">Search</a></td>
+</tr>
+<tr>
+<td>Prefer an <code>alternate-assets</code> href</td>
+<td><code>preferred_asset_href</code> · <code>asset_alternate_href</code></td>
+<td><a href="assets/">Assets</a></td>
+</tr>
+<tr>
+<td>Verify an asset is reachable &amp; well-typed</td>
+<td><code>verify_asset</code></td>
+<td><a href="assets/">Assets</a></td>
+</tr>
+<tr>
+<td>Windowed read from an Item</td>
+<td><code>read_item_part</code> · <code>read_item_preview</code> · <code>read_item_point</code></td>
+<td><a href="assets/">Assets</a></td>
+</tr>
+<tr>
+<td>Download assets (<code>[stac]</code> extra)</td>
+<td><code>download_item</code> · <code>download_item_collection</code></td>
 <td><a href="assets/">Assets</a></td>
 </tr>
 <tr>
 <td>Serialize items ↔ GeoParquet (<code>[parquet]</code> extra)</td>
 <td><code>to_geoparquet</code> · <code>from_geoparquet</code></td>
+<td><a href="assets/">Assets</a></td>
+</tr>
+<tr>
+<td>Interoperable stac-geoparquet 1.1 layout</td>
+<td><code>to_geoparquet_spec</code> · <code>from_geoparquet_spec</code></td>
 <td><a href="assets/">Assets</a></td>
 </tr>
 <tr>
@@ -6633,10 +6685,14 @@ Hold "Ctrl" to enable pan &amp; zoom
 </table>
 <p>Two STAC entry points live on the raster classes (documented there):</p>
 <ul>
-<li><strong><code>DatasetCollection.from_stac(items, asset, *, signer, align, skip_missing, groupby, like, crs, resolution,
-  bounds)</code></strong> — build a time-stacked cube from STAC items (single asset → time stack, or a
-  list of assets → band axis; <code>groupby="solar_day"</code> mosaics same-overpass tiles;
-  <code>like=</code>/<code>crs</code>+<code>resolution</code>+<code>bounds</code> matches a target grid).
+<li><strong><code>DatasetCollection.from_stac(items, asset, *, signer, align, skip_missing, groupby, grid, method,
+  fuse_func, errors_as_nodata, rescale, cfg)</code></strong> — build a time-stacked cube from STAC
+  items (single asset → time stack, or a list of assets → band axis). <code>groupby</code> takes
+  <code>"solar_day"</code>, <code>"id"</code>, <code>"time"</code>, any item <strong>property key</strong>, or a <strong>callable</strong>, and each
+  group is mosaicked with <code>method=</code> (<code>first</code>/<code>last</code>/<code>min</code>/<code>max</code>/<code>sum</code>/<code>count</code>/<code>mean</code>) or a
+  custom <code>fuse_func</code>. <code>grid=</code> matches a target grid, <code>rescale=True</code> returns physical units,
+  <code>cfg=</code> supplies missing metadata and band aliases, and <code>errors_as_nodata=True</code> fills a
+  nodata plane for an unreadable asset instead of losing the cube.
   See <a href="../dataset_collection.md">DatasetCollection</a>.</li>
 <li><strong><code>DatasetCollection.from_point(lat, lon, *, collection, bands, start_date, end_date, edge_size, resolution)</code></strong>
   — a cubo-style point + edge-size convenience cube. See
@@ -7024,6 +7080,13 @@ AOI / time / cloud query one call and returns an <code>ItemCollection</code> rea
   whose own <code>bbox</code> / <code>max_items</code> are <em>client-side post-filters</em> over an
   already-materialised item list.</li>
 </ul>
+<p>Two entry points share one query builder:</p>
+<ul>
+<li>:func:<code>search</code> — eager: returns the matched <code>ItemCollection</code>.</li>
+<li>:func:<code>item_search</code> — lazy: returns the <code>ItemSearch</code> itself, so the caller
+  can ask for the total hit count (<code>.matched()</code>), stream items (<code>.items()</code>)
+  or walk result pages (<code>.pages()</code>) without materialising everything first.</li>
+</ul>
 <p><code>pystac-client</code> is an optional dependency. Install with one of:</p>
 <ul>
 <li>PyPI: <code>pip install 'pyramids-gis[stac]'</code></li>
@@ -7053,15 +7116,27 @@ AOI / time / cloud query one call and returns an <code>ItemCollection</code> rea
 <div class="doc doc-object doc-function">
 
 
-<h4 id="pyramids.stac.search.search" class="doc doc-heading"><a href="#pyramids.stac.search.search" class="toclink">
-            <code class="highlight language-python"><span class="n">search</span><span class="p">(</span><span class="n">client_or_url</span><span class="p">,</span> <span class="n">collections</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">intersects</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">datetime</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">query</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="nb">filter</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">sortby</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">max_items</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">signer</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+<h4 id="pyramids.stac.search.item_search" class="doc doc-heading"><a href="#pyramids.stac.search.item_search" class="toclink">
+            <code class="highlight language-python"><span class="n">item_search</span><span class="p">(</span><span class="n">client_or_url</span><span class="p">,</span> <span class="n">collections</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">ids</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">intersects</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">datetime</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">query</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="nb">filter</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">sortby</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fields</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">max_items</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">signer</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
-</a><a href="#pyramids.stac.search.search" class="headerlink" title="Permanent link">#</a></h4>
+</a><a href="#pyramids.stac.search.item_search" class="headerlink" title="Permanent link">#</a></h4>
 
 
     <div class="doc doc-contents ">
 
-        <p>Run a STAC item search and return the matched <code>ItemCollection</code>.</p>
+        <p>Build a STAC item search and return the lazy <code>ItemSearch</code> object.</p>
+<p>Same query as :func:<code>search</code>, but nothing is fetched: the returned
+<code>pystac_client.ItemSearch</code> is the handle to the <em>unexecuted</em> search, so the
+caller can ask it for the total hit count or page through results instead of
+materialising every item at once:</p>
+<ul>
+<li><code>.matched()</code> — total number of hits, <strong>or <code>None</code></strong> when the server does
+  not advertise a count (it is an optional STAC API field; never assume it).</li>
+<li><code>.items()</code> — stream items one by one, paging transparently.</li>
+<li><code>.pages()</code> — iterate whole result pages (one request per page).</li>
+<li><code>.item_collection()</code> — materialise everything, exactly what
+  :func:<code>search</code> returns.</li>
+</ul>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -7106,6 +7181,22 @@ AOI / time / cloud query one call and returns an <code>ItemCollection</code> rea
             </td>
             <td>
                 <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>ids</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="collections.abc.Sequence">Sequence</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional item id, or sequence of item ids, to fetch directly.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -7204,6 +7295,602 @@ given, the endpoint must advertise the <code>FILTER</code> conformance class.</p
             <td>
               <div class="doc-md-description">
                 <p>Optional sort specification forwarded to the API.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>fields</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional <code>fields</code> extension selection — an include/exclude dict
+(<code>{"include": ["id"], "exclude": ["geometry"]}</code>) or a list of field
+names. Trimming required fields can yield Items that no longer
+validate, so prefer reading such a response as dicts.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_items</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional cap on the total number of items returned (bounds
+paging at the API).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>limit</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional page size forwarded to the API.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>signer</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional signer used only when <code>client_or_url</code> is a URL (to open
+the client). Ignored when an open client is passed.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The <code>pystac_client.ItemSearch</code> for the query, not yet executed.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="OptionalPackageDoesNotExist">OptionalPackageDoesNotExist</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>When <code>pystac-client</code> is not installed.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>When both <code>bbox</code> and <code>intersects</code> are given (mutually
+exclusive per the STAC API spec), or when a <code>filter</code> is given but
+the endpoint does not advertise the CQL2 <code>FILTER</code> conformance
+class.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <ul>
+<li>Count the hits before deciding to download anything (requires the
+  <code>[stac]</code> extra and network access):
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="kn">from</span><span class="w"> </span><span class="nn">pyramids.stac</span><span class="w"> </span><span class="kn">import</span> <span class="n">item_search</span>  <span class="c1"># doctest: +SKIP</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">hits</span> <span class="o">=</span> <span class="n">item_search</span><span class="p">(</span>  <span class="c1"># doctest: +SKIP</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="o">...</span>     <span class="s2">"https://earth-search.aws.element84.com/v1"</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="o">...</span>     <span class="s2">"sentinel-2-l2a"</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="o">...</span>     <span class="n">bbox</span><span class="o">=</span><span class="p">(</span><span class="mf">11.0</span><span class="p">,</span> <span class="mf">46.0</span><span class="p">,</span> <span class="mf">11.2</span><span class="p">,</span> <span class="mf">46.2</span><span class="p">),</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="o">...</span>     <span class="n">datetime</span><span class="o">=</span><span class="s2">"2023-06/2023-08"</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="o">...</span> <span class="p">)</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">hits</span><span class="o">.</span><span class="n">matched</span><span class="p">()</span>  <span class="c1"># None when the server reports no count  # doctest: +SKIP</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="mi">128</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">first_page</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">hits</span><span class="o">.</span><span class="n">pages</span><span class="p">())</span>  <span class="c1"># doctest: +SKIP</span>
+</code></pre></div></li>
+</ul>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/pyramids/stac/search.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-44"> 44</a></span>
+<span class="normal"><a href="#__codelineno-0-45"> 45</a></span>
+<span class="normal"><a href="#__codelineno-0-46"> 46</a></span>
+<span class="normal"><a href="#__codelineno-0-47"> 47</a></span>
+<span class="normal"><a href="#__codelineno-0-48"> 48</a></span>
+<span class="normal"><a href="#__codelineno-0-49"> 49</a></span>
+<span class="normal"><a href="#__codelineno-0-50"> 50</a></span>
+<span class="normal"><a href="#__codelineno-0-51"> 51</a></span>
+<span class="normal"><a href="#__codelineno-0-52"> 52</a></span>
+<span class="normal"><a href="#__codelineno-0-53"> 53</a></span>
+<span class="normal"><a href="#__codelineno-0-54"> 54</a></span>
+<span class="normal"><a href="#__codelineno-0-55"> 55</a></span>
+<span class="normal"><a href="#__codelineno-0-56"> 56</a></span>
+<span class="normal"><a href="#__codelineno-0-57"> 57</a></span>
+<span class="normal"><a href="#__codelineno-0-58"> 58</a></span>
+<span class="normal"><a href="#__codelineno-0-59"> 59</a></span>
+<span class="normal"><a href="#__codelineno-0-60"> 60</a></span>
+<span class="normal"><a href="#__codelineno-0-61"> 61</a></span>
+<span class="normal"><a href="#__codelineno-0-62"> 62</a></span>
+<span class="normal"><a href="#__codelineno-0-63"> 63</a></span>
+<span class="normal"><a href="#__codelineno-0-64"> 64</a></span>
+<span class="normal"><a href="#__codelineno-0-65"> 65</a></span>
+<span class="normal"><a href="#__codelineno-0-66"> 66</a></span>
+<span class="normal"><a href="#__codelineno-0-67"> 67</a></span>
+<span class="normal"><a href="#__codelineno-0-68"> 68</a></span>
+<span class="normal"><a href="#__codelineno-0-69"> 69</a></span>
+<span class="normal"><a href="#__codelineno-0-70"> 70</a></span>
+<span class="normal"><a href="#__codelineno-0-71"> 71</a></span>
+<span class="normal"><a href="#__codelineno-0-72"> 72</a></span>
+<span class="normal"><a href="#__codelineno-0-73"> 73</a></span>
+<span class="normal"><a href="#__codelineno-0-74"> 74</a></span>
+<span class="normal"><a href="#__codelineno-0-75"> 75</a></span>
+<span class="normal"><a href="#__codelineno-0-76"> 76</a></span>
+<span class="normal"><a href="#__codelineno-0-77"> 77</a></span>
+<span class="normal"><a href="#__codelineno-0-78"> 78</a></span>
+<span class="normal"><a href="#__codelineno-0-79"> 79</a></span>
+<span class="normal"><a href="#__codelineno-0-80"> 80</a></span>
+<span class="normal"><a href="#__codelineno-0-81"> 81</a></span>
+<span class="normal"><a href="#__codelineno-0-82"> 82</a></span>
+<span class="normal"><a href="#__codelineno-0-83"> 83</a></span>
+<span class="normal"><a href="#__codelineno-0-84"> 84</a></span>
+<span class="normal"><a href="#__codelineno-0-85"> 85</a></span>
+<span class="normal"><a href="#__codelineno-0-86"> 86</a></span>
+<span class="normal"><a href="#__codelineno-0-87"> 87</a></span>
+<span class="normal"><a href="#__codelineno-0-88"> 88</a></span>
+<span class="normal"><a href="#__codelineno-0-89"> 89</a></span>
+<span class="normal"><a href="#__codelineno-0-90"> 90</a></span>
+<span class="normal"><a href="#__codelineno-0-91"> 91</a></span>
+<span class="normal"><a href="#__codelineno-0-92"> 92</a></span>
+<span class="normal"><a href="#__codelineno-0-93"> 93</a></span>
+<span class="normal"><a href="#__codelineno-0-94"> 94</a></span>
+<span class="normal"><a href="#__codelineno-0-95"> 95</a></span>
+<span class="normal"><a href="#__codelineno-0-96"> 96</a></span>
+<span class="normal"><a href="#__codelineno-0-97"> 97</a></span>
+<span class="normal"><a href="#__codelineno-0-98"> 98</a></span>
+<span class="normal"><a href="#__codelineno-0-99"> 99</a></span>
+<span class="normal"><a href="#__codelineno-0-100">100</a></span>
+<span class="normal"><a href="#__codelineno-0-101">101</a></span>
+<span class="normal"><a href="#__codelineno-0-102">102</a></span>
+<span class="normal"><a href="#__codelineno-0-103">103</a></span>
+<span class="normal"><a href="#__codelineno-0-104">104</a></span>
+<span class="normal"><a href="#__codelineno-0-105">105</a></span>
+<span class="normal"><a href="#__codelineno-0-106">106</a></span>
+<span class="normal"><a href="#__codelineno-0-107">107</a></span>
+<span class="normal"><a href="#__codelineno-0-108">108</a></span>
+<span class="normal"><a href="#__codelineno-0-109">109</a></span>
+<span class="normal"><a href="#__codelineno-0-110">110</a></span>
+<span class="normal"><a href="#__codelineno-0-111">111</a></span>
+<span class="normal"><a href="#__codelineno-0-112">112</a></span>
+<span class="normal"><a href="#__codelineno-0-113">113</a></span>
+<span class="normal"><a href="#__codelineno-0-114">114</a></span>
+<span class="normal"><a href="#__codelineno-0-115">115</a></span>
+<span class="normal"><a href="#__codelineno-0-116">116</a></span>
+<span class="normal"><a href="#__codelineno-0-117">117</a></span>
+<span class="normal"><a href="#__codelineno-0-118">118</a></span>
+<span class="normal"><a href="#__codelineno-0-119">119</a></span>
+<span class="normal"><a href="#__codelineno-0-120">120</a></span>
+<span class="normal"><a href="#__codelineno-0-121">121</a></span>
+<span class="normal"><a href="#__codelineno-0-122">122</a></span>
+<span class="normal"><a href="#__codelineno-0-123">123</a></span>
+<span class="normal"><a href="#__codelineno-0-124">124</a></span>
+<span class="normal"><a href="#__codelineno-0-125">125</a></span>
+<span class="normal"><a href="#__codelineno-0-126">126</a></span>
+<span class="normal"><a href="#__codelineno-0-127">127</a></span>
+<span class="normal"><a href="#__codelineno-0-128">128</a></span>
+<span class="normal"><a href="#__codelineno-0-129">129</a></span>
+<span class="normal"><a href="#__codelineno-0-130">130</a></span>
+<span class="normal"><a href="#__codelineno-0-131">131</a></span>
+<span class="normal"><a href="#__codelineno-0-132">132</a></span>
+<span class="normal"><a href="#__codelineno-0-133">133</a></span>
+<span class="normal"><a href="#__codelineno-0-134">134</a></span>
+<span class="normal"><a href="#__codelineno-0-135">135</a></span>
+<span class="normal"><a href="#__codelineno-0-136">136</a></span>
+<span class="normal"><a href="#__codelineno-0-137">137</a></span>
+<span class="normal"><a href="#__codelineno-0-138">138</a></span>
+<span class="normal"><a href="#__codelineno-0-139">139</a></span>
+<span class="normal"><a href="#__codelineno-0-140">140</a></span>
+<span class="normal"><a href="#__codelineno-0-141">141</a></span>
+<span class="normal"><a href="#__codelineno-0-142">142</a></span>
+<span class="normal"><a href="#__codelineno-0-143">143</a></span>
+<span class="normal"><a href="#__codelineno-0-144">144</a></span>
+<span class="normal"><a href="#__codelineno-0-145">145</a></span>
+<span class="normal"><a href="#__codelineno-0-146">146</a></span>
+<span class="normal"><a href="#__codelineno-0-147">147</a></span>
+<span class="normal"><a href="#__codelineno-0-148">148</a></span>
+<span class="normal"><a href="#__codelineno-0-149">149</a></span>
+<span class="normal"><a href="#__codelineno-0-150">150</a></span>
+<span class="normal"><a href="#__codelineno-0-151">151</a></span>
+<span class="normal"><a href="#__codelineno-0-152">152</a></span>
+<span class="normal"><a href="#__codelineno-0-153">153</a></span>
+<span class="normal"><a href="#__codelineno-0-154">154</a></span>
+<span class="normal"><a href="#__codelineno-0-155">155</a></span>
+<span class="normal"><a href="#__codelineno-0-156">156</a></span>
+<span class="normal"><a href="#__codelineno-0-157">157</a></span>
+<span class="normal"><a href="#__codelineno-0-158">158</a></span>
+<span class="normal"><a href="#__codelineno-0-159">159</a></span>
+<span class="normal"><a href="#__codelineno-0-160">160</a></span>
+<span class="normal"><a href="#__codelineno-0-161">161</a></span>
+<span class="normal"><a href="#__codelineno-0-162">162</a></span>
+<span class="normal"><a href="#__codelineno-0-163">163</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="k">def</span><span class="w"> </span><span class="nf">item_search</span><span class="p">(</span>
+<a id="__codelineno-0-45" name="__codelineno-0-45"></a>    <span class="n">client_or_url</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+<a id="__codelineno-0-46" name="__codelineno-0-46"></a>    <span class="n">collections</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+<a id="__codelineno-0-47" name="__codelineno-0-47"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-48" name="__codelineno-0-48"></a>    <span class="n">ids</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-49" name="__codelineno-0-49"></a>    <span class="n">bbox</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-50" name="__codelineno-0-50"></a>    <span class="n">intersects</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-51" name="__codelineno-0-51"></a>    <span class="n">datetime</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-52" name="__codelineno-0-52"></a>    <span class="n">query</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-53" name="__codelineno-0-53"></a>    <span class="nb">filter</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-54" name="__codelineno-0-54"></a>    <span class="n">sortby</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-55" name="__codelineno-0-55"></a>    <span class="n">fields</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-56" name="__codelineno-0-56"></a>    <span class="n">max_items</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-57" name="__codelineno-0-57"></a>    <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-58" name="__codelineno-0-58"></a>    <span class="n">signer</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="w">    </span><span class="sd">"""Build a STAC item search and return the lazy ``ItemSearch`` object.</span>
+<a id="__codelineno-0-61" name="__codelineno-0-61"></a>
+<a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">    Same query as :func:`search`, but nothing is fetched: the returned</span>
+<a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">    ``pystac_client.ItemSearch`` is the handle to the *unexecuted* search, so the</span>
+<a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">    caller can ask it for the total hit count or page through results instead of</span>
+<a id="__codelineno-0-65" name="__codelineno-0-65"></a><span class="sd">    materialising every item at once:</span>
+<a id="__codelineno-0-66" name="__codelineno-0-66"></a>
+<a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">    * ``.matched()`` — total number of hits, **or ``None``** when the server does</span>
+<a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">      not advertise a count (it is an optional STAC API field; never assume it).</span>
+<a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">    * ``.items()`` — stream items one by one, paging transparently.</span>
+<a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="sd">    * ``.pages()`` — iterate whole result pages (one request per page).</span>
+<a id="__codelineno-0-71" name="__codelineno-0-71"></a><span class="sd">    * ``.item_collection()`` — materialise everything, exactly what</span>
+<a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">      :func:`search` returns.</span>
+<a id="__codelineno-0-73" name="__codelineno-0-73"></a>
+<a id="__codelineno-0-74" name="__codelineno-0-74"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-75" name="__codelineno-0-75"></a><span class="sd">        client_or_url: An open ``pystac_client.Client``, or a STAC API root URL</span>
+<a id="__codelineno-0-76" name="__codelineno-0-76"></a><span class="sd">            (opened via :func:`pyramids.stac.open_client`, wiring `signer`).</span>
+<a id="__codelineno-0-77" name="__codelineno-0-77"></a><span class="sd">        collections: Collection id, or a sequence of collection ids, to search.</span>
+<a id="__codelineno-0-78" name="__codelineno-0-78"></a><span class="sd">        ids: Optional item id, or sequence of item ids, to fetch directly.</span>
+<a id="__codelineno-0-79" name="__codelineno-0-79"></a><span class="sd">        bbox: Optional `(minx, miny, maxx, maxy)` lon/lat box, forwarded to the</span>
+<a id="__codelineno-0-80" name="__codelineno-0-80"></a><span class="sd">            API. Mutually exclusive with `intersects` (STAC API rule).</span>
+<a id="__codelineno-0-81" name="__codelineno-0-81"></a><span class="sd">        intersects: Optional AOI geometry — a shapely geometry (anything with a</span>
+<a id="__codelineno-0-82" name="__codelineno-0-82"></a><span class="sd">            ``__geo_interface__``) or a GeoJSON-geometry dict. A shapely geometry</span>
+<a id="__codelineno-0-83" name="__codelineno-0-83"></a><span class="sd">            is converted to GeoJSON before the request.</span>
+<a id="__codelineno-0-84" name="__codelineno-0-84"></a><span class="sd">        datetime: Optional RFC 3339 datetime or interval string</span>
+<a id="__codelineno-0-85" name="__codelineno-0-85"></a><span class="sd">            (e.g. ``"2023-06/2023-08"``), forwarded to the API.</span>
+<a id="__codelineno-0-86" name="__codelineno-0-86"></a><span class="sd">        query: Optional ``query`` extension dict (e.g.</span>
+<a id="__codelineno-0-87" name="__codelineno-0-87"></a><span class="sd">            ``{"eo:cloud_cover": {"lt": 20}}``).</span>
+<a id="__codelineno-0-88" name="__codelineno-0-88"></a><span class="sd">        filter: Optional CQL2 filter (cql2-json dict or cql2-text string). When</span>
+<a id="__codelineno-0-89" name="__codelineno-0-89"></a><span class="sd">            given, the endpoint must advertise the ``FILTER`` conformance class.</span>
+<a id="__codelineno-0-90" name="__codelineno-0-90"></a><span class="sd">        sortby: Optional sort specification forwarded to the API.</span>
+<a id="__codelineno-0-91" name="__codelineno-0-91"></a><span class="sd">        fields: Optional ``fields`` extension selection — an include/exclude dict</span>
+<a id="__codelineno-0-92" name="__codelineno-0-92"></a><span class="sd">            (``{"include": ["id"], "exclude": ["geometry"]}``) or a list of field</span>
+<a id="__codelineno-0-93" name="__codelineno-0-93"></a><span class="sd">            names. Trimming required fields can yield Items that no longer</span>
+<a id="__codelineno-0-94" name="__codelineno-0-94"></a><span class="sd">            validate, so prefer reading such a response as dicts.</span>
+<a id="__codelineno-0-95" name="__codelineno-0-95"></a><span class="sd">        max_items: Optional cap on the total number of items returned (bounds</span>
+<a id="__codelineno-0-96" name="__codelineno-0-96"></a><span class="sd">            paging at the API).</span>
+<a id="__codelineno-0-97" name="__codelineno-0-97"></a><span class="sd">        limit: Optional page size forwarded to the API.</span>
+<a id="__codelineno-0-98" name="__codelineno-0-98"></a><span class="sd">        signer: Optional signer used only when `client_or_url` is a URL (to open</span>
+<a id="__codelineno-0-99" name="__codelineno-0-99"></a><span class="sd">            the client). Ignored when an open client is passed.</span>
+<a id="__codelineno-0-100" name="__codelineno-0-100"></a>
+<a id="__codelineno-0-101" name="__codelineno-0-101"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-102" name="__codelineno-0-102"></a><span class="sd">        The ``pystac_client.ItemSearch`` for the query, not yet executed.</span>
+<a id="__codelineno-0-103" name="__codelineno-0-103"></a>
+<a id="__codelineno-0-104" name="__codelineno-0-104"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-105" name="__codelineno-0-105"></a><span class="sd">        OptionalPackageDoesNotExist: When `pystac-client` is not installed.</span>
+<a id="__codelineno-0-106" name="__codelineno-0-106"></a><span class="sd">        ValueError: When both `bbox` and `intersects` are given (mutually</span>
+<a id="__codelineno-0-107" name="__codelineno-0-107"></a><span class="sd">            exclusive per the STAC API spec), or when a `filter` is given but</span>
+<a id="__codelineno-0-108" name="__codelineno-0-108"></a><span class="sd">            the endpoint does not advertise the CQL2 ``FILTER`` conformance</span>
+<a id="__codelineno-0-109" name="__codelineno-0-109"></a><span class="sd">            class.</span>
+<a id="__codelineno-0-110" name="__codelineno-0-110"></a>
+<a id="__codelineno-0-111" name="__codelineno-0-111"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-112" name="__codelineno-0-112"></a><span class="sd">        - Count the hits before deciding to download anything (requires the</span>
+<a id="__codelineno-0-113" name="__codelineno-0-113"></a><span class="sd">          `[stac]` extra and network access):</span>
+<a id="__codelineno-0-114" name="__codelineno-0-114"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-115" name="__codelineno-0-115"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import item_search  # doctest: +SKIP</span>
+<a id="__codelineno-0-116" name="__codelineno-0-116"></a><span class="sd">            &gt;&gt;&gt; hits = item_search(  # doctest: +SKIP</span>
+<a id="__codelineno-0-117" name="__codelineno-0-117"></a><span class="sd">            ...     "https://earth-search.aws.element84.com/v1",</span>
+<a id="__codelineno-0-118" name="__codelineno-0-118"></a><span class="sd">            ...     "sentinel-2-l2a",</span>
+<a id="__codelineno-0-119" name="__codelineno-0-119"></a><span class="sd">            ...     bbox=(11.0, 46.0, 11.2, 46.2),</span>
+<a id="__codelineno-0-120" name="__codelineno-0-120"></a><span class="sd">            ...     datetime="2023-06/2023-08",</span>
+<a id="__codelineno-0-121" name="__codelineno-0-121"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-122" name="__codelineno-0-122"></a><span class="sd">            &gt;&gt;&gt; hits.matched()  # None when the server reports no count  # doctest: +SKIP</span>
+<a id="__codelineno-0-123" name="__codelineno-0-123"></a><span class="sd">            128</span>
+<a id="__codelineno-0-124" name="__codelineno-0-124"></a><span class="sd">            &gt;&gt;&gt; first_page = next(hits.pages())  # doctest: +SKIP</span>
+<a id="__codelineno-0-125" name="__codelineno-0-125"></a>
+<a id="__codelineno-0-126" name="__codelineno-0-126"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-127" name="__codelineno-0-127"></a><span class="sd">    """</span>
+<a id="__codelineno-0-128" name="__codelineno-0-128"></a>    <span class="k">if</span> <span class="n">bbox</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">intersects</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-0-129" name="__codelineno-0-129"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-130" name="__codelineno-0-130"></a>            <span class="s2">"bbox and intersects are mutually exclusive (STAC API spec); pass only one."</span>
+<a id="__codelineno-0-131" name="__codelineno-0-131"></a>        <span class="p">)</span>
+<a id="__codelineno-0-132" name="__codelineno-0-132"></a>
+<a id="__codelineno-0-133" name="__codelineno-0-133"></a>    <span class="n">import_pystac_client</span><span class="p">(</span><span class="n">_STAC_INSTALL_HINT</span><span class="p">)</span>
+<a id="__codelineno-0-134" name="__codelineno-0-134"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">pystac_client</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConformanceClasses</span>
+<a id="__codelineno-0-135" name="__codelineno-0-135"></a>
+<a id="__codelineno-0-136" name="__codelineno-0-136"></a>    <span class="n">client</span> <span class="o">=</span> <span class="p">(</span>
+<a id="__codelineno-0-137" name="__codelineno-0-137"></a>        <span class="n">open_client</span><span class="p">(</span><span class="n">client_or_url</span><span class="p">,</span> <span class="n">signer</span><span class="o">=</span><span class="n">signer</span><span class="p">)</span>
+<a id="__codelineno-0-138" name="__codelineno-0-138"></a>        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">client_or_url</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span>
+<a id="__codelineno-0-139" name="__codelineno-0-139"></a>        <span class="k">else</span> <span class="n">client_or_url</span>
+<a id="__codelineno-0-140" name="__codelineno-0-140"></a>    <span class="p">)</span>
+<a id="__codelineno-0-141" name="__codelineno-0-141"></a>
+<a id="__codelineno-0-142" name="__codelineno-0-142"></a>    <span class="k">if</span> <span class="nb">filter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">client</span><span class="o">.</span><span class="n">conforms_to</span><span class="p">(</span><span class="n">ConformanceClasses</span><span class="o">.</span><span class="n">FILTER</span><span class="p">):</span>
+<a id="__codelineno-0-143" name="__codelineno-0-143"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-0-144" name="__codelineno-0-144"></a>            <span class="s2">"the STAC endpoint does not advertise the CQL2 FILTER conformance "</span>
+<a id="__codelineno-0-145" name="__codelineno-0-145"></a>            <span class="s2">"class, so a `filter` cannot be used against it."</span>
+<a id="__codelineno-0-146" name="__codelineno-0-146"></a>        <span class="p">)</span>
+<a id="__codelineno-0-147" name="__codelineno-0-147"></a>
+<a id="__codelineno-0-148" name="__codelineno-0-148"></a>    <span class="k">if</span> <span class="n">intersects</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">intersects</span><span class="p">,</span> <span class="s2">"__geo_interface__"</span><span class="p">):</span>
+<a id="__codelineno-0-149" name="__codelineno-0-149"></a>        <span class="n">intersects</span> <span class="o">=</span> <span class="n">intersects</span><span class="o">.</span><span class="n">__geo_interface__</span>
+<a id="__codelineno-0-150" name="__codelineno-0-150"></a>
+<a id="__codelineno-0-151" name="__codelineno-0-151"></a>    <span class="k">return</span> <span class="n">client</span><span class="o">.</span><span class="n">search</span><span class="p">(</span>
+<a id="__codelineno-0-152" name="__codelineno-0-152"></a>        <span class="n">collections</span><span class="o">=</span><span class="n">collections</span><span class="p">,</span>
+<a id="__codelineno-0-153" name="__codelineno-0-153"></a>        <span class="n">ids</span><span class="o">=</span><span class="n">ids</span><span class="p">,</span>
+<a id="__codelineno-0-154" name="__codelineno-0-154"></a>        <span class="n">bbox</span><span class="o">=</span><span class="n">bbox</span><span class="p">,</span>
+<a id="__codelineno-0-155" name="__codelineno-0-155"></a>        <span class="n">intersects</span><span class="o">=</span><span class="n">intersects</span><span class="p">,</span>
+<a id="__codelineno-0-156" name="__codelineno-0-156"></a>        <span class="n">datetime</span><span class="o">=</span><span class="n">datetime</span><span class="p">,</span>
+<a id="__codelineno-0-157" name="__codelineno-0-157"></a>        <span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span>
+<a id="__codelineno-0-158" name="__codelineno-0-158"></a>        <span class="nb">filter</span><span class="o">=</span><span class="nb">filter</span><span class="p">,</span>
+<a id="__codelineno-0-159" name="__codelineno-0-159"></a>        <span class="n">sortby</span><span class="o">=</span><span class="n">sortby</span><span class="p">,</span>
+<a id="__codelineno-0-160" name="__codelineno-0-160"></a>        <span class="n">fields</span><span class="o">=</span><span class="n">fields</span><span class="p">,</span>
+<a id="__codelineno-0-161" name="__codelineno-0-161"></a>        <span class="n">max_items</span><span class="o">=</span><span class="n">max_items</span><span class="p">,</span>
+<a id="__codelineno-0-162" name="__codelineno-0-162"></a>        <span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">,</span>
+<a id="__codelineno-0-163" name="__codelineno-0-163"></a>    <span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="pyramids.stac.search.search" class="doc doc-heading"><a href="#pyramids.stac.search.search" class="toclink">
+            <code class="highlight language-python"><span class="n">search</span><span class="p">(</span><span class="n">client_or_url</span><span class="p">,</span> <span class="n">collections</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">ids</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">bbox</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">intersects</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">datetime</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">query</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="nb">filter</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">sortby</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fields</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">max_items</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">signer</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+</a><a href="#pyramids.stac.search.search" class="headerlink" title="Permanent link">#</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Run a STAC item search and return the matched <code>ItemCollection</code>.</p>
+<p>The eager counterpart of :func:<code>item_search</code>: it builds the very same query
+and immediately materialises it. Reach for :func:<code>item_search</code> instead when
+the hit count (<code>.matched()</code>) or page-by-page iteration is wanted — this
+function always returns a materialised <code>ItemCollection</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>client_or_url</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>An open <code>pystac_client.Client</code>, or a STAC API root URL
+(opened via :func:<code>pyramids.stac.open_client</code>, wiring <code>signer</code>).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>collections</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="collections.abc.Sequence">Sequence</span>[<span title="str">str</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Collection id, or a sequence of collection ids, to search.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>ids</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> | <span title="collections.abc.Sequence">Sequence</span>[<span title="str">str</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional item id, or sequence of item ids, to fetch directly.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>bbox</code>
+            </td>
+            <td>
+                  <code><span title="collections.abc.Sequence">Sequence</span>[<span title="float">float</span>] | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional <code>(minx, miny, maxx, maxy)</code> lon/lat box, forwarded to the
+API. Mutually exclusive with <code>intersects</code> (STAC API rule).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>intersects</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional AOI geometry — a shapely geometry (anything with a
+<code>__geo_interface__</code>) or a GeoJSON-geometry dict. A shapely geometry
+is converted to GeoJSON before the request.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>datetime</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional RFC 3339 datetime or interval string
+(e.g. <code>"2023-06/2023-08"</code>), forwarded to the API.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>query</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional <code>query</code> extension dict (e.g.
+<code>{"eo:cloud_cover": {"lt": 20}}</code>).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>filter</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional CQL2 filter (cql2-json dict or cql2-text string). When
+given, the endpoint must advertise the <code>FILTER</code> conformance class.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>sortby</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional sort specification forwarded to the API.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>fields</code>
+            </td>
+            <td>
+                  <code><span title="typing.Any">Any</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional <code>fields</code> extension selection — an include/exclude dict
+(<code>{"include": ["id"], "exclude": ["geometry"]}</code>) or a list of field
+names. Trimming required fields can yield Items that no longer
+validate, so prefer reading such a response as dicts.</p>
               </div>
             </td>
             <td>
@@ -7349,212 +8036,226 @@ class.</p>
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="o">...</span> <span class="p">)</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">cube</span> <span class="o">=</span> <span class="n">DatasetCollection</span><span class="o">.</span><span class="n">from_stac</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">asset</span><span class="o">=</span><span class="p">[</span><span class="s2">"red"</span><span class="p">,</span> <span class="s2">"green"</span><span class="p">,</span> <span class="s2">"blue"</span><span class="p">])</span>  <span class="c1"># doctest: +SKIP</span>
 </code></pre></div></li>
+<li>Fetch two known items and keep only a couple of fields:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="o">&gt;&gt;&gt;</span> <span class="n">items</span> <span class="o">=</span> <span class="n">search</span><span class="p">(</span>  <span class="c1"># doctest: +SKIP</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="o">...</span>     <span class="s2">"https://earth-search.aws.element84.com/v1"</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="o">...</span>     <span class="s2">"sentinel-2-l2a"</span><span class="p">,</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="o">...</span>     <span class="n">ids</span><span class="o">=</span><span class="p">[</span><span class="s2">"S2B_32TPS_20230601_0_L2A"</span><span class="p">,</span> <span class="s2">"S2A_32TPS_20230606_0_L2A"</span><span class="p">],</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="o">...</span>     <span class="n">fields</span><span class="o">=</span><span class="p">{</span><span class="s2">"include"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"id"</span><span class="p">,</span> <span class="s2">"properties.datetime"</span><span class="p">]},</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="o">...</span> <span class="p">)</span>
+</code></pre></div></li>
 </ul>
 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/pyramids/stac/search.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-37"> 37</a></span>
-<span class="normal"><a href="#__codelineno-0-38"> 38</a></span>
-<span class="normal"><a href="#__codelineno-0-39"> 39</a></span>
-<span class="normal"><a href="#__codelineno-0-40"> 40</a></span>
-<span class="normal"><a href="#__codelineno-0-41"> 41</a></span>
-<span class="normal"><a href="#__codelineno-0-42"> 42</a></span>
-<span class="normal"><a href="#__codelineno-0-43"> 43</a></span>
-<span class="normal"><a href="#__codelineno-0-44"> 44</a></span>
-<span class="normal"><a href="#__codelineno-0-45"> 45</a></span>
-<span class="normal"><a href="#__codelineno-0-46"> 46</a></span>
-<span class="normal"><a href="#__codelineno-0-47"> 47</a></span>
-<span class="normal"><a href="#__codelineno-0-48"> 48</a></span>
-<span class="normal"><a href="#__codelineno-0-49"> 49</a></span>
-<span class="normal"><a href="#__codelineno-0-50"> 50</a></span>
-<span class="normal"><a href="#__codelineno-0-51"> 51</a></span>
-<span class="normal"><a href="#__codelineno-0-52"> 52</a></span>
-<span class="normal"><a href="#__codelineno-0-53"> 53</a></span>
-<span class="normal"><a href="#__codelineno-0-54"> 54</a></span>
-<span class="normal"><a href="#__codelineno-0-55"> 55</a></span>
-<span class="normal"><a href="#__codelineno-0-56"> 56</a></span>
-<span class="normal"><a href="#__codelineno-0-57"> 57</a></span>
-<span class="normal"><a href="#__codelineno-0-58"> 58</a></span>
-<span class="normal"><a href="#__codelineno-0-59"> 59</a></span>
-<span class="normal"><a href="#__codelineno-0-60"> 60</a></span>
-<span class="normal"><a href="#__codelineno-0-61"> 61</a></span>
-<span class="normal"><a href="#__codelineno-0-62"> 62</a></span>
-<span class="normal"><a href="#__codelineno-0-63"> 63</a></span>
-<span class="normal"><a href="#__codelineno-0-64"> 64</a></span>
-<span class="normal"><a href="#__codelineno-0-65"> 65</a></span>
-<span class="normal"><a href="#__codelineno-0-66"> 66</a></span>
-<span class="normal"><a href="#__codelineno-0-67"> 67</a></span>
-<span class="normal"><a href="#__codelineno-0-68"> 68</a></span>
-<span class="normal"><a href="#__codelineno-0-69"> 69</a></span>
-<span class="normal"><a href="#__codelineno-0-70"> 70</a></span>
-<span class="normal"><a href="#__codelineno-0-71"> 71</a></span>
-<span class="normal"><a href="#__codelineno-0-72"> 72</a></span>
-<span class="normal"><a href="#__codelineno-0-73"> 73</a></span>
-<span class="normal"><a href="#__codelineno-0-74"> 74</a></span>
-<span class="normal"><a href="#__codelineno-0-75"> 75</a></span>
-<span class="normal"><a href="#__codelineno-0-76"> 76</a></span>
-<span class="normal"><a href="#__codelineno-0-77"> 77</a></span>
-<span class="normal"><a href="#__codelineno-0-78"> 78</a></span>
-<span class="normal"><a href="#__codelineno-0-79"> 79</a></span>
-<span class="normal"><a href="#__codelineno-0-80"> 80</a></span>
-<span class="normal"><a href="#__codelineno-0-81"> 81</a></span>
-<span class="normal"><a href="#__codelineno-0-82"> 82</a></span>
-<span class="normal"><a href="#__codelineno-0-83"> 83</a></span>
-<span class="normal"><a href="#__codelineno-0-84"> 84</a></span>
-<span class="normal"><a href="#__codelineno-0-85"> 85</a></span>
-<span class="normal"><a href="#__codelineno-0-86"> 86</a></span>
-<span class="normal"><a href="#__codelineno-0-87"> 87</a></span>
-<span class="normal"><a href="#__codelineno-0-88"> 88</a></span>
-<span class="normal"><a href="#__codelineno-0-89"> 89</a></span>
-<span class="normal"><a href="#__codelineno-0-90"> 90</a></span>
-<span class="normal"><a href="#__codelineno-0-91"> 91</a></span>
-<span class="normal"><a href="#__codelineno-0-92"> 92</a></span>
-<span class="normal"><a href="#__codelineno-0-93"> 93</a></span>
-<span class="normal"><a href="#__codelineno-0-94"> 94</a></span>
-<span class="normal"><a href="#__codelineno-0-95"> 95</a></span>
-<span class="normal"><a href="#__codelineno-0-96"> 96</a></span>
-<span class="normal"><a href="#__codelineno-0-97"> 97</a></span>
-<span class="normal"><a href="#__codelineno-0-98"> 98</a></span>
-<span class="normal"><a href="#__codelineno-0-99"> 99</a></span>
-<span class="normal"><a href="#__codelineno-0-100">100</a></span>
-<span class="normal"><a href="#__codelineno-0-101">101</a></span>
-<span class="normal"><a href="#__codelineno-0-102">102</a></span>
-<span class="normal"><a href="#__codelineno-0-103">103</a></span>
-<span class="normal"><a href="#__codelineno-0-104">104</a></span>
-<span class="normal"><a href="#__codelineno-0-105">105</a></span>
-<span class="normal"><a href="#__codelineno-0-106">106</a></span>
-<span class="normal"><a href="#__codelineno-0-107">107</a></span>
-<span class="normal"><a href="#__codelineno-0-108">108</a></span>
-<span class="normal"><a href="#__codelineno-0-109">109</a></span>
-<span class="normal"><a href="#__codelineno-0-110">110</a></span>
-<span class="normal"><a href="#__codelineno-0-111">111</a></span>
-<span class="normal"><a href="#__codelineno-0-112">112</a></span>
-<span class="normal"><a href="#__codelineno-0-113">113</a></span>
-<span class="normal"><a href="#__codelineno-0-114">114</a></span>
-<span class="normal"><a href="#__codelineno-0-115">115</a></span>
-<span class="normal"><a href="#__codelineno-0-116">116</a></span>
-<span class="normal"><a href="#__codelineno-0-117">117</a></span>
-<span class="normal"><a href="#__codelineno-0-118">118</a></span>
-<span class="normal"><a href="#__codelineno-0-119">119</a></span>
-<span class="normal"><a href="#__codelineno-0-120">120</a></span>
-<span class="normal"><a href="#__codelineno-0-121">121</a></span>
-<span class="normal"><a href="#__codelineno-0-122">122</a></span>
-<span class="normal"><a href="#__codelineno-0-123">123</a></span>
-<span class="normal"><a href="#__codelineno-0-124">124</a></span>
-<span class="normal"><a href="#__codelineno-0-125">125</a></span>
-<span class="normal"><a href="#__codelineno-0-126">126</a></span>
-<span class="normal"><a href="#__codelineno-0-127">127</a></span>
-<span class="normal"><a href="#__codelineno-0-128">128</a></span>
-<span class="normal"><a href="#__codelineno-0-129">129</a></span>
-<span class="normal"><a href="#__codelineno-0-130">130</a></span>
-<span class="normal"><a href="#__codelineno-0-131">131</a></span>
-<span class="normal"><a href="#__codelineno-0-132">132</a></span>
-<span class="normal"><a href="#__codelineno-0-133">133</a></span>
-<span class="normal"><a href="#__codelineno-0-134">134</a></span>
-<span class="normal"><a href="#__codelineno-0-135">135</a></span>
-<span class="normal"><a href="#__codelineno-0-136">136</a></span>
-<span class="normal"><a href="#__codelineno-0-137">137</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-37" name="__codelineno-0-37"></a><span class="k">def</span><span class="w"> </span><span class="nf">search</span><span class="p">(</span>
-<a id="__codelineno-0-38" name="__codelineno-0-38"></a>    <span class="n">client_or_url</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
-<a id="__codelineno-0-39" name="__codelineno-0-39"></a>    <span class="n">collections</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
-<a id="__codelineno-0-40" name="__codelineno-0-40"></a>    <span class="o">*</span><span class="p">,</span>
-<a id="__codelineno-0-41" name="__codelineno-0-41"></a>    <span class="n">bbox</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-42" name="__codelineno-0-42"></a>    <span class="n">intersects</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-43" name="__codelineno-0-43"></a>    <span class="n">datetime</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-44" name="__codelineno-0-44"></a>    <span class="n">query</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-45" name="__codelineno-0-45"></a>    <span class="nb">filter</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-46" name="__codelineno-0-46"></a>    <span class="n">sortby</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-47" name="__codelineno-0-47"></a>    <span class="n">max_items</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-48" name="__codelineno-0-48"></a>    <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-49" name="__codelineno-0-49"></a>    <span class="n">signer</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<a id="__codelineno-0-50" name="__codelineno-0-50"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
-<a id="__codelineno-0-51" name="__codelineno-0-51"></a><span class="w">    </span><span class="sd">"""Run a STAC item search and return the matched ``ItemCollection``.</span>
-<a id="__codelineno-0-52" name="__codelineno-0-52"></a>
-<a id="__codelineno-0-53" name="__codelineno-0-53"></a><span class="sd">    Args:</span>
-<a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="sd">        client_or_url: An open ``pystac_client.Client``, or a STAC API root URL</span>
-<a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="sd">            (opened via :func:`pyramids.stac.open_client`, wiring `signer`).</span>
-<a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="sd">        collections: Collection id, or a sequence of collection ids, to search.</span>
-<a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="sd">        bbox: Optional `(minx, miny, maxx, maxy)` lon/lat box, forwarded to the</span>
-<a id="__codelineno-0-58" name="__codelineno-0-58"></a><span class="sd">            API. Mutually exclusive with `intersects` (STAC API rule).</span>
-<a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="sd">        intersects: Optional AOI geometry — a shapely geometry (anything with a</span>
-<a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="sd">            ``__geo_interface__``) or a GeoJSON-geometry dict. A shapely geometry</span>
-<a id="__codelineno-0-61" name="__codelineno-0-61"></a><span class="sd">            is converted to GeoJSON before the request.</span>
-<a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">        datetime: Optional RFC 3339 datetime or interval string</span>
-<a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">            (e.g. ``"2023-06/2023-08"``), forwarded to the API.</span>
-<a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">        query: Optional ``query`` extension dict (e.g.</span>
-<a id="__codelineno-0-65" name="__codelineno-0-65"></a><span class="sd">            ``{"eo:cloud_cover": {"lt": 20}}``).</span>
-<a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="sd">        filter: Optional CQL2 filter (cql2-json dict or cql2-text string). When</span>
-<a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">            given, the endpoint must advertise the ``FILTER`` conformance class.</span>
-<a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">        sortby: Optional sort specification forwarded to the API.</span>
-<a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">        max_items: Optional cap on the total number of items returned (bounds</span>
-<a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="sd">            paging at the API).</span>
-<a id="__codelineno-0-71" name="__codelineno-0-71"></a><span class="sd">        limit: Optional page size forwarded to the API.</span>
-<a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">        signer: Optional signer used only when `client_or_url` is a URL (to open</span>
-<a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="sd">            the client). Ignored when an open client is passed.</span>
-<a id="__codelineno-0-74" name="__codelineno-0-74"></a>
-<a id="__codelineno-0-75" name="__codelineno-0-75"></a><span class="sd">    Returns:</span>
-<a id="__codelineno-0-76" name="__codelineno-0-76"></a><span class="sd">        The ``pystac.ItemCollection`` of matched items, ready to hand to</span>
-<a id="__codelineno-0-77" name="__codelineno-0-77"></a><span class="sd">        ``DatasetCollection.from_stac``.</span>
-<a id="__codelineno-0-78" name="__codelineno-0-78"></a>
-<a id="__codelineno-0-79" name="__codelineno-0-79"></a><span class="sd">    Raises:</span>
-<a id="__codelineno-0-80" name="__codelineno-0-80"></a><span class="sd">        OptionalPackageDoesNotExist: When `pystac-client` is not installed.</span>
-<a id="__codelineno-0-81" name="__codelineno-0-81"></a><span class="sd">        ValueError: When both `bbox` and `intersects` are given (mutually</span>
-<a id="__codelineno-0-82" name="__codelineno-0-82"></a><span class="sd">            exclusive per the STAC API spec), or when a `filter` is given but</span>
-<a id="__codelineno-0-83" name="__codelineno-0-83"></a><span class="sd">            the endpoint does not advertise the CQL2 ``FILTER`` conformance</span>
-<a id="__codelineno-0-84" name="__codelineno-0-84"></a><span class="sd">            class.</span>
-<a id="__codelineno-0-85" name="__codelineno-0-85"></a>
-<a id="__codelineno-0-86" name="__codelineno-0-86"></a><span class="sd">    Examples:</span>
-<a id="__codelineno-0-87" name="__codelineno-0-87"></a><span class="sd">        - Search a collection over an AOI and time window, then build a cube</span>
-<a id="__codelineno-0-88" name="__codelineno-0-88"></a><span class="sd">          (requires the `[stac]` extra and network access):</span>
-<a id="__codelineno-0-89" name="__codelineno-0-89"></a><span class="sd">            ```python</span>
-<a id="__codelineno-0-90" name="__codelineno-0-90"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import search  # doctest: +SKIP</span>
-<a id="__codelineno-0-91" name="__codelineno-0-91"></a><span class="sd">            &gt;&gt;&gt; from pyramids.dataset import DatasetCollection  # doctest: +SKIP</span>
-<a id="__codelineno-0-92" name="__codelineno-0-92"></a><span class="sd">            &gt;&gt;&gt; items = search(  # doctest: +SKIP</span>
-<a id="__codelineno-0-93" name="__codelineno-0-93"></a><span class="sd">            ...     "https://earth-search.aws.element84.com/v1",</span>
-<a id="__codelineno-0-94" name="__codelineno-0-94"></a><span class="sd">            ...     "sentinel-2-l2a",</span>
-<a id="__codelineno-0-95" name="__codelineno-0-95"></a><span class="sd">            ...     bbox=(11.0, 46.0, 11.2, 46.2),</span>
-<a id="__codelineno-0-96" name="__codelineno-0-96"></a><span class="sd">            ...     datetime="2023-06/2023-08",</span>
-<a id="__codelineno-0-97" name="__codelineno-0-97"></a><span class="sd">            ...     query={"eo:cloud_cover": {"lt": 20}},</span>
-<a id="__codelineno-0-98" name="__codelineno-0-98"></a><span class="sd">            ...     max_items=10,</span>
-<a id="__codelineno-0-99" name="__codelineno-0-99"></a><span class="sd">            ... )</span>
-<a id="__codelineno-0-100" name="__codelineno-0-100"></a><span class="sd">            &gt;&gt;&gt; cube = DatasetCollection.from_stac(items, asset=["red", "green", "blue"])  # doctest: +SKIP</span>
-<a id="__codelineno-0-101" name="__codelineno-0-101"></a>
-<a id="__codelineno-0-102" name="__codelineno-0-102"></a><span class="sd">            ```</span>
-<a id="__codelineno-0-103" name="__codelineno-0-103"></a><span class="sd">    """</span>
-<a id="__codelineno-0-104" name="__codelineno-0-104"></a>    <span class="k">if</span> <span class="n">bbox</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">intersects</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-0-105" name="__codelineno-0-105"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-106" name="__codelineno-0-106"></a>            <span class="s2">"bbox and intersects are mutually exclusive (STAC API spec); pass only one."</span>
-<a id="__codelineno-0-107" name="__codelineno-0-107"></a>        <span class="p">)</span>
-<a id="__codelineno-0-108" name="__codelineno-0-108"></a>
-<a id="__codelineno-0-109" name="__codelineno-0-109"></a>    <span class="n">import_pystac_client</span><span class="p">(</span><span class="n">_STAC_INSTALL_HINT</span><span class="p">)</span>
-<a id="__codelineno-0-110" name="__codelineno-0-110"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">pystac_client</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConformanceClasses</span>
-<a id="__codelineno-0-111" name="__codelineno-0-111"></a>
-<a id="__codelineno-0-112" name="__codelineno-0-112"></a>    <span class="n">client</span> <span class="o">=</span> <span class="p">(</span>
-<a id="__codelineno-0-113" name="__codelineno-0-113"></a>        <span class="n">open_client</span><span class="p">(</span><span class="n">client_or_url</span><span class="p">,</span> <span class="n">signer</span><span class="o">=</span><span class="n">signer</span><span class="p">)</span>
-<a id="__codelineno-0-114" name="__codelineno-0-114"></a>        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">client_or_url</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span>
-<a id="__codelineno-0-115" name="__codelineno-0-115"></a>        <span class="k">else</span> <span class="n">client_or_url</span>
-<a id="__codelineno-0-116" name="__codelineno-0-116"></a>    <span class="p">)</span>
-<a id="__codelineno-0-117" name="__codelineno-0-117"></a>
-<a id="__codelineno-0-118" name="__codelineno-0-118"></a>    <span class="k">if</span> <span class="nb">filter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">client</span><span class="o">.</span><span class="n">conforms_to</span><span class="p">(</span><span class="n">ConformanceClasses</span><span class="o">.</span><span class="n">FILTER</span><span class="p">):</span>
-<a id="__codelineno-0-119" name="__codelineno-0-119"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-0-120" name="__codelineno-0-120"></a>            <span class="s2">"the STAC endpoint does not advertise the CQL2 FILTER conformance "</span>
-<a id="__codelineno-0-121" name="__codelineno-0-121"></a>            <span class="s2">"class, so a `filter` cannot be used against it."</span>
-<a id="__codelineno-0-122" name="__codelineno-0-122"></a>        <span class="p">)</span>
-<a id="__codelineno-0-123" name="__codelineno-0-123"></a>
-<a id="__codelineno-0-124" name="__codelineno-0-124"></a>    <span class="k">if</span> <span class="n">intersects</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">intersects</span><span class="p">,</span> <span class="s2">"__geo_interface__"</span><span class="p">):</span>
-<a id="__codelineno-0-125" name="__codelineno-0-125"></a>        <span class="n">intersects</span> <span class="o">=</span> <span class="n">intersects</span><span class="o">.</span><span class="n">__geo_interface__</span>
-<a id="__codelineno-0-126" name="__codelineno-0-126"></a>
-<a id="__codelineno-0-127" name="__codelineno-0-127"></a>    <span class="k">return</span> <span class="n">client</span><span class="o">.</span><span class="n">search</span><span class="p">(</span>
-<a id="__codelineno-0-128" name="__codelineno-0-128"></a>        <span class="n">collections</span><span class="o">=</span><span class="n">collections</span><span class="p">,</span>
-<a id="__codelineno-0-129" name="__codelineno-0-129"></a>        <span class="n">bbox</span><span class="o">=</span><span class="n">bbox</span><span class="p">,</span>
-<a id="__codelineno-0-130" name="__codelineno-0-130"></a>        <span class="n">intersects</span><span class="o">=</span><span class="n">intersects</span><span class="p">,</span>
-<a id="__codelineno-0-131" name="__codelineno-0-131"></a>        <span class="n">datetime</span><span class="o">=</span><span class="n">datetime</span><span class="p">,</span>
-<a id="__codelineno-0-132" name="__codelineno-0-132"></a>        <span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span>
-<a id="__codelineno-0-133" name="__codelineno-0-133"></a>        <span class="nb">filter</span><span class="o">=</span><span class="nb">filter</span><span class="p">,</span>
-<a id="__codelineno-0-134" name="__codelineno-0-134"></a>        <span class="n">sortby</span><span class="o">=</span><span class="n">sortby</span><span class="p">,</span>
-<a id="__codelineno-0-135" name="__codelineno-0-135"></a>        <span class="n">max_items</span><span class="o">=</span><span class="n">max_items</span><span class="p">,</span>
-<a id="__codelineno-0-136" name="__codelineno-0-136"></a>        <span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">,</span>
-<a id="__codelineno-0-137" name="__codelineno-0-137"></a>    <span class="p">)</span><span class="o">.</span><span class="n">item_collection</span><span class="p">()</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-166">166</a></span>
+<span class="normal"><a href="#__codelineno-0-167">167</a></span>
+<span class="normal"><a href="#__codelineno-0-168">168</a></span>
+<span class="normal"><a href="#__codelineno-0-169">169</a></span>
+<span class="normal"><a href="#__codelineno-0-170">170</a></span>
+<span class="normal"><a href="#__codelineno-0-171">171</a></span>
+<span class="normal"><a href="#__codelineno-0-172">172</a></span>
+<span class="normal"><a href="#__codelineno-0-173">173</a></span>
+<span class="normal"><a href="#__codelineno-0-174">174</a></span>
+<span class="normal"><a href="#__codelineno-0-175">175</a></span>
+<span class="normal"><a href="#__codelineno-0-176">176</a></span>
+<span class="normal"><a href="#__codelineno-0-177">177</a></span>
+<span class="normal"><a href="#__codelineno-0-178">178</a></span>
+<span class="normal"><a href="#__codelineno-0-179">179</a></span>
+<span class="normal"><a href="#__codelineno-0-180">180</a></span>
+<span class="normal"><a href="#__codelineno-0-181">181</a></span>
+<span class="normal"><a href="#__codelineno-0-182">182</a></span>
+<span class="normal"><a href="#__codelineno-0-183">183</a></span>
+<span class="normal"><a href="#__codelineno-0-184">184</a></span>
+<span class="normal"><a href="#__codelineno-0-185">185</a></span>
+<span class="normal"><a href="#__codelineno-0-186">186</a></span>
+<span class="normal"><a href="#__codelineno-0-187">187</a></span>
+<span class="normal"><a href="#__codelineno-0-188">188</a></span>
+<span class="normal"><a href="#__codelineno-0-189">189</a></span>
+<span class="normal"><a href="#__codelineno-0-190">190</a></span>
+<span class="normal"><a href="#__codelineno-0-191">191</a></span>
+<span class="normal"><a href="#__codelineno-0-192">192</a></span>
+<span class="normal"><a href="#__codelineno-0-193">193</a></span>
+<span class="normal"><a href="#__codelineno-0-194">194</a></span>
+<span class="normal"><a href="#__codelineno-0-195">195</a></span>
+<span class="normal"><a href="#__codelineno-0-196">196</a></span>
+<span class="normal"><a href="#__codelineno-0-197">197</a></span>
+<span class="normal"><a href="#__codelineno-0-198">198</a></span>
+<span class="normal"><a href="#__codelineno-0-199">199</a></span>
+<span class="normal"><a href="#__codelineno-0-200">200</a></span>
+<span class="normal"><a href="#__codelineno-0-201">201</a></span>
+<span class="normal"><a href="#__codelineno-0-202">202</a></span>
+<span class="normal"><a href="#__codelineno-0-203">203</a></span>
+<span class="normal"><a href="#__codelineno-0-204">204</a></span>
+<span class="normal"><a href="#__codelineno-0-205">205</a></span>
+<span class="normal"><a href="#__codelineno-0-206">206</a></span>
+<span class="normal"><a href="#__codelineno-0-207">207</a></span>
+<span class="normal"><a href="#__codelineno-0-208">208</a></span>
+<span class="normal"><a href="#__codelineno-0-209">209</a></span>
+<span class="normal"><a href="#__codelineno-0-210">210</a></span>
+<span class="normal"><a href="#__codelineno-0-211">211</a></span>
+<span class="normal"><a href="#__codelineno-0-212">212</a></span>
+<span class="normal"><a href="#__codelineno-0-213">213</a></span>
+<span class="normal"><a href="#__codelineno-0-214">214</a></span>
+<span class="normal"><a href="#__codelineno-0-215">215</a></span>
+<span class="normal"><a href="#__codelineno-0-216">216</a></span>
+<span class="normal"><a href="#__codelineno-0-217">217</a></span>
+<span class="normal"><a href="#__codelineno-0-218">218</a></span>
+<span class="normal"><a href="#__codelineno-0-219">219</a></span>
+<span class="normal"><a href="#__codelineno-0-220">220</a></span>
+<span class="normal"><a href="#__codelineno-0-221">221</a></span>
+<span class="normal"><a href="#__codelineno-0-222">222</a></span>
+<span class="normal"><a href="#__codelineno-0-223">223</a></span>
+<span class="normal"><a href="#__codelineno-0-224">224</a></span>
+<span class="normal"><a href="#__codelineno-0-225">225</a></span>
+<span class="normal"><a href="#__codelineno-0-226">226</a></span>
+<span class="normal"><a href="#__codelineno-0-227">227</a></span>
+<span class="normal"><a href="#__codelineno-0-228">228</a></span>
+<span class="normal"><a href="#__codelineno-0-229">229</a></span>
+<span class="normal"><a href="#__codelineno-0-230">230</a></span>
+<span class="normal"><a href="#__codelineno-0-231">231</a></span>
+<span class="normal"><a href="#__codelineno-0-232">232</a></span>
+<span class="normal"><a href="#__codelineno-0-233">233</a></span>
+<span class="normal"><a href="#__codelineno-0-234">234</a></span>
+<span class="normal"><a href="#__codelineno-0-235">235</a></span>
+<span class="normal"><a href="#__codelineno-0-236">236</a></span>
+<span class="normal"><a href="#__codelineno-0-237">237</a></span>
+<span class="normal"><a href="#__codelineno-0-238">238</a></span>
+<span class="normal"><a href="#__codelineno-0-239">239</a></span>
+<span class="normal"><a href="#__codelineno-0-240">240</a></span>
+<span class="normal"><a href="#__codelineno-0-241">241</a></span>
+<span class="normal"><a href="#__codelineno-0-242">242</a></span>
+<span class="normal"><a href="#__codelineno-0-243">243</a></span>
+<span class="normal"><a href="#__codelineno-0-244">244</a></span>
+<span class="normal"><a href="#__codelineno-0-245">245</a></span>
+<span class="normal"><a href="#__codelineno-0-246">246</a></span>
+<span class="normal"><a href="#__codelineno-0-247">247</a></span>
+<span class="normal"><a href="#__codelineno-0-248">248</a></span>
+<span class="normal"><a href="#__codelineno-0-249">249</a></span>
+<span class="normal"><a href="#__codelineno-0-250">250</a></span>
+<span class="normal"><a href="#__codelineno-0-251">251</a></span>
+<span class="normal"><a href="#__codelineno-0-252">252</a></span>
+<span class="normal"><a href="#__codelineno-0-253">253</a></span>
+<span class="normal"><a href="#__codelineno-0-254">254</a></span>
+<span class="normal"><a href="#__codelineno-0-255">255</a></span>
+<span class="normal"><a href="#__codelineno-0-256">256</a></span>
+<span class="normal"><a href="#__codelineno-0-257">257</a></span>
+<span class="normal"><a href="#__codelineno-0-258">258</a></span>
+<span class="normal"><a href="#__codelineno-0-259">259</a></span>
+<span class="normal"><a href="#__codelineno-0-260">260</a></span>
+<span class="normal"><a href="#__codelineno-0-261">261</a></span>
+<span class="normal"><a href="#__codelineno-0-262">262</a></span>
+<span class="normal"><a href="#__codelineno-0-263">263</a></span>
+<span class="normal"><a href="#__codelineno-0-264">264</a></span>
+<span class="normal"><a href="#__codelineno-0-265">265</a></span>
+<span class="normal"><a href="#__codelineno-0-266">266</a></span>
+<span class="normal"><a href="#__codelineno-0-267">267</a></span>
+<span class="normal"><a href="#__codelineno-0-268">268</a></span>
+<span class="normal"><a href="#__codelineno-0-269">269</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-166" name="__codelineno-0-166"></a><span class="k">def</span><span class="w"> </span><span class="nf">search</span><span class="p">(</span>
+<a id="__codelineno-0-167" name="__codelineno-0-167"></a>    <span class="n">client_or_url</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+<a id="__codelineno-0-168" name="__codelineno-0-168"></a>    <span class="n">collections</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+<a id="__codelineno-0-169" name="__codelineno-0-169"></a>    <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-0-170" name="__codelineno-0-170"></a>    <span class="n">ids</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-171" name="__codelineno-0-171"></a>    <span class="n">bbox</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-172" name="__codelineno-0-172"></a>    <span class="n">intersects</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-173" name="__codelineno-0-173"></a>    <span class="n">datetime</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-174" name="__codelineno-0-174"></a>    <span class="n">query</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-175" name="__codelineno-0-175"></a>    <span class="nb">filter</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-176" name="__codelineno-0-176"></a>    <span class="n">sortby</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-177" name="__codelineno-0-177"></a>    <span class="n">fields</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-178" name="__codelineno-0-178"></a>    <span class="n">max_items</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-179" name="__codelineno-0-179"></a>    <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-180" name="__codelineno-0-180"></a>    <span class="n">signer</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-0-181" name="__codelineno-0-181"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<a id="__codelineno-0-182" name="__codelineno-0-182"></a><span class="w">    </span><span class="sd">"""Run a STAC item search and return the matched ``ItemCollection``.</span>
+<a id="__codelineno-0-183" name="__codelineno-0-183"></a>
+<a id="__codelineno-0-184" name="__codelineno-0-184"></a><span class="sd">    The eager counterpart of :func:`item_search`: it builds the very same query</span>
+<a id="__codelineno-0-185" name="__codelineno-0-185"></a><span class="sd">    and immediately materialises it. Reach for :func:`item_search` instead when</span>
+<a id="__codelineno-0-186" name="__codelineno-0-186"></a><span class="sd">    the hit count (``.matched()``) or page-by-page iteration is wanted — this</span>
+<a id="__codelineno-0-187" name="__codelineno-0-187"></a><span class="sd">    function always returns a materialised ``ItemCollection``.</span>
+<a id="__codelineno-0-188" name="__codelineno-0-188"></a>
+<a id="__codelineno-0-189" name="__codelineno-0-189"></a><span class="sd">    Args:</span>
+<a id="__codelineno-0-190" name="__codelineno-0-190"></a><span class="sd">        client_or_url: An open ``pystac_client.Client``, or a STAC API root URL</span>
+<a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="sd">            (opened via :func:`pyramids.stac.open_client`, wiring `signer`).</span>
+<a id="__codelineno-0-192" name="__codelineno-0-192"></a><span class="sd">        collections: Collection id, or a sequence of collection ids, to search.</span>
+<a id="__codelineno-0-193" name="__codelineno-0-193"></a><span class="sd">        ids: Optional item id, or sequence of item ids, to fetch directly.</span>
+<a id="__codelineno-0-194" name="__codelineno-0-194"></a><span class="sd">        bbox: Optional `(minx, miny, maxx, maxy)` lon/lat box, forwarded to the</span>
+<a id="__codelineno-0-195" name="__codelineno-0-195"></a><span class="sd">            API. Mutually exclusive with `intersects` (STAC API rule).</span>
+<a id="__codelineno-0-196" name="__codelineno-0-196"></a><span class="sd">        intersects: Optional AOI geometry — a shapely geometry (anything with a</span>
+<a id="__codelineno-0-197" name="__codelineno-0-197"></a><span class="sd">            ``__geo_interface__``) or a GeoJSON-geometry dict. A shapely geometry</span>
+<a id="__codelineno-0-198" name="__codelineno-0-198"></a><span class="sd">            is converted to GeoJSON before the request.</span>
+<a id="__codelineno-0-199" name="__codelineno-0-199"></a><span class="sd">        datetime: Optional RFC 3339 datetime or interval string</span>
+<a id="__codelineno-0-200" name="__codelineno-0-200"></a><span class="sd">            (e.g. ``"2023-06/2023-08"``), forwarded to the API.</span>
+<a id="__codelineno-0-201" name="__codelineno-0-201"></a><span class="sd">        query: Optional ``query`` extension dict (e.g.</span>
+<a id="__codelineno-0-202" name="__codelineno-0-202"></a><span class="sd">            ``{"eo:cloud_cover": {"lt": 20}}``).</span>
+<a id="__codelineno-0-203" name="__codelineno-0-203"></a><span class="sd">        filter: Optional CQL2 filter (cql2-json dict or cql2-text string). When</span>
+<a id="__codelineno-0-204" name="__codelineno-0-204"></a><span class="sd">            given, the endpoint must advertise the ``FILTER`` conformance class.</span>
+<a id="__codelineno-0-205" name="__codelineno-0-205"></a><span class="sd">        sortby: Optional sort specification forwarded to the API.</span>
+<a id="__codelineno-0-206" name="__codelineno-0-206"></a><span class="sd">        fields: Optional ``fields`` extension selection — an include/exclude dict</span>
+<a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="sd">            (``{"include": ["id"], "exclude": ["geometry"]}``) or a list of field</span>
+<a id="__codelineno-0-208" name="__codelineno-0-208"></a><span class="sd">            names. Trimming required fields can yield Items that no longer</span>
+<a id="__codelineno-0-209" name="__codelineno-0-209"></a><span class="sd">            validate, so prefer reading such a response as dicts.</span>
+<a id="__codelineno-0-210" name="__codelineno-0-210"></a><span class="sd">        max_items: Optional cap on the total number of items returned (bounds</span>
+<a id="__codelineno-0-211" name="__codelineno-0-211"></a><span class="sd">            paging at the API).</span>
+<a id="__codelineno-0-212" name="__codelineno-0-212"></a><span class="sd">        limit: Optional page size forwarded to the API.</span>
+<a id="__codelineno-0-213" name="__codelineno-0-213"></a><span class="sd">        signer: Optional signer used only when `client_or_url` is a URL (to open</span>
+<a id="__codelineno-0-214" name="__codelineno-0-214"></a><span class="sd">            the client). Ignored when an open client is passed.</span>
+<a id="__codelineno-0-215" name="__codelineno-0-215"></a>
+<a id="__codelineno-0-216" name="__codelineno-0-216"></a><span class="sd">    Returns:</span>
+<a id="__codelineno-0-217" name="__codelineno-0-217"></a><span class="sd">        The ``pystac.ItemCollection`` of matched items, ready to hand to</span>
+<a id="__codelineno-0-218" name="__codelineno-0-218"></a><span class="sd">        ``DatasetCollection.from_stac``.</span>
+<a id="__codelineno-0-219" name="__codelineno-0-219"></a>
+<a id="__codelineno-0-220" name="__codelineno-0-220"></a><span class="sd">    Raises:</span>
+<a id="__codelineno-0-221" name="__codelineno-0-221"></a><span class="sd">        OptionalPackageDoesNotExist: When `pystac-client` is not installed.</span>
+<a id="__codelineno-0-222" name="__codelineno-0-222"></a><span class="sd">        ValueError: When both `bbox` and `intersects` are given (mutually</span>
+<a id="__codelineno-0-223" name="__codelineno-0-223"></a><span class="sd">            exclusive per the STAC API spec), or when a `filter` is given but</span>
+<a id="__codelineno-0-224" name="__codelineno-0-224"></a><span class="sd">            the endpoint does not advertise the CQL2 ``FILTER`` conformance</span>
+<a id="__codelineno-0-225" name="__codelineno-0-225"></a><span class="sd">            class.</span>
+<a id="__codelineno-0-226" name="__codelineno-0-226"></a>
+<a id="__codelineno-0-227" name="__codelineno-0-227"></a><span class="sd">    Examples:</span>
+<a id="__codelineno-0-228" name="__codelineno-0-228"></a><span class="sd">        - Search a collection over an AOI and time window, then build a cube</span>
+<a id="__codelineno-0-229" name="__codelineno-0-229"></a><span class="sd">          (requires the `[stac]` extra and network access):</span>
+<a id="__codelineno-0-230" name="__codelineno-0-230"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-231" name="__codelineno-0-231"></a><span class="sd">            &gt;&gt;&gt; from pyramids.stac import search  # doctest: +SKIP</span>
+<a id="__codelineno-0-232" name="__codelineno-0-232"></a><span class="sd">            &gt;&gt;&gt; from pyramids.dataset import DatasetCollection  # doctest: +SKIP</span>
+<a id="__codelineno-0-233" name="__codelineno-0-233"></a><span class="sd">            &gt;&gt;&gt; items = search(  # doctest: +SKIP</span>
+<a id="__codelineno-0-234" name="__codelineno-0-234"></a><span class="sd">            ...     "https://earth-search.aws.element84.com/v1",</span>
+<a id="__codelineno-0-235" name="__codelineno-0-235"></a><span class="sd">            ...     "sentinel-2-l2a",</span>
+<a id="__codelineno-0-236" name="__codelineno-0-236"></a><span class="sd">            ...     bbox=(11.0, 46.0, 11.2, 46.2),</span>
+<a id="__codelineno-0-237" name="__codelineno-0-237"></a><span class="sd">            ...     datetime="2023-06/2023-08",</span>
+<a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="sd">            ...     query={"eo:cloud_cover": {"lt": 20}},</span>
+<a id="__codelineno-0-239" name="__codelineno-0-239"></a><span class="sd">            ...     max_items=10,</span>
+<a id="__codelineno-0-240" name="__codelineno-0-240"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-241" name="__codelineno-0-241"></a><span class="sd">            &gt;&gt;&gt; cube = DatasetCollection.from_stac(items, asset=["red", "green", "blue"])  # doctest: +SKIP</span>
+<a id="__codelineno-0-242" name="__codelineno-0-242"></a>
+<a id="__codelineno-0-243" name="__codelineno-0-243"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-244" name="__codelineno-0-244"></a><span class="sd">        - Fetch two known items and keep only a couple of fields:</span>
+<a id="__codelineno-0-245" name="__codelineno-0-245"></a><span class="sd">            ```python</span>
+<a id="__codelineno-0-246" name="__codelineno-0-246"></a><span class="sd">            &gt;&gt;&gt; items = search(  # doctest: +SKIP</span>
+<a id="__codelineno-0-247" name="__codelineno-0-247"></a><span class="sd">            ...     "https://earth-search.aws.element84.com/v1",</span>
+<a id="__codelineno-0-248" name="__codelineno-0-248"></a><span class="sd">            ...     "sentinel-2-l2a",</span>
+<a id="__codelineno-0-249" name="__codelineno-0-249"></a><span class="sd">            ...     ids=["S2B_32TPS_20230601_0_L2A", "S2A_32TPS_20230606_0_L2A"],</span>
+<a id="__codelineno-0-250" name="__codelineno-0-250"></a><span class="sd">            ...     fields={"include": ["id", "properties.datetime"]},</span>
+<a id="__codelineno-0-251" name="__codelineno-0-251"></a><span class="sd">            ... )</span>
+<a id="__codelineno-0-252" name="__codelineno-0-252"></a>
+<a id="__codelineno-0-253" name="__codelineno-0-253"></a><span class="sd">            ```</span>
+<a id="__codelineno-0-254" name="__codelineno-0-254"></a><span class="sd">    """</span>
+<a id="__codelineno-0-255" name="__codelineno-0-255"></a>    <span class="k">return</span> <span class="n">item_search</span><span class="p">(</span>
+<a id="__codelineno-0-256" name="__codelineno-0-256"></a>        <span class="n">client_or_url</span><span class="p">,</span>
+<a id="__codelineno-0-257" name="__codelineno-0-257"></a>        <span class="n">collections</span><span class="p">,</span>
+<a id="__codelineno-0-258" name="__codelineno-0-258"></a>        <span class="n">ids</span><span class="o">=</span><span class="n">ids</span><span class="p">,</span>
+<a id="__codelineno-0-259" name="__codelineno-0-259"></a>        <span class="n">bbox</span><span class="o">=</span><span class="n">bbox</span><span class="p">,</span>
+<a id="__codelineno-0-260" name="__codelineno-0-260"></a>        <span class="n">intersects</span><span class="o">=</span><span class="n">intersects</span><span class="p">,</span>
+<a id="__codelineno-0-261" name="__codelineno-0-261"></a>        <span class="n">datetime</span><span class="o">=</span><span class="n">datetime</span><span class="p">,</span>
+<a id="__codelineno-0-262" name="__codelineno-0-262"></a>        <span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span>
+<a id="__codelineno-0-263" name="__codelineno-0-263"></a>        <span class="nb">filter</span><span class="o">=</span><span class="nb">filter</span><span class="p">,</span>
+<a id="__codelineno-0-264" name="__codelineno-0-264"></a>        <span class="n">sortby</span><span class="o">=</span><span class="n">sortby</span><span class="p">,</span>
+<a id="__codelineno-0-265" name="__codelineno-0-265"></a>        <span class="n">fields</span><span class="o">=</span><span class="n">fields</span><span class="p">,</span>
+<a id="__codelineno-0-266" name="__codelineno-0-266"></a>        <span class="n">max_items</span><span class="o">=</span><span class="n">max_items</span><span class="p">,</span>
+<a id="__codelineno-0-267" name="__codelineno-0-267"></a>        <span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">,</span>
+<a id="__codelineno-0-268" name="__codelineno-0-268"></a>        <span class="n">signer</span><span class="o">=</span><span class="n">signer</span><span class="p">,</span>
+<a id="__codelineno-0-269" name="__codelineno-0-269"></a>    <span class="p">)</span><span class="o">.</span><span class="n">item_collection</span><span class="p">()</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
