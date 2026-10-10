@@ -11,16 +11,23 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+import geopandas
+import pyproj
 import pytest
 
 from pyramids.stac._geoparquet import (
+    _is_spec_geoparquet,
+    _spec_column,
     from_geoparquet,
     from_geoparquet_spec,
     to_geoparquet,
     to_geoparquet_spec,
 )
 
-pytestmark = pytest.mark.core
+pytestmark = pytest.mark.parquet
+
+pa = pytest.importorskip("pyarrow")
+pq = pytest.importorskip("pyarrow.parquet")
 
 
 def _item(item_id, lon, lat):
@@ -52,7 +59,6 @@ class TestSpecGuards:
         Test scenario:
             Nothing to serialise, so the write is refused up front.
         """
-        pytest.importorskip("pyarrow")
         with pytest.raises(ValueError, match="no items"):
             to_geoparquet_spec([], "x.parquet")
 
@@ -62,7 +68,6 @@ class TestSpecGuards:
         Test scenario:
             The flag must not bypass the guard the blob path applies.
         """
-        pytest.importorskip("pyarrow")
         with pytest.raises(ValueError, match="no items"):
             to_geoparquet([], "x.parquet", spec=True)
 
@@ -72,7 +77,6 @@ class TestSpecGuards:
         Test scenario:
             An int is neither a dict nor exposes to_dict().
         """
-        pytest.importorskip("pyarrow")
         with pytest.raises(TypeError, match="to_dict"):
             to_geoparquet_spec([123], "x.parquet")
 
@@ -83,14 +87,12 @@ class TestSpecGuards:
             Flattening a property named `assets` onto the reserved `assets`
             column would make the item unreadable, so the write raises.
         """
-        pytest.importorskip("pyarrow")
         item = _item("a", 1.0, 2.0)
         item["properties"]["assets"] = {"nope": 1}
         with pytest.raises(ValueError, match="reserves the column names"):
             to_geoparquet_spec([item], "x.parquet")
 
 
-@pytest.mark.parquet
 class TestSpecSchema:
     """The on-disk file is columnar and carries the spec's metadata."""
 
@@ -100,7 +102,6 @@ class TestSpecSchema:
         Test scenario:
             Two items are written; the Parquet schema is inspected directly.
         """
-        pq = pytest.importorskip("pyarrow.parquet")
         path = str(tmp_path / "spec.parquet")
         to_geoparquet_spec([_item("a", 1.0, 2.0), _item("b", 3.0, 4.0)], path)
 
@@ -118,8 +119,6 @@ class TestSpecSchema:
         Test scenario:
             The Arrow schema of a written file is checked field by field.
         """
-        pa = pytest.importorskip("pyarrow")
-        pq = pytest.importorskip("pyarrow.parquet")
         path = str(tmp_path / "types.parquet")
         to_geoparquet_spec([_item("a", 1.0, 2.0)], path)
 
@@ -141,7 +140,6 @@ class TestSpecSchema:
         Test scenario:
             The Parquet key-value metadata is read without pyramids' help.
         """
-        pq = pytest.importorskip("pyarrow.parquet")
         path = str(tmp_path / "meta.parquet")
         to_geoparquet_spec([_item("a", 1.0, 2.0)], path)
 
@@ -163,7 +161,6 @@ class TestSpecSchema:
         Test scenario:
             One item's bbox is read straight out of the struct column.
         """
-        pq = pytest.importorskip("pyarrow.parquet")
         path = str(tmp_path / "bbox.parquet")
         to_geoparquet_spec([_item("a", 1.0, 2.0)], path)
 
@@ -176,7 +173,6 @@ class TestSpecSchema:
         }, f"bbox struct: {bbox}"
 
 
-@pytest.mark.parquet
 class TestSpecRoundTrip:
     """Items survive the spec layout unchanged in substance."""
 
@@ -186,7 +182,6 @@ class TestSpecRoundTrip:
         Test scenario:
             Two fully populated items go through the spec writer and reader.
         """
-        pytest.importorskip("pyarrow")
         items = [_item("a", 1.0, 2.0), _item("b", 3.0, 4.0)]
         path = str(tmp_path / "round.parquet")
         to_geoparquet_spec(items, path)
@@ -200,7 +195,6 @@ class TestSpecRoundTrip:
         Test scenario:
             The flag form writes and reads the same file as the direct form.
         """
-        pytest.importorskip("pyarrow")
         items = [_item("a", 1.0, 2.0)]
         path = str(tmp_path / "flag.parquet")
         to_geoparquet(items, path, spec=True)
@@ -215,7 +209,6 @@ class TestSpecRoundTrip:
             Two items with disjoint properties and disjoint asset keys; neither
             may come back carrying the other's keys set to None.
         """
-        pytest.importorskip("pyarrow")
         items = [
             {
                 "type": "Feature",
@@ -245,7 +238,6 @@ class TestSpecRoundTrip:
         Test scenario:
             One item with sub-second precision, one without.
         """
-        pytest.importorskip("pyarrow")
         first = _item("a", 1.0, 2.0)
         first["properties"]["datetime"] = "2024-01-02T03:04:05.123456Z"
         second = _item("b", 3.0, 4.0)
@@ -265,8 +257,6 @@ class TestSpecRoundTrip:
         Test scenario:
             An item carrying a time range round-trips and the columns are typed.
         """
-        pa = pytest.importorskip("pyarrow")
-        pq = pytest.importorskip("pyarrow.parquet")
         item = _item("a", 1.0, 2.0)
         item["properties"]["start_datetime"] = "2023-05-31T00:00:00Z"
         item["properties"]["end_datetime"] = "2023-06-02T00:00:00Z"
@@ -285,8 +275,6 @@ class TestSpecRoundTrip:
             One item types the property as an int, the other as a string; the
             column lands as a string and both values come back as themselves.
         """
-        pa = pytest.importorskip("pyarrow")
-        pq = pytest.importorskip("pyarrow.parquet")
         first = _item("a", 1.0, 2.0)
         first["properties"]["odd"] = 1
         second = _item("b", 3.0, 4.0)
@@ -309,7 +297,6 @@ class TestSpecRoundTrip:
         Test scenario:
             An item carries a top-level `pyramids:note` key.
         """
-        pytest.importorskip("pyarrow")
         item = _item("a", 1.0, 2.0)
         item["pyramids:note"] = "kept at the root"
         path = str(tmp_path / "root.parquet")
@@ -325,7 +312,6 @@ class TestSpecRoundTrip:
         Test scenario:
             The bbox column is null for that row, so the key stays absent.
         """
-        pytest.importorskip("pyarrow")
         item = _item("a", 1.0, 2.0)
         del item["bbox"]
         path = str(tmp_path / "nobbox.parquet")
@@ -341,7 +327,6 @@ class TestSpecRoundTrip:
         Test scenario:
             An item with a 3D bbox is written and read back.
         """
-        pytest.importorskip("pyarrow")
         item = _item("a", 1.0, 2.0)
         item["bbox"] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
         path = str(tmp_path / "bbox3d.parquet")
@@ -358,7 +343,6 @@ class TestSpecRoundTrip:
         ], f"3D bbox: {restored['bbox']}"
 
 
-@pytest.mark.parquet
 class TestSpecTimestampCoercion:
     """The timestamp columns accept every spelling, and refuse the rest cleanly."""
 
@@ -369,7 +353,6 @@ class TestSpecTimestampCoercion:
             The item carries a `datetime` object rather than an RFC 3339 string,
             with no tzinfo, so the writer must stamp UTC on it itself.
         """
-        pytest.importorskip("pyarrow")
         item = _item("a", 1.0, 2.0)
         item["properties"]["datetime"] = datetime(2024, 3, 4, 5, 6, 7)
         path = str(tmp_path / "object.parquet")
@@ -384,7 +367,6 @@ class TestSpecTimestampCoercion:
         Test scenario:
             A `+02:00` datetime must come back as the same instant in UTC.
         """
-        pytest.importorskip("pyarrow")
         item = _item("a", 1.0, 2.0)
         item["properties"]["datetime"] = datetime.fromisoformat(
             "2024-03-04T05:06:07+02:00"
@@ -402,8 +384,6 @@ class TestSpecTimestampCoercion:
             The only item has no `datetime` at all: the schema still holds the
             column (all null) and the key does not reappear on the way back.
         """
-        pytest.importorskip("pyarrow")
-        pq = pytest.importorskip("pyarrow.parquet")
         item = _item("a", 1.0, 2.0)
         del item["properties"]["datetime"]
         path = str(tmp_path / "nodatetime.parquet")
@@ -424,8 +404,6 @@ class TestSpecTimestampCoercion:
             `"last tuesday"` cannot be parsed, so the timestamp column is
             abandoned and the text survives the round trip unchanged.
         """
-        pa = pytest.importorskip("pyarrow")
-        pq = pytest.importorskip("pyarrow.parquet")
         item = _item("a", 1.0, 2.0)
         item["properties"]["datetime"] = "last tuesday"
         path = str(tmp_path / "badtext.parquet")
@@ -445,8 +423,6 @@ class TestSpecTimestampCoercion:
             An integer epoch is not a timestamp spelling the writer accepts, so
             the column is built from the value's own Arrow type instead.
         """
-        pa = pytest.importorskip("pyarrow")
-        pq = pytest.importorskip("pyarrow.parquet")
         item = _item("a", 1.0, 2.0)
         item["properties"]["datetime"] = 1700000000
         path = str(tmp_path / "epoch.parquet")
@@ -462,7 +438,6 @@ class TestSpecTimestampCoercion:
         )
 
 
-@pytest.mark.parquet
 class TestSpecTypedColumnFallbacks:
     """A spec column whose values reject its declared type still round-trips."""
 
@@ -474,8 +449,6 @@ class TestSpecTypedColumnFallbacks:
             inferred type cannot unify the two either — so the column is
             JSON-encoded and both values come back as themselves.
         """
-        pa = pytest.importorskip("pyarrow")
-        pq = pytest.importorskip("pyarrow.parquet")
         first = _item(7, 1.0, 2.0)
         second = _item("b", 3.0, 4.0)
         path = str(tmp_path / "mixedid.parquet")
@@ -496,7 +469,6 @@ class TestSpecTypedColumnFallbacks:
             `2 ** 70` overflows every Arrow integer type, so the property is
             JSON-encoded and decoded back to the same Python int.
         """
-        pytest.importorskip("pyarrow")
         first = _item("a", 1.0, 2.0)
         first["properties"]["huge"] = 2**70
         second = _item("b", 3.0, 4.0)
@@ -510,7 +482,6 @@ class TestSpecTypedColumnFallbacks:
         )
 
 
-@pytest.mark.parquet
 class TestSpecInteropWithTheBlobLayout:
     """The two layouts coexist: the blob default is untouched and detectable."""
 
@@ -520,7 +491,6 @@ class TestSpecInteropWithTheBlobLayout:
         Test scenario:
             A default write is inspected with pyarrow.
         """
-        pq = pytest.importorskip("pyarrow.parquet")
         path = str(tmp_path / "blob.parquet")
         items = [_item("a", 1.0, 2.0)]
         to_geoparquet(items, path)
@@ -536,7 +506,6 @@ class TestSpecInteropWithTheBlobLayout:
             The `stac-geoparquet` file metadata routes the read to the spec
             reader instead of failing on the missing blob column.
         """
-        pytest.importorskip("pyarrow")
         items = [_item("a", 1.0, 2.0), _item("b", 3.0, 4.0)]
         path = str(tmp_path / "auto.parquet")
         to_geoparquet_spec(items, path)
@@ -552,7 +521,6 @@ class TestSpecInteropWithTheBlobLayout:
             must still surface the "not a parquet file" error rather than a
             crash inside the probe.
         """
-        pytest.importorskip("pyarrow")
         path = tmp_path / "text.parquet"
         path.write_text("this is not a parquet file\n", encoding="utf-8")
 
@@ -566,7 +534,6 @@ class TestSpecInteropWithTheBlobLayout:
             The probe's `read_metadata` raises an OSError, which is swallowed so
             the blob reader reports the missing file itself.
         """
-        pytest.importorskip("pyarrow")
 
         with pytest.raises(FileNotFoundError):
             from_geoparquet(str(tmp_path / "absent.parquet"))
@@ -578,7 +545,6 @@ class TestSpecInteropWithTheBlobLayout:
             Two items pointing at real local rasters go through the spec
             round trip and build a DatasetCollection.
         """
-        pytest.importorskip("pyarrow")
         import numpy as np
 
         from pyramids.base.georeference import GeoReference
@@ -627,7 +593,6 @@ class TestSpecInteropWithTheBlobLayout:
             offset, which the timestamp column normalises to `Z`, so the
             datetime is compared as an instant and the rest verbatim.
         """
-        pytest.importorskip("pyarrow")
         import numpy as np
 
         from pyramids.base.georeference import GeoReference
@@ -652,3 +617,560 @@ class TestSpecInteropWithTheBlobLayout:
             written.replace("Z", "+00:00")
         ) == datetime.fromisoformat(expected), f"{written} != {expected}"
         assert restored == item, f"to_stac_item dict changed: {restored}"
+
+
+class TestSpecEmptyStructs:
+    """An empty dict is a legal STAC value, and Parquet has no empty struct."""
+
+    def test_item_without_assets_round_trips(self, tmp_path):
+        """An item whose `assets` is an empty dict writes and reads back.
+
+        Test scenario:
+            `pystac.Item.to_dict()` always emits `"assets": {}` for an
+            asset-less item, and `pyarrow` infers a zero-field struct for it,
+            which the Parquet writer cannot encode.
+        """
+        item = _item("a", 1.0, 2.0)
+        item["assets"] = {}
+        path = str(tmp_path / "noassets.parquet")
+        to_geoparquet_spec([item], path)
+
+        restored = from_geoparquet_spec(path)
+        assert restored == [item], f"asset-less item did not survive: {restored}"
+
+    def test_asset_without_fields_round_trips(self, tmp_path):
+        """An asset whose own dict is empty survives too.
+
+        Test scenario:
+            `assets={"red": {}}` infers `struct<red: struct<>>`, so the empty
+            struct is nested rather than top level.
+        """
+        item = _item("a", 1.0, 2.0)
+        item["assets"] = {"red": {}}
+        path = str(tmp_path / "emptyasset.parquet")
+        to_geoparquet_spec([item], path)
+
+        restored = from_geoparquet_spec(path)
+        assert restored == [item], f"empty asset did not survive: {restored}"
+
+    def test_empty_struct_inside_a_list_round_trips(self, tmp_path):
+        """A list of empty dicts (`list<struct<>>`) survives as well.
+
+        Test scenario:
+            `links=[{}]` is the list-valued spelling of the same inferred
+            zero-field struct.
+        """
+        item = _item("a", 1.0, 2.0)
+        item["links"] = [{}]
+        path = str(tmp_path / "emptylink.parquet")
+        to_geoparquet_spec([item], path)
+
+        restored = from_geoparquet_spec(path)
+        assert restored == [item], f"empty link did not survive: {restored}"
+
+    def test_the_docstring_example_runs(self, tmp_path):
+        """The items in `to_geoparquet_spec`'s own example can be written.
+
+        Test scenario:
+            The documented example carries `"assets": {}`; it is `+SKIP`-ed in
+            the doctest run (the module needs the optional `[parquet]` extra),
+            so it is executed here instead.
+        """
+        items = [
+            {
+                "id": "a",
+                "geometry": {"type": "Point", "coordinates": [1.0, 2.0]},
+                "bbox": [1.0, 2.0, 1.0, 2.0],
+                "assets": {},
+                "properties": {"datetime": "2023-01-01T00:00:00Z"},
+            }
+        ]
+        path = str(tmp_path / "spec.parquet")
+        to_geoparquet_spec(items, path)
+
+        columns = pq.read_table(path).column_names
+        assert "datetime" in columns, f"the documented column is missing: {columns}"
+
+
+class TestSpecCrs:
+    """The geometry column is advertised as OGC:CRS84, not as CRS-less."""
+
+    def test_geometry_column_declares_crs84(self, tmp_path):
+        """The `geo` metadata carries the OGC:CRS84 PROJJSON, not a null crs.
+
+        Test scenario:
+            GeoParquet 1.1 reads an explicit `"crs": null` as "no CRS assigned",
+            which is not the same as the CRS84 default the docstring promises.
+        """
+        path = str(tmp_path / "crs.parquet")
+        to_geoparquet_spec([_item("a", 1.0, 2.0)], path)
+
+        geo = json.loads(pq.read_metadata(path).metadata[b"geo"])
+        crs = geo["columns"]["geometry"]["crs"]
+        assert crs is not None, f"the crs is still an explicit null: {geo}"
+        assert crs["id"] == {"authority": "OGC", "code": "CRS84"}, f"crs id: {crs}"
+
+    def test_geopandas_reads_the_crs_back(self, tmp_path):
+        """A third-party reader recovers a CRS from the spec file.
+
+        Test scenario:
+            geopandas is the reference consumer; a CRS-less GeoDataFrame cannot
+            be reprojected, which is the user-visible cost of the null crs.
+        """
+        path = str(tmp_path / "gpd.parquet")
+        to_geoparquet_spec([_item("a", 1.0, 2.0)], path)
+
+        frame = geopandas.read_parquet(path)
+        assert frame.crs is not None, "geopandas read the spec file with no CRS"
+        assert frame.crs.equals(pyproj.CRS.from_user_input("OGC:CRS84")), (
+            f"expected OGC:CRS84, got {frame.crs}"
+        )
+
+
+class TestSpecCovering:
+    """The `covering` is only advertised when it covers every row."""
+
+    def test_covering_is_advertised_when_every_row_has_a_bbox(self, tmp_path):
+        """A file whose rows all carry a bbox keeps the covering.
+
+        Test scenario:
+            The covering is what lets DuckDB and geopandas push a spatial
+            predicate down, so it must survive the stricter rule.
+        """
+        path = str(tmp_path / "covered.parquet")
+        to_geoparquet_spec([_item("a", 1.0, 2.0), _item("b", 3.0, 4.0)], path)
+
+        geo = json.loads(pq.read_metadata(path).metadata[b"geo"])
+        covering = geo["columns"]["geometry"].get("covering")
+        assert covering is not None, f"covering dropped for a full column: {geo}"
+        assert covering["bbox"]["xmin"] == ["bbox", "xmin"], f"covering: {covering}"
+
+    def test_covering_is_omitted_when_a_row_has_no_bbox(self, tmp_path):
+        """A null bbox row means the covering would hide a real geometry.
+
+        Test scenario:
+            The second item has a geometry but no bbox, so a covering-based
+            spatial filter would skip it; the covering must not be advertised.
+        """
+        second = _item("b", 3.0, 4.0)
+        del second["bbox"]
+        path = str(tmp_path / "partial.parquet")
+        to_geoparquet_spec([_item("a", 1.0, 2.0), second], path)
+
+        geo = json.loads(pq.read_metadata(path).metadata[b"geo"])
+        column = geo["columns"]["geometry"]
+        assert "covering" not in column, f"covering advertised over a null bbox: {geo}"
+        boxes = pq.read_table(path).column("bbox").to_pylist()
+        assert boxes[1] is None, f"expected a null bbox for the second row: {boxes}"
+
+
+class TestSpecNumericWidening:
+    """A column that mixes integers and floats must not silently widen."""
+
+    def test_mixed_int_and_float_property_keeps_both_types(self, tmp_path):
+        """An `int` in one item and a `float` in another both come back as-is.
+
+        Test scenario:
+            pyarrow unifies int and float into `double` instead of raising, so
+            `proj:epsg`-style integer properties would come back as floats.
+        """
+        first = _item("a", 1.0, 2.0)
+        first["properties"]["n"] = 1
+        second = _item("b", 3.0, 4.0)
+        second["properties"]["n"] = 2.5
+        path = str(tmp_path / "widen.parquet")
+        to_geoparquet_spec([first, second], path)
+
+        field = pq.read_table(path).schema.field("n")
+        assert field.type == pa.string(), f"expected the json fallback, got {field}"
+        restored = from_geoparquet_spec(path)
+        values = [item["properties"]["n"] for item in restored]
+        assert values == [1, 2.5], f"values widened: {values}"
+        assert [type(value) for value in values] == [int, float], (
+            f"types widened: {[type(value).__name__ for value in values]}"
+        )
+
+    def test_mixed_numerics_nested_in_assets_keep_their_types(self, tmp_path):
+        """The same widening inside an `assets` struct is also avoided.
+
+        Test scenario:
+            Two items share an asset key whose `gsd` is an int in one and a
+            float in the other, one nesting level below the column.
+        """
+        first = _item("a", 1.0, 2.0)
+        first["assets"] = {"data": {"href": "a.tif", "gsd": 10}}
+        second = _item("b", 3.0, 4.0)
+        second["assets"] = {"data": {"href": "b.tif", "gsd": 10.5}}
+        path = str(tmp_path / "nested.parquet")
+        to_geoparquet_spec([first, second], path)
+
+        restored = from_geoparquet_spec(path)
+        gsds = [item["assets"]["data"]["gsd"] for item in restored]
+        assert gsds == [10, 10.5], f"nested values widened: {gsds}"
+        assert [type(value) for value in gsds] == [int, float], (
+            f"nested types widened: {[type(value).__name__ for value in gsds]}"
+        )
+
+    def test_a_uniform_integer_property_stays_an_integer_column(self, tmp_path):
+        """The fallback does not fire for a column that needs no widening.
+
+        Test scenario:
+            Both items type the property as an int, so the column must stay a
+            queryable Arrow integer rather than becoming JSON text.
+        """
+        path = str(tmp_path / "ints.parquet")
+        to_geoparquet_spec([_item("a", 1.0, 2.0), _item("b", 3.0, 4.0)], path)
+
+        field = pq.read_table(path).schema.field("eo:cloud_cover")
+        assert pa.types.is_integer(field.type), f"expected an int column, got {field}"
+
+
+class TestSpecDatetimeColumnType:
+    """`datetime` is a timestamp column in every case, as documented."""
+
+    def test_datetime_column_is_a_timestamp_with_no_datetimes(self, tmp_path):
+        """An all-null `datetime` column is still `timestamp[us, UTC]`.
+
+        Test scenario:
+            The only item carries no datetime at all, which is the case that
+            used to land a string column and defeat the stable schema.
+        """
+        item = _item("a", 1.0, 2.0)
+        del item["properties"]["datetime"]
+        path = str(tmp_path / "nulldatetime.parquet")
+        to_geoparquet_spec([item], path)
+
+        field = pq.read_table(path).schema.field("datetime")
+        assert pa.types.is_timestamp(field.type), f"datetime column type: {field}"
+        assert field.type.tz == "UTC", f"datetime tz: {field.type.tz}"
+        restored = from_geoparquet_spec(path)[0]
+        assert restored == item, f"item changed: {restored}"
+
+
+class TestSpecProbeRobustness:
+    """The auto-detect probe answers False for anything it cannot read."""
+
+    def test_probe_swallows_every_arrow_exception(self, tmp_path, monkeypatch):
+        """An `ArrowException` out of the probe is reported as "not a spec file".
+
+        Test scenario:
+            `ArrowNotImplementedError` and `ArrowCapacityError` derive from
+            `ArrowException` but from neither `OSError` nor `ValueError`, so they
+            used to escape a default `from_geoparquet(path)` call.
+        """
+        path = tmp_path / "probe.parquet"
+        path.write_text("not parquet\n", encoding="utf-8")
+        for failure in (pa.ArrowNotImplementedError, pa.ArrowCapacityError):
+
+            def _raise(_path, _failure=failure):
+                raise _failure("probe exploded")
+
+            monkeypatch.setattr(pq, "read_metadata", _raise)
+            assert _is_spec_geoparquet(str(path)) is False, (
+                f"{failure.__name__} escaped the probe"
+            )
+
+    def test_probe_still_detects_a_real_spec_file(self, tmp_path):
+        """The narrowed handler does not break the detection it exists for.
+
+        Test scenario:
+            A genuine spec file must still answer True.
+        """
+        path = str(tmp_path / "real.parquet")
+        to_geoparquet_spec([_item("a", 1.0, 2.0)], path)
+
+        assert _is_spec_geoparquet(path) is True, "a real spec file went undetected"
+
+
+class TestSpecMixedDimensionBboxes:
+    """A 3D bbox keeps its Z extent even next to a 2D one."""
+
+    def test_mixed_2d_and_3d_bboxes_keep_their_z_bounds(self, tmp_path):
+        """One 2D bbox must not demote every 3D bbox in the file.
+
+        Test scenario:
+            The first item is 2D and the second 3D; the Z extent of the second
+            used to be dropped with no warning.
+        """
+        first = _item("a", 1.0, 2.0)
+        first["bbox"] = [1.0, 2.0, 1.0, 2.0]
+        second = _item("b", 3.0, 4.0)
+        second["bbox"] = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        path = str(tmp_path / "mixeddim.parquet")
+        to_geoparquet_spec([first, second], path)
+
+        boxes = [item["bbox"] for item in from_geoparquet_spec(path)]
+        assert boxes == [
+            [1.0, 2.0, 1.0, 2.0],
+            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        ], f"mixed-dimension bboxes: {boxes}"
+
+    def test_short_bbox_names_the_item(self, tmp_path):
+        """A malformed bbox is refused with the item's id in the message.
+
+        Test scenario:
+            A 2-element bbox is neither 2D nor 3D; it used to surface as a bare
+            `IndexError` from the struct builder.
+        """
+        item = _item("broken", 1.0, 2.0)
+        item["bbox"] = [1.0, 2.0]
+        with pytest.raises(ValueError, match="broken"):
+            to_geoparquet_spec([item], str(tmp_path / "shortbbox.parquet"))
+
+
+def _truncate_then_explode(_table, where, *_args, **_kwargs):
+    """Stand in for a `write_table` that creates its target and then fails.
+
+    That is what the Parquet writer does when the table holds a type it cannot
+    encode: the file exists, with zero usable bytes, by the time it raises.
+    """
+    with open(where, "wb"):
+        pass
+    raise pa.ArrowNotImplementedError("write exploded")
+
+
+class TestSpecWriteIsAtomic:
+    """A failed write leaves no half-made file behind."""
+
+    def test_a_failed_write_leaves_no_target_file(self, tmp_path, monkeypatch):
+        """A write that raises must not leave a 0-byte target.
+
+        Test scenario:
+            The leftover used to defeat the auto-detect on the next read, which
+            then reported `Parquet file size is 0 bytes` from the blob reader.
+        """
+        target = tmp_path / "failed.parquet"
+        monkeypatch.setattr(pq, "write_table", _truncate_then_explode)
+        with pytest.raises(pa.ArrowNotImplementedError, match="write exploded"):
+            to_geoparquet_spec([_item("a", 1.0, 2.0)], str(target))
+
+        assert not target.exists(), f"a failed write left {target} behind"
+        leftovers = sorted(child.name for child in tmp_path.iterdir())
+        assert leftovers == [], f"a failed write left temporary files: {leftovers}"
+
+    def test_a_failed_rewrite_keeps_the_previous_file(self, tmp_path, monkeypatch):
+        """A failed overwrite leaves the existing file readable.
+
+        Test scenario:
+            The target already holds a good spec file; the replacement write
+            fails and the old contents must still be there.
+        """
+        target = tmp_path / "kept.parquet"
+        items = [_item("a", 1.0, 2.0)]
+        to_geoparquet_spec(items, str(target))
+
+        monkeypatch.setattr(pq, "write_table", _truncate_then_explode)
+        with pytest.raises(pa.ArrowNotImplementedError, match="write exploded"):
+            to_geoparquet_spec([_item("b", 3.0, 4.0)], str(target))
+
+        assert from_geoparquet_spec(str(target)) == items, (
+            "a failed rewrite destroyed the previous file"
+        )
+
+
+class TestSpecColumnErrorHandling:
+    """The type probes catch Arrow's own errors and nothing else."""
+
+    def test_a_plain_type_error_is_not_swallowed(self):
+        """A `TypeError` that is not an `ArrowTypeError` propagates.
+
+        Test scenario:
+            A bug inside the probe (a wrong-arity call, a `None` where the
+            module is expected) raises a plain `TypeError`; turning that into a
+            silent JSON column would hide it.
+        """
+
+        class _BrokenArrow:
+            """A pyarrow stand-in whose `array()` fails with a plain TypeError."""
+
+            ArrowInvalid = pa.ArrowInvalid
+            ArrowTypeError = pa.ArrowTypeError
+            ArrowNotImplementedError = pa.ArrowNotImplementedError
+
+            @staticmethod
+            def string():
+                return pa.string()
+
+            @staticmethod
+            def array(*_args, **_kwargs):
+                raise TypeError("array() got an unexpected keyword argument")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument"):
+            _spec_column(_BrokenArrow(), "odd", [1, "one"])
+
+    def test_an_unserialisable_value_raises_instead_of_stringifying(self, tmp_path):
+        """A value Arrow rejects and JSON cannot encode raises a clear error.
+
+        Test scenario:
+            `json.dumps(..., default=str)` used to turn such a value into its
+            `repr`, silently contradicting the "no data is lost" promise.
+        """
+        first = _item("a", 1.0, 2.0)
+        first["properties"]["odd"] = object()
+        second = _item("b", 3.0, 4.0)
+        second["properties"]["odd"] = "text"
+        with pytest.raises(TypeError, match="odd"):
+            to_geoparquet_spec([first, second], str(tmp_path / "odd.parquet"))
+
+
+class TestSpecReaderRejectsForeignLayouts:
+    """`spec=True` on a file that is not a spec file errors instead of guessing."""
+
+    def test_spec_reader_refuses_the_blob_layout(self, tmp_path):
+        """A JSON-blob file read with `spec=True` raises, not returns garbage.
+
+        Test scenario:
+            The blob layout used to come back as
+            `{"properties": {"stac_item": "<raw json>"}}` with no exception.
+        """
+        path = str(tmp_path / "blob.parquet")
+        to_geoparquet([_item("a", 1.0, 2.0)], path)
+
+        with pytest.raises(ValueError, match="stac_item"):
+            from_geoparquet(path, spec=True)
+
+    def test_spec_reader_refuses_a_plain_parquet_file(self, tmp_path):
+        """A Parquet file with none of the spec columns is refused too.
+
+        Test scenario:
+            A two-column table written by plain pyarrow carries neither the
+            STAC file metadata nor any reserved spec column.
+        """
+        path = str(tmp_path / "plain.parquet")
+        pq.write_table(pa.table({"a": [1], "b": ["x"]}), path)
+
+        with pytest.raises(ValueError, match="STAC-GeoParquet"):
+            from_geoparquet_spec(path)
+
+    def test_a_foreign_spec_writer_is_still_accepted(self, tmp_path):
+        """A spec file without pyramids' own hint block still reads.
+
+        Test scenario:
+            Only the reserved spec columns are present — no
+            `pyramids:stac-geoparquet` metadata — which is what the upstream
+            `stac-geoparquet` package produces.
+        """
+        path = str(tmp_path / "foreign.parquet")
+        to_geoparquet_spec([_item("a", 1.0, 2.0)], path)
+        stripped = pq.read_table(path).replace_schema_metadata({})
+        pq.write_table(stripped, path)
+
+        restored = from_geoparquet_spec(path)
+        assert restored[0]["id"] == "a", f"a foreign spec file was refused: {restored}"
+
+
+class TestSpecDocumentedLosses:
+    """The normalisations `from_geoparquet_spec` documents, each measured."""
+
+    def test_an_explicit_null_property_comes_back_absent(self, tmp_path):
+        """A property written as `None` is not recoverable.
+
+        Test scenario:
+            The column cannot tell "null" from "not set", so the key is dropped
+            — the first documented normalisation.
+        """
+        item = _item("a", 1.0, 2.0)
+        item["properties"]["cloud"] = None
+        path = str(tmp_path / "null.parquet")
+        to_geoparquet_spec([item], path)
+
+        properties = from_geoparquet_spec(path)[0]["properties"]
+        assert "cloud" not in properties, f"an explicit null survived: {properties}"
+
+    def test_an_item_without_properties_gains_an_empty_dict(self, tmp_path):
+        """`properties` is injected, so the round trip is not an identity.
+
+        Test scenario:
+            The item carries no `properties` key; it comes back with an empty
+            one — the second documented normalisation.
+        """
+        item = {
+            "type": "Feature",
+            "id": "a",
+            "geometry": {"type": "Point", "coordinates": [1.0, 2.0]},
+        }
+        path = str(tmp_path / "noprops.parquet")
+        to_geoparquet_spec([item], path)
+
+        restored = from_geoparquet_spec(path)[0]
+        assert restored["properties"] == {}, f"properties: {restored['properties']}"
+        assert restored != item, "the round trip is documented as non-identity here"
+
+    def test_a_null_geometry_comes_back_absent(self, tmp_path):
+        """An explicit `"geometry": None` is dropped, like any other null cell.
+
+        Test scenario:
+            A STAC Item may legally carry a null geometry; the column stores it
+            as a null cell, which the reader turns into an absent key.
+        """
+        item = {
+            "type": "Feature",
+            "id": "a",
+            "geometry": None,
+            "properties": {"datetime": "2023-06-01T00:00:00Z"},
+        }
+        path = str(tmp_path / "nogeom.parquet")
+        to_geoparquet_spec([item], path)
+
+        restored = from_geoparquet_spec(path)[0]
+        assert "geometry" not in restored, f"a null geometry survived: {restored}"
+
+    def test_sub_microsecond_timestamps_are_truncated(self, tmp_path):
+        """Nanosecond precision is lost to the microsecond column.
+
+        Test scenario:
+            The column is `timestamp[us]`, so the last three digits of a
+            nanosecond timestamp are dropped — the third documented loss.
+        """
+        item = _item("a", 1.0, 2.0)
+        item["properties"]["datetime"] = "2024-01-02T03:04:05.123456789Z"
+        path = str(tmp_path / "nanos.parquet")
+        to_geoparquet_spec([item], path)
+
+        stamp = from_geoparquet_spec(path)[0]["properties"]["datetime"]
+        assert stamp == "2024-01-02T03:04:05.123456Z", f"truncation changed: {stamp}"
+
+
+class TestSpecFlagRaises:
+    """The `Raises` section of `to_geoparquet(..., spec=True)` is accurate."""
+
+    def test_the_spec_writer_names_itself_in_the_empty_error(self, tmp_path):
+        """The empty-input error names the function that actually raised.
+
+        Test scenario:
+            `to_geoparquet_spec([])` used to report "to_geoparquet received no
+            items."
+        """
+        with pytest.raises(ValueError, match="to_geoparquet_spec received no items"):
+            to_geoparquet_spec([], str(tmp_path / "x.parquet"))
+
+    def test_the_blob_writer_still_names_itself(self, tmp_path):
+        """The blob path's own message is unchanged.
+
+        Test scenario:
+            Only the spec writer's message was wrong.
+        """
+        with pytest.raises(ValueError, match="to_geoparquet received no items"):
+            to_geoparquet([], str(tmp_path / "x.parquet"))
+
+    def test_the_flag_raises_on_a_reserved_property_name(self, tmp_path):
+        """`spec=True` surfaces the reserved-column ValueError.
+
+        Test scenario:
+            The documented `Raises` for `to_geoparquet` must cover the
+            delegated branch.
+        """
+        item = _item("a", 1.0, 2.0)
+        item["properties"]["bbox"] = [0, 0, 1, 1]
+        with pytest.raises(ValueError, match="reserves the column names"):
+            to_geoparquet([item], str(tmp_path / "x.parquet"), spec=True)
+
+    def test_the_flag_raises_on_a_bad_item_type(self, tmp_path):
+        """`spec=True` surfaces the `TypeError` from the item normaliser.
+
+        Test scenario:
+            The blob path raises the same `TypeError`, but only the spec path's
+            docstring omitted it.
+        """
+        with pytest.raises(TypeError, match="to_dict"):
+            to_geoparquet([123], str(tmp_path / "x.parquet"), spec=True)
