@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import copy
 import fnmatch
 import numbers
 import re
 import tempfile
 import textwrap
 import warnings
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Hashable, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Unpack, cast
@@ -896,6 +897,11 @@ class DatasetCollection:
         # so reading one timestep opens one file instead of all N via `datasets`
         # (ARC-44). Only used before the bulk `_datasets` list is materialised.
         self._handle_cache: dict[int, Dataset] = {}
+        # Optional per-timestep provenance dicts, one per timestep, attached by
+        # `from_stac(properties=...)` through `_attach_time_attrs`. Deliberately a
+        # plain list of plain dicts (never a labelled-coordinate layer) so it
+        # pickles to dask workers and serialises to Zarr/netCDF untouched.
+        self._time_attrs: list[dict[str, Any]] | None = None
 
     def __getstate__(self):
         """Pickle state — drop the lazy `_datasets` cache.
@@ -1136,6 +1142,83 @@ class DatasetCollection:
                     f"{self._time_length} timesteps."
                 )
         self._time = value
+
+    @property
+    def time_attrs(self) -> list[dict[str, Any]] | None:
+        """Per-timestep attribute dicts, or ``None`` when none were attached.
+
+        One plain dict per timestep (so ``len(time_attrs) == time_length``),
+        carrying the STAC Item ``properties`` that
+        :meth:`from_stac` was asked for via its ``properties=`` argument —
+        ``eo:cloud_cover``, ``datetime``, ``sat:relative_orbit``, … Filtering a
+        cube by provenance is then a plain comprehension over the indices::
+
+            coll = DatasetCollection.from_stac(items, asset="B04",
+                                               properties=["eo:cloud_cover"])
+            clear = [i for i, a in enumerate(coll.time_attrs)
+                     if (a.get("eo:cloud_cover") or 0) < 20]
+            cube = coll.values[clear]
+
+        ``None`` is the default and the unchanged state: nothing attaches
+        attributes except ``from_stac(properties=...)``. The store is
+        deliberately a flat list of dicts rather than a labelled-coordinate
+        layer, and is read-only — a derived collection (the result of
+        :meth:`crop` / :meth:`to_crs` / :meth:`align` / any other per-timestep
+        op) starts out with ``None`` again, because an op is free to change the
+        timestep count.
+
+        Read-only is enforced, not merely asked for: each read returns a deep
+        copy, so ``coll.time_attrs[0]["eo:cloud_cover"] = 0`` and
+        ``coll.time_attrs.append({})`` both act on the snapshot and leave the
+        collection untouched — the second would otherwise desynchronise the
+        store from :attr:`time_length`. The copy is deep because STAC properties
+        nest (``proj:transform``, ``eo:bands``), and a per-entry shallow copy
+        would still hand out the live inner lists. Bind the result once rather
+        than re-reading it in a loop if the cube is long.
+
+        Returns:
+            list[dict] | None: One plain dict per timestep, in timestep order
+                (``time_attrs[i]`` describes ``datasets[i]``), holding the STAC
+                Item ``properties`` that were requested — a deep copy of the
+                store, so mutating it is a no-op on the collection. ``None``
+                when nothing attached any — a collection built by any route
+                other than :meth:`from_stac`, a ``from_stac`` call made without
+                ``properties=``, and a collection derived from one by
+                :meth:`crop` / :meth:`to_crs` / :meth:`align`.
+        """
+        attrs = None if self._time_attrs is None else copy.deepcopy(self._time_attrs)
+        return attrs
+
+    def _attach_time_attrs(self, attrs: Sequence[dict[str, Any]] | None) -> None:
+        """Attach (or clear) the per-timestep attribute dicts.
+
+        Private because :attr:`time_attrs` is a read-only view: the only
+        supported producer is :func:`pyramids.dataset._stac.from_stac`, which
+        calls this once the final timestep count is known.
+
+        The entries are deep-copied in, the same depth :attr:`time_attrs` copies
+        out: the dicts handed here come straight off the STAC Items' nested
+        ``properties``, so a shallow copy would leave the collection sharing the
+        Items' inner lists and a later edit to an Item would rewrite the cube's
+        metadata.
+
+        Args:
+            attrs: One dict per timestep, or ``None`` to clear.
+
+        Raises:
+            ValueError: ``attrs`` does not have exactly :attr:`time_length`
+                entries.
+        """
+        if attrs is None:
+            self._time_attrs = None
+        else:
+            materialised = [copy.deepcopy(dict(entry)) for entry in attrs]
+            if len(materialised) != self._time_length:
+                raise ValueError(
+                    f"time_attrs has length {len(materialised)} but the collection "
+                    f"has {self._time_length} timesteps."
+                )
+            self._time_attrs = materialised
 
     @property
     def rows(self):
@@ -1919,8 +2002,16 @@ class DatasetCollection:
         signer: Any = None,
         align: bool = True,
         skip_missing: bool = False,
-        groupby: str | None = None,
+        groupby: str | Callable[[Any], Hashable] | None = None,
         grid: Grid | None = None,
+        method: str = "first",
+        fuse_func: Callable[[np.ndarray, np.ndarray], None] | None = None,
+        errors_as_nodata: bool = False,
+        rescale: bool = False,
+        cfg: Any = None,
+        resampling: str | dict[str, str] | None = None,
+        properties: bool | str | Sequence[str] = False,
+        eo_band_names: bool = False,
     ) -> DatasetCollection:
         """Build a collection from a STAC ItemCollection.
 
@@ -1958,33 +2049,55 @@ class DatasetCollection:
             align: Multi-asset only — resample assets at differing
                 resolutions onto the first asset's grid (`True`,
                 default) or raise on mismatch (`False`).
-            skip_missing: Drop items missing any requested asset
-                (`True`) instead of raising (`False`, default).
+            skip_missing: Drop items **lacking the asset key** (`True`) instead
+                of raising (`False`, default). An asset that is declared but
+                cannot be opened is a different failure — see
+                `errors_as_nodata`. Honoured in all three modes
+                (single-asset, grouped and multi-asset). A dropped item is
+                also absent from `properties=`, so `time_attrs` stays aligned
+                with the emitted timesteps; dropping *every* item raises
+                `ValueError` rather than returning an empty collection.
             groupby: How to collapse items into timesteps. `None` (default)
-                keeps **one timestep per item** — the generic behaviour.
+                keeps **one timestep per item** — the generic behaviour. Any
+                other value buckets the items and mosaics each bucket into one
+                timestep (single-asset only), emitting buckets in sorted-key
+                order.
 
-                `"solar_day"` instead produces **one timestep per acquisition
-                date**, fusing all items that belong to the same satellite
-                overpass. This is for **tiled optical Earth-observation**
-                catalogs (Sentinel-2, Landsat, HLS, MODIS), where a single pass
-                over an area of interest is delivered as many separate
-                granules/tiles — without grouping you would get N
-                tile-timesteps for what is really one acquisition.
+                `"solar_day"` produces **one timestep per acquisition date**,
+                fusing all items that belong to the same satellite overpass.
+                This is for **tiled optical Earth-observation** catalogs
+                (Sentinel-2, Landsat, HLS, MODIS), where a single pass over an
+                area of interest is delivered as many separate granules/tiles —
+                without grouping you would get N tile-timesteps for what is
+                really one acquisition.
 
                 *Mechanism.* Each item's "solar day" is its UTC timestamp shifted
                 by `centroid_longitude / 15` hours (15° of longitude ≈ 1 hour of
                 local solar time), reduced to a calendar date. The longitude
                 shift keeps one overpass on a single date instead of splitting it
                 across the UTC-midnight boundary. Items sharing a solar day are
-                mosaicked with `merge_rasters(method="first")` (first-valid
-                pixel wins where tiles overlap). The resulting `time_length` is
-                the number of distinct solar days, in chronological order.
-                Single-asset only.
+                mosaicked with `merge_rasters(method=method)` — `"first"` by
+                default, so first-valid pixel wins where tiles overlap. The
+                resulting `time_length` is the number of distinct solar days, in
+                chronological order.
 
                 Use it when you want an analysis-ready, one-timestep-per-date
                 stack from tiled imagery over an AOI that spans several tiles.
                 Do **not** use it for non-overpass data (climate model output,
                 already-mosaicked products) — there `groupby=None` is correct.
+
+                The other accepted forms are `"id"` (one group per item id),
+                `"time"` (one group per distinct item datetime), any other
+                string (an item **property key**, e.g. `"sat:relative_orbit"` —
+                an item lacking it raises), and a **callable** `(item) ->
+                hashable` for anything else. pyramids' callable takes **one**
+                argument, unlike odc-stac's 3-arg
+                `(pystac.Item, ParsedItem, index)`.
+
+                *Precedence.* `"solar_day"`, `"id"` and `"time"` are reserved
+                and always win over a property of the same name; reach such a
+                property through a callable
+                (`groupby=lambda item: item["properties"]["time"]`).
             grid: Optional :class:`~pyramids.dataset.Grid` describing the target
                 **output grid** every timestep is warped/aligned onto. `None`
                 (default) or an empty `Grid()` keeps each timestep's native grid.
@@ -1992,6 +2105,72 @@ class DatasetCollection:
                 `Grid(crs=..., resolution=..., bounds=...)` for an explicit one
                 (its `bounds` are the output window, in the target CRS — distinct
                 from `bbox`, which filters input items in lon/lat).
+            method: Grouped modes only — how overlapping pixels within one group
+                are resolved by :func:`~pyramids.dataset.merge.merge_rasters`:
+                `"first"` (default, unchanged behaviour), `"last"`, `"min"`,
+                `"max"`, `"sum"`, `"count"` or `"mean"`. Passing anything but
+                `"first"` without a `groupby` raises rather than being ignored.
+            fuse_func: Grouped modes only — an odc-style in-place fuser
+                `(dst, src) -> None` applied pairwise in item order over a
+                group's sources (read onto the first source's grid, no-data
+                normalised to `NaN`), replacing the built-in mosaic. Mutually
+                exclusive with a non-default `method`, and rejected with
+                `groupby=None`. `None` (default) keeps the built-in merge.
+            errors_as_nodata: Keep the cube alive when an asset is **present on
+                the item but unreadable** (404, expired URL, corrupt) by
+                substituting a `NaN`-filled plane for that timestep. Only
+                IO/open errors convert; a missing asset key (that is
+                `skip_missing`) or a programming error still raises. The plane
+                is built on the `grid=` target when given, else on the grid of
+                the first timestep that opens; if nothing opens and no `grid=`
+                was given, a `ValueError` is raised — so pair this with `grid=`
+                when a total outage must still produce a cube. In single-asset
+                mode it forces an eager open probe of every href.
+
+                Only the **open** is tolerated. A failure in the pixel read —
+                a bad creation option, a failed warp — propagates, because
+                swallowing it would put stored counts beside physical units
+                with nothing marking which is which. In a grouped build, a
+                group with no readable source at all borrows another group's
+                grid for its plane and warns saying so; `grid=` is the only
+                way to pin every timestep onto one grid.
+            rescale: Apply each asset's `raster:bands` scale/offset so values
+                come back in physical units instead of raw DN, masking nodata
+                before scaling. `False` (default) returns the stored counts.
+                Only the GDAL engine is affected — NetCDF/Zarr/GRIB readers
+                already unpack the CF packing their own metadata declares, so
+                applying the STAC factor on top would scale twice. On the
+                single-asset path a timestep declaring a non-identity scale is
+                materialised and can no longer be backed by its remote URL.
+                Units can be **inhomogeneous** across one cube: an item whose
+                asset declares no `raster:bands` keeps its stored counts while
+                a sibling that declares one is converted. Materialised copies
+                accumulate per call; the intermediates whose lifetime ends
+                inside the call are deleted, but the single-asset copies ARE
+                the collection's backing files and live until the interpreter
+                exits.
+            cfg: Optional odc-style override/alias config supplying metadata a
+                thin catalog omits and mapping band aliases, e.g.
+                `{"<collection>": {"assets": {"*": {"nodata": 0}},
+                "aliases": {"red": "B04"}}}`. `nodata` and `unit` fill gaps
+                only — a value the asset already declares wins and the skip
+                warns with `AssetMetadataWarning`.
+            resampling: Multi-asset only — which algorithm aligns
+                mixed-resolution assets onto the first asset's grid. `None`
+                (default) keeps nearest neighbour; a method name applies to
+                every band; a `{asset key: method}` mapping sets it per band
+                (`{"B04": "bilinear", "SCL": "nearest"}`), so a categorical
+                band can stay on nearest while the rest is interpolated.
+            properties: Which STAC Item `properties` to carry onto the cube as
+                per-timestep attributes, read back through
+                :attr:`time_attrs`. `False` (default) attaches nothing, `True`
+                attaches all of them, and a key / sequence of keys attaches just
+                those. Always one dict per emitted timestep; in a grouped build
+                the group's first item represents the group.
+            eo_band_names: Multi-asset only — name the output bands from each
+                asset's `eo:bands` metadata instead of the raw asset keys
+                (`False`, the default), falling back to the asset key where that
+                metadata is missing.
 
         Returns:
             DatasetCollection: File-backed collection (or grid-aligned
@@ -2008,6 +2187,14 @@ class DatasetCollection:
             skip_missing=skip_missing,
             groupby=groupby,
             grid=grid,
+            method=method,
+            fuse_func=fuse_func,
+            errors_as_nodata=errors_as_nodata,
+            rescale=rescale,
+            cfg=cfg,
+            resampling=resampling,
+            properties=properties,
+            eo_band_names=eo_band_names,
         )
 
     @classmethod
@@ -4004,7 +4191,12 @@ class DatasetCollection:
                 Overlap-resolution rule passed to
                 :func:`~pyramids.dataset.merge.merge_rasters`: one of
                 ``"first"``, ``"last"`` (default), ``"min"``, ``"max"``,
-                ``"sum"``.
+                ``"sum"``, ``"count"`` or ``"mean"``. ``"first"``/``"last"``
+                are z-order composites (the first / last timestep covering a
+                pixel wins); the rest reduce across every timestep overlapping
+                the pixel, ignoring no-data -- ``"count"`` reporting how many
+                timesteps contributed a valid value and ``"mean"`` dividing the
+                total by that same count.
             bbox (Sequence[float] | None):
                 Optional ``(west, south, east, north)`` window, forwarded to
                 :func:`~pyramids.dataset.merge.merge_rasters`. ``None`` (default)

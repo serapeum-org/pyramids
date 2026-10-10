@@ -10,6 +10,7 @@ pyramids — tests use raw dicts to prove the duck-typed contract.
 
 from __future__ import annotations
 
+import copy
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,6 +26,7 @@ from pyramids.base._errors import (
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._stac import (
+    _eo_band_names,
     _horizontal_bounds,
     _item_centroid_lon,
     _item_datetime,
@@ -330,8 +332,12 @@ class TestBboxAndMaxItems:
 
     def test_bbox_excludes_non_intersecting(self, stac_items):
         # A valid lon/lat box that does not intersect the items' [0,0,1,1] bbox
-        # (L1 now rejects projected / out-of-range boxes up front).
-        with pytest.raises(ValueError, match="at least one path"):
+        # (L1 now rejects projected / out-of-range boxes up front). from_stac
+        # now reports the empty result itself, naming the filter as the cause,
+        # instead of letting DatasetCollection.from_files' "at least one path"
+        # surface -- and that message is distinct from the one skip_missing
+        # dropping every item produces.
+        with pytest.raises(ValueError, match="no item was left to read"):
             DatasetCollection.from_stac(
                 stac_items,
                 asset="data",
@@ -353,6 +359,174 @@ class TestAssetMissing:
     def test_unknown_asset_raises(self, stac_items):
         with pytest.raises(KeyError, match="not found"):
             DatasetCollection.from_stac(stac_items, asset="doesnotexist")
+
+
+class TestSkipMissingSingleAsset:
+    """H2: `skip_missing` is honoured in single-asset mode, not only grouped.
+
+    The parameter's documentation promises it unconditionally ("items lacking
+    the asset key are dropped instead of raising"), and the grouped and
+    multi-asset paths implement it; single-asset mode used to ignore it and
+    raise `StacAssetError`, which is the mode most callers use.
+    """
+
+    def test_item_without_the_asset_is_dropped(self, stac_items):
+        """An item lacking the asset key is skipped instead of raising.
+
+        Test scenario:
+            Three items, the middle one carrying only an unrelated asset, read
+            in single-asset mode with skip_missing=True -> 2 timesteps.
+        """
+        items = copy.deepcopy(stac_items)
+        items[1]["assets"] = {"OTHER": items[1]["assets"]["data"]}
+        collection = DatasetCollection.from_stac(items, asset="data", skip_missing=True)
+        assert collection.time_length == 2, (
+            "the item without the asset should be dropped, leaving 2 timesteps, got "
+            f"{collection.time_length}"
+        )
+
+    def test_the_surviving_values_are_the_kept_items(self, stac_items):
+        """The dropped item's pixels are absent, not shifted into its slot.
+
+        Test scenario:
+            The fixture's three rasters hold 1.0 / 2.0 / 3.0; dropping the
+            middle item must leave 1.0 and 3.0, in that order.
+        """
+        items = copy.deepcopy(stac_items)
+        items[1]["assets"] = {"OTHER": items[1]["assets"]["data"]}
+        collection = DatasetCollection.from_stac(items, asset="data", skip_missing=True)
+        values = [
+            float(np.asarray(collection.iloc(i).read_array())[0, 0]) for i in (0, 1)
+        ]
+        assert values == [1.0, 3.0], (
+            f"the kept items' own values must survive in order, got {values}"
+        )
+
+    def test_default_still_raises(self, stac_items):
+        """Without skip_missing a missing asset is still a hard failure.
+
+        Test scenario:
+            The same items with skip_missing left at its default.
+        """
+        items = copy.deepcopy(stac_items)
+        items[1]["assets"] = {"OTHER": items[1]["assets"]["data"]}
+        with pytest.raises(StacAssetError, match="asset 'data' not found"):
+            DatasetCollection.from_stac(items, asset="data")
+
+    def test_properties_stay_aligned_with_the_kept_timesteps(self, stac_items):
+        """`properties=` describes the kept items, not the original list.
+
+        Test scenario:
+            Each item carries its own id as a property; after dropping the
+            middle one, time_attrs must hold the two surviving ids and match
+            time_length.
+        """
+        items = copy.deepcopy(stac_items)
+        for item in items:
+            item["properties"] = {"name": item["id"]}
+        items[1]["assets"] = {"OTHER": items[1]["assets"]["data"]}
+        collection = DatasetCollection.from_stac(
+            items, asset="data", skip_missing=True, properties=["name"]
+        )
+        assert len(collection.time_attrs) == collection.time_length, (
+            "one attribute dict per emitted timestep is the documented contract, got "
+            f"{len(collection.time_attrs)} for {collection.time_length} timesteps"
+        )
+        assert [attrs["name"] for attrs in collection.time_attrs] == [
+            "item-0",
+            "item-2",
+        ], f"the attributes must come from the kept items, got {collection.time_attrs}"
+
+    def test_dropping_every_item_raises_and_names_the_cause(self, stac_items):
+        """An empty result is a ValueError that names skip_missing, not bbox.
+
+        Test scenario:
+            No item declares the asset, so skip_missing drops them all.
+        """
+        items = copy.deepcopy(stac_items)
+        for item in items:
+            item["assets"] = {}
+        with pytest.raises(ValueError, match="skip_missing dropped them all"):
+            DatasetCollection.from_stac(items, asset="data", skip_missing=True)
+
+
+class TestEoBandNameCollisions:
+    """M1: `_eo_band_names` must emit one unique name per band.
+
+    `Dataset.band_names` has to stay unique, and the old collision fallback was
+    the asset key -- which can itself be taken, so the duplicate survived.
+    """
+
+    def test_two_assets_declaring_one_name_do_not_collide(self):
+        """An `eo:bands` name already used falls back, then suffixes.
+
+        Test scenario:
+            asset=["B04", "red"] where B04's eo:bands name is "red": the first
+            band takes "red", the second's candidate and its own asset key are
+            both "red", so it must still get a distinct name.
+        """
+        item = {
+            "assets": {
+                "B04": {"eo:bands": [{"name": "red"}]},
+                "red": {"eo:bands": [{"name": "red"}]},
+            }
+        }
+        names = _eo_band_names(item, ["B04", "red"], None)
+        assert len(set(names)) == len(names), (
+            f"band names must stay unique, got {names}"
+        )
+        assert names == ["red", "red_2"], (
+            f"the collision must be suffixed, not duplicated, got {names}"
+        )
+
+    def test_the_asset_key_is_still_preferred_over_a_suffix(self):
+        """A free asset key is used before any suffixing.
+
+        Test scenario:
+            asset=["B04", "B05"] where both declare "red": the second keeps its
+            own key rather than becoming "red_2".
+        """
+        item = {
+            "assets": {
+                "B04": {"eo:bands": [{"name": "red"}]},
+                "B05": {"eo:bands": [{"name": "red"}]},
+            }
+        }
+        names = _eo_band_names(item, ["B04", "B05"], None)
+        assert names == ["red", "B05"], (
+            f"a free asset key is the documented fallback, got {names}"
+        )
+
+    def test_three_way_collision_still_resolves(self):
+        """Every band gets a distinct name however many candidates collide.
+
+        Test scenario:
+            Three assets all declaring "red", one of them keyed "red".
+        """
+        item = {
+            "assets": {
+                "B04": {"eo:bands": [{"name": "red"}]},
+                "B05": {"eo:bands": [{"name": "red"}]},
+                "red": {"eo:bands": [{"name": "red"}]},
+            }
+        }
+        names = _eo_band_names(item, ["B04", "B05", "red"], None)
+        assert len(set(names)) == 3, f"three bands need three names, got {names}"
+        assert names == ["red", "B05", "red_2"], (
+            f"expected the documented fallback order, got {names}"
+        )
+
+    def test_a_repeated_asset_key_is_disambiguated(self):
+        """The same asset requested twice still yields two names.
+
+        Test scenario:
+            asset=["B04", "B04"] with no eo:bands metadata at all.
+        """
+        item = {"assets": {"B04": {}}}
+        names = _eo_band_names(item, ["B04", "B04"], None)
+        assert names == ["B04", "B04_2"], (
+            f"a repeated asset key must be disambiguated, got {names}"
+        )
 
 
 class TestAssetShapes:
@@ -825,12 +999,23 @@ class TestFromStacSolarDay:
         )
 
     def test_invalid_groupby_raises(self, solar_day_items):
-        """An unsupported groupby value raises ValueError.
+        """A groupby that is neither a string nor a callable raises ValueError.
 
         Test scenario:
-            groupby='month' is not supported.
+            groupby=3 is not a spec at all. (Since STAC-06 an unrecognised
+            *string* is read as an item property key instead — see
+            test_from_stac_grouped.py.)
         """
         with pytest.raises(ValueError, match="groupby must be"):
+            DatasetCollection.from_stac(solar_day_items, asset="data", groupby=3)
+
+    def test_unknown_property_groupby_raises(self, solar_day_items):
+        """An unrecognised groupby string is a property key, absent here.
+
+        Test scenario:
+            groupby='month' is no item's property.
+        """
+        with pytest.raises(ValueError, match="absent on item"):
             DatasetCollection.from_stac(solar_day_items, asset="data", groupby="month")
 
     def test_groupby_multi_asset_raises(self, solar_day_items):

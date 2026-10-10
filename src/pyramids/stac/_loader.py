@@ -12,6 +12,31 @@ asset href, and opens it with the right GDAL-backed reader chosen by the asset's
 | `application/wmo-grib2` / `.grib2` `.grb` | :func:`pyramids.grib.open_grib` |
 | `application/vnd+zarr` / `.zarr`            | :meth:`NetCDF.read_file` (GDAL Zarr) |
 
+Four opt-ins sit on top of that dispatch, all off by default so an existing read
+behaves exactly as before:
+
+* `alternate=` prefers an `alternate-assets` href (an `s3://` mirror over the
+  public HTTPS copy, say), silently falling back to the canonical `href`.
+* `verify=` pre-flights the href with one HEAD (:func:`verify_asset`) and warns
+  when it is unreachable or serves a content type contradicting the declared
+  one. HTTP(S) only, and never requested unless asked for.
+* `rescale=` returns physical units instead of stored counts, applying the
+  asset's `raster:bands` `scale` / `offset` with no-data masked first. GDAL
+  (GeoTIFF/COG/JPEG2000) assets only — netCDF, Zarr and GRIB carry their own CF
+  packing, which the readers already unpack.
+* `cfg=` supplies per-asset metadata a thin catalog omits (`data_type`,
+  `nodata`, `unit`) and resolves **band aliases** to real asset keys. See
+  :mod:`pyramids.stac._config` for the schema. The metadata half is GDAL-only
+  too, but unlike `rescale` nothing about a CF reader makes it redundant — so a
+  `cfg` override resolving to a netCDF / Zarr / GRIB asset is reported with an
+  `AssetMetadataWarning` rather than silently dropped. Aliases apply on every
+  engine, since they only choose which asset key is read.
+
+The last two cannot be stamped onto the opened handle — an asset is opened
+read-only, and a remote `/vsicurl` COG rejects every metadata setter — so they
+materialise a writable in-memory copy instead
+(:func:`pyramids.stac._config.materialise`).
+
 Everything is duck-typed — pyramids does **not** import or depend on pystac; the
 Item / Asset contract is read via `getattr` + dict lookup (`pystac.Asset` has
 `.href` / `.media_type`; raw STAC JSON uses `{"href":..., "type":...}`). Assets
@@ -20,10 +45,16 @@ resolve to pyramids' GDAL-backed wrappers.
 
 from __future__ import annotations
 
+import contextlib
+import urllib.error
+import urllib.request
+import warnings
+from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from typing import Any, cast
 
-from pyramids.base._errors import UnsupportedAssetError
+from pyramids.base._errors import StacError, UnsupportedAssetError
+from pyramids.base._ogc_api import USER_AGENT, http_error_detail, http_get_with_retry
 from pyramids.base._utils import import_zarr, lazy_extra_hint
 from pyramids.base.remote import CloudConfig, cloud_config_from_env, is_remote
 from pyramids.dataset import Dataset, DatasetCollection
@@ -31,7 +62,14 @@ from pyramids.dataset.ops._geobox_zarr import detect_data_var
 from pyramids.dataset.ops._zarr import _resolve_store
 from pyramids.grib import open_grib
 from pyramids.netcdf import NetCDF
-from pyramids.stac._item import asset_href, asset_media_type, get_asset
+from pyramids.stac._config import (
+    AssetMetadataWarning,
+    item_collection_id,
+    materialise,
+    resolve_alias,
+    resolve_overrides,
+)
+from pyramids.stac._item import get_asset, preferred_asset_source
 
 _GEOTIFF_EXTS = (".tif", ".tiff")
 _JP2_EXTS = (".jp2", ".jpx")
@@ -61,8 +99,322 @@ _EXTENSION_ENGINES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("gdal", _GEOTIFF_EXTS + _JP2_EXTS),
 )
 
+VERIFY_TIMEOUT = 10.0
+"""Seconds a verification request may take before the asset counts as unreachable.
 
-def _resolve_asset(item_or_asset: Any, asset_key: str | None) -> tuple[str, str | None]:
+A pre-flight that is slower than this stops being cheaper than the GDAL open it
+guards, so it fails instead of stalling the read behind it.
+"""
+
+# Verification is HTTP-only: a HEAD is meaningful for these two schemes and for
+# nothing else pyramids opens (`s3://`, `gs://`, `/vsi*`, a local path).
+_HTTP_SCHEMES = ("http://", "https://")
+
+# Content types that say "some bytes" and nothing more. A store that labels every
+# object with one of these would make every verified read warn, so they are
+# treated as "no information" rather than as a contradiction.
+_GENERIC_MEDIA_TYPES = frozenset({"application/octet-stream", "binary/octet-stream"})
+
+# Statuses that mean "this host will not answer a HEAD" rather than "the object is
+# not there": object stores commonly reject (or require a signature over) the
+# method, and some CDNs answer 400 for it. Each is retried once as a 1-byte ranged
+# GET before the href is declared unreachable.
+_HEAD_UNSUPPORTED: frozenset[int] = frozenset({400, 403, 405, 501})
+
+
+class AssetVerificationWarning(UserWarning):
+    """A verified asset was unreachable, or served a contradicting content type.
+
+    Raised as a warning (not an exception) because verification is a pre-flight:
+    the declared media type is advisory metadata, and a catalog that mislabels an
+    asset GDAL can still read should not become unreadable. Pass
+    `verify_strict=True` to :func:`load_asset` to turn the same finding into a
+    :class:`~pyramids.base._errors.StacError`.
+    """
+
+
+class _HeaderCapture:
+    """Opener wrapper that records the response headers of the successful attempt.
+
+    :func:`~pyramids.base._ogc_api.http_get_with_retry` answers with the body
+    only, and a verification probe needs the `Content-Type` header instead.
+    Wrapping the opener keeps that helper's retry budget, backoff and
+    `Retry-After` handling instead of reimplementing them for one HEAD.
+
+    The underlying opener is resolved per call rather than bound in `__init__`,
+    so a test that patches :func:`urllib.request.urlopen` is still honoured.
+    """
+
+    def __init__(self, opener: Any = None) -> None:
+        """Store the opener to delegate to, and start with no captured headers.
+
+        Args:
+            opener: Anything exposing `.open(target, timeout=...)`, or `None` to
+                delegate to :func:`urllib.request.urlopen` at call time.
+        """
+        self._opener = opener
+        self.headers: dict[str, str] = {}
+
+    def open(self, target: Any, timeout: float | None = None) -> Any:
+        """Open `target`, record its response headers, and return the response.
+
+        Args:
+            target: The URL or :class:`urllib.request.Request` to open.
+            timeout: Per-attempt timeout in seconds.
+
+        Returns:
+            The opened response, untouched, for the caller to read and close.
+        """
+        open_fn = (
+            self._opener.open if self._opener is not None else urllib.request.urlopen
+        )
+        response = open_fn(target, timeout=timeout)  # nosec B310
+        headers = getattr(response, "headers", None)
+        # Lower-cased so the lookup is case-insensitive once the mapping has left
+        # urllib's case-insensitive `email.message.Message` behind.
+        self.headers = (
+            {str(k).lower(): str(v) for k, v in headers.items()}
+            if headers is not None
+            else {}
+        )
+        return response
+
+
+def _base_media_type(value: str | None) -> str:
+    """Return a media type without its parameters, lower-cased.
+
+    Args:
+        value: A media type, possibly carrying parameters
+            (`"image/tiff; application=geotiff"`), or `None`.
+
+    Returns:
+        The bare `type/subtype`, or `""` when there is nothing to compare.
+    """
+    return (value or "").split(";")[0].strip().lower()
+
+
+def _media_types_agree(declared: str | None, served: str | None) -> bool:
+    """Return whether a served content type contradicts the declared one.
+
+    The comparison is deliberately lenient — it exists to catch an asset served
+    as `text/html` (an expired link answering a login page) rather than to police
+    media-type spelling:
+
+    * parameters are ignored, so `image/tiff; application=geotiff` matches
+      `image/tiff`;
+    * a missing type on either side is no evidence, so nothing is reported;
+    * a generic `application/octet-stream` is no evidence either.
+
+    Args:
+        declared: The asset's declared media type (`asset["type"]`).
+        served: The `Content-Type` the server answered with.
+
+    Returns:
+        `True` when the two are consistent (or carry no information), `False`
+        only when they genuinely disagree.
+    """
+    declared_base = _base_media_type(declared)
+    served_base = _base_media_type(served)
+    if not declared_base or not served_base or served_base in _GENERIC_MEDIA_TYPES:
+        agree = True
+    else:
+        agree = declared_base == served_base
+    return agree
+
+
+def _report(message: str, strict: bool) -> None:
+    """Raise or warn — the single place asset verification complains.
+
+    Args:
+        message: The already-redacted complaint.
+        strict: Raise :class:`~pyramids.base._errors.StacError` instead of
+            warning.
+
+    Raises:
+        StacError: `strict` is `True`.
+    """
+    if strict:
+        raise StacError(message)
+    warnings.warn(message, AssetVerificationWarning, stacklevel=3)
+
+
+def _probe_content_type(href: str, timeout: float, opener: Any) -> str | None:
+    """Return the `Content-Type` an HTTP(S) href serves, without reading it.
+
+    Issues a HEAD and, when the host rejects the method (see
+    :data:`_HEAD_UNSUPPORTED`), retries once as a 1-byte ranged GET so a store
+    that only answers GET is not reported as unreachable.
+
+    Each response obtained is released before this returns: a served one by
+    :func:`~pyramids.base._ogc_api.http_get_with_retry`, which reads it inside a
+    `with`; a refused HEAD by the `exc.close()` below. The one response that
+    escapes is the :class:`~urllib.error.HTTPError` raised out of here, whose
+    body the caller still needs for its message — :func:`verify_asset` closes it
+    once it has read the detail.
+
+    Args:
+        href: An `http://` / `https://` URL.
+        timeout: Per-attempt timeout in seconds.
+        opener: Optional opener (anything with `.open(target, timeout=...)`);
+            `None` uses :func:`urllib.request.urlopen`.
+
+    Returns:
+        The served content type, or `None` when the response carried none.
+
+    Raises:
+        urllib.error.HTTPError: The server answered an error status.
+        OSError: The transport failed.
+    """
+    capture = _HeaderCapture(opener)
+    # `http_get_with_retry` declares an `OpenerDirector`, but only ever calls
+    # `.open(target, timeout=...)` on it -- the duck type `_HeaderCapture`
+    # implements (and that the helper's own doctests pass it).
+    director = cast("urllib.request.OpenerDirector", capture)
+    head = urllib.request.Request(
+        href, method="HEAD", headers={"User-Agent": USER_AGENT}
+    )
+    try:
+        http_get_with_retry(head, timeout, opener=director)
+    except urllib.error.HTTPError as exc:
+        if exc.code not in _HEAD_UNSUPPORTED:
+            raise
+        # Nothing will read this body, so release the socket before retrying.
+        exc.close()
+        ranged = urllib.request.Request(
+            href, headers={"User-Agent": USER_AGENT, "Range": "bytes=0-0"}
+        )
+        http_get_with_retry(ranged, timeout, opener=director)
+    return capture.headers.get("content-type")
+
+
+def verify_asset(
+    href: str,
+    media_type: str | None = None,
+    *,
+    strict: bool = False,
+    timeout: float = VERIFY_TIMEOUT,
+    opener: Any = None,
+) -> str | None:
+    """Pre-flight an asset href: is it reachable, and is it the type it claims?
+
+    The opt-in check behind `verify=` on :func:`load_asset` and
+    :func:`resolved_href`. It costs one HEAD (or, where HEAD is refused, a
+    1-byte ranged GET) and catches the two failures that otherwise surface as an
+    opaque GDAL error several seconds later: an expired or dead URL, and an
+    asset whose bytes are not what the catalog says they are.
+
+    Verification is **HTTP-only**. An `s3://` / `gs://` / `/vsi*` / local href is
+    skipped and answers `None`: those are read by GDAL's own VSI layer, whose
+    credentials this check does not hold, so a probe here would report a
+    permission failure that the real read does not have.
+
+    Hrefs are redacted (:func:`pyramids.stac._vrt.redact`) before they reach a
+    message, so a signed URL's token cannot leak into a log handler.
+
+    Args:
+        href: The resolved (already signed) asset href.
+        media_type: The asset's declared media type, compared leniently against
+            the served `Content-Type`. `None` checks reachability only.
+        strict: Raise :class:`~pyramids.base._errors.StacError` instead of
+            emitting an :class:`AssetVerificationWarning`.
+        timeout: Per-attempt timeout in seconds.
+        opener: Optional opener (anything with `.open(target, timeout=...)`),
+            for tests and for callers holding a configured
+            :class:`urllib.request.OpenerDirector`.
+
+    Returns:
+        The served content type, `None` when the href was skipped (non-HTTP) or
+        the response carried no `Content-Type`.
+
+    Raises:
+        StacError: `strict` is `True` and the asset was unreachable or
+            mislabeled.
+
+    Examples:
+        - A matching content type verifies quietly and answers what was served:
+            ```python
+            >>> import io
+            >>> from pyramids.stac._loader import verify_asset
+            >>> class _Opener:
+            ...     def __init__(self, content_type):
+            ...         self.headers = {"Content-Type": content_type}
+            ...     def open(self, target, timeout=None):
+            ...         response = io.BytesIO(b"")
+            ...         response.headers = self.headers
+            ...         return response
+            >>> verify_asset("https://h/a.tif", "image/tiff", opener=_Opener("image/tiff"))
+            'image/tiff'
+
+            ```
+        - A parameterised declaration still matches the bare served type:
+            ```python
+            >>> verify_asset(
+            ...     "https://h/a.tif",
+            ...     "image/tiff; application=geotiff",
+            ...     opener=_Opener("image/tiff"),
+            ... )
+            'image/tiff'
+
+            ```
+        - A contradiction raises under `strict`, with the query string redacted:
+            ```python
+            >>> from pyramids.base._errors import StacError
+            >>> try:
+            ...     verify_asset(
+            ...         "https://h/a.tif?sig=SECRET",
+            ...         "image/tiff",
+            ...         strict=True,
+            ...         opener=_Opener("text/html"),
+            ...     )
+            ... except StacError as exc:
+            ...     print(exc)
+            STAC asset 'https://h/a.tif?<redacted>' is declared 'image/tiff' but the server served 'text/html'
+
+            ```
+        - A non-HTTP href is skipped rather than probed:
+            ```python
+            >>> verify_asset("s3://b/a.tif", "image/tiff") is None
+            True
+
+            ```
+    """
+    # Local import: `pyramids.stac._vrt` imports this module, so importing it at
+    # module scope would close the `_loader` -> `_vrt` -> `_loader` cycle.
+    from pyramids.stac._vrt import redact
+
+    served: str | None = None
+    if href.lower().startswith(_HTTP_SCHEMES):
+        safe = redact(href)
+        try:
+            served = _probe_content_type(href, timeout, opener)
+        except urllib.error.HTTPError as exc:
+            # The error *is* the response, and this is where its lifetime ends:
+            # the caller is handed a warning (or a StacError), never the object,
+            # so nothing downstream can release the socket. `closing` also runs
+            # before `_report`, which raises under `strict`.
+            with contextlib.closing(exc):
+                detail = http_error_detail(exc)
+            _report(
+                f"STAC asset {safe!r} is unreachable: HTTP {exc.code} ({detail})",
+                strict,
+            )
+        except OSError as exc:
+            _report(f"STAC asset {safe!r} is unreachable: {exc}", strict)
+        else:
+            if not _media_types_agree(media_type, served):
+                _report(
+                    f"STAC asset {safe!r} is declared {media_type!r} but the "
+                    f"server served {served!r}",
+                    strict,
+                )
+    return served
+
+
+def _resolve_asset(
+    item_or_asset: Any,
+    asset_key: str | None,
+    alternate: str | Sequence[str] | None = None,
+) -> tuple[str, str | None]:
     """Resolve an item+key or a bare asset to `(href, media_type)`.
 
     Delegates to the shared duck-typed accessors in
@@ -75,21 +427,31 @@ def _resolve_asset(item_or_asset: Any, asset_key: str | None) -> tuple[str, str 
             an Asset (pystac.Asset or raw dict with `href`).
         asset_key: Asset name when `item_or_asset` is an Item; `None` when it
             is already an Asset.
+        alternate: `alternate-assets` key (or keys in preference order) to
+            prefer over the canonical href. `None` (the default) uses the
+            canonical href; an unmatched preference falls back to it.
 
     Returns:
-        A `(href, media_type)` tuple; `media_type` is `None` when absent.
+        A `(href, media_type)` tuple; `media_type` is `None` when absent. The
+        media type describes the href that was *chosen*: an alternate declaring
+        its own `type` is read with the reader that type names (the
+        `alternate-assets` extension permits a mirror to publish the same data
+        in another format), and one declaring none inherits the asset's.
 
     Raises:
         StacAssetError: The asset is missing from the item, or has no `href`
             (subclasses :class:`KeyError`).
     """
     if asset_key is None:
-        asset = item_or_asset
-        href = asset_href(asset)
+        resolved = preferred_asset_source(item_or_asset, alternate)
     else:
-        asset = get_asset(item_or_asset, asset_key)
-        href = asset_href(asset, item=item_or_asset, asset_key=asset_key)
-    return href, asset_media_type(asset)
+        resolved = preferred_asset_source(
+            get_asset(item_or_asset, asset_key),
+            alternate,
+            item=item_or_asset,
+            asset_key=asset_key,
+        )
+    return resolved
 
 
 def _engine_for(media_type: str | None, href: str) -> str:
@@ -192,12 +554,20 @@ def _open_config(
     return config
 
 
-def which_engine(item_or_asset: Any, asset_key: str | None = None) -> str:
+def which_engine(
+    item_or_asset: Any,
+    asset_key: str | None = None,
+    *,
+    alternate: str | Sequence[str] | None = None,
+) -> str:
     """Return the reader name :func:`load_asset` would use, without opening.
 
     Args:
         item_or_asset: A STAC Item or Asset (pystac object or raw dict).
         asset_key: Asset name when passing an Item; `None` for an Asset.
+        alternate: `alternate-assets` key (or keys in preference order) to
+            prefer over the canonical href, so the extension fallback sees the
+            href that would actually be opened. `None` keeps the canonical href.
 
     Returns:
         One of `"gdal"`, `"netcdf"`, `"grib"`, `"zarr"`.
@@ -228,12 +598,18 @@ def which_engine(item_or_asset: Any, asset_key: str | None = None) -> str:
 
             ```
     """
-    href, media_type = _resolve_asset(item_or_asset, asset_key)
+    href, media_type = _resolve_asset(item_or_asset, asset_key, alternate)
     return _engine_for(media_type, href)
 
 
 def resolved_href(
-    item_or_asset: Any, asset_key: str | None = None, *, signer: Any = None
+    item_or_asset: Any,
+    asset_key: str | None = None,
+    *,
+    signer: Any = None,
+    alternate: str | Sequence[str] | None = None,
+    verify: bool = False,
+    verify_strict: bool = False,
 ) -> str:
     """Return an asset's resolved (optionally signed) href without opening it.
 
@@ -249,6 +625,18 @@ def resolved_href(
         signer: Optional signer; when given, its `sign_href` rewrites the href
             (e.g. grafting a SAS token). `gdal_env()` is **not** applied — no
             read happens here.
+        alternate: `alternate-assets` key (or keys in preference order) to
+            prefer over the canonical href — e.g. `"s3"` to read a bucket mirror
+            instead of the public HTTPS copy. An asset that publishes no such
+            alternate falls back to its canonical href. `None` (the default)
+            keeps today's behaviour. The signer always runs on the chosen href,
+            alternate or not.
+        verify: Pre-flight the chosen href with :func:`verify_asset` (one HEAD,
+            HTTP(S) only) and warn when it is unreachable or serves a content
+            type contradicting the declared one. `False` (the default) issues no
+            request at all.
+        verify_strict: With `verify=True`, raise
+            :class:`~pyramids.base._errors.StacError` instead of warning.
 
     Returns:
         The resolved asset href, signed when a `signer` is supplied.
@@ -256,6 +644,7 @@ def resolved_href(
     Raises:
         StacAssetError: The asset is missing or has no href (subclasses
             :class:`KeyError`).
+        StacError: `verify_strict=True` and verification failed.
 
     Examples:
         - Resolve a plain asset href:
@@ -275,10 +664,25 @@ def resolved_href(
             'https://h/B04.tif?sig=tok'
 
             ```
+        - Prefer the asset's `s3` mirror, falling back when it has none:
+            ```python
+            >>> asset = {
+            ...     "href": "https://h/a.tif",
+            ...     "type": "image/tiff",
+            ...     "alternate": {"s3": {"href": "s3://b/a.tif"}},
+            ... }
+            >>> resolved_href(asset, alternate="s3")
+            's3://b/a.tif'
+            >>> resolved_href(asset, alternate="gs")
+            'https://h/a.tif'
+
+            ```
     """
-    href, _ = _resolve_asset(item_or_asset, asset_key)
+    href, media_type = _resolve_asset(item_or_asset, asset_key, alternate)
     if signer is not None:
         href = signer.sign_href(href)
+    if verify:
+        verify_asset(href, media_type, strict=verify_strict)
     return href
 
 
@@ -288,6 +692,12 @@ def load_asset(
     *,
     signer: Any = None,
     vsi: str | None = None,
+    alternate: str | Sequence[str] | None = None,
+    verify: bool = False,
+    verify_strict: bool = False,
+    rescale: bool = False,
+    cfg: Any = None,
+    collection_id: str | None = None,
 ) -> Dataset:
     """Open a STAC asset as a pyramids `Dataset` / `NetCDF`.
 
@@ -313,6 +723,52 @@ def load_asset(
             the href unchanged and applies no extra config.
         vsi: Optional explicit archive kind forwarded to the reader (e.g. a
             GeoTIFF/GRIB inside a `.zip`).
+        alternate: `alternate-assets` key (or keys in preference order) to
+            prefer over the canonical href — e.g. `"s3"` to read a bucket mirror
+            instead of the public HTTPS copy, which inside the same cloud region
+            is both cheaper and faster. An asset that publishes no such
+            alternate falls back to its canonical href, so one call site works
+            across a mixed collection. `None` (the default) keeps today's
+            behaviour. The signer still runs on the chosen href.
+        verify: Pre-flight the href with :func:`verify_asset` before opening it:
+            one HEAD (HTTP(S) hrefs only) that warns when the asset is
+            unreachable or serves a content type contradicting its declared
+            `type`. `False` (the default) issues no extra request, so a normal
+            read never pays for it.
+        verify_strict: With `verify=True`, raise
+            :class:`~pyramids.base._errors.StacError` on a failed verification
+            instead of emitting an :class:`AssetVerificationWarning`.
+        rescale: Return **physical units** rather than stored counts, applying
+            `real = stored * scale + offset` from the asset's `raster:bands`
+            `scale` / `offset`. No-data is masked *before* scaling and the
+            result's no-data becomes `NaN`, so a sentinel is never scaled into a
+            plausible-looking value; the returned raster declares identity
+            packing, so a later `read_array(unpack=True)` cannot apply the same
+            factor twice. Costs a **materialised** (in-memory, `float32`) copy —
+            the opened handle is read-only, so the factor cannot be stamped onto
+            it — and is therefore a no-op when the asset declares no
+            `raster:bands`, or when every band is the identity. **GDAL assets
+            only**: netCDF / Zarr / GRIB are left untouched, because their
+            readers already unpack the CF packing their own metadata declares,
+            and applying the STAC factor on top would scale them twice.
+        cfg: Optional `stac_cfg`-style mapping supplying per-asset metadata the
+            item omits (`data_type`, `nodata`, `unit`) and **band aliases**
+            (`{"aliases": {"rededge": "B05"}}` makes `asset_key="rededge"` read
+            the `B05` asset). Keyed by collection id, with a `"*"` section for
+            cross-collection defaults; :mod:`pyramids.stac._config` documents
+            the full schema. Overrides fill gaps only — a value the asset
+            already declares is kept, and the skip warns unless the collection
+            sets `warnings: "ignore"`. Applying one materialises a writable copy
+            (the same read-only constraint as `rescale`), so nothing is paid
+            when no override actually applies. The metadata overrides are
+            **GDAL assets only**; a `nodata` / `data_type` / `unit` resolving to
+            a netCDF / Zarr / GRIB asset cannot be applied and is reported with
+            an :class:`~pyramids.stac._config.AssetMetadataWarning` instead of
+            being dropped in silence. Aliases are honoured on every engine.
+        collection_id: The collection `cfg` is read under. `None` (the default)
+            takes it from the item (`item["collection"]` /
+            `item.collection_id`), leaving `cfg`'s `"*"` section as the only one
+            that can apply to a bare asset dict.
 
     Returns:
         A :class:`~pyramids.dataset.Dataset` for COG/GeoTIFF assets, or a
@@ -321,7 +777,9 @@ def load_asset(
 
     Raises:
         KeyError: The asset is missing or has no href.
-        ValueError: The asset's type/extension matches no supported reader.
+        ValueError: The asset's type/extension matches no supported reader, or
+            `cfg` configures a `data_type` numpy does not know.
+        StacError: `verify_strict=True` and verification failed.
 
     Examples:
         - Open a COG asset from a STAC Item (requires network access):
@@ -351,15 +809,43 @@ def load_asset(
             >>> ds = load_asset(asset, signer=AWSRequesterPaysSigner(region="us-west-2"))  # doctest: +SKIP
 
             ```
+        - Read a packed asset in physical units (`raster:bands` scale 0.0001):
+            ```python
+            >>> from pyramids.stac import load_asset  # doctest: +SKIP
+            >>> ds = load_asset(item, "B04", rescale=True)  # doctest: +SKIP
+
+            ```
+        - Name an asset by alias and supply the nodata the catalog omits:
+            ```python
+            >>> cfg = {"sentinel-2-l2a": {  # doctest: +SKIP
+            ...     "assets": {"*": {"nodata": 0}},
+            ...     "aliases": {"red": "B04"},
+            ... }}
+            >>> ds = load_asset(item, "red", cfg=cfg)  # doctest: +SKIP
+
+            ```
     """
-    href, media_type = _resolve_asset(item_or_asset, asset_key)
+    if cfg is not None:
+        if collection_id is None:
+            collection_id = item_collection_id(item_or_asset)
+        if asset_key is not None:
+            # Before _resolve_asset, or the aliased key is never looked up.
+            asset_key = resolve_alias(cfg, collection_id, asset_key)
+    href, media_type = _resolve_asset(item_or_asset, asset_key, alternate)
     if signer is not None:
         href = signer.sign_href(href)
+    if verify:
+        verify_asset(href, media_type, strict=verify_strict)
     engine = _engine_for(media_type, href)
+    if cfg is not None and engine != "gdal":
+        _warn_cfg_outside_gdal(item_or_asset, asset_key, cfg, collection_id, engine)
     signer_env = signer.gdal_env() if signer is not None else None
     with _open_config(href, engine, signer_env):
         if engine == "gdal":
             result: Any = Dataset.read_file(href, vsi=vsi, gdal_env=signer_env)
+            result = _apply_overrides(
+                result, item_or_asset, asset_key, rescale, cfg, collection_id
+            )
         elif engine == "zarr":
             # Read through zarr/fsspec, which never consults GDAL config — so
             # nothing is captured on the result either (see _persist_gdal_env).
@@ -372,6 +858,98 @@ def load_asset(
             # signer env is attached to the opened object instead.
             _persist_gdal_env(result, signer_env)
     return cast(Dataset, result)
+
+
+def _warn_cfg_outside_gdal(
+    item_or_asset: Any,
+    asset_key: str | None,
+    cfg: Any,
+    collection_id: str | None,
+    engine: str,
+) -> None:
+    """Report a `cfg` override the resolved reader cannot be given.
+
+    :func:`_apply_overrides` runs on the `gdal` branch alone, so a configured
+    `nodata` / `data_type` / `unit` is unreachable for a netCDF, Zarr or GRIB
+    asset. Dropping it silently is the one thing this module does not do
+    elsewhere, so the skip is announced and the read continues.
+
+    `rescale` is deliberately **not** reported: those readers already unpack the
+    CF packing their own metadata declares, so the STAC factor is scoped out on
+    purpose rather than lost (see :func:`load_asset`'s `rescale` text).
+
+    Args:
+        item_or_asset: The STAC Item or Asset the read came from.
+        asset_key: The (already alias-resolved) asset key, or `None`.
+        cfg: The `stac_cfg`-style mapping the caller supplied.
+        collection_id: The resolved collection id, or `None`.
+        engine: The reader :func:`_engine_for` chose (never `"gdal"` here).
+
+    Raises:
+        ValueError: `cfg` configures a `data_type` numpy does not know — the
+            same validation the GDAL branch applies, so a typo is reported on
+            every engine rather than only on one.
+    """
+    overrides = resolve_overrides(
+        item_or_asset, asset_key, rescale=False, cfg=cfg, collection_id=collection_id
+    )
+    configured = [
+        name
+        for name, value in (
+            ("nodata", overrides.no_data_value),
+            ("data_type", overrides.data_type),
+            ("unit", overrides.unit),
+        )
+        if value is not None
+    ]
+    if configured and not overrides.quiet:
+        warnings.warn(
+            f"cfg configures {', '.join(configured)} for asset {asset_key!r}, but the "
+            f"asset resolves to the {engine!r} reader, which pyramids cannot stamp "
+            "metadata onto -- the override was not applied. Declare it in the file's "
+            "own metadata, or silence this with `warnings: \"ignore\"`.",
+            AssetMetadataWarning,
+            stacklevel=3,
+        )
+
+
+def _apply_overrides(
+    dataset: Any,
+    item_or_asset: Any,
+    asset_key: str | None,
+    rescale: bool,
+    cfg: Any,
+    collection_id: str | None,
+) -> Any:
+    """Apply `rescale` / `cfg` to a freshly opened GDAL asset.
+
+    Called inside the open's GDAL-config context, because materialising reads
+    the asset's pixels and a remote handle needs the signer's credentials still
+    installed for that read.
+
+    Args:
+        dataset: The opened raster.
+        item_or_asset: The STAC Item or Asset the read came from.
+        asset_key: The (already alias-resolved) asset key, or `None`.
+        rescale: Apply the asset's `raster:bands` packing.
+        cfg: The `stac_cfg`-style mapping, or `None`.
+        collection_id: The resolved collection id, or `None`.
+
+    Returns:
+        A materialised raster when an override applied, else `dataset`.
+    """
+    result = dataset
+    if rescale or cfg is not None:
+        overrides = resolve_overrides(
+            item_or_asset,
+            asset_key,
+            rescale=rescale,
+            cfg=cfg,
+            collection_id=collection_id,
+        )
+        if not overrides.is_empty:
+            result = materialise(dataset, overrides)
+    return result
 
 
 def _persist_gdal_env(result: Any, env: dict[str, str] | None) -> None:

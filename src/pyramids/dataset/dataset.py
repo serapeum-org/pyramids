@@ -11,7 +11,7 @@ import logging
 import operator
 import warnings
 import weakref
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from numbers import Number, Real
 from pathlib import Path
@@ -34,6 +34,7 @@ from pyramids.base._dataframe_grid import (
 from pyramids.base._domain import INHERIT_NO_DATA, inherit_no_data
 from pyramids.base._errors import AlignmentError, ContainerRasterWarning, CRSError
 from pyramids.base._utils import (
+    DEFAULT_RESAMPLING,
     # Re-exported, not used here. The dtype catalogue was defined in this module's
     # import namespace before it moved down to `base`, and it is a public name in a
     # public module, so `from pyramids.dataset.dataset import DTYPE_CONVERSION_DF`
@@ -44,6 +45,7 @@ from pyramids.base._utils import (
     gdal_dtype_name,
     gdal_to_numpy_type,
     numpy_to_gdal_dtype,
+    resolve_resampling,
 )
 from pyramids.base.crs import (
     PROJECTED_AXIS_UNITS,
@@ -340,6 +342,57 @@ def _derive_band_names(paths: list[str]) -> list[str]:
             seen[name] = 0
             names.append(name)
     return names
+
+
+def _resolve_band_resampling(
+    resampling: str | dict[str, str] | None,
+    band_names: list[str],
+) -> list[str]:
+    """Expand a scalar / per-band `resampling` spec to one method name per band.
+
+    Every method name is validated up front with
+    :func:`~pyramids.base._utils.resolve_resampling`, so a typo is reported
+    before any pixel is warped instead of silently falling back to a GDAL
+    default. Bands a dict leaves out keep
+    :data:`~pyramids.base._utils.DEFAULT_RESAMPLING`.
+
+    Args:
+        resampling: `None` (every band keeps the historical nearest-neighbour
+            default), one method name applied to every band, or a mapping of
+            band name to method name.
+        band_names: The output band names, in band order — the keys a dict spec
+            is matched against.
+
+    Returns:
+        list[str]: One resampling-method name per band, in band order.
+
+    Raises:
+        TypeError: `resampling` is neither a string, a mapping nor `None`.
+        ValueError: A method name is not a supported algorithm, or a dict key
+            does not name one of `band_names`.
+    """
+    if resampling is None:
+        methods = [DEFAULT_RESAMPLING] * len(band_names)
+    elif isinstance(resampling, str):
+        resolve_resampling(resampling)
+        methods = [resampling] * len(band_names)
+    elif isinstance(resampling, Mapping):
+        unknown = [key for key in resampling if key not in band_names]
+        if unknown:
+            raise ValueError(
+                f"resampling keys {unknown!r} do not name any band; the bands are "
+                f"{band_names!r}. Key the mapping by band name (the asset key, in "
+                "from_stac)."
+            )
+        for method in resampling.values():
+            resolve_resampling(method)
+        methods = [resampling.get(name, DEFAULT_RESAMPLING) for name in band_names]
+    else:
+        raise TypeError(
+            "resampling must be None, a method name (str), or a {band name: method} "
+            f"mapping, got {type(resampling).__name__}."
+        )
+    return methods
 
 
 def _remap_nodata_to(arr: np.ndarray, src_nd: Any, dst_nd: Any) -> np.typing.NDArray:
@@ -3981,6 +4034,16 @@ class Dataset(RasterBase):
         asset_media_type: str | None = None,
         with_proj: bool = True,
         with_raster: bool = True,
+        with_stats: bool = False,
+        with_histogram: bool = False,
+        histogram_bins: int = 10,
+        with_eo: bool = False,
+        stats_approx_ok: bool = True,
+        footprint: str = "bbox",
+        footprint_band: int = 0,
+        footprint_max_samples: int | None = None,
+        simplify_tolerance: float | None = None,
+        densify: float | None = None,
         precision: int = 6,
     ) -> dict:
         """Describe this raster as a STAC Item dict (proj + raster extensions).
@@ -3988,7 +4051,8 @@ class Dataset(RasterBase):
         Thin forwarder to :func:`pyramids.dataset._stac.to_stac_item` — the
         inverse of :meth:`DatasetCollection.from_stac`. Returns a plain
         STAC-JSON dict (pystac not required); the footprint is this dataset's
-        bounding rectangle reprojected to EPSG:4326.
+        bounding rectangle reprojected to EPSG:4326, or the polygonised extent
+        of its valid pixels with `footprint="data"`.
 
         Args:
             item_id: The STAC Item id.
@@ -4004,7 +4068,20 @@ class Dataset(RasterBase):
             asset_key: Key for the data asset (default `"data"`).
             asset_media_type: Optional media type for the asset.
             with_proj: Populate the `proj` extension from the grid.
-            with_raster: Populate `raster:bands` (data_type + nodata).
+            with_raster: Populate `raster:bands` (data_type + nodata, plus
+                scale/offset for a CF-packed band).
+            with_stats: Add a per-band `statistics` object to `raster:bands`.
+            with_histogram: Add a per-band `histogram` object to `raster:bands`.
+            histogram_bins: Number of histogram buckets when `with_histogram`.
+            with_eo: Add `eo:bands` (band names) to the asset.
+            stats_approx_ok: Let GDAL answer `with_stats` approximately.
+            footprint: `"bbox"` (default) or `"data"` (valid-pixel extent).
+            footprint_band: Band to footprint when `footprint="data"`.
+            footprint_max_samples: Pixel budget for the valid-pixel mask.
+            simplify_tolerance: Simplify tolerance in degrees for the data
+                footprint, applied after reprojection.
+            densify: Maximum segment length in native CRS units for the data
+                footprint, applied before reprojection.
             precision: Decimal places for the reprojected footprint.
 
         Returns:
@@ -4024,6 +4101,16 @@ class Dataset(RasterBase):
             asset_media_type=asset_media_type,
             with_proj=with_proj,
             with_raster=with_raster,
+            with_stats=with_stats,
+            with_histogram=with_histogram,
+            histogram_bins=histogram_bins,
+            with_eo=with_eo,
+            stats_approx_ok=stats_approx_ok,
+            footprint=footprint,
+            footprint_band=footprint_band,
+            footprint_max_samples=footprint_max_samples,
+            simplify_tolerance=simplify_tolerance,
+            densify=densify,
             precision=precision,
         )
 
@@ -6508,6 +6595,7 @@ class Dataset(RasterBase):
         *,
         band_names: list[str] | None = None,
         align: bool = False,
+        resampling: str | dict[str, str] | None = None,
         no_data_value: Any = INHERIT_NO_DATA,
         path: str | Path | None = None,
     ) -> Dataset:
@@ -6521,9 +6609,10 @@ class Dataset(RasterBase):
 
         By default all inputs must already share the same grid and CRS;
         pass `align=True` to resample mismatched rasters onto the first
-        file's grid (nearest-neighbour, via :meth:`align`). When the inputs
-        have different numpy dtypes the output dtype is the smallest type
-        that holds every input without a lossy cast.
+        file's grid (nearest-neighbour, via :meth:`align`) — or
+        `resampling=` to pick the algorithm, globally or per band. When the
+        inputs have different numpy dtypes the output dtype is the smallest
+        type that holds every input without a lossy cast.
 
         Stacking copies the stores rather than computing anything: each band
         holds its source's stored values, and each source's CF packing
@@ -6540,6 +6629,19 @@ class Dataset(RasterBase):
             align: When `False` (default), a grid/CRS mismatch among the
                 inputs raises :class:`AlignmentError`. When `True`, every
                 input is resampled onto `files[0]`'s grid first.
+            resampling: Which algorithm that alignment uses (`align=True`
+                only). `None` (default) keeps the historical nearest-neighbour
+                behaviour for every band. A method name (`"bilinear"`,
+                `"cubic"`, `"average"`, … — any key of
+                :data:`~pyramids.base._utils.INTERPOLATION_METHODS`) applies to
+                every band, and a `{band name: method}` mapping sets it per
+                band, so a continuous band can be interpolated while a
+                categorical one (a cloud mask, a class map) stays on nearest.
+                Bands a mapping leaves out keep nearest. Names are validated up
+                front, and a band whose grid already matches `files[0]` skips
+                the warp entirely, so its method is moot. Passing anything but
+                `None` with `align=False` raises, rather than being silently
+                ignored.
             no_data_value: No-data value stamped on the output bands. When
                 omitted, it is inherited from the source rasters (a warning
                 is issued if they disagree, and the first file's value
@@ -6566,7 +6668,10 @@ class Dataset(RasterBase):
 
         Raises:
             ValueError: `files` is empty, `band_names` length does not
-                match `files`, or an input has more than one band.
+                match `files`, an input has more than one band, or
+                `resampling` names an unsupported algorithm / a band that is
+                not being stacked.
+            TypeError: `resampling` is neither a string, a mapping nor `None`.
             AlignmentError: `align=False` and the inputs do not share a
                 grid/CRS.
             CRSError: An input raster has no CRS.
@@ -6637,6 +6742,16 @@ class Dataset(RasterBase):
                 True
 
                 ```
+            - Pick the resampling per band — interpolate the mismatched band
+              while everything else stays on nearest:
+                ```python
+                >>> mixed = Dataset.from_band_files(
+                ...     [paths[0], odd], align=True, resampling={"odd": "bilinear"}
+                ... )
+                >>> mixed.band_names
+                ['B2', 'odd']
+
+                ```
 
         See Also:
             - :meth:`align`: resample one dataset onto another's grid.
@@ -6669,6 +6784,15 @@ class Dataset(RasterBase):
                 )
         else:
             out_names = _derive_band_names(resolved_paths)
+
+        if resampling is not None and not align:
+            raise ValueError(
+                "resampling only applies to the align=True path, which is what "
+                "resamples mismatched inputs onto the first file's grid; with "
+                "align=False a mismatch raises instead. Pass align=True, or drop "
+                "resampling."
+            )
+        band_methods = _resolve_band_resampling(resampling, out_names)
 
         if no_data_value is INHERIT_NO_DATA:
             resolved_nd: Any | None = inherit_no_data(
@@ -6739,7 +6863,9 @@ class Dataset(RasterBase):
                 # *stored* dtype -- an int16 stack of packed inputs losing everything
                 # after the point -- and leave the two branches disagreeing.
                 if align and not template.spatial.same_grid(ds_i):
-                    arr = ds_i.align(grid_template).read_array(band=0, unpack=False)
+                    arr = ds_i.align(
+                        grid_template, method=band_methods[band_i]
+                    ).read_array(band=0, unpack=False)
                 else:
                     # Same grid (or the non-align mixed-dtype path): just cast to
                     # the promoted dtype, which is lossless.

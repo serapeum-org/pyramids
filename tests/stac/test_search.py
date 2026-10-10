@@ -4,16 +4,21 @@ The helper forwards a typed query to ``pystac_client.Client.search`` and returns
 the matched ``ItemCollection``. Tests drive a fake client (no network) and cover
 kwarg forwarding, the CQL2 conformance gate, shapely->GeoJSON conversion, the
 URL-opens-a-client path, and the missing-pystac-client guard.
+
+``item_search`` is the lazy sibling returning the un-executed ``ItemSearch``; its
+tests check that the two share one query builder and that ``search`` keeps
+returning a materialised ``ItemCollection``.
 """
 
 from __future__ import annotations
 
 import sys
+import types
 
 import pytest
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.stac.search import search
+from pyramids.stac.search import item_search, search
 
 pytestmark = pytest.mark.core
 
@@ -34,6 +39,30 @@ class _FakeSearch:
         """Return a sentinel standing in for the matched ItemCollection."""
         return ("ITEMS", self.kwargs)
 
+    def matched(self):
+        """Return a stand-in total hit count."""
+        return 7
+
+    def items(self):
+        """Yield stand-in items one by one."""
+        yield "ITEM-0"
+        yield "ITEM-1"
+
+
+class _FakeSession:
+    """Stand-in for the ``requests.Session`` a Client's ``StacApiIO`` holds.
+
+    Modelled on the real attribute chain (``client._stac_io.session``) rather
+    than on a ``Client.close()`` that pystac-client does not define.
+    """
+
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        """Record that the session was released."""
+        self.closed = True
+
 
 class _FakeClient:
     """Stand-in for pystac_client.Client recording the search kwargs."""
@@ -41,6 +70,8 @@ class _FakeClient:
     def __init__(self, conforms=True):
         self._conforms = conforms
         self.search_kwargs = None
+        self.session = _FakeSession()
+        self._stac_io = types.SimpleNamespace(session=self.session)
 
     def conforms_to(self, _conformance_class):
         """Report whether the (fake) endpoint advertises the class."""
@@ -60,8 +91,6 @@ def _stub_pystac_client(monkeypatch):
     ConformanceClasses``. We satisfy the guard and inject a tiny module exposing
     a ``ConformanceClasses.FILTER`` attribute so the test runs without the extra.
     """
-    import types
-
     monkeypatch.setattr(_SEARCH_MOD, "import_pystac_client", lambda *a, **k: None)
     fake_mod = types.ModuleType("pystac_client")
     fake_mod.ConformanceClasses = types.SimpleNamespace(FILTER="filter")
@@ -197,6 +226,164 @@ class TestSearch:
             f"signer not forwarded to open_client: {opened}"
         )
         assert result == "ITEMS", "should return the searched client's items"
+
+    def test_forwards_ids(self):
+        """STAC-14: `ids` reaches client.search unchanged.
+
+        Test scenario:
+            A sequence of item ids is forwarded verbatim so the API fetches
+            those items directly.
+        """
+        client = _FakeClient()
+        _, kwargs = search(client, "c", ids=["a", "b"])
+        assert kwargs["ids"] == ["a", "b"], f"ids not forwarded: {kwargs}"
+
+    def test_forwards_fields(self):
+        """STAC-14: an include/exclude `fields` selection reaches client.search.
+
+        Test scenario:
+            The fields-extension dict is forwarded verbatim.
+        """
+        client = _FakeClient()
+        selection = {"include": ["id"], "exclude": ["geometry"]}
+        _, kwargs = search(client, "c", fields=selection)
+        assert kwargs["fields"] == selection, f"fields not forwarded: {kwargs}"
+
+    def test_ids_and_fields_default_to_none(self):
+        """Omitting the new kwargs forwards None, leaving the query unchanged.
+
+        Test scenario:
+            A call written before STAC-14 produces the same request as before,
+            with `ids`/`fields` explicitly unset.
+        """
+        client = _FakeClient()
+        search(client, "c")
+        assert client.search_kwargs["ids"] is None, (
+            f"ids should default to None: {client.search_kwargs}"
+        )
+        assert client.search_kwargs["fields"] is None, (
+            f"fields should default to None: {client.search_kwargs}"
+        )
+
+
+class TestItemSearch:
+    """Tests for item_search(), the lazy counterpart exposing paging."""
+
+    def test_returns_the_search_object(self):
+        """item_search returns the ItemSearch itself, not an ItemCollection.
+
+        Test scenario:
+            The returned object exposes matched()/items()/pages-style access
+            rather than the materialised item collection.
+        """
+        client = _FakeClient()
+        result = item_search(client, "c")
+        assert result.matched() == 7, (
+            f"should expose the server hit count, got {result.matched()}"
+        )
+        assert list(result.items()) == ["ITEM-0", "ITEM-1"], (
+            "should expose the item iterator"
+        )
+
+    def test_search_materialises_what_item_search_defers(self):
+        """search() is item_search() plus item_collection(), same query.
+
+        Test scenario:
+            Both entry points build identical kwargs; only search() calls
+            item_collection() on the result (backward-compatible default).
+        """
+        lazy_client = _FakeClient()
+        eager_client = _FakeClient()
+        deferred = item_search(lazy_client, "c", bbox=(0, 0, 1, 1), limit=3)
+        eager, _ = search(eager_client, "c", bbox=(0, 0, 1, 1), limit=3)
+        assert lazy_client.search_kwargs == eager_client.search_kwargs, (
+            "both entry points should build the same query"
+        )
+        assert eager == "ITEMS", f"search should materialise the items, got {eager}"
+        assert deferred.item_collection() == ("ITEMS", deferred.kwargs), (
+            "the deferred search should still materialise on demand"
+        )
+
+    def test_shares_the_guards_with_search(self):
+        """item_search keeps the bbox/intersects and FILTER guards.
+
+        Test scenario:
+            Both guards fire from the lazy entry point too, before any request.
+        """
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            item_search(
+                _FakeClient(),
+                "c",
+                bbox=(0, 0, 1, 1),
+                intersects={"type": "Point", "coordinates": [0, 0]},
+            )
+        with pytest.raises(ValueError, match="FILTER conformance"):
+            item_search(_FakeClient(conforms=False), "c", filter={"op": "isNull"})
+
+
+class TestClientLifetime:
+    """`search` releases a client it opened; `item_search` cannot, and says so.
+
+    Test scenario:
+        ``Client.open`` keeps a ``requests.Session`` on the returned object. The
+        eager entry point materialises everything before returning, so the
+        session it minted has no further use and is closed. The lazy one hands
+        back an ``ItemSearch`` that will keep issuing requests through exactly
+        that session, so closing it would break the object — it stays open on
+        the success path and is released only when the query is rejected.
+    """
+
+    def test_search_closes_the_client_it_opened(self, monkeypatch):
+        """A URL call to search releases the session once the items are in."""
+        client = _FakeClient()
+        monkeypatch.setattr(
+            _SEARCH_MOD, "open_client", lambda url, *, signer=None: client
+        )
+        search("https://example.com/v1", "c")
+        assert client.session.closed, "search leaked its client session"
+
+    def test_search_closes_the_client_when_the_gate_rejects(self, monkeypatch):
+        """A refused filter still releases the session search opened."""
+        client = _FakeClient(conforms=False)
+        monkeypatch.setattr(
+            _SEARCH_MOD, "open_client", lambda url, *, signer=None: client
+        )
+        with pytest.raises(ValueError, match="FILTER conformance"):
+            search("https://example.com/v1", "c", filter={"op": "isNull"})
+        assert client.session.closed, "the rejected search leaked its client session"
+
+    def test_search_leaves_a_caller_supplied_client_open(self):
+        """A client passed in is not closed — the caller still owns it."""
+        client = _FakeClient()
+        search(client, "c")
+        assert not client.session.closed, "a caller's client must not be closed"
+
+    def test_item_search_keeps_the_client_it_opened_open(self, monkeypatch):
+        """The lazy search still needs its session, so it is not closed.
+
+        Test scenario:
+            ``.matched()`` / ``.items()`` / ``.pages()`` all issue further
+            requests through the client, so releasing it here would break the
+            returned object rather than fix a leak.
+        """
+        client = _FakeClient()
+        monkeypatch.setattr(
+            _SEARCH_MOD, "open_client", lambda url, *, signer=None: client
+        )
+        item_search("https://example.com/v1", "c")
+        assert not client.session.closed, (
+            "item_search must leave the session its result reads through open"
+        )
+
+    def test_item_search_closes_the_client_when_the_gate_rejects(self, monkeypatch):
+        """Nothing is returned on the error path, so the session is released."""
+        client = _FakeClient(conforms=False)
+        monkeypatch.setattr(
+            _SEARCH_MOD, "open_client", lambda url, *, signer=None: client
+        )
+        with pytest.raises(ValueError, match="FILTER conformance"):
+            item_search("https://example.com/v1", "c", filter={"op": "isNull"})
+        assert client.session.closed, "the rejected item_search leaked its session"
 
 
 class TestSearchMissingDependency:

@@ -161,7 +161,7 @@ class TestMergeMethod:
             f"got {arr[0, 5]}"
         )
 
-    @pytest.mark.parametrize("method", ["min", "max", "sum"])
+    @pytest.mark.parametrize("method", ["min", "max", "sum", "count", "mean"])
     def test_reduction_byte_identical_across_strip_sizes(
         self, tmp_path, monkeypatch, method
     ):
@@ -189,7 +189,7 @@ class TestMergeMethod:
             Dataset.read_file(str(stripped)).read_array(),
         ), f"{method}: 1-row-strip result differs from the single-pass merge"
 
-    @pytest.mark.parametrize("method", ["min", "max", "sum"])
+    @pytest.mark.parametrize("method", ["min", "max", "sum", "count", "mean"])
     def test_multiband_reduction_byte_identical_across_strip_sizes(
         self, tmp_path, monkeypatch, method
     ):
@@ -226,8 +226,15 @@ class TestMergeMethod:
             f"{method}: multi-band striped merge diverged from the single-pass merge"
         )
 
-    def test_reduction_peak_memory_is_bounded_by_the_strip(self, tmp_path, monkeypatch):
-        """The min/max/sum merge peaks far below a whole-union pass, proving the strip reduction.
+    @pytest.mark.parametrize("method", ["max", "mean"])
+    def test_reduction_peak_memory_is_bounded_by_the_strip(
+        self, tmp_path, monkeypatch, method
+    ):
+        """Every reduction peaks far below a whole-union pass, proving the strip reduction.
+
+        Args:
+            method: A presence-only reduction and the one carrying a second
+                (count) accumulator, so the extra array stays strip-sized too.
 
         Test scenario:
             Merge two overlapping 8000x250 sources with 128-row strips and assert the traced
@@ -256,7 +263,10 @@ class TestMergeMethod:
         monkeypatch.setattr(merge_mod, "_MERGE_STRIP_ROWS", 128)
         with traced_peak() as sp:
             merge_rasters(
-                [pa, pb], tmp_path / "big.tif", no_data_value=-1.0, method="max"
+                [pa, pb],
+                tmp_path / f"big_{method}.tif",
+                no_data_value=-1.0,
+                method=method,
             )
         stripped_peak = sp[0]
 
@@ -354,14 +364,20 @@ class TestMergeMethod:
         )
 
     def test_invalid_method_raises(self, overlapping_pair, tmp_path):
-        """An unknown method raises ValueError.
+        """An unknown method raises ValueError naming every supported one.
 
         Test scenario:
-            'mean' is not a supported merge method.
+            'average' is not a supported merge method, and the message lists the
+            ones that are -- including the 'count' / 'mean' reductions, so a caller
+            who guessed the wrong synonym is pointed at the right name.
         """
         pa, pb = overlapping_pair
-        with pytest.raises(ValueError, match="method must be one of"):
-            merge_rasters([pa, pb], tmp_path / "x.tif", method="mean")
+        with pytest.raises(ValueError, match="method must be one of") as excinfo:
+            merge_rasters([pa, pb], tmp_path / "x.tif", method="average")
+        message = str(excinfo.value)
+        assert "'count'" in message and "'mean'" in message, (
+            f"the supported methods are not listed: {message}"
+        )
 
     def test_failed_vrt_zorder_raises(self, overlapping_pair, tmp_path, monkeypatch):
         """A None from BuildVRT on the z-order path raises RuntimeError.
@@ -370,8 +386,6 @@ class TestMergeMethod:
             Monkeypatching gdal.BuildVRT to return None triggers the defensive
             guard in the last/first path.
         """
-        from pyramids.dataset import merge as merge_mod
-
         pa, pb = overlapping_pair
         monkeypatch.setattr(merge_mod.gdal, "BuildVRT", lambda *a, **k: None)
         with pytest.raises(
@@ -386,16 +400,354 @@ class TestMergeMethod:
             Monkeypatching gdal.BuildVRT to return None triggers the defensive
             guard inside _merge_reduce.
         """
-        from pyramids.dataset import merge as merge_mod
-
         pa, pb = overlapping_pair
         monkeypatch.setattr(merge_mod.gdal, "BuildVRT", lambda *a, **k: None)
         with pytest.raises(RuntimeError) as excinfo:
             merge_rasters([pa, pb], tmp_path / "x.tif", method="sum")
         message = str(excinfo.value)
-        assert "building the union mosaic returned no raster" in message, message
+        assert "building the union mosaic returned no raster" in message, (
+            f"the guard did not say which GDAL step produced nothing: {message}"
+        )
         assert Path(pa).name in message, f"sources are not named: {message}"
         assert "Swig Object" not in message, f"a SWIG proxy leaked: {message}"
+
+
+@pytest.fixture(scope="function")
+def gappy_pair(tmp_path):
+    """Two 2x2 rasters on opposite corners of a 4x4 union, leaving two quadrants bare.
+
+    Raster A (value 5) occupies the top-left 2x2 and raster B (value 7) the
+    bottom-right 2x2, so the top-right and bottom-left quadrants are covered by
+    no source at all.
+
+    Returns:
+        tuple[str, str]: (path_a, path_b).
+    """
+    a = np.full((2, 2), 5.0, dtype="float32")
+    b = np.full((2, 2), 7.0, dtype="float32")
+    pa = write_raster(tmp_path / "corner_tl.tif", a, (0, 4))
+    pb = write_raster(tmp_path / "corner_br.tif", b, (2, 2))
+    return pa, pb
+
+
+@pytest.fixture(scope="function")
+def holed_trio(tmp_path):
+    """Three 3x3 rasters sharing one grid, the third holding no-data in column 0.
+
+    Every cell is overlapped by all three sources, but column 0 receives a valid
+    value from only two of them -- which is what separates "divide by the valid
+    count" from "divide by the overlap count".
+
+    Returns:
+        tuple[str, str, str]: (path_a, path_b, path_c).
+    """
+    a = np.full((3, 3), 10.0, dtype="float32")
+    b = np.full((3, 3), 20.0, dtype="float32")
+    c = np.full((3, 3), 30.0, dtype="float32")
+    c[:, 0] = -9999.0
+    pa = write_raster(tmp_path / "trio_a.tif", a, (0, 3))
+    pb = write_raster(tmp_path / "trio_b.tif", b, (0, 3))
+    pc = write_raster(tmp_path / "trio_c.tif", c, (0, 3))
+    return pa, pb, pc
+
+
+class TestMergeCountAndMean:
+    """``count`` tallies the valid contributions and ``mean`` divides by that tally."""
+
+    def test_count_reports_how_many_sources_cover_each_cell(
+        self, overlapping_pair, tmp_path
+    ):
+        """The overlap strip counts 2 and the single-cover columns count 1.
+
+        Test scenario:
+            A covers columns 0..3 and B columns 2..5 of a 6-wide union, so columns
+            2..3 are covered twice and every other column once.
+        """
+        pa, pb = overlapping_pair
+        out = tmp_path / "count.tif"
+        merge_rasters([pa, pb], out, method="count")
+        arr = Dataset.read_file(str(out)).read_array()
+        assert arr.shape == (4, 6), f"Expected union shape (4, 6), got {arr.shape}"
+        assert arr[0, 2] == pytest.approx(2.0) and arr[0, 3] == pytest.approx(2.0), (
+            f"the overlap should count 2 sources, got {arr[0, 2]} / {arr[0, 3]}"
+        )
+        for column in (0, 1, 4, 5):
+            assert arr[0, column] == pytest.approx(1.0), (
+                f"single-cover column {column} should count 1, got {arr[0, column]}"
+            )
+
+    def test_mean_averages_the_overlapping_values(self, overlapping_pair, tmp_path):
+        """The overlap holds the mean of the two sources and the rest their own value.
+
+        Test scenario:
+            A is all 10 and B all 20; the two columns they share must read 15, and
+            the columns only one of them covers must be untouched by the division.
+        """
+        pa, pb = overlapping_pair
+        out = tmp_path / "mean.tif"
+        merge_rasters([pa, pb], out, no_data_value=-9999.0, method="mean")
+        arr = Dataset.read_file(str(out)).read_array()
+        assert arr[0, 2] == pytest.approx(15.0) and arr[0, 3] == pytest.approx(15.0), (
+            f"the overlap should hold mean(10, 20) = 15, got {arr[0, 2]} / {arr[0, 3]}"
+        )
+        assert arr[0, 0] == pytest.approx(10.0), (
+            f"A-only column should stay 10, got {arr[0, 0]}"
+        )
+        assert arr[0, 5] == pytest.approx(20.0), (
+            f"B-only column should stay 20, got {arr[0, 5]}"
+        )
+
+    def test_mean_divides_by_the_valid_count_not_the_overlap(
+        self, holed_trio, tmp_path
+    ):
+        """A cell covered by three sources averages only the values they actually hold.
+
+        Test scenario:
+            Three fully-overlapping sources of 10 / 20 / 30, the third declaring
+            no-data down column 0. That column must average the two real values
+            (15), not divide their sum by the three sources overlapping it (10).
+        """
+        pa, pb, pc = holed_trio
+        out = tmp_path / "trio_mean.tif"
+        merge_rasters([pa, pb, pc], out, no_data_value=-1.0, method="mean")
+        arr = Dataset.read_file(str(out)).read_array()
+        assert arr[0, 0] == pytest.approx(15.0), (
+            "the holed column must average the 2 valid values (15), not divide by "
+            f"the 3 overlapping sources (10), got {arr[0, 0]}"
+        )
+        assert arr[0, 1] == pytest.approx(20.0), (
+            f"a fully-valid cell should average 10/20/30 to 20, got {arr[0, 1]}"
+        )
+
+    def test_count_skips_a_source_s_own_no_data_hole(self, holed_trio, tmp_path):
+        """A no-data cell inside a source's footprint is not a contribution.
+
+        Test scenario:
+            The same three fully-overlapping sources: column 0 counts 2 because the
+            third source declares no-data there, while the rest count 3.
+        """
+        pa, pb, pc = holed_trio
+        out = tmp_path / "trio_count.tif"
+        merge_rasters([pa, pb, pc], out, method="count")
+        arr = Dataset.read_file(str(out)).read_array()
+        assert arr[0, 0] == pytest.approx(2.0), (
+            f"the holed column should count 2 contributions, got {arr[0, 0]}"
+        )
+        assert arr[0, 1] == pytest.approx(3.0), (
+            f"a fully-valid cell should count 3 contributions, got {arr[0, 1]}"
+        )
+
+    def test_count_writes_zero_where_nothing_is_covered(self, gappy_pair, tmp_path):
+        """Uncovered cells hold the real tally 0, not the no-data fill.
+
+        Test scenario:
+            Two corner tiles leave two quadrants bare. "No source contributed here"
+            is exactly a count of 0, and no covered cell can hold it, so the gaps
+            stay distinguishable without borrowing a marker -- which for a count
+            would report -9999 contributions.
+        """
+        pa, pb = gappy_pair
+        out = tmp_path / "gappy_count.tif"
+        merge_rasters([pa, pb], out, method="count")
+        arr = Dataset.read_file(str(out)).read_array()
+        assert arr[0, 0] == pytest.approx(1.0), (
+            f"the covered top-left should count 1, got {arr[0, 0]}"
+        )
+        assert arr[3, 3] == pytest.approx(1.0), (
+            f"the covered bottom-right should count 1, got {arr[3, 3]}"
+        )
+        assert arr[0, 3] == pytest.approx(0.0), (
+            f"the uncovered top-right should count 0, got {arr[0, 3]}"
+        )
+        assert arr[3, 0] == pytest.approx(0.0), (
+            f"the uncovered bottom-left should count 0, got {arr[3, 0]}"
+        )
+
+    def test_count_declares_no_marker_whatever_the_sources_declared(self, tmp_path):
+        """A count mosaic carries no no-data marker, so no tally can be masked.
+
+        Test scenario:
+            Two corner tiles declaring ``0`` as their own no-data -- the standard
+            marker of Sentinel-2, Landsat Collection 2 and most integer EO products
+            -- leave two of four quadrants bare. Inheriting that ``0`` onto the
+            count mosaic would mask every uncovered cell's honest tally of ``0``,
+            so the output must declare nothing at all and read with no cell masked.
+        """
+        a = np.full((2, 2), 5.0, dtype="float32")
+        b = np.full((2, 2), 7.0, dtype="float32")
+        pa = write_raster(tmp_path / "eo_tl.tif", a, (0, 4), nodata=0.0)
+        pb = write_raster(tmp_path / "eo_br.tif", b, (2, 2), nodata=0.0)
+        out = tmp_path / "eo_count.tif"
+        merge_rasters([pa, pb], out, method="count")
+        handle = gdal.Open(str(out))
+        marker = handle.GetRasterBand(1).GetNoDataValue()
+        handle = None
+        assert marker is None, (
+            "a count mosaic must declare no marker, since every cell holds a real "
+            f"tally that a marker could mask; it declared {marker}"
+        )
+        mosaic = Dataset.read_file(str(out))
+        masked = mosaic.read_array(masked=True)
+        masked = masked[0] if masked.ndim == 3 else masked
+        assert int(masked.size - masked.count()) == 0, (
+            "no cell of a count mosaic may read as masked; the uncovered quadrants' "
+            "tally of 0 was taken for the inherited no-data value"
+        )
+
+    def test_count_warns_when_it_drops_an_explicit_marker(self, gappy_pair, tmp_path):
+        """An explicitly passed marker is refused on a count mosaic, out loud.
+
+        Test scenario:
+            ``no_data_value=-1`` is a legal request on every other reduction, but a
+            count mosaic declares nothing, so the request is dropped -- and dropping
+            a caller's explicit argument silently is what the warning prevents.
+        """
+        pa, pb = gappy_pair
+        out = tmp_path / "explicit_count.tif"
+        with pytest.warns(UserWarning, match="count"):
+            merge_rasters([pa, pb], out, no_data_value=-1.0, method="count")
+        handle = gdal.Open(str(out))
+        marker = handle.GetRasterBand(1).GetNoDataValue()
+        handle = None
+        assert marker is None, (
+            f"the dropped marker must not reach the output band, got {marker}"
+        )
+
+    def test_mean_fills_uncovered_cells_with_the_marker(self, gappy_pair, tmp_path):
+        """There being no mean of nothing, uncovered cells take the no-data fill.
+
+        Test scenario:
+            The same two corner tiles: the bare quadrants must read -1, the way they
+            do for min / max / sum, rather than a 0 from dividing by an empty count.
+        """
+        pa, pb = gappy_pair
+        out = tmp_path / "gappy_mean.tif"
+        merge_rasters([pa, pb], out, no_data_value=-1.0, method="mean")
+        arr = Dataset.read_file(str(out)).read_array()
+        assert arr[0, 0] == pytest.approx(5.0), (
+            f"the covered top-left should stay 5, got {arr[0, 0]}"
+        )
+        assert arr[0, 3] == pytest.approx(-1.0), (
+            f"the uncovered top-right should hold the marker -1, got {arr[0, 3]}"
+        )
+        assert arr[3, 0] == pytest.approx(-1.0), (
+            f"the uncovered bottom-left should hold the marker -1, got {arr[3, 0]}"
+        )
+
+    def test_count_and_mean_reduce_each_band_independently(self, tmp_path):
+        """A multi-band merge tallies and averages per band, not across bands.
+
+        Test scenario:
+            Two 2-band sources sharing a grid, the second declaring no-data in band
+            0 only. Band 0 then counts 1 and keeps the first source's value, while
+            band 1 counts 2 and averages both.
+        """
+        a = np.stack(
+            [np.full((3, 3), 10.0, "float32"), np.full((3, 3), 40.0, "float32")]
+        )
+        b = np.stack(
+            [np.full((3, 3), -9999.0, "float32"), np.full((3, 3), 60.0, "float32")]
+        )
+        pa = write_raster(tmp_path / "band_a.tif", a, (0, 3))
+        pb = write_raster(tmp_path / "band_b.tif", b, (0, 3))
+        counted = tmp_path / "band_count.tif"
+        averaged = tmp_path / "band_mean.tif"
+        merge_rasters([pa, pb], counted, method="count")
+        merge_rasters([pa, pb], averaged, no_data_value=-1.0, method="mean")
+        tally = Dataset.read_file(str(counted)).read_array()
+        mean = Dataset.read_file(str(averaged)).read_array()
+        assert tally[0, 1, 1] == pytest.approx(1.0), (
+            f"band 0 is valid in one source only, got a count of {tally[0, 1, 1]}"
+        )
+        assert tally[1, 1, 1] == pytest.approx(2.0), (
+            f"band 1 is valid in both sources, got a count of {tally[1, 1, 1]}"
+        )
+        assert mean[0, 1, 1] == pytest.approx(10.0), (
+            f"band 0 should keep its one valid value, got {mean[0, 1, 1]}"
+        )
+        assert mean[1, 1, 1] == pytest.approx(50.0), (
+            f"band 1 should average 40 and 60 to 50, got {mean[1, 1, 1]}"
+        )
+
+    @pytest.mark.parametrize(
+        "method, expected",
+        [
+            ("last", [10.0, 10.0, 20.0, 20.0, 20.0, 20.0]),
+            ("first", [10.0, 10.0, 10.0, 10.0, 20.0, 20.0]),
+            ("min", [10.0, 10.0, 10.0, 10.0, 20.0, 20.0]),
+            ("max", [10.0, 10.0, 20.0, 20.0, 20.0, 20.0]),
+            ("sum", [10.0, 10.0, 30.0, 30.0, 20.0, 20.0]),
+        ],
+    )
+    def test_the_existing_methods_are_unchanged(
+        self, overlapping_pair, tmp_path, method, expected
+    ):
+        """first/last/min/max/sum still produce exactly the rasters they always did.
+
+        Args:
+            method: Each method that predates the count/mean reductions.
+            expected: The full row every row of the output must equal.
+
+        Test scenario:
+            The whole 4x6 union is compared against the recorded answer, not just
+            the overlap strip, so a count accumulator folded into the wrong method
+            -- or an identity table entry overwritten -- shows up here.
+        """
+        pa, pb = overlapping_pair
+        out = tmp_path / f"regression_{method}.tif"
+        merge_rasters([pa, pb], out, no_data_value=-9999.0, method=method)
+        arr = Dataset.read_file(str(out)).read_array()
+        assert np.array_equal(arr, np.tile(np.asarray(expected), (4, 1))), (
+            f"{method} no longer matches its recorded output:\n{arr}"
+        )
+
+    @pytest.mark.parametrize("method", ["min", "max", "sum"])
+    def test_the_existing_methods_still_fill_their_gaps(
+        self, gappy_pair, tmp_path, method
+    ):
+        """min/max/sum keep writing the marker where no source covers a cell.
+
+        Args:
+            method: Each reduction that predates the count/mean pair.
+
+        Test scenario:
+            The count reduction is the only one whose uncovered cells hold a real
+            0; the older three must still read -1 there, 'sum' included.
+        """
+        pa, pb = gappy_pair
+        out = tmp_path / f"gap_{method}.tif"
+        merge_rasters([pa, pb], out, no_data_value=-1.0, method=method)
+        arr = Dataset.read_file(str(out)).read_array()
+        assert arr[0, 3] == pytest.approx(-1.0), (
+            f"{method}: uncovered top-right should hold -1, got {arr[0, 3]}"
+        )
+        assert arr[3, 0] == pytest.approx(-1.0), (
+            f"{method}: uncovered bottom-left should hold -1, got {arr[3, 0]}"
+        )
+
+    def test_median_is_refused_rather_than_approximated(
+        self, overlapping_pair, tmp_path
+    ):
+        """method='median' raises NotImplementedError naming the memory it would cost.
+
+        Test scenario:
+            A median needs every overlapping value of a cell at once, which the
+            one-accumulator strip reduction cannot hold, so it is refused by name
+            -- distinctly from an unknown method, which raises ValueError -- and
+            the message points at the methods that do exist.
+        """
+        pa, pb = overlapping_pair
+        with pytest.raises(NotImplementedError) as excinfo:
+            merge_rasters([pa, pb], tmp_path / "median.tif", method="median")
+        message = str(excinfo.value)
+        assert "median" in message, f"the method is not named: {message}"
+        assert "O(n_sources x strip)" in message, (
+            f"the reason it is deferred is not given: {message}"
+        )
+        assert "mean" in message, f"no supported alternative is offered: {message}"
+        assert "median" not in merge_mod._MERGE_METHODS, (
+            "median is advertised as supported while raising NotImplementedError"
+        )
 
 
 @pytest.fixture(scope="function")
@@ -1628,8 +1980,6 @@ class TestDatasetCollectionMergeMethod:
             A file-backed collection of the two overlapping rasters merged with
             method='sum' yields 30 in the overlap.
         """
-        from pyramids.dataset.collection import DatasetCollection
-
         pa, pb = overlapping_pair
         collection = DatasetCollection.read_multiple_files(
             [pa, pb], with_order=False, date=False
@@ -1804,8 +2154,6 @@ class TestMergeRastersDstCrs:
             With ``dst_crs=3857`` forcing a reproject, monkeypatching gdal.Warp
             to return None trips the defensive guard in ``_prepare_sources``.
         """
-        from pyramids.dataset import merge as merge_mod
-
         pa, pb = shared_crs_pair
         monkeypatch.setattr(merge_mod.gdal, "Warp", lambda *a, **k: None)
         with pytest.raises(
@@ -1845,14 +2193,14 @@ class TestMergeRastersDstCrs:
             Monkeypatching gdal.Open to return None trips the guard in the
             CRS-probe loop of ``_prepare_sources``.
         """
-        from pyramids.dataset import merge as merge_mod
-
         pa, pb = shared_crs_pair
         monkeypatch.setattr(merge_mod.gdal, "Open", lambda *a, **k: None)
         with pytest.raises(RuntimeError) as excinfo:
             merge_rasters([pa, pb], tmp_path / "x.tif")
         message = str(excinfo.value)
-        assert "GDAL returned no dataset" in message, message
+        assert "GDAL returned no dataset" in message, (
+            f"the CRS probe did not report the failed open as such: {message}"
+        )
         assert Path(pa).name in message, f"the failing source is not named: {message}"
         assert "1/2" in message, f"the source position is missing: {message}"
 
@@ -2210,8 +2558,6 @@ class TestMergeRastersSigner:
             A spy on gdal.BuildVRT reads the signer's sentinel config option at
             call time; it must see the value, proving CloudConfig was entered.
         """
-        from pyramids.dataset import merge as merge_mod
-
         seen = {}
         real_build_vrt = merge_mod.gdal.BuildVRT
 
@@ -2240,8 +2586,6 @@ class TestMergeRastersSigner:
             With ``signer=None`` the sentinel config option is unset (None) when
             gdal.BuildVRT runs — the nullcontext path installs nothing.
         """
-        from pyramids.dataset import merge as merge_mod
-
         seen = {}
         real_build_vrt = merge_mod.gdal.BuildVRT
 
@@ -2392,8 +2736,6 @@ class TestStackBandsSigner:
             A spy on Dataset.from_band_files reads the sentinel config option at
             call time and must see it, proving CloudConfig was entered.
         """
-        from pyramids.dataset import merge as merge_mod
-
         seen = {}
         real_from_band_files = merge_mod.Dataset.from_band_files
 
@@ -2528,7 +2870,9 @@ class TestMergeNoneGuards:
         with pytest.raises(RuntimeError) as excinfo:
             _merge_reduce([pa, pb], out, "min", -1.0, "nan")
         message = str(excinfo.value)
-        assert "warping onto the union grid returned no raster" in message, message
+        assert "warping onto the union grid returned no raster" in message, (
+            f"the guard did not say which GDAL step produced nothing: {message}"
+        )
         assert Path(pa).name in message, f"the failing source is not named: {message}"
 
     def test_reduce_path_names_the_failing_source(
