@@ -8,7 +8,11 @@ import pytest
 
 from pyramids.base._errors import StacAssetError
 from pyramids.dataset import Dataset
-from pyramids.stac._item import asset_alternate_href, preferred_asset_href
+from pyramids.stac._item import (
+    asset_alternate_href,
+    preferred_asset_href,
+    preferred_asset_source,
+)
 from pyramids.stac._loader import load_asset, resolved_href, which_engine
 
 pytestmark = pytest.mark.core
@@ -203,3 +207,102 @@ class TestLoadAssetAlternate:
         }
         dataset = load_asset(asset)
         assert isinstance(dataset, Dataset), f"not a Dataset: {type(dataset)}"
+
+
+class TestAlternateMediaType:
+    """An alternate's own `type` chooses the reader for the href it supplies.
+
+    Test scenario:
+        The `alternate-assets` extension allows each alternate its own
+        properties, `type` among them, so a mirror is free to publish the same
+        data in another format — an `s3://` Zarr store beside an HTTPS COG.
+        Dispatching on the canonical asset's media type then opens the mirror
+        with the wrong reader, which the href-extension fallback cannot save
+        because a declared type short-circuits it.
+    """
+
+    def test_an_alternate_type_picks_the_reader(self):
+        """A Zarr alternate of a COG asset dispatches to the Zarr reader."""
+        asset = {
+            "href": "https://host/a.tif",
+            "type": _COG_TYPE,
+            "alternate": {
+                "s3": {"href": "s3://bucket/a", "type": "application/vnd+zarr"}
+            },
+        }
+        assert which_engine(asset, alternate="s3") == "zarr", (
+            f"the alternate's own type was ignored: {which_engine(asset, alternate='s3')}"
+        )
+        assert which_engine(asset) == "gdal", "the canonical dispatch changed"
+
+    def test_an_alternate_without_a_type_keeps_the_canonical_one(self):
+        """A plain mirror inherits the asset's declared type, as before."""
+        asset = {
+            "href": "https://host/a",
+            "type": _COG_TYPE,
+            "alternate": {"s3": {"href": "s3://bucket/a"}},
+        }
+        assert which_engine(asset, alternate="s3") == "gdal", (
+            "a typeless alternate should still dispatch on the asset's type"
+        )
+
+    def test_the_source_helper_reports_href_and_type_together(self):
+        """`preferred_asset_source` answers the pair the dispatch needs."""
+        asset = {
+            "href": "https://host/a.tif",
+            "type": _COG_TYPE,
+            "alternate": {
+                "s3": {"href": "s3://bucket/a", "type": "application/vnd+zarr"},
+                "gs": {"href": "gs://bucket/a.tif"},
+            },
+        }
+        assert preferred_asset_source(asset, "s3") == (
+            "s3://bucket/a",
+            "application/vnd+zarr",
+        ), (
+            f"wrong (href, type) for the typed alternate: {preferred_asset_source(asset, 's3')}"
+        )
+        assert preferred_asset_source(asset, "gs") == (
+            "gs://bucket/a.tif",
+            _COG_TYPE,
+        ), (
+            f"a typeless alternate should keep the asset's type: "
+            f"{preferred_asset_source(asset, 'gs')}"
+        )
+        assert preferred_asset_source(asset) == ("https://host/a.tif", _COG_TYPE), (
+            f"no preference should be unchanged: {preferred_asset_source(asset)}"
+        )
+
+    def test_a_pystac_style_alternate_type_is_read_too(self):
+        """The block is found in `extra_fields`, so the type comes with it."""
+        asset = _Asset(
+            "https://host/a.tif",
+            media_type=_COG_TYPE,
+            extra_fields={
+                "alternate": {
+                    "s3": {"href": "s3://bucket/a", "type": "application/x-netcdf"}
+                }
+            },
+        )
+        assert preferred_asset_source(asset, "s3") == (
+            "s3://bucket/a",
+            "application/x-netcdf",
+        ), f"pystac-style alternate type ignored: {preferred_asset_source(asset, 's3')}"
+
+    def test_load_asset_opens_the_alternate_with_its_own_reader(self, tmp_path):
+        """The engine chosen for a real open follows the alternate's type.
+
+        Test scenario:
+            The canonical href claims netCDF while the readable alternate is a
+            GeoTIFF; opening it with the netCDF reader would fail or return the
+            wrong wrapper.
+        """
+        asset = {
+            "href": "https://nowhere.invalid/a.nc",
+            "type": "application/x-netcdf",
+            "alternate": {"local": {"href": _GEOTIFF, "type": _COG_TYPE}},
+        }
+        dataset = load_asset(asset, alternate="local")
+        assert type(dataset) is Dataset, (
+            f"the alternate's type should select the GDAL reader, got {type(dataset)}"
+        )

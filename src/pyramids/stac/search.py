@@ -21,6 +21,13 @@ Two entry points share one query builder:
   can ask for the total hit count (``.matched()``), stream items (``.items()``)
   or walk result pages (``.pages()``) without materialising everything first.
 
+That split decides who owns the HTTP session when a URL is passed rather than an
+open ``Client``. :func:`search` materialises everything, so the client it opened
+is closed before it returns (see :mod:`pyramids.stac._clients`). The lazy
+``ItemSearch`` keeps issuing requests through its client, so :func:`item_search`
+leaves the one it opened open — and releases it only when the query is rejected
+and nothing is returned. Pass an open ``Client`` when that lifetime matters.
+
 `pystac-client` is an optional dependency. Install with one of:
 
 - PyPI: ``pip install 'pyramids-gis[stac]'``
@@ -29,16 +36,38 @@ Two entry points share one query builder:
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Sequence
 from typing import Any
 
 from pyramids.base._utils import extra_hint, import_pystac_client
+from pyramids.stac._clients import close_client, resolved_client
 from pyramids.stac.client import open_client
 
 _STAC_INSTALL_HINT = extra_hint(
     "search requires the optional 'pystac-client' dependency.",
     "stac",
 )
+
+
+def _reject_both_aois(bbox: Any, intersects: Any) -> None:
+    """Refuse the `bbox` + `intersects` combination the STAC API spec forbids.
+
+    Checked by both entry points before either touches a client, so the
+    rejection costs no HTTP session — :func:`search` resolves its client only
+    once the query is known to be well formed.
+
+    Args:
+        bbox: The caller's `bbox`, or `None`.
+        intersects: The caller's `intersects`, or `None`.
+
+    Raises:
+        ValueError: Both were given.
+    """
+    if bbox is not None and intersects is not None:
+        raise ValueError(
+            "bbox and intersects are mutually exclusive (STAC API spec); pass only one."
+        )
 
 
 def item_search(
@@ -96,7 +125,9 @@ def item_search(
             paging at the API).
         limit: Optional page size forwarded to the API.
         signer: Optional signer used only when `client_or_url` is a URL (to open
-            the client). Ignored when an open client is passed.
+            the client). Ignored when an open client is passed. A client opened
+            here stays open, because the returned ``ItemSearch`` reads through
+            it; it is closed only if the query is rejected.
 
     Returns:
         The ``pystac_client.ItemSearch`` for the query, not yet executed.
@@ -125,42 +156,44 @@ def item_search(
 
             ```
     """
-    if bbox is not None and intersects is not None:
-        raise ValueError(
-            "bbox and intersects are mutually exclusive (STAC API spec); pass only one."
-        )
+    _reject_both_aois(bbox, intersects)
 
     import_pystac_client(_STAC_INSTALL_HINT)
     from pystac_client import ConformanceClasses
 
-    client = (
-        open_client(client_or_url, signer=signer)
-        if isinstance(client_or_url, str)
-        else client_or_url
-    )
+    opened = isinstance(client_or_url, str)
+    client = open_client(client_or_url, signer=signer) if opened else client_or_url
+    # The returned `ItemSearch` keeps reading through this client, so it cannot
+    # be closed here -- it is released only when the query is rejected and
+    # nothing is handed back. `pop_all` is what hands ownership over.
+    with contextlib.ExitStack() as stack:
+        if opened:
+            stack.callback(close_client, client)
 
-    if filter is not None and not client.conforms_to(ConformanceClasses.FILTER):
-        raise ValueError(
-            "the STAC endpoint does not advertise the CQL2 FILTER conformance "
-            "class, so a `filter` cannot be used against it."
+        if filter is not None and not client.conforms_to(ConformanceClasses.FILTER):
+            raise ValueError(
+                "the STAC endpoint does not advertise the CQL2 FILTER conformance "
+                "class, so a `filter` cannot be used against it."
+            )
+
+        if intersects is not None and hasattr(intersects, "__geo_interface__"):
+            intersects = intersects.__geo_interface__
+
+        search_object = client.search(
+            collections=collections,
+            ids=ids,
+            bbox=bbox,
+            intersects=intersects,
+            datetime=datetime,
+            query=query,
+            filter=filter,
+            sortby=sortby,
+            fields=fields,
+            max_items=max_items,
+            limit=limit,
         )
-
-    if intersects is not None and hasattr(intersects, "__geo_interface__"):
-        intersects = intersects.__geo_interface__
-
-    return client.search(
-        collections=collections,
-        ids=ids,
-        bbox=bbox,
-        intersects=intersects,
-        datetime=datetime,
-        query=query,
-        filter=filter,
-        sortby=sortby,
-        fields=fields,
-        max_items=max_items,
-        limit=limit,
-    )
+        stack.pop_all()
+    return search_object
 
 
 def search(
@@ -211,7 +244,8 @@ def search(
             paging at the API).
         limit: Optional page size forwarded to the API.
         signer: Optional signer used only when `client_or_url` is a URL (to open
-            the client). Ignored when an open client is passed.
+            the client). Ignored when an open client is passed; a client opened
+            from a URL here is closed again once the items are materialised.
 
     Returns:
         The ``pystac.ItemCollection`` of matched items, ready to hand to
@@ -252,18 +286,24 @@ def search(
 
             ```
     """
-    return item_search(
-        client_or_url,
-        collections,
-        ids=ids,
-        bbox=bbox,
-        intersects=intersects,
-        datetime=datetime,
-        query=query,
-        filter=filter,
-        sortby=sortby,
-        fields=fields,
-        max_items=max_items,
-        limit=limit,
-        signer=signer,
-    ).item_collection()
+    _reject_both_aois(bbox, intersects)
+    # Guarded here as well as in `item_search`: this function resolves the
+    # client itself (to own its lifetime), so the missing-dependency error must
+    # still come before any attempt to open one.
+    import_pystac_client(_STAC_INSTALL_HINT)
+    with resolved_client(client_or_url, signer=signer, opener=open_client) as client:
+        items = item_search(
+            client,
+            collections,
+            ids=ids,
+            bbox=bbox,
+            intersects=intersects,
+            datetime=datetime,
+            query=query,
+            filter=filter,
+            sortby=sortby,
+            fields=fields,
+            max_items=max_items,
+            limit=limit,
+        ).item_collection()
+    return items

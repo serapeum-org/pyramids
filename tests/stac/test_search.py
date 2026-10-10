@@ -13,6 +13,7 @@ returning a materialised ``ItemCollection``.
 from __future__ import annotations
 
 import sys
+import types
 
 import pytest
 
@@ -48,12 +49,29 @@ class _FakeSearch:
         yield "ITEM-1"
 
 
+class _FakeSession:
+    """Stand-in for the ``requests.Session`` a Client's ``StacApiIO`` holds.
+
+    Modelled on the real attribute chain (``client._stac_io.session``) rather
+    than on a ``Client.close()`` that pystac-client does not define.
+    """
+
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        """Record that the session was released."""
+        self.closed = True
+
+
 class _FakeClient:
     """Stand-in for pystac_client.Client recording the search kwargs."""
 
     def __init__(self, conforms=True):
         self._conforms = conforms
         self.search_kwargs = None
+        self.session = _FakeSession()
+        self._stac_io = types.SimpleNamespace(session=self.session)
 
     def conforms_to(self, _conformance_class):
         """Report whether the (fake) endpoint advertises the class."""
@@ -73,8 +91,6 @@ def _stub_pystac_client(monkeypatch):
     ConformanceClasses``. We satisfy the guard and inject a tiny module exposing
     a ``ConformanceClasses.FILTER`` attribute so the test runs without the extra.
     """
-    import types
-
     monkeypatch.setattr(_SEARCH_MOD, "import_pystac_client", lambda *a, **k: None)
     fake_mod = types.ModuleType("pystac_client")
     fake_mod.ConformanceClasses = types.SimpleNamespace(FILTER="filter")
@@ -303,6 +319,71 @@ class TestItemSearch:
             )
         with pytest.raises(ValueError, match="FILTER conformance"):
             item_search(_FakeClient(conforms=False), "c", filter={"op": "isNull"})
+
+
+class TestClientLifetime:
+    """`search` releases a client it opened; `item_search` cannot, and says so.
+
+    Test scenario:
+        ``Client.open`` keeps a ``requests.Session`` on the returned object. The
+        eager entry point materialises everything before returning, so the
+        session it minted has no further use and is closed. The lazy one hands
+        back an ``ItemSearch`` that will keep issuing requests through exactly
+        that session, so closing it would break the object — it stays open on
+        the success path and is released only when the query is rejected.
+    """
+
+    def test_search_closes_the_client_it_opened(self, monkeypatch):
+        """A URL call to search releases the session once the items are in."""
+        client = _FakeClient()
+        monkeypatch.setattr(
+            _SEARCH_MOD, "open_client", lambda url, *, signer=None: client
+        )
+        search("https://example.com/v1", "c")
+        assert client.session.closed, "search leaked its client session"
+
+    def test_search_closes_the_client_when_the_gate_rejects(self, monkeypatch):
+        """A refused filter still releases the session search opened."""
+        client = _FakeClient(conforms=False)
+        monkeypatch.setattr(
+            _SEARCH_MOD, "open_client", lambda url, *, signer=None: client
+        )
+        with pytest.raises(ValueError, match="FILTER conformance"):
+            search("https://example.com/v1", "c", filter={"op": "isNull"})
+        assert client.session.closed, "the rejected search leaked its client session"
+
+    def test_search_leaves_a_caller_supplied_client_open(self):
+        """A client passed in is not closed — the caller still owns it."""
+        client = _FakeClient()
+        search(client, "c")
+        assert not client.session.closed, "a caller's client must not be closed"
+
+    def test_item_search_keeps_the_client_it_opened_open(self, monkeypatch):
+        """The lazy search still needs its session, so it is not closed.
+
+        Test scenario:
+            ``.matched()`` / ``.items()`` / ``.pages()`` all issue further
+            requests through the client, so releasing it here would break the
+            returned object rather than fix a leak.
+        """
+        client = _FakeClient()
+        monkeypatch.setattr(
+            _SEARCH_MOD, "open_client", lambda url, *, signer=None: client
+        )
+        item_search("https://example.com/v1", "c")
+        assert not client.session.closed, (
+            "item_search must leave the session its result reads through open"
+        )
+
+    def test_item_search_closes_the_client_when_the_gate_rejects(self, monkeypatch):
+        """Nothing is returned on the error path, so the session is released."""
+        client = _FakeClient(conforms=False)
+        monkeypatch.setattr(
+            _SEARCH_MOD, "open_client", lambda url, *, signer=None: client
+        )
+        with pytest.raises(ValueError, match="FILTER conformance"):
+            item_search("https://example.com/v1", "c", filter={"op": "isNull"})
+        assert client.session.closed, "the rejected item_search leaked its session"
 
 
 class TestSearchMissingDependency:

@@ -13,7 +13,10 @@ answers the two questions that come before it:
 Each helper takes the same first argument as :func:`pyramids.stac.search` — an
 already-open ``pystac_client.Client`` or a STAC API root URL, in which case the
 client is opened through :func:`pyramids.stac.open_client` so a `signer` is wired
-into both of its hooks.
+into both of its hooks. A client opened that way is also **closed** again before
+the helper returns (see :mod:`pyramids.stac._clients`): its HTTP session is
+invisible to the caller, so nobody else could release it. A client passed in is
+left open, since the caller is still using it.
 
 The server-side extensions these wrap are optional, so each helper checks the
 relevant conformance class first and raises a clear :class:`ValueError` naming
@@ -23,6 +26,17 @@ the missing class, instead of letting pystac-client fail opaquely deeper down.
 
 - PyPI: ``pip install 'pyramids-gis[stac]'``
 - conda-forge: ``conda install -c conda-forge pyramids-stac``
+
+**On this module's name.** ``pyramids.stac.collections`` deliberately matches
+the STAC noun it is about, which happens to be the stdlib ``collections``. That
+is safe rather than accidental: imports are absolute (PEP 328, the only
+behaviour since Python 3), so ``from collections.abc import Sequence`` below
+resolves to the stdlib top-level module and never to this sibling — and nothing
+this module does can shadow ``collections`` for any other importer, since a
+submodule only ever occupies its dotted name. The public entry points are
+re-exported from :mod:`pyramids.stac` (``from pyramids.stac import
+list_collections``), so the module path is rarely spelled out at all.
+``tests/stac/test_collections.py`` pins both halves of that claim.
 """
 
 from __future__ import annotations
@@ -31,6 +45,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from pyramids.base._utils import extra_hint, import_pystac_client
+from pyramids.stac._clients import resolved_client
 from pyramids.stac.client import open_client
 
 _STAC_INSTALL_HINT = extra_hint(
@@ -51,7 +66,9 @@ def list_collections(client_or_url: Any, *, signer: Any = None) -> list[dict[str
         client_or_url: An open ``pystac_client.Client``, or a STAC API root URL
             (opened via :func:`pyramids.stac.open_client`, wiring `signer`).
         signer: Optional signer used only when `client_or_url` is a URL (to open
-            the client). Ignored when an open client is passed.
+            the client). Ignored when an open client is passed; a client opened
+            from a URL here is closed again before this returns, while one
+            passed in is left open for the caller to keep using.
 
     Returns:
         One dict per collection, each the collection's STAC JSON (``id``,
@@ -73,12 +90,9 @@ def list_collections(client_or_url: Any, *, signer: Any = None) -> list[dict[str
     """
     import_pystac_client(_STAC_INSTALL_HINT)
 
-    client = (
-        open_client(client_or_url, signer=signer)
-        if isinstance(client_or_url, str)
-        else client_or_url
-    )
-    return [collection.to_dict() for collection in client.get_collections()]
+    with resolved_client(client_or_url, signer=signer, opener=open_client) as client:
+        collections = [collection.to_dict() for collection in client.get_collections()]
+    return collections
 
 
 def get_queryables(
@@ -97,9 +111,12 @@ def get_queryables(
         client_or_url: An open ``pystac_client.Client``, or a STAC API root URL
             (opened via :func:`pyramids.stac.open_client`, wiring `signer`).
         collections: Optional collection id, or sequence of ids, whose
-            queryables are merged. ``None`` asks the endpoint for its global set.
+            queryables are merged. ``None`` -- or an empty sequence, which names
+            no collection either -- asks the endpoint for its global set.
         signer: Optional signer used only when `client_or_url` is a URL (to open
-            the client). Ignored when an open client is passed.
+            the client). Ignored when an open client is passed; a client opened
+            from a URL here is closed again before this returns, while one
+            passed in is left open for the caller to keep using.
 
     Returns:
         The queryables JSON Schema — a dict whose ``"properties"`` maps each
@@ -126,24 +143,20 @@ def get_queryables(
     import_pystac_client(_STAC_INSTALL_HINT)
     from pystac_client import ConformanceClasses
 
-    client = (
-        open_client(client_or_url, signer=signer)
-        if isinstance(client_or_url, str)
-        else client_or_url
-    )
-
-    if not client.conforms_to(ConformanceClasses.FILTER):
-        raise ValueError(
-            "the STAC endpoint does not advertise the CQL2 FILTER conformance "
-            "class, so it publishes no queryables."
-        )
-
+    names = [collections] if isinstance(collections, str) else list(collections or ())
     queryables: dict[str, Any]
-    if collections is None:
-        queryables = client.get_queryables()
-    else:
-        names = [collections] if isinstance(collections, str) else list(collections)
-        queryables = client.get_merged_queryables(names)
+    with resolved_client(client_or_url, signer=signer, opener=open_client) as client:
+        if not client.conforms_to(ConformanceClasses.FILTER):
+            raise ValueError(
+                "the STAC endpoint does not advertise the CQL2 FILTER conformance "
+                "class, so it publishes no queryables."
+            )
+        # An empty sequence names no collection to merge, which is what "ask the
+        # endpoint for its global set" means -- pystac-client would instead
+        # refuse it with "cannot get_merged_queryables from empty Iterable".
+        queryables = (
+            client.get_merged_queryables(names) if names else client.get_queryables()
+        )
     return queryables
 
 
@@ -189,7 +202,9 @@ def search_collections(
             returned (bounds paging at the API).
         limit: Optional page size forwarded to the API.
         signer: Optional signer used only when `client_or_url` is a URL (to open
-            the client). Ignored when an open client is passed.
+            the client). Ignored when an open client is passed; a client opened
+            from a URL here is closed again before this returns, while one
+            passed in is left open for the caller to keep using.
 
     Returns:
         One dict per matching collection, in the order the API returned them.
@@ -218,37 +233,35 @@ def search_collections(
     import_pystac_client(_STAC_INSTALL_HINT)
     from pystac_client import ConformanceClasses
 
-    client = (
-        open_client(client_or_url, signer=signer)
-        if isinstance(client_or_url, str)
-        else client_or_url
-    )
+    with resolved_client(client_or_url, signer=signer, opener=open_client) as client:
+        if not client.conforms_to(ConformanceClasses.COLLECTION_SEARCH):
+            raise ValueError(
+                "the STAC endpoint does not advertise the COLLECTION_SEARCH "
+                "conformance class, so its collections cannot be searched at the "
+                "API; use list_collections() and filter the result instead."
+            )
 
-    if not client.conforms_to(ConformanceClasses.COLLECTION_SEARCH):
-        raise ValueError(
-            "the STAC endpoint does not advertise the COLLECTION_SEARCH "
-            "conformance class, so its collections cannot be searched at the "
-            "API; use list_collections() and filter the result instead."
+        if q is not None and not client.conforms_to(
+            ConformanceClasses.COLLECTION_SEARCH_FREE_TEXT
+        ):
+            raise ValueError(
+                "the STAC endpoint does not advertise the COLLECTION_SEARCH_FREE_TEXT "
+                "conformance class, so the free-text `q` argument cannot be used "
+                "against it."
+            )
+
+        result = client.collection_search(
+            q=q,
+            bbox=bbox,
+            datetime=datetime,
+            query=query,
+            filter=filter,
+            sortby=sortby,
+            fields=fields,
+            max_collections=max_collections,
+            limit=limit,
         )
-
-    if q is not None and not client.conforms_to(
-        ConformanceClasses.COLLECTION_SEARCH_FREE_TEXT
-    ):
-        raise ValueError(
-            "the STAC endpoint does not advertise the COLLECTION_SEARCH_FREE_TEXT "
-            "conformance class, so the free-text `q` argument cannot be used "
-            "against it."
-        )
-
-    result = client.collection_search(
-        q=q,
-        bbox=bbox,
-        datetime=datetime,
-        query=query,
-        filter=filter,
-        sortby=sortby,
-        fields=fields,
-        max_collections=max_collections,
-        limit=limit,
-    )
-    return list(result.collections_as_dicts())
+        # Materialised inside the scope: `collections_as_dicts` is a generator
+        # that pages at the API, so it must be drained before the session goes.
+        matches = list(result.collections_as_dicts())
+    return matches

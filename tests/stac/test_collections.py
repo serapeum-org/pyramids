@@ -9,12 +9,20 @@ guard.
 
 from __future__ import annotations
 
+import collections.abc
 import sys
 import types
 
 import pytest
 
+import pyramids.stac as stac_package
 from pyramids.base._errors import OptionalPackageDoesNotExist
+
+try:  # pragma: no cover - exercised by whether the [stac] extra is installed
+    from pystac_client.stac_api_io import StacApiIO
+except ImportError:  # pragma: no cover - same
+    StacApiIO = None
+
 from pyramids.stac.collections import (
     get_queryables,
     list_collections,
@@ -54,6 +62,22 @@ class _FakeCollectionSearch:
             yield {"id": identifier, "type": "Collection"}
 
 
+class _FakeSession:
+    """Stand-in for the ``requests.Session`` a Client's ``StacApiIO`` holds.
+
+    Modelled on the real attribute chain (``client._stac_io.session``) rather
+    than on a ``Client.close()`` that pystac-client does not define, so a fake
+    that is easier to close than the real thing cannot make the tests pass.
+    """
+
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        """Record that the session was released."""
+        self.closed = True
+
+
 class _FakeClient:
     """Stand-in for pystac_client.Client with a declared conformance set."""
 
@@ -62,6 +86,8 @@ class _FakeClient:
         self._identifiers = list(identifiers)
         self.collection_search_kwargs = None
         self.merged_queryables_for = None
+        self.session = _FakeSession()
+        self._stac_io = types.SimpleNamespace(session=self.session)
 
     def conforms_to(self, conformance_class):
         """Report whether the (fake) endpoint advertises the class."""
@@ -206,6 +232,24 @@ class TestGetQueryables:
         get_queryables(client, "a")
         assert client.merged_queryables_for == ["a"], (
             f"a string id should be wrapped, got {client.merged_queryables_for}"
+        )
+
+    def test_empty_collections_asks_for_the_global_set(self):
+        """An empty sequence means the same as `None`, not an API error (N4).
+
+        Test scenario:
+            `[]` is not `None`, so it used to take the per-collection branch and
+            surface pystac-client's "cannot get_merged_queryables from empty
+            Iterable". It names no collection, so the documented `None`
+            behaviour is the only sensible reading.
+        """
+        client = _FakeClient(conforms=[_FILTER])
+        result = get_queryables(client, [])
+        assert "datetime" in result["properties"], (
+            f"an empty sequence should read the endpoint-wide schema, got {result}"
+        )
+        assert client.merged_queryables_for is None, (
+            "the merged endpoint should not be called for an empty sequence"
         )
 
     def test_requires_filter_conformance(self):
@@ -363,6 +407,151 @@ class TestRealConformanceClasses:
         assert search_collections(free_text, q="elevation"), (
             "the real FREE_TEXT member should allow a free-text search"
         )
+
+
+class TestClientLifetime:
+    """A client opened from a URL is released again; a caller's is left alone.
+
+    Test scenario:
+        ``Client.open`` builds a ``requests.Session`` and keeps it alive on the
+        returned object. Every helper here accepts a URL, so every one of them
+        can mint a session the caller never sees and therefore cannot close —
+        which is the leak. Ownership is the rule: close what this module opened,
+        never what it was handed.
+    """
+
+    @pytest.fixture
+    def opened(self, monkeypatch):
+        """Make `open_client` hand back one recording client, and return it.
+
+        Args:
+            monkeypatch: pytest monkeypatch fixture.
+
+        Returns:
+            _FakeClient: The client every URL call in the test will receive.
+        """
+        client = _FakeClient(conforms=[_FILTER, _COLLECTION_SEARCH, _FREE_TEXT])
+        monkeypatch.setattr(
+            _COLLECTIONS_MOD, "open_client", lambda url, *, signer=None: client
+        )
+        return client
+
+    def test_list_collections_closes_the_client_it_opened(self, opened):
+        """A URL call to list_collections releases its session."""
+        list_collections("https://example.com/v1")
+        assert opened.session.closed, "list_collections leaked its client session"
+
+    def test_get_queryables_closes_the_client_it_opened(self, opened):
+        """A URL call to get_queryables releases its session."""
+        get_queryables("https://example.com/v1")
+        assert opened.session.closed, "get_queryables leaked its client session"
+
+    def test_search_collections_closes_the_client_it_opened(self, opened):
+        """A URL call to search_collections releases its session."""
+        search_collections("https://example.com/v1", bbox=(0, 0, 1, 1))
+        assert opened.session.closed, "search_collections leaked its client session"
+
+    def test_a_rejected_conformance_gate_still_closes_the_client(self, monkeypatch):
+        """The session is released even when the gate refuses the request.
+
+        Test scenario:
+            The error path is the one a retry loop hits repeatedly, so a leak
+            there accumulates fastest.
+        """
+        client = _FakeClient()
+        monkeypatch.setattr(
+            _COLLECTIONS_MOD, "open_client", lambda url, *, signer=None: client
+        )
+        with pytest.raises(ValueError, match="FILTER conformance"):
+            get_queryables("https://example.com/v1")
+        assert client.session.closed, "the rejected call leaked its client session"
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            list_collections,
+            lambda client: get_queryables(client),
+            lambda client: search_collections(client, bbox=(0, 0, 1, 1)),
+        ],
+        ids=["list_collections", "get_queryables", "search_collections"],
+    )
+    def test_a_caller_supplied_client_is_left_open(self, call):
+        """A client passed in is not closed — the caller still owns it.
+
+        Test scenario:
+            Closing it would break the common pattern of opening one client and
+            running several queries through it.
+        """
+        client = _FakeClient(conforms=[_FILTER, _COLLECTION_SEARCH, _FREE_TEXT])
+        call(client)
+        assert not client.session.closed, "a caller's client must not be closed"
+
+    @pytest.mark.stac
+    def test_the_real_client_exposes_the_session_that_gets_closed(self):
+        """The attribute chain the close walks exists in pystac-client itself.
+
+        Test scenario:
+            ``Client`` publishes no ``close()``, so the session is reached
+            through its ``StacApiIO``. Pinning that against the installed
+            package means an upstream rename surfaces here rather than as a
+            silent no-op release.
+        """
+        assert StacApiIO is not None, "the `stac` marker should gate this test"
+        stac_io = StacApiIO()
+        try:
+            session = getattr(stac_io, "session", None)
+            assert session is not None, "StacApiIO no longer exposes `session`"
+            assert callable(getattr(session, "close", None)), (
+                f"the session is no longer closable: {type(session).__name__}"
+            )
+        finally:
+            stac_io.session.close()
+
+
+class TestModuleNameDoesNotShadowTheStdlib:
+    """`pyramids.stac.collections` is named after the STAC noun, safely (N3).
+
+    Test scenario:
+        The module shares its name with the stdlib `collections`, which is a
+        footgun only if the resolution is ambiguous. Under absolute imports it
+        is not: the sibling is reachable only as `pyramids.stac.collections`,
+        so the module's own `from collections.abc import Sequence` reads the
+        stdlib and no other importer's `collections` is affected. Renaming a
+        module whose names are already exported would cost more than it buys,
+        so the claim is pinned here instead.
+    """
+
+    def test_the_module_resolves_the_stdlib_collections(self):
+        """`Sequence` in the module's namespace is `collections.abc.Sequence`."""
+        assert _COLLECTIONS_MOD.Sequence is collections.abc.Sequence, (
+            f"the sibling module shadowed the stdlib: {_COLLECTIONS_MOD.Sequence}"
+        )
+
+    def test_importing_it_leaves_the_stdlib_module_in_place(self):
+        """`sys.modules['collections']` is still the stdlib module."""
+        assert sys.modules["collections"] is collections, (
+            "importing pyramids.stac.collections displaced the stdlib module"
+        )
+        assert _COLLECTIONS_MOD is not collections, (
+            "the sibling and the stdlib module are the same object"
+        )
+        assert _COLLECTIONS_MOD.__name__ == "pyramids.stac.collections", (
+            f"unexpected module name: {_COLLECTIONS_MOD.__name__}"
+        )
+
+    def test_the_public_names_are_reachable_without_the_module_path(self):
+        """The package re-exports them, so callers need not spell the module.
+
+        Test scenario:
+            This is what makes the name a documentation question rather than an
+            API one — `from pyramids.stac import list_collections` is the
+            supported spelling.
+        """
+        for name in ("list_collections", "get_queryables", "search_collections"):
+            assert name in stac_package.__all__, f"{name} is not re-exported"
+            assert getattr(stac_package, name) is getattr(_COLLECTIONS_MOD, name), (
+                f"{name} is re-exported as a different object"
+            )
 
 
 class TestCollectionsMissingDependency:

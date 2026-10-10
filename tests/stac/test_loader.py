@@ -11,6 +11,7 @@ from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.netcdf import NetCDF
 from pyramids.stac import _loader
+from pyramids.stac._config import AssetMetadataWarning
 from pyramids.stac._loader import (
     _engine_for,
     _resolve_asset,
@@ -659,3 +660,143 @@ class TestLoadAssetPersistsEnv:
         signer = _AppendSigner(suffix="", env={"AWS_REQUEST_PAYER": "requester"})
         load_asset({"href": "s3://b/store.zarr"}, signer=signer)
         assert not hasattr(opened, "_gdal_env"), "the zarr reader should be untouched"
+
+
+class TestCfgOutsideTheGdalEngine:
+    """A `cfg` override that cannot reach a non-GDAL reader says so (M20).
+
+    Test scenario:
+        `_apply_overrides` runs only on the `gdal` branch, so a `nodata` /
+        `data_type` / `unit` the caller configured for a netCDF, Zarr or GRIB
+        asset can never be applied. The read still succeeds, but the skip is
+        announced with an `AssetMetadataWarning` instead of being silent.
+    """
+
+    _NODATA_CFG = {"*": {"assets": {"*": {"nodata": 0}}}}
+
+    def test_netcdf_cfg_override_warns(self, monkeypatch):
+        """A nodata configured for a netCDF asset warns, naming the reader.
+
+        Test scenario:
+            The netCDF branch cannot be stamped, so the override is reported
+            rather than dropped silently.
+        """
+        monkeypatch.setattr(
+            _loader.NetCDF, "read_file", staticmethod(lambda href, **_: "NC")
+        )
+        asset = {"href": _NETCDF, "type": "application/x-netcdf"}
+        with pytest.warns(AssetMetadataWarning, match="netcdf") as caught:
+            opened = load_asset(asset, cfg=self._NODATA_CFG)
+        assert opened == "NC", f"the read should still succeed, got {opened!r}"
+        assert "nodata" in str(caught[0].message), (
+            f"the warning should name the unapplied key, got {caught[0].message}"
+        )
+
+    def test_grib_cfg_override_warns(self, monkeypatch, grib_asset):
+        """A unit configured for a GRIB asset warns the same way.
+
+        Test scenario:
+            The defect class is the engine dispatch, not one media type, so
+            every non-GDAL branch reports it.
+        """
+        monkeypatch.setattr(_loader, "open_grib", lambda href, vsi=None: "GRIB")
+        cfg = {"*": {"assets": {"*": {"unit": "K"}}}}
+        with pytest.warns(AssetMetadataWarning, match="grib") as caught:
+            load_asset(grib_asset, cfg=cfg)
+        assert "unit" in str(caught[0].message), (
+            f"the warning should name the unapplied key, got {caught[0].message}"
+        )
+
+    def test_zarr_cfg_override_warns(self, monkeypatch):
+        """A data_type configured for a Zarr store warns the same way.
+
+        Test scenario:
+            The Zarr branch reads through zarr/fsspec and is equally
+            un-stampable.
+        """
+        monkeypatch.setattr(_loader, "_load_zarr", lambda href: "ZARR")
+        cfg = {"*": {"assets": {"*": {"data_type": "uint16"}}}}
+        with pytest.warns(AssetMetadataWarning, match="zarr") as caught:
+            load_asset({"href": "s3://b/store.zarr"}, cfg=cfg)
+        assert "data_type" in str(caught[0].message), (
+            f"the warning should name the unapplied key, got {caught[0].message}"
+        )
+
+    def test_alias_only_cfg_stays_quiet(self, monkeypatch, recwarn):
+        """A cfg that only resolves an alias has nothing to apply, so no warning.
+
+        Test scenario:
+            Aliases are honoured for every engine (they pick the asset key), so
+            reporting them as skipped would be wrong.
+        """
+        monkeypatch.setattr(
+            _loader.NetCDF, "read_file", staticmethod(lambda href, **_: "NC")
+        )
+        item = {
+            "collection": "c",
+            "assets": {"B05": {"href": _NETCDF, "type": "application/x-netcdf"}},
+        }
+        load_asset(item, "rededge", cfg={"c": {"aliases": {"rededge": "B05"}}})
+        skipped = [w for w in recwarn if issubclass(w.category, AssetMetadataWarning)]
+        assert skipped == [], f"an alias-only cfg should be quiet, got {skipped}"
+
+    def test_warnings_ignore_silences_the_skip(self, monkeypatch, recwarn):
+        """The collection's `warnings: "ignore"` suppresses the report.
+
+        Test scenario:
+            The same switch that silences an already-declared override also
+            silences this one, so one setting covers both.
+        """
+        monkeypatch.setattr(
+            _loader.NetCDF, "read_file", staticmethod(lambda href, **_: "NC")
+        )
+        cfg = {"*": {"assets": {"*": {"nodata": 0}}, "warnings": "ignore"}}
+        load_asset({"href": _NETCDF, "type": "application/x-netcdf"}, cfg=cfg)
+        skipped = [w for w in recwarn if issubclass(w.category, AssetMetadataWarning)]
+        assert skipped == [], f"`warnings: ignore` should silence it, got {skipped}"
+
+    def test_rescale_on_a_netcdf_asset_stays_quiet(self, monkeypatch, recwarn):
+        """`rescale=` is deliberately GDAL-only and is not reported as skipped.
+
+        Test scenario:
+            The CF readers already unpack their own `scale_factor` /
+            `add_offset`, so applying the STAC factor on top would scale twice.
+            Scoping it out is the correct behaviour, documented on `rescale`,
+            and must not start warning.
+        """
+        monkeypatch.setattr(
+            _loader.NetCDF, "read_file", staticmethod(lambda href, **_: "NC")
+        )
+        asset = {
+            "href": _NETCDF,
+            "type": "application/x-netcdf",
+            "raster:bands": [{"scale": 0.01}],
+        }
+        load_asset(asset, rescale=True)
+        skipped = [w for w in recwarn if issubclass(w.category, AssetMetadataWarning)]
+        assert skipped == [], f"rescale scoping should stay quiet, got {skipped}"
+
+    def test_gdal_asset_applies_the_override_instead_of_warning(
+        self, recwarn, tmp_path
+    ):
+        """The GDAL branch still applies the same cfg, with no warning.
+
+        Test scenario:
+            The warning must fire only where the override is unreachable, so a
+            GeoTIFF declaring no no-data takes the configured one silently.
+        """
+        path = tmp_path / "plain.tif"
+        raster = gdal.GetDriverByName("GTiff").Create(
+            str(path), 4, 3, 1, gdal.GDT_Int16
+        )
+        raster.SetGeoTransform((0.0, 1.0, 0.0, 3.0, 0.0, -1.0))
+        raster.GetRasterBand(1).WriteArray(np.ones((3, 4), "int16"))
+        raster.FlushCache()
+        raster = None
+        asset = {"href": str(path), "type": _COG_TYPE}
+        dataset = load_asset(asset, cfg={"*": {"assets": {"*": {"nodata": -999}}}})
+        assert dataset.no_data_value[0] == -999, (
+            f"cfg nodata not applied on the gdal branch: {dataset.no_data_value}"
+        )
+        skipped = [w for w in recwarn if issubclass(w.category, AssetMetadataWarning)]
+        assert skipped == [], f"the gdal branch should not warn, got {skipped}"

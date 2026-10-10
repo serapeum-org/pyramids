@@ -247,6 +247,48 @@ def asset_href(asset: Any, *, item: Any = None, asset_key: str | None = None) ->
     return str(href)
 
 
+def asset_alternate_entry(asset: Any, name: str) -> Mapping[str, Any] | None:
+    """Return the `alternate-assets` entry under `name`, or `None` when absent.
+
+    The entry is a whole object, not just an href: the extension lets each
+    alternate carry its own properties (`title`, `type`, `roles`, ...). Reading
+    it once keeps the href and the media type of a given location together —
+    which is what :func:`preferred_asset_source` needs.
+
+    Args:
+        asset: A STAC Asset (pystac object or raw dict).
+        name: The alternate key to look up (e.g. `"s3"`, `"gs"`).
+
+    Returns:
+        The entry mapping, or `None` when the asset carries no `alternate`
+        block, no entry under `name`, or a non-mapping entry.
+
+    Examples:
+        - Read a typed `s3` mirror's whole entry:
+            ```python
+            >>> from pyramids.stac._item import asset_alternate_entry
+            >>> asset = {
+            ...     "href": "https://h/a.tif",
+            ...     "alternate": {"s3": {"href": "s3://b/a", "type": "application/vnd+zarr"}},
+            ... }
+            >>> asset_alternate_entry(asset, "s3")["type"]
+            'application/vnd+zarr'
+
+            ```
+        - An absent alternate answers `None`:
+            ```python
+            >>> asset_alternate_entry(asset, "gs") is None
+            True
+
+            ```
+    """
+    alternate = asset_field(asset, "alternate")
+    entry: Any = None
+    if isinstance(alternate, Mapping):
+        entry = alternate.get(name)
+    return entry if isinstance(entry, Mapping) else None
+
+
 def asset_alternate_href(asset: Any, name: str) -> str | None:
     """Return `asset["alternate"][name]["href"]`, or `None` when absent.
 
@@ -290,12 +332,8 @@ def asset_alternate_href(asset: Any, name: str) -> str | None:
         - :func:`preferred_asset_href`: picks an alternate with the canonical
           href as the fallback.
     """
-    alternate = asset_field(asset, "alternate")
-    href: Any = None
-    if isinstance(alternate, Mapping):
-        entry = alternate.get(name)
-        if isinstance(entry, Mapping):
-            href = entry.get("href")
+    entry = asset_alternate_entry(asset, name)
+    href = None if entry is None else entry.get("href")
     return str(href) if href else None
 
 
@@ -358,6 +396,80 @@ def preferred_asset_href(
             'https://h/a.tif'
 
             ```
+
+    See Also:
+        - :func:`preferred_asset_source`: the same choice, reported together
+          with the media type of the chosen href — which is what a caller
+          picking a reader needs, since an alternate may declare its own `type`.
+    """
+    href, _media_type = preferred_asset_source(
+        asset, alternate, item=item, asset_key=asset_key
+    )
+    return href
+
+
+def preferred_asset_source(
+    asset: Any,
+    alternate: str | Sequence[str] | None = None,
+    *,
+    item: Any = None,
+    asset_key: str | None = None,
+) -> tuple[str, str | None]:
+    """Return the `(href, media_type)` pair describing the location to read.
+
+    The companion of :func:`preferred_asset_href` for callers that then have to
+    pick a *reader*: an alternate may declare its own `type`, and the
+    `alternate-assets` extension does not require it to match the canonical
+    asset's. An `s3://` mirror published as a Zarr store beside an HTTPS COG is
+    a legitimate pair, so the media type has to travel with the href that was
+    chosen rather than being read off the asset afterwards.
+
+    An alternate that declares no `type` inherits the asset's, which is the
+    common case (a mirror of the same bytes) and keeps the href-extension
+    fallback working for a typeless asset.
+
+    Args:
+        asset: A STAC Asset (pystac object or raw dict).
+        alternate: An alternate key (`"s3"`) or keys in preference order
+            (`["s3", "gs"]`). `None` (the default) uses the canonical href.
+        item: The owning Item, used only to enrich the error message.
+        asset_key: The asset key, used only to enrich the error message.
+
+    Returns:
+        The chosen href, and the media type describing *that* href — the
+        alternate's own `type` when it declares one, else the asset's declared
+        media type, else `None`.
+
+    Raises:
+        StacAssetError: No alternate matched and the asset has no canonical
+            `href` (subclasses :class:`KeyError`).
+
+    Examples:
+        - A typed alternate reports its own media type:
+            ```python
+            >>> from pyramids.stac._item import preferred_asset_source
+            >>> asset = {
+            ...     "href": "https://h/a.tif",
+            ...     "type": "image/tiff",
+            ...     "alternate": {"s3": {"href": "s3://b/a", "type": "application/vnd+zarr"}},
+            ... }
+            >>> preferred_asset_source(asset, "s3")
+            ('s3://b/a', 'application/vnd+zarr')
+
+            ```
+        - A typeless alternate inherits the asset's media type:
+            ```python
+            >>> asset["alternate"]["gs"] = {"href": "gs://b/a.tif"}
+            >>> preferred_asset_source(asset, "gs")
+            ('gs://b/a.tif', 'image/tiff')
+
+            ```
+        - No preference keeps the canonical pair:
+            ```python
+            >>> preferred_asset_source(asset)
+            ('https://h/a.tif', 'image/tiff')
+
+            ```
     """
     if alternate is None:
         names: tuple[str, ...] = ()
@@ -366,13 +478,18 @@ def preferred_asset_href(
     else:
         names = tuple(alternate)
     href: str | None = None
+    declared: Any = None
     for name in names:
-        href = asset_alternate_href(asset, name)
-        if href is not None:
+        entry = asset_alternate_entry(asset, name)
+        href = None if entry is None else entry.get("href")
+        if href:
+            declared = entry.get("type") if entry is not None else None
             break
+        href = None
     if href is None:
         href = asset_href(asset, item=item, asset_key=asset_key)
-    return href
+    media_type = asset_media_type(asset) if declared is None else str(declared)
+    return str(href), media_type
 
 
 def asset_media_type(asset: Any) -> str | None:

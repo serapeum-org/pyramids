@@ -6,8 +6,10 @@ through a monkeypatched :func:`urllib.request.urlopen`.
 
 from __future__ import annotations
 
+import gc
 import urllib.error
 import urllib.request
+import warnings
 from pathlib import Path
 
 import pytest
@@ -32,24 +34,32 @@ _HREF = "https://host/a.tif"
 
 
 class _Response:
-    """A minimal urllib-style response: headers, an empty body, a context."""
+    """A minimal urllib-style response: headers, an empty body, a context.
+
+    `closed` records whether the reader released it. A real `http.client`
+    response holds a socket, so leaving one open is a leaked connection — the
+    flag is what lets a test see that rather than trusting the arithmetic.
+    """
 
     def __init__(self, content_type: str | None = None):
         self.headers = {} if content_type is None else {"Content-Type": content_type}
+        self.closed = False
 
     def read(self) -> bytes:
         """Return an empty body (a HEAD has none)."""
         return b""
 
     def close(self) -> None:
-        """Match the file-like contract; nothing to release."""
+        """Record the release, as a real response's `close` would perform it."""
+        self.closed = True
 
     def __enter__(self):
         """Return self so `with opener.open(...)` works."""
         return self
 
     def __exit__(self, *exc_info) -> bool:
-        """Never swallow an exception."""
+        """Close on the way out, like urllib's own response, and never swallow."""
+        self.close()
         return False
 
 
@@ -92,8 +102,10 @@ def _http_error(code: int, **headers: str) -> urllib.error.HTTPError:
 def _verification_warnings(recwarn) -> list:
     """Return only the verification warnings a recorder captured.
 
-    The recorder also picks up unrelated `ResourceWarning`s raised when the
-    interpreter collects an unread fake `HTTPError` from an earlier test.
+    The recorder is process-wide, so it also sees whatever an unrelated library
+    warns about during the call; selecting by category keeps each assertion
+    about this module. Nothing here is expected to leak a `ResourceWarning` any
+    more — `TestProbeReleasesItsResponses` pins that separately.
 
     Args:
         recwarn: pytest's warning recorder.
@@ -244,6 +256,69 @@ class TestVerifyAsset:
         assert opener.calls == [], f"probed a non-HTTP href: {opener.calls}"
         emitted = _verification_warnings(recwarn)
         assert emitted == [], f"unexpected warning: {[w.message for w in emitted]}"
+
+
+class TestProbeReleasesItsResponses:
+    """Every response the probe obtains is released before the call returns.
+
+    Test scenario:
+        An HTTP(S) probe can end three ways — a served response, a status the
+        host uses to refuse HEAD, and a reported failure. In the first two the
+        body is read inside a `with`; in the third the `HTTPError` *is* the
+        response, and only this module can close it, because the caller is
+        handed a warning rather than the object. Each is asserted on the
+        object's own `closed` flag, not on a side effect.
+    """
+
+    def test_successful_head_closes_the_response(self):
+        """The HEAD's response is closed once its headers have been captured."""
+        response = _Response("image/tiff")
+        verify_asset(_HREF, "image/tiff", opener=_Opener(response))
+        assert response.closed, "the HEAD response was left open"
+
+    def test_ranged_get_fallback_closes_both_responses(self):
+        """The refused HEAD and the ranged-GET retry are both released."""
+        refused = _http_error(405)
+        ranged = _Response("image/tiff")
+        verify_asset(_HREF, "image/tiff", opener=_Opener(refused, ranged))
+        assert refused.fp.closed, "the refused HEAD error was left open"
+        assert ranged.closed, "the ranged-GET response was left open"
+
+    def test_reported_error_status_closes_the_error_response(self):
+        """A 404 reported as unreachable is closed, not left to the collector."""
+        error = _http_error(404)
+        with pytest.warns(AssetVerificationWarning, match="unreachable: HTTP 404"):
+            verify_asset(_HREF, "image/tiff", opener=_Opener(error))
+        assert error.fp.closed, "the reported HTTPError was left open"
+
+    def test_strict_failure_closes_the_error_response(self):
+        """`strict=True` raises *after* the response has been released."""
+        error = _http_error(404)
+        with pytest.raises(StacError, match="unreachable"):
+            verify_asset(_HREF, "image/tiff", strict=True, opener=_Opener(error))
+        assert error.fp.closed, "the raised-on HTTPError was left open"
+
+    def test_no_resource_warning_survives_the_call(self):
+        """The fakes emit no `ResourceWarning` when they are collected.
+
+        Test scenario:
+            An unclosed `HTTPError` warns from the garbage collector, at an
+            arbitrary later point — which lands in whichever test's recorder
+            happens to be open. Closing it in the handler is what keeps this
+            file's `recwarn` assertions about this file.
+        """
+        error = _http_error(404)
+        opener = _Opener(error)
+        with pytest.warns(AssetVerificationWarning):
+            verify_asset(_HREF, "image/tiff", opener=opener)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            del error, opener
+            gc.collect()
+        leaked = [w for w in caught if issubclass(w.category, ResourceWarning)]
+        assert leaked == [], (
+            f"collecting the fakes leaked {[str(w.message) for w in leaked]}"
+        )
 
 
 class TestVerifyThroughTheLoader:

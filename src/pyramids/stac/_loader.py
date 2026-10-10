@@ -26,7 +26,11 @@ behaves exactly as before:
   packing, which the readers already unpack.
 * `cfg=` supplies per-asset metadata a thin catalog omits (`data_type`,
   `nodata`, `unit`) and resolves **band aliases** to real asset keys. See
-  :mod:`pyramids.stac._config` for the schema.
+  :mod:`pyramids.stac._config` for the schema. The metadata half is GDAL-only
+  too, but unlike `rescale` nothing about a CF reader makes it redundant — so a
+  `cfg` override resolving to a netCDF / Zarr / GRIB asset is reported with an
+  `AssetMetadataWarning` rather than silently dropped. Aliases apply on every
+  engine, since they only choose which asset key is read.
 
 The last two cannot be stamped onto the opened handle — an asset is opened
 read-only, and a remote `/vsicurl` COG rejects every metadata setter — so they
@@ -41,6 +45,7 @@ resolve to pyramids' GDAL-backed wrappers.
 
 from __future__ import annotations
 
+import contextlib
 import urllib.error
 import urllib.request
 import warnings
@@ -58,12 +63,13 @@ from pyramids.dataset.ops._zarr import _resolve_store
 from pyramids.grib import open_grib
 from pyramids.netcdf import NetCDF
 from pyramids.stac._config import (
+    AssetMetadataWarning,
     item_collection_id,
     materialise,
     resolve_alias,
     resolve_overrides,
 )
-from pyramids.stac._item import asset_media_type, get_asset, preferred_asset_href
+from pyramids.stac._item import get_asset, preferred_asset_source
 
 _GEOTIFF_EXTS = (".tif", ".tiff")
 _JP2_EXTS = (".jp2", ".jpx")
@@ -239,6 +245,13 @@ def _probe_content_type(href: str, timeout: float, opener: Any) -> str | None:
     :data:`_HEAD_UNSUPPORTED`), retries once as a 1-byte ranged GET so a store
     that only answers GET is not reported as unreachable.
 
+    Each response obtained is released before this returns: a served one by
+    :func:`~pyramids.base._ogc_api.http_get_with_retry`, which reads it inside a
+    `with`; a refused HEAD by the `exc.close()` below. The one response that
+    escapes is the :class:`~urllib.error.HTTPError` raised out of here, whose
+    body the caller still needs for its message — :func:`verify_asset` closes it
+    once it has read the detail.
+
     Args:
         href: An `http://` / `https://` URL.
         timeout: Per-attempt timeout in seconds.
@@ -375,9 +388,14 @@ def verify_asset(
         try:
             served = _probe_content_type(href, timeout, opener)
         except urllib.error.HTTPError as exc:
+            # The error *is* the response, and this is where its lifetime ends:
+            # the caller is handed a warning (or a StacError), never the object,
+            # so nothing downstream can release the socket. `closing` also runs
+            # before `_report`, which raises under `strict`.
+            with contextlib.closing(exc):
+                detail = http_error_detail(exc)
             _report(
-                f"STAC asset {safe!r} is unreachable: HTTP {exc.code} "
-                f"({http_error_detail(exc)})",
+                f"STAC asset {safe!r} is unreachable: HTTP {exc.code} ({detail})",
                 strict,
             )
         except OSError as exc:
@@ -415,23 +433,25 @@ def _resolve_asset(
 
     Returns:
         A `(href, media_type)` tuple; `media_type` is `None` when absent. The
-        media type is always the asset's declared one — the `alternate-assets`
-        extension mirrors the same data, so an alternate href does not change
-        which reader opens it.
+        media type describes the href that was *chosen*: an alternate declaring
+        its own `type` is read with the reader that type names (the
+        `alternate-assets` extension permits a mirror to publish the same data
+        in another format), and one declaring none inherits the asset's.
 
     Raises:
         StacAssetError: The asset is missing from the item, or has no `href`
             (subclasses :class:`KeyError`).
     """
     if asset_key is None:
-        asset = item_or_asset
-        href = preferred_asset_href(asset, alternate)
+        resolved = preferred_asset_source(item_or_asset, alternate)
     else:
-        asset = get_asset(item_or_asset, asset_key)
-        href = preferred_asset_href(
-            asset, alternate, item=item_or_asset, asset_key=asset_key
+        resolved = preferred_asset_source(
+            get_asset(item_or_asset, asset_key),
+            alternate,
+            item=item_or_asset,
+            asset_key=asset_key,
         )
-    return href, asset_media_type(asset)
+    return resolved
 
 
 def _engine_for(media_type: str | None, href: str) -> str:
@@ -740,7 +760,11 @@ def load_asset(
             already declares is kept, and the skip warns unless the collection
             sets `warnings: "ignore"`. Applying one materialises a writable copy
             (the same read-only constraint as `rescale`), so nothing is paid
-            when no override actually applies. GDAL assets only.
+            when no override actually applies. The metadata overrides are
+            **GDAL assets only**; a `nodata` / `data_type` / `unit` resolving to
+            a netCDF / Zarr / GRIB asset cannot be applied and is reported with
+            an :class:`~pyramids.stac._config.AssetMetadataWarning` instead of
+            being dropped in silence. Aliases are honoured on every engine.
         collection_id: The collection `cfg` is read under. `None` (the default)
             takes it from the item (`item["collection"]` /
             `item.collection_id`), leaving `cfg`'s `"*"` section as the only one
@@ -813,6 +837,8 @@ def load_asset(
     if verify:
         verify_asset(href, media_type, strict=verify_strict)
     engine = _engine_for(media_type, href)
+    if cfg is not None and engine != "gdal":
+        _warn_cfg_outside_gdal(item_or_asset, asset_key, cfg, collection_id, engine)
     signer_env = signer.gdal_env() if signer is not None else None
     with _open_config(href, engine, signer_env):
         if engine == "gdal":
@@ -832,6 +858,59 @@ def load_asset(
             # signer env is attached to the opened object instead.
             _persist_gdal_env(result, signer_env)
     return cast(Dataset, result)
+
+
+def _warn_cfg_outside_gdal(
+    item_or_asset: Any,
+    asset_key: str | None,
+    cfg: Any,
+    collection_id: str | None,
+    engine: str,
+) -> None:
+    """Report a `cfg` override the resolved reader cannot be given.
+
+    :func:`_apply_overrides` runs on the `gdal` branch alone, so a configured
+    `nodata` / `data_type` / `unit` is unreachable for a netCDF, Zarr or GRIB
+    asset. Dropping it silently is the one thing this module does not do
+    elsewhere, so the skip is announced and the read continues.
+
+    `rescale` is deliberately **not** reported: those readers already unpack the
+    CF packing their own metadata declares, so the STAC factor is scoped out on
+    purpose rather than lost (see :func:`load_asset`'s `rescale` text).
+
+    Args:
+        item_or_asset: The STAC Item or Asset the read came from.
+        asset_key: The (already alias-resolved) asset key, or `None`.
+        cfg: The `stac_cfg`-style mapping the caller supplied.
+        collection_id: The resolved collection id, or `None`.
+        engine: The reader :func:`_engine_for` chose (never `"gdal"` here).
+
+    Raises:
+        ValueError: `cfg` configures a `data_type` numpy does not know — the
+            same validation the GDAL branch applies, so a typo is reported on
+            every engine rather than only on one.
+    """
+    overrides = resolve_overrides(
+        item_or_asset, asset_key, rescale=False, cfg=cfg, collection_id=collection_id
+    )
+    configured = [
+        name
+        for name, value in (
+            ("nodata", overrides.no_data_value),
+            ("data_type", overrides.data_type),
+            ("unit", overrides.unit),
+        )
+        if value is not None
+    ]
+    if configured and not overrides.quiet:
+        warnings.warn(
+            f"cfg configures {', '.join(configured)} for asset {asset_key!r}, but the "
+            f"asset resolves to the {engine!r} reader, which pyramids cannot stamp "
+            "metadata onto -- the override was not applied. Declare it in the file's "
+            "own metadata, or silence this with `warnings: \"ignore\"`.",
+            AssetMetadataWarning,
+            stacklevel=3,
+        )
 
 
 def _apply_overrides(

@@ -77,6 +77,104 @@ def item(raster_path):
     }
 
 
+@pytest.fixture
+def delegated(monkeypatch):
+    """Record every `Dataset` window read the item-level helpers delegate to.
+
+    The engine method still runs, so the arrays stay real; what the recorder
+    adds is the call itself — which method, and with which window. Output
+    equality alone cannot tell delegation from a reimplementation that happens
+    to agree.
+
+    Args:
+        monkeypatch: pytest monkeypatch fixture.
+
+    Returns:
+        list: One `(method_name, args, kwargs)` tuple per delegated call.
+    """
+    calls: list[tuple[str, tuple, dict]] = []
+
+    def recorder(name, original):
+        def wrapper(self, *args, **kwargs):
+            """Record the delegated call, then perform it."""
+            calls.append((name, args, kwargs))
+            return original(self, *args, **kwargs)
+
+        return wrapper
+
+    for name in ("read_part", "preview", "point"):
+        monkeypatch.setattr(Dataset, name, recorder(name, getattr(Dataset, name)))
+    return calls
+
+
+class TestEngineDelegation:
+    """Each helper hands its window to the `COG` engine method it documents.
+
+    Test scenario:
+        The module's claim is composition: "No windowing arithmetic lives here."
+        A hand-rolled reimplementation producing the same numbers would satisfy
+        an output comparison, so these pin the call instead — the method name,
+        the window, and the options that must survive the hop.
+    """
+
+    def test_read_item_part_delegates_the_window(self, item, delegated):
+        """`read_item_part` calls `Dataset.read_part` with the bbox it was given."""
+        read_item_part(item, "data", (2.0, 6.0, 5.0, 9.0), band=0, dst_width=3)
+        assert len(delegated) == 1, f"expected exactly one engine call: {delegated}"
+        name, args, kwargs = delegated[0]
+        assert name == "read_part", f"delegated to the wrong method: {name}"
+        assert args == ((2.0, 6.0, 5.0, 9.0),), f"window not forwarded: {args}"
+        assert kwargs == {"bbox_crs": 4326, "band": 0, "dst_width": 3}, (
+            f"read options not forwarded verbatim: {kwargs}"
+        )
+
+    def test_read_item_preview_delegates_max_size(self, item, delegated):
+        """`read_item_preview` calls `Dataset.preview` with `max_size`."""
+        read_item_preview(item, "data", max_size=4, band=0)
+        assert [name for name, _, _ in delegated] == ["preview"], (
+            f"delegated to the wrong method: {delegated}"
+        )
+        _, args, kwargs = delegated[0]
+        assert args == (), f"preview takes keywords only: {args}"
+        assert kwargs == {"max_size": 4, "band": 0}, (
+            f"preview options not forwarded verbatim: {kwargs}"
+        )
+
+    def test_read_item_point_delegates_the_coordinate(self, item, delegated):
+        """`read_item_point` calls `Dataset.point` with the split coordinate."""
+        read_item_point(item, "data", (2.5, 7.5), band=0)
+        assert [name for name, _, _ in delegated] == ["point"], (
+            f"delegated to the wrong method: {delegated}"
+        )
+        _, args, kwargs = delegated[0]
+        assert args == (2.5, 7.5), f"coordinate not forwarded: {args}"
+        assert kwargs == {"point_crs": 4326, "band": 0}, (
+            f"point options not forwarded verbatim: {kwargs}"
+        )
+
+    def test_read_item_feature_delegates_the_envelope_to_read_part(
+        self, item, delegated
+    ):
+        """`read_item_feature` reduces the geometry and routes to `read_part`."""
+        polygon = {
+            "type": "Polygon",
+            "coordinates": [[[2.0, 6.0], [5.0, 6.0], [5.0, 9.0], [2.0, 6.0]]],
+        }
+        read_item_feature(item, "data", polygon, band=0)
+        assert [name for name, _, _ in delegated] == ["read_part"], (
+            f"a feature read should be one read_part call: {delegated}"
+        )
+        _, args, kwargs = delegated[0]
+        assert args == ((2.0, 6.0, 5.0, 9.0),), f"envelope not forwarded: {args}"
+        assert kwargs["bbox_crs"] == 4326, f"geometry_crs not forwarded: {kwargs}"
+
+    def test_a_custom_window_crs_reaches_the_engine(self, item, delegated):
+        """An explicit `bbox_crs` is forwarded rather than re-derived here."""
+        read_item_part(item, "data", (2.0, 6.0, 5.0, 9.0), bbox_crs=None, band=0)
+        _, _, kwargs = delegated[0]
+        assert kwargs["bbox_crs"] is None, f"bbox_crs not forwarded: {kwargs}"
+
+
 class TestGeometryBounds:
     """`geometry_bounds` reduces every accepted geometry shape to an envelope."""
 
@@ -183,14 +281,23 @@ class TestReadItemPart:
             np.array([[12.0, 13.0, 14.0], [22.0, 23.0, 24.0], [32.0, 33.0, 34.0]]),
         ), f"wrong cells read: {window}"
 
-    def test_default_crs_is_stac_lon_lat(self, item):
-        """The default `bbox_crs` is EPSG:4326, matching a native-CRS read."""
+    def test_default_crs_is_stac_lon_lat(self, item, delegated):
+        """The default `bbox_crs` handed to the engine is EPSG:4326.
+
+        Test scenario:
+            Comparing two reads of a 4326 raster cannot see this: `bbox_crs=4326`
+            and `bbox_crs=None` are identical by construction there, so the
+            default could be changed to `None` without the arrays moving. The
+            value that reaches the engine is what the contract is about.
+        """
         assert STAC_WINDOW_CRS == 4326, "STAC window default is not lon/lat"
         bbox = (2.0, 6.0, 5.0, 9.0)
-        assert np.array_equal(
-            read_item_part(item, "data", bbox),
-            read_item_part(item, "data", bbox, bbox_crs=None),
-        ), "explicit 4326 and native coordinates disagree on a 4326 raster"
+        read_item_part(item, "data", bbox)
+        read_item_part(item, "data", bbox, bbox_crs=None)
+        forwarded = [kwargs["bbox_crs"] for _, _, kwargs in delegated]
+        assert forwarded == [4326, None], (
+            f"the engine should receive the STAC default then the opt-out, got {forwarded}"
+        )
 
     def test_decimation_options_are_forwarded(self, item):
         """`dst_width` / `dst_height` reach the engine and resize the output."""
