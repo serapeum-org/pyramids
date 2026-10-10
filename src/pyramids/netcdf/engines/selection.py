@@ -5721,7 +5721,7 @@ class Selection(_Engine["NetCDF"]):
         nc = self._ds
         _check_how(how, set(_WEIGHTED_HOWS))
         if how == "quantile":
-            if q is None or not 0.0 <= float(q) <= 1.0:
+            if q is None or isinstance(q, bool) or not 0.0 <= float(q) <= 1.0:
                 raise ValueError(
                     f"weighted(how='quantile') needs q in [0, 1], got {q!r}."
                 )

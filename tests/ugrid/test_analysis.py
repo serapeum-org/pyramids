@@ -304,6 +304,10 @@ class TestWeightedQuantile:
         with pytest.raises(ValueError, match=r"q in \[0, 1\]"):
             unit_mesh.weighted("depth", how="quantile", q=1.5)
 
+    def test_bool_q_rejected(self, unit_mesh):
+        with pytest.raises(ValueError, match=r"q in \[0, 1\]"):
+            unit_mesh.weighted("depth", how="quantile", q=True)
+
     def test_q_only_with_quantile(self, unit_mesh):
         with pytest.raises(ValueError, match="quantile"):
             unit_mesh.weighted("depth", how="mean", q=0.5)

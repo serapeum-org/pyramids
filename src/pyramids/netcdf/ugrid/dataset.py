@@ -1325,7 +1325,7 @@ class UgridDataset:
                 f"weighted: how must be one of {sorted(WEIGHTED_HOWS)}, got {how!r}."
             )
         if how == "quantile":
-            if q is None or not 0.0 <= float(q) <= 1.0:
+            if q is None or isinstance(q, bool) or not 0.0 <= float(q) <= 1.0:
                 raise ValueError(
                     f"weighted(how='quantile') needs q in [0, 1], got {q!r}."
                 )
