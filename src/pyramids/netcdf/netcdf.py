@@ -2424,6 +2424,45 @@ class _DimensionRemap:
         )
 
 
+def _summary_physical(var: Any) -> np.ndarray | None:
+    """A variable's physical, no-data-masked float64 values for `summary`, or `None` if non-numeric.
+
+    The two variable shapes a container holds are read the way each stores its values: a spatial
+    variable is a `NetCDF` subset, read through `read_array(masked=True)` so the result is already
+    in physical units (CF `scale`/`offset` applied) with its no-data cells masked; a `LabeledArray`
+    keeps its values packed, so the stored no-data is blanked to NaN first and the CF unpacking
+    (`packed * scale + offset`) is applied here to match. A non-numeric variable returns `None`, for
+    the caller to skip or reject.
+
+    Args:
+        var: A container variable — a `NetCDF` subset (has `read_array`) or a `LabeledArray`.
+
+    Returns:
+        numpy.ndarray | None: The float64, NaN-masked physical values, or `None` when non-numeric.
+    """
+    if hasattr(var, "read_array"):
+        raw = np.ma.asarray(var.read_array(masked=True))
+        physical = (
+            np.asarray(np.ma.filled(raw.astype("float64"), np.nan))
+            if np.issubdtype(raw.dtype, np.number)
+            else None
+        )
+    else:
+        vals = np.asarray(var.values)
+        if np.issubdtype(vals.dtype, np.number):
+            masked = gaps_as_nan(vals, getattr(var, "no_data_value", None))
+            scale = getattr(var, "scale", None)
+            offset = getattr(var, "offset", None)
+            if scale is not None:
+                masked = masked * scale
+            if offset is not None:
+                masked = masked + offset
+            physical = np.asarray(masked)
+        else:
+            physical = None
+    return physical
+
+
 class NetCDF(Dataset):
     """NetCDF.
 
@@ -5212,33 +5251,7 @@ class NetCDF(Dataset):
         for name in names:
             if name not in mapping:
                 raise KeyError(name)
-            var = mapping[name]
-            if hasattr(var, "read_array"):
-                # A spatial variable is a NetCDF subset: read it in physical units with
-                # its no-data cells masked, exactly as `read_array` would answer.
-                raw = np.ma.asarray(var.read_array(masked=True))
-                numeric = np.issubdtype(raw.dtype, np.number)
-                physical = (
-                    np.asarray(np.ma.filled(raw.astype("float64"), np.nan))
-                    if numeric
-                    else None
-                )
-            else:
-                # A non-spatial variable is a LabeledArray: its `values` stay packed, so
-                # blank the stored no-data to NaN and apply CF unpacking here to match.
-                vals = np.asarray(var.values)
-                numeric = np.issubdtype(vals.dtype, np.number)
-                if numeric:
-                    masked = gaps_as_nan(vals, getattr(var, "no_data_value", None))
-                    scale = getattr(var, "scale", None)
-                    offset = getattr(var, "offset", None)
-                    if scale is not None:
-                        masked = masked * scale
-                    if offset is not None:
-                        masked = masked + offset
-                    physical = np.asarray(masked)
-                else:
-                    physical = None
+            physical = _summary_physical(mapping[name])
             if physical is None:
                 if variables is None:
                     warnings.warn(
