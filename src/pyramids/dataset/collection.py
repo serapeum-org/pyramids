@@ -2052,7 +2052,11 @@ class DatasetCollection:
             skip_missing: Drop items **lacking the asset key** (`True`) instead
                 of raising (`False`, default). An asset that is declared but
                 cannot be opened is a different failure — see
-                `errors_as_nodata`.
+                `errors_as_nodata`. Honoured in all three modes
+                (single-asset, grouped and multi-asset). A dropped item is
+                also absent from `properties=`, so `time_attrs` stays aligned
+                with the emitted timesteps; dropping *every* item raises
+                `ValueError` rather than returning an empty collection.
             groupby: How to collapse items into timesteps. `None` (default)
                 keeps **one timestep per item** — the generic behaviour. Any
                 other value buckets the items and mosaics each bucket into one
@@ -2122,6 +2126,14 @@ class DatasetCollection:
                 was given, a `ValueError` is raised — so pair this with `grid=`
                 when a total outage must still produce a cube. In single-asset
                 mode it forces an eager open probe of every href.
+
+                Only the **open** is tolerated. A failure in the pixel read —
+                a bad creation option, a failed warp — propagates, because
+                swallowing it would put stored counts beside physical units
+                with nothing marking which is which. In a grouped build, a
+                group with no readable source at all borrows another group's
+                grid for its plane and warns saying so; `grid=` is the only
+                way to pin every timestep onto one grid.
             rescale: Apply each asset's `raster:bands` scale/offset so values
                 come back in physical units instead of raw DN, masking nodata
                 before scaling. `False` (default) returns the stored counts.
@@ -2130,6 +2142,13 @@ class DatasetCollection:
                 applying the STAC factor on top would scale twice. On the
                 single-asset path a timestep declaring a non-identity scale is
                 materialised and can no longer be backed by its remote URL.
+                Units can be **inhomogeneous** across one cube: an item whose
+                asset declares no `raster:bands` keeps its stored counts while
+                a sibling that declares one is converted. Materialised copies
+                accumulate per call; the intermediates whose lifetime ends
+                inside the call are deleted, but the single-asset copies ARE
+                the collection's backing files and live until the interpreter
+                exits.
             cfg: Optional odc-style override/alias config supplying metadata a
                 thin catalog omits and mapping band aliases, e.g.
                 `{"<collection>": {"assets": {"*": {"nodata": 0}},
