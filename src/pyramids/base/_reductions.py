@@ -440,9 +440,8 @@ def _weighted_quantile(
         order = np.argsort(picked, kind="stable")
         picked = picked[order]
         spread = spread[order]
+        # `good` already kept only strictly-positive weights, so the total is > 0 here.
         total = spread.sum()
-        if total <= 0:
-            continue
         positions = (np.cumsum(spread) - 0.5 * spread) / total
         out[index] = float(np.interp(float(q), positions, picked))
     result = out.reshape(outer) if outer else out.reshape(())
