@@ -108,6 +108,30 @@ class TestFill:
         assert out[1].tolist() == [1.0, 1.0]  # within limit
         assert np.isnan(out[2]).all()  # beyond limit
 
+    def test_interpolate_na_rejects_unknown_method_up_front(self):
+        # The method is validated before the time check, so a bogus method is rejected as such
+        # even on a mesh with no temporal variable (where the time check would otherwise mask it).
+        static = UgridDataset.from_arrays(
+            node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+            data={"d": np.array([1.0, 2.0])},
+            data_locations={"d": "face"},
+        )
+        with pytest.raises(ValueError, match=r"interpolate_na\(\) takes method="):
+            static.interpolate_na(method="bogus")
+
+    def test_interpolate_na_cubic_recovers_quadratic(self):
+        # NC3: y = x**2 along time with step 2 a gap; a cubic recovers 4.0, where the default
+        # linear fill would give 5.0.
+        mesh = _temporal_mesh(
+            np.array(
+                [[0.0, 0.0], [1.0, 1.0], [np.nan, np.nan], [9.0, 9.0], [16.0, 16.0]]
+            )
+        )
+        out = mesh.interpolate_na(method="cubic")["d"].data
+        np.testing.assert_allclose(out[2], [4.0, 4.0])
+
 
 class TestRolling:
     def test_trailing_mean(self, mesh):

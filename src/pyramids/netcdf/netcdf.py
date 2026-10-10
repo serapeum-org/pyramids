@@ -27,6 +27,8 @@ from osgeo import gdal, osr
 from pyramids import _io
 from pyramids.base._axes import AXIS_NAMES
 from pyramids.base._file_manager import discard_path_handles
+from pyramids.base._reductions import gaps_as_nan
+from pyramids.base._summary import DEFAULT_METRICS, variable_summary
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
     _is_identity_packing,
@@ -2420,6 +2422,45 @@ class _DimensionRemap:
         return self._recreate(
             dst_group, var_name, src_array, self.axes(src_array), self._rename
         )
+
+
+def _summary_physical(var: Any) -> np.ndarray | None:
+    """A variable's physical, no-data-masked float64 values for `summary`, or `None` if non-numeric.
+
+    The two variable shapes a container holds are read the way each stores its values: a spatial
+    variable is a `NetCDF` subset, read through `read_array(masked=True)` so the result is already
+    in physical units (CF `scale`/`offset` applied) with its no-data cells masked; a `LabeledArray`
+    keeps its values packed, so the stored no-data is blanked to NaN first and the CF unpacking
+    (`packed * scale + offset`) is applied here to match. A non-numeric variable returns `None`, for
+    the caller to skip or reject.
+
+    Args:
+        var: A container variable — a `NetCDF` subset (has `read_array`) or a `LabeledArray`.
+
+    Returns:
+        numpy.ndarray | None: The float64, NaN-masked physical values, or `None` when non-numeric.
+    """
+    if hasattr(var, "read_array"):
+        raw = np.ma.asarray(var.read_array(masked=True))
+        physical = (
+            np.asarray(np.ma.filled(raw.astype("float64"), np.nan))
+            if np.issubdtype(raw.dtype, np.number)
+            else None
+        )
+    else:
+        vals = np.asarray(var.values)
+        if np.issubdtype(vals.dtype, np.number):
+            masked = gaps_as_nan(vals, getattr(var, "no_data_value", None))
+            scale = getattr(var, "scale", None)
+            offset = getattr(var, "offset", None)
+            if scale is not None:
+                masked = masked * scale
+            if offset is not None:
+                masked = masked + offset
+            physical = np.asarray(masked)
+        else:
+            physical = None
+    return physical
 
 
 class NetCDF(Dataset):
@@ -5151,6 +5192,76 @@ class NetCDF(Dataset):
         """Container-guarded facade for `Dataset.stats`."""
         self._check_not_container("stats")
         return super().stats(*args, **kwargs)
+
+    def summary(
+        self,
+        variables: Sequence[str] | None = None,
+        *,
+        metrics: Sequence[str] = DEFAULT_METRICS,
+        skipna: bool = True,
+        ddof: int = 0,
+    ) -> pd.DataFrame:
+        """A per-variable summary table over the whole cube.
+
+        Where `stats` reports one row per band of a single variable, `summary` reports one row
+        per *variable*, each reduced over **all** of its values — every band / time step and every
+        cell. It therefore works on a container, which `stats` refuses. Values are read in physical
+        units (CF `scale_factor` / `add_offset` applied) with no-data left out, exactly as
+        `read_array` returns them.
+
+        Built on the shared :func:`pyramids.base._summary.variable_summary`, so this answers in the
+        identical shape to :meth:`pyramids.netcdf.ugrid.UgridDataset.summary`.
+
+        Args:
+            variables: Which variables to summarise, in output-row order. `None` (the default)
+                takes every variable in :attr:`data_vars`. An unknown name raises `KeyError`.
+            metrics: Which statistics to report, in column order. Defaults to
+                `("count", "min", "max", "mean", "std")`; `median` / `var` / `sum` / `prod` are
+                available too.
+            skipna: Leave no-data out of the statistics (the default) or let it propagate.
+            ddof: Delta degrees of freedom for `std` / `var`. Defaults to 0.
+
+        Returns:
+            pandas.DataFrame: One row per variable (index name `"variable"`), one column per metric.
+            `count` is `int64`; the rest are `float64`. A variable with no valid cell yields NaN
+            statistics and a `count` of 0.
+
+        Raises:
+            KeyError: A requested variable is not in :attr:`data_vars`.
+            TypeError: A requested variable is non-numeric.
+            ValueError: An unknown metric.
+
+        Examples:
+            - Summarise every variable of a multi-variable file:
+
+              ```python
+              >>> from pyramids.netcdf import NetCDF
+              >>> nc = NetCDF.read_file("tests/data/netcdf/cf__12v__1d4-2d5-3d2-4d1__y-asc.nc")
+              >>> df = nc.summary()
+              >>> list(df.index)
+              ['area', 'msk_rgn', 'pr', 'tas', 'ua']
+              >>> list(df.columns)
+              ['count', 'min', 'max', 'mean', 'std']
+
+              ```
+        """
+        mapping = self.data_vars
+        names = list(mapping) if variables is None else list(variables)
+        arrays: dict[str, np.ndarray] = {}
+        for name in names:
+            if name not in mapping:
+                raise KeyError(name)
+            physical = _summary_physical(mapping[name])
+            if physical is None:
+                if variables is None:
+                    warnings.warn(
+                        f"skipping non-numeric variable {name!r} in summary",
+                        stacklevel=2,
+                    )
+                    continue
+                raise TypeError(f"variable {name!r} is non-numeric; cannot summarise")
+            arrays[name] = physical
+        return variable_summary(arrays, metrics=metrics, skipna=skipna, ddof=ddof)
 
     def slope(self, *args, **kwargs):  # type: ignore[override]
         """Container-guarded facade for `Dataset.slope`."""
@@ -8253,9 +8364,10 @@ class NetCDF(Dataset):
         *,
         how: str = "mean",
         skipna: bool = True,
+        q: float | None = None,
     ) -> NetCDF:
         """Facade — :meth:`Selection.weighted <pyramids.netcdf.engines.selection.Selection.weighted>`."""
-        return self.selection.weighted(weights, dims, how=how, skipna=skipna)
+        return self.selection.weighted(weights, dims, how=how, skipna=skipna, q=q)
 
     def argmin(self, dim: str, *, skipna: bool = True) -> NetCDF:
         """Facade — :meth:`Selection.argmin <pyramids.netcdf.engines.selection.Selection.argmin>`."""

@@ -45,15 +45,21 @@ from pyramids.netcdf.engines._along_dim import (
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
 
-_WEIGHTED_HOWS = ("mean", "sum", "sum_of_weights", "std", "var")
-"""The statistics `weighted` computes. A weighted quantile is not among them, although xarray's
-`weighted().quantile()` offers one: it needs the values sorted per cell against a running weight,
-which is a different algorithm from these sums, so `reduce(how="quantile")` remains the
-unweighted answer."""
+_WEIGHTED_HOWS = ("mean", "sum", "sum_of_weights", "std", "var", "quantile")
+"""The statistics `weighted` computes. A weighted `"quantile"` sorts each slice's values against
+their running weight (the Hazen plotting-position convention; see
+`pyramids.base._reductions._weighted_quantile`), so it needs a `q` and does not reduce to numpy's
+default linear quantile — a weighted quantile and `reduce(how="quantile")` need not agree."""
 
 
 def _weighted_result(
-    nc: NetCDF, weights: Any, dims: Any, *, how: str, skipna: bool
+    nc: NetCDF,
+    weights: Any,
+    dims: Any,
+    *,
+    how: str,
+    skipna: bool,
+    q: float | None = None,
 ) -> NetCDF:
     """Weight `nc` over `dims` and rebuild the result.
 
@@ -74,14 +80,21 @@ def _weighted_result(
     """
     dims = _reusable_dims(dims)
     if _reduces_as_a_variable(nc):
-        result = _weighted_variable(nc, nc, weights, dims, how=how, skipna=skipna)
+        result = _weighted_variable(nc, nc, weights, dims, how=how, skipna=skipna, q=q)
     else:
-        result = _weighted_container(nc, weights, dims, how=how, skipna=skipna)
+        result = _weighted_container(nc, weights, dims, how=how, skipna=skipna, q=q)
     return result
 
 
 def _weighted_variable(
-    nc: NetCDF, var: NetCDF, weights: Any, dims: Any, *, how: str, skipna: bool
+    nc: NetCDF,
+    var: NetCDF,
+    weights: Any,
+    dims: Any,
+    *,
+    how: str,
+    skipna: bool,
+    q: float | None = None,
 ) -> NetCDF:
     """Weight one variable and hand back a variable.
 
@@ -100,13 +113,19 @@ def _weighted_variable(
         ValueError: As `_weighted_axes` and `_weights_for` raise.
     """
     applied, geotransform = _weighted_applied(
-        nc, var, weights, dims, how=how, skipna=skipna
+        nc, var, weights, dims, how=how, skipna=skipna, q=q
     )
     return _variable_from_applied(var, applied, geotransform)
 
 
 def _weighted_container(
-    nc: NetCDF, weights: Any, dims: Any, *, how: str, skipna: bool
+    nc: NetCDF,
+    weights: Any,
+    dims: Any,
+    *,
+    how: str,
+    skipna: bool,
+    q: float | None = None,
 ) -> NetCDF:
     """Weight every gridded variable of a container.
 
@@ -152,7 +171,7 @@ def _weighted_container(
         if _takes_part(var, names):
             found = True
             applied, geotransform = _weighted_applied(
-                nc, var, weights, dims, how=how, skipna=skipna
+                nc, var, weights, dims, how=how, skipna=skipna, q=q
             )
             arr, band_names, values_map, ndv = applied
             removed = list(
@@ -278,7 +297,14 @@ def _takes_part(var: NetCDF, names: tuple[str, ...]) -> bool:
 
 
 def _weighted_applied(
-    nc: NetCDF, var: NetCDF, weights: Any, dims: Any, *, how: str, skipna: bool
+    nc: NetCDF,
+    var: NetCDF,
+    weights: Any,
+    dims: Any,
+    *,
+    how: str,
+    skipna: bool,
+    q: float | None = None,
 ) -> tuple[_Applied, tuple]:
     """The weighted values of one variable, and the geotransform they sit on.
 
@@ -302,7 +328,7 @@ def _weighted_applied(
     axes, names = _weighted_axes(var, dims)
     arr = nc._materialize_variable_array(var, lazy=True)
     spread = _weights_for(var, weights, arr.shape, axes)
-    values = _weighted_statistic(arr, spread, axes, how, ndv, skipna)
+    values = _weighted_statistic(arr, spread, axes, how, ndv, skipna, q)
     # The reduced spatial axes stay as one cell, since the result is still a raster; a reduced
     # band dimension goes, as a collapsing `reduce` drops it.
     band_axes = tuple(axis for axis in axes if axis < len(band_names))

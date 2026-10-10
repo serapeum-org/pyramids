@@ -193,10 +193,10 @@ class TestRefusals:
     """The arguments are checked before anything is read."""
 
     def test_an_unknown_method(self):
-        """Only the two implemented interpolations are accepted."""
+        """Only the implemented interpolations are accepted (`cubic` now is; `spline` is not)."""
         variable = _variable(GAPPED, EVEN)
         with pytest.raises(ValueError, match="method="):
-            variable.interpolate_na("time", "cubic")
+            variable.interpolate_na("time", "spline")
 
     @pytest.mark.parametrize("limit", [0, -1])
     def test_a_limit_below_one(self, limit):
@@ -277,3 +277,25 @@ class TestTheReceivers:
             _read(container.get_variable("t").interpolate_na("time")),
             equal_nan=True,
         )
+
+
+class TestSplineMethods:
+    """NC3 — the scipy spline kinds `interpolate_na` now offers beyond linear/nearest."""
+
+    def test_cubic_recovers_a_quadratic(self):
+        # y = x**2 with the x=2 step a gap; a cubic (which contains the quadratic) through the
+        # four valid points recovers 4.0, where a two-point linear fill would give 6.5.
+        var = _variable([0.0, 1.0, np.nan, 9.0, 16.0], [0.0, 1.0, 2.0, 3.0, 4.0])
+        assert _read(var.interpolate_na("time", method="cubic"))[2] == pytest.approx(
+            4.0
+        )
+
+    def test_spline_kinds_accepted(self):
+        var = _variable(GAPPED, EVEN)
+        for method in ("slinear", "quadratic", "cubic"):
+            var.interpolate_na("time", method=method)
+
+    def test_unknown_method_rejected(self):
+        var = _variable(GAPPED, EVEN)
+        with pytest.raises(ValueError, match="interpolate_na"):
+            var.interpolate_na("time", method="bogus")

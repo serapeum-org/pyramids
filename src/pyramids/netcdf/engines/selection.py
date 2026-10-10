@@ -5559,6 +5559,7 @@ class Selection(_Engine["NetCDF"]):
         *,
         how: str = "mean",
         skipna: bool = True,
+        q: float | None = None,
     ) -> NetCDF:
         """Weight the cells along one or more dimensions and reduce them.
 
@@ -5618,10 +5619,13 @@ class Selection(_Engine["NetCDF"]):
                 grids. The spatial pair is the plane the read resolved, so a store that
                 declares a band dimension between its spatial axes — CAM's
                 `(time, lat, lev, lon)` — is handled by the `None` default too.
-            how: `"mean"` (default), `"sum"`, `"sum_of_weights"`, `"std"` or `"var"`. The
-                variance is the weighted `sum(w * (x - mean) ** 2) / sum(w)`, as xarray computes
-                it. A weighted quantile is not offered; `reduce(how="quantile")` is the
-                unweighted one.
+            how: `"mean"` (default), `"sum"`, `"sum_of_weights"`, `"std"`, `"var"` or
+                `"quantile"`. The variance is the weighted `sum(w * (x - mean) ** 2) / sum(w)`,
+                as xarray computes it. `"quantile"` needs `q` and sorts each slice's values
+                against their running weight (the Hazen plotting-position convention), so it does
+                not reduce to numpy's default linear quantile — a weighted quantile and
+                `reduce(how="quantile")` need not agree.
+            q: The quantile in `[0, 1]` when `how="quantile"`; must be `None` otherwise.
             skipna: Whether the declared no-data value counts as a gap. A NaN is left out of
                 both sums either way, so `skipna=False` weights the sentinel as an ordinary
                 value but still skips NaN — where xarray's `skipna=False` makes the whole answer
@@ -5633,14 +5637,15 @@ class Selection(_Engine["NetCDF"]):
 
         Raises:
             TypeError: `weights` is `None`, which names no weighting.
-            ValueError: `how` is unknown; `dims` is empty, names a dimension the variable does
-                not have, names one twice, or mixes spatial axes with band dimensions; `weights`
-                is an unknown name, holds a NaN or an infinity, broadcasts onto neither the
-                weighted axes nor the variable's own shape, or is a raster on another grid;
-                `"area"` is asked of a grid that is not geographic, or of one whose rows run off
-                the globe past 90 degrees; the container has no data variables; or no gridded
-                variable of a container carries the band dimension named, as `reduce` refuses
-                it. A container's gridded variable that does not carry it is carried over
+            ValueError: `how` is unknown; `how="quantile"` is asked without `q`, or `q` is given
+                with another `how`, or `q` is outside `[0, 1]`; `dims` is empty, names a dimension
+                the variable does not have, names one twice, or mixes spatial axes with band
+                dimensions; `weights` is an unknown name, holds a NaN or an infinity, broadcasts
+                onto neither the weighted axes nor the variable's own shape, or is a raster on
+                another grid; `"area"` is asked of a grid that is not geographic, or of one whose
+                rows run off the globe past 90 degrees; the container has no data variables; or no
+                gridded variable of a container carries the band dimension named, as `reduce`
+                refuses it. A container's gridded variable that does not carry it is carried over
                 unchanged, again as `reduce` carries one it cannot reduce.
 
         Warns:
@@ -5715,7 +5720,16 @@ class Selection(_Engine["NetCDF"]):
         """
         nc = self._ds
         _check_how(how, set(_WEIGHTED_HOWS))
-        return _weighted_result(nc, weights, dims, how=how, skipna=bool(skipna))
+        if how == "quantile":
+            if q is None or isinstance(q, bool) or not 0.0 <= float(q) <= 1.0:
+                raise ValueError(
+                    f"weighted(how='quantile') needs q in [0, 1], got {q!r}."
+                )
+        elif q is not None:
+            raise ValueError(
+                f"weighted(q=...) is only valid with how='quantile', not {how!r}."
+            )
+        return _weighted_result(nc, weights, dims, how=how, skipna=bool(skipna), q=q)
 
     def ffill(self, dim: str, *, limit: int | None = None) -> NetCDF:
         """Carry the last valid value along a non-spatial dimension into the gaps after it.
@@ -5919,8 +5933,9 @@ class Selection(_Engine["NetCDF"]):
             dim: The non-spatial dimension to interpolate along.
             method: `"linear"` (default) places a gap between its neighbours in proportion to
                 its distance from each; `"nearest"` gives it the closer neighbour's value,
-                the earlier one when the distances are equal. The spline methods xarray
-                offers are not implemented.
+                the earlier one when the distances are equal. `"slinear"` / `"quadratic"` /
+                `"cubic"` fit a scipy spline through the valid cells, falling back to linear on a
+                slice with too few of them.
             limit: How many consecutive gaps one run may fill, counted from the valid cell
                 before it exactly as `ffill`'s limit is, an integer of at least 1. `None`
                 (default) fills a run of any length.
@@ -5937,10 +5952,10 @@ class Selection(_Engine["NetCDF"]):
 
         Raises:
             TypeError: `limit` is not an integer, or is a boolean.
-            ValueError: `method` is neither `"linear"` nor `"nearest"`; `limit` is below 1;
-                `use_coordinate` was asked for and `dim`'s stamps are not numeric; the
-                container has no data variables; or `dim` is not a band dimension of any
-                gridded variable.
+            ValueError: `method` is not one of `"linear"`, `"nearest"`, `"slinear"`,
+                `"quadratic"` or `"cubic"`; `limit` is below 1; `use_coordinate` was asked for
+                and `dim`'s stamps are not numeric; the container has no data variables; or `dim`
+                is not a band dimension of any gridded variable.
 
         Examples:
             - An interior gap is placed between its neighbours; the edges are left alone:
@@ -5988,8 +6003,11 @@ class Selection(_Engine["NetCDF"]):
         return _along_either(self._ds, dim, op)
 
 
-_INTERPOLATION_METHODS = ("linear", "nearest")
-"""The interpolations `interpolate_na` offers; xarray's spline methods are not implemented."""
+_INTERPOLATION_METHODS = ("linear", "nearest", "slinear", "quadratic", "cubic")
+"""The interpolations `interpolate_na` offers, kept in step with
+`pyramids.base._reductions.INTERP_METHODS`: the two local two-point blends plus the scipy spline
+kinds (`slinear` / `quadratic` / `cubic`), each falling back to linear on a slice with too few
+valid cells."""
 
 _DROPNA_HOWS = ("any", "all")
 """The `how` modes of `dropna`, in xarray's vocabulary."""

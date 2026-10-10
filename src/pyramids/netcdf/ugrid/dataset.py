@@ -7,6 +7,8 @@ unstructured mesh data.
 
 from __future__ import annotations
 
+import warnings
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -28,6 +30,7 @@ from shapely.geometry import LineString, box
 from pyramids.base._reductions import (
     COUNTING_REDUCERS,
     FLAG_NO_DATA,
+    INTERP_METHODS,
     REDUCERS,
     WEIGHTED_HOWS,
     gaps_as_nan,
@@ -39,6 +42,7 @@ from pyramids.base._reductions import (
     weighted_statistic,
     window_members,
 )
+from pyramids.base._summary import DEFAULT_METRICS, variable_summary
 from pyramids.base.crs import crs_from_user_input, crs_spec, sr_from_epsg
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
@@ -1067,8 +1071,8 @@ class UgridDataset:
     ) -> tuple[MeshVariable, np.typing.NDArray]:
         """The per-element values of a variable, no-data blanked to NaN.
 
-        Shared by the analysis members (:meth:`stats`, :meth:`sample`,
-        :meth:`weighted`, :meth:`zonal_stats`). A temporal variable is reduced to one
+        Shared by the analysis members (:meth:`sample`, :meth:`weighted`,
+        :meth:`zonal_stats`). A temporal variable is reduced to one
         step (``time_index``, the first by default) so the returned array is
         ``(n_elements,)``, matching the single-step contract :meth:`plot` and
         :meth:`to_dataset` already use. The variable's declared no-data value is turned
@@ -1109,28 +1113,42 @@ class UgridDataset:
             )
         return var, result
 
-    def stats(self, variable_name: str, *, time_index: int = 0) -> dict[str, float]:
-        """Summary statistics of a mesh variable over its elements.
+    def summary(
+        self,
+        variables: Sequence[str] | None = None,
+        *,
+        metrics: Sequence[str] = DEFAULT_METRICS,
+        skipna: bool = True,
+        ddof: int = 0,
+    ) -> pd.DataFrame:
+        """A per-variable summary table over the whole mesh.
 
-        The mesh counterpart of :meth:`pyramids.dataset.Dataset.stats`. Computes
-        ``min`` / ``max`` / ``mean`` / ``std`` / ``count`` over the variable's elements
-        (nodes, faces or edges), with the declared no-data value left out. For a temporal
-        variable the statistics are over the step ``time_index`` (the first by default).
+        The mesh counterpart of :meth:`pyramids.netcdf.NetCDF.summary`, built on the same shared
+        assembly (:func:`pyramids.base._summary.variable_summary`) so the two classes answer in an
+        identical shape. Each variable is reduced over **all** of its samples — every element and,
+        for a temporal variable, every step — with the declared no-data value left out.
 
         Args:
-            variable_name: Name of the data variable.
-            time_index: Step for a temporal variable. Defaults to 0.
+            variables: Which data variables to summarise, in output-row order. ``None`` (the
+                default) takes every data variable. An unknown name raises ``KeyError``.
+            metrics: Which statistics to report, in column order. Defaults to
+                ``("count", "min", "max", "mean", "std")``; ``median`` / ``var`` / ``sum`` /
+                ``prod`` are available too.
+            skipna: Leave no-data out of the statistics (the default) or let it propagate.
+            ddof: Delta degrees of freedom for ``std`` / ``var``. Defaults to 0.
 
         Returns:
-            dict[str, float]: ``{"min", "max", "mean", "std", "count"}``. A variable with
-            no valid element yields NaN for every statistic and ``count`` of ``0.0``.
+            pandas.DataFrame: One row per variable (index name ``"variable"``), one column per
+            metric. ``count`` is ``int64``; the rest are ``float64``. A variable with no valid
+            element yields NaN statistics and a ``count`` of 0.
 
         Raises:
-            KeyError: ``variable_name`` is not a data variable of this dataset.
-            ValueError: The variable has no loaded data.
+            KeyError: A requested variable is not a data variable of this dataset.
+            TypeError: A requested variable is non-numeric.
+            ValueError: A requested variable has no loaded data, or an unknown metric.
 
         Examples:
-            - Per-face statistics of a two-triangle mesh:
+            - Per-variable summary of a two-triangle mesh:
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.netcdf.ugrid import UgridDataset
@@ -1140,29 +1158,30 @@ class UgridDataset:
                 ...     face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
                 ...     data={"depth": np.array([2.0, 4.0])},
                 ... )
-                >>> s = mesh.stats("depth")
-                >>> (s["min"], s["max"], s["mean"], s["count"])
-                (2.0, 4.0, 3.0, 2.0)
+                >>> mesh.summary().loc["depth", ["count", "min", "max", "mean"]].tolist()
+                [2.0, 2.0, 4.0, 3.0]
 
                 ```
         """
-        _, arr = self._element_values(variable_name, time_index=time_index)
-        valid = arr[~np.isnan(arr)]
-        if valid.size == 0:
-            return {
-                "min": float("nan"),
-                "max": float("nan"),
-                "mean": float("nan"),
-                "std": float("nan"),
-                "count": 0.0,
-            }
-        return {
-            "min": float(valid.min()),
-            "max": float(valid.max()),
-            "mean": float(valid.mean()),
-            "std": float(valid.std()),
-            "count": float(valid.size),
-        }
+        names = list(self._data_variables) if variables is None else list(variables)
+        arrays: dict[str, np.typing.NDArray] = {}
+        for name in names:
+            if name not in self._data_variables:
+                raise KeyError(name)
+            var = self._data_variables[name]
+            if var.data is None:
+                raise ValueError(f"Variable {name!r} has no loaded data.")
+            data = np.asarray(var.data)
+            if not np.issubdtype(data.dtype, np.number):
+                if variables is None:
+                    warnings.warn(
+                        f"skipping non-numeric variable {name!r} in summary",
+                        stacklevel=2,
+                    )
+                    continue
+                raise TypeError(f"variable {name!r} is non-numeric; cannot summarise")
+            arrays[name] = gaps_as_nan(data, var.nodata)
+        return variable_summary(arrays, metrics=metrics, skipna=skipna, ddof=ddof)
 
     def sample(
         self,
@@ -1240,6 +1259,7 @@ class UgridDataset:
         *,
         how: str = "mean",
         time_index: int = 0,
+        q: float | None = None,
     ) -> float:
         """Area-weighted statistic of a face variable over the mesh.
 
@@ -1250,9 +1270,12 @@ class UgridDataset:
 
         Args:
             variable_name: Name of a **face-located** data variable.
-            how: One of ``"mean"``, ``"sum"``, ``"sum_of_weights"``, ``"std"``, ``"var"``.
-                Defaults to ``"mean"``.
+            how: One of ``"mean"``, ``"sum"``, ``"sum_of_weights"``, ``"std"``, ``"var"``,
+                ``"quantile"`` (which needs ``q``). Defaults to ``"mean"``.
             time_index: Step for a temporal variable. Defaults to 0.
+            q: The quantile in ``[0, 1]`` when ``how="quantile"`` (the area-weighted quantile
+                uses the Hazen convention and does not match ``reduce(how="quantile")``); must be
+                ``None`` otherwise.
 
         Returns:
             float: The area-weighted statistic over all faces.
@@ -1277,6 +1300,22 @@ class UgridDataset:
                 13.333
 
                 ```
+            - The area-weighted quantile clamps to the data range at the extremes:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> mesh = UgridDataset.from_arrays(
+                ...     node_x=np.array([0.0, 4.0, 4.0, 0.0]),
+                ...     node_y=np.array([0.0, 0.0, 2.0, 1.0]),
+                ...     face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+                ...     data={"v": np.array([10.0, 20.0])},
+                ... )
+                >>> mesh.weighted("v", how="quantile", q=0.0)
+                10.0
+                >>> mesh.weighted("v", how="quantile", q=1.0)
+                20.0
+
+                ```
         """
         if how not in WEIGHTED_HOWS:
             # Validate up front, mirroring the raster weighted path: the kernel's catch-all
@@ -1284,6 +1323,15 @@ class UgridDataset:
             # `how`, a silent wrong answer.
             raise ValueError(
                 f"weighted: how must be one of {sorted(WEIGHTED_HOWS)}, got {how!r}."
+            )
+        if how == "quantile":
+            if q is None or isinstance(q, bool) or not 0.0 <= float(q) <= 1.0:
+                raise ValueError(
+                    f"weighted(how='quantile') needs q in [0, 1], got {q!r}."
+                )
+        elif q is not None:
+            raise ValueError(
+                f"weighted(q=...) is only valid with how='quantile', not {how!r}."
             )
         var, arr = self._element_values(variable_name, time_index=time_index)
         if var.location != "face":
@@ -1299,7 +1347,7 @@ class UgridDataset:
             )
         # `arr` already carries NaN for gaps, so `ndv=None` and `skipna=True` reduce over
         # the single face axis; the kernel keeps the axis as length 1, squeezed off here.
-        result = weighted_statistic(arr, areas, (0,), how, None, True)
+        result = weighted_statistic(arr, areas, (0,), how, None, True, q)
         return float(np.asarray(result).ravel()[0])
 
     def zonal_stats(
@@ -1697,7 +1745,9 @@ class UgridDataset:
         trailing gap has only one neighbour and is left alone.
 
         Args:
-            method: ``"linear"`` (distance-weighted) or ``"nearest"``. Defaults to ``"linear"``.
+            method: One of ``"linear"`` (distance-weighted), ``"nearest"``, or the scipy spline
+                kinds ``"slinear"`` / ``"quadratic"`` / ``"cubic"`` (each falling back to linear on
+                a variable with too few valid steps). Defaults to ``"linear"``.
             limit: Maximum consecutive gaps a run may fill, or ``None`` for no limit.
 
         Returns:
@@ -1705,9 +1755,16 @@ class UgridDataset:
             interpolated along time; static variables are unchanged.
 
         Raises:
-            ValueError: No variable has a time dimension, or a temporal variable has no
-                loaded data.
+            ValueError: ``method`` is not one of the accepted interpolations; no variable has a
+                time dimension; or a temporal variable has no loaded data.
         """
+        if method not in INTERP_METHODS:
+            # Validate up front, before the time check, so a bogus method is reported as such
+            # even on a mesh with no temporal variable — matching the raster interpolate_na.
+            raise ValueError(
+                f"interpolate_na() takes method="
+                f"{' or '.join(repr(one) for one in INTERP_METHODS)}, got {method!r}."
+            )
 
         def _fill(data: np.ndarray, axis: int) -> np.ndarray:
             positions = np.arange(data.shape[axis], dtype="float64")
