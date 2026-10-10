@@ -53,6 +53,14 @@ class TestInterpolatedHigherOrder:
         assert not np.isnan(out[1])
         assert np.isnan(out[2])
 
+    def test_cubic_handles_a_descending_coordinate(self):
+        # y = x**2 sampled at descending positions 4..0 with the x=2 step a gap; the spline must
+        # still recover 4.0 (scipy's spline kinds need ascending x, so the kernel sorts first).
+        data = np.array([16.0, 9.0, np.nan, 1.0, 0.0])
+        positions = np.array([4.0, 3.0, 2.0, 1.0, 0.0])
+        out = interpolated(data, 0, positions, "cubic", None)
+        assert out[2] == pytest.approx(4.0)
+
     def test_unknown_method_raises(self):
         with pytest.raises(ValueError, match="interpolate method"):
             interpolated(np.array([1.0, np.nan, 2.0]), 0, np.arange(3.0), "bogus", None)
