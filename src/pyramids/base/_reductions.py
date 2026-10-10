@@ -58,9 +58,17 @@ def _spline_between(
     flat = moved.reshape(-1, moved.shape[-1])
     out = np.full_like(flat, np.nan)
     need = _SPLINE_INTERP[kind]
+    # One scipy interp1d per slice, so the cost scales with the number of slices
+    # (every axis other than the interpolated one). `interpolate_na` runs along a short
+    # band/time axis, so that is the raster's cell count — fine for the gap-cleanup it is
+    # for, not for interpolating along a large axis. A slice with no gap is skipped: its
+    # fill is never read, since the caller keeps the valid cells and only pulls from here
+    # at the gaps.
     for index in range(flat.shape[0]):
         row = flat[index]
         valid = ~np.isnan(row)
+        if valid.all():
+            continue
         count = int(valid.sum())
         if count >= 2:
             effective = kind if count >= need else "linear"
@@ -419,6 +427,8 @@ def _weighted_quantile(
     flat_values = moved.reshape(-1, int(np.prod(moved.shape[data.ndim - count :])))
     flat_weights = moved_w.reshape(flat_values.shape)
     out = np.full(flat_values.shape[0], np.nan)
+    # One sort per slice; the slice count is the product of the kept (non-reduced) axes, which
+    # for the usual whole-grid or whole-element weighting is just the band/time extent — small.
     for index in range(flat_values.shape[0]):
         values = flat_values[index]
         row_weights = flat_weights[index]

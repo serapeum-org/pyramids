@@ -33,6 +33,12 @@ class TestInterpolatedHigherOrder:
         out = interpolated(data, 0, np.arange(3.0), "cubic", None)
         assert out[1] == pytest.approx(5.0)
 
+    def test_no_gap_slice_passes_through_unchanged(self):
+        # A fully-valid slice is returned untouched (the no-gap fast path must not corrupt it).
+        data = np.array([1.0, 2.0, 3.0, 4.0])
+        out = interpolated(data, 0, np.arange(4.0), "cubic", None)
+        assert out.tolist() == [1.0, 2.0, 3.0, 4.0]
+
     def test_leading_and_trailing_stay_nan(self):
         data = np.array([np.nan, 1.0, np.nan, 3.0, np.nan])
         out = interpolated(data, 0, np.arange(5.0), "cubic", None)
