@@ -5619,10 +5619,13 @@ class Selection(_Engine["NetCDF"]):
                 grids. The spatial pair is the plane the read resolved, so a store that
                 declares a band dimension between its spatial axes — CAM's
                 `(time, lat, lev, lon)` — is handled by the `None` default too.
-            how: `"mean"` (default), `"sum"`, `"sum_of_weights"`, `"std"` or `"var"`. The
-                variance is the weighted `sum(w * (x - mean) ** 2) / sum(w)`, as xarray computes
-                it. A weighted quantile is not offered; `reduce(how="quantile")` is the
-                unweighted one.
+            how: `"mean"` (default), `"sum"`, `"sum_of_weights"`, `"std"`, `"var"` or
+                `"quantile"`. The variance is the weighted `sum(w * (x - mean) ** 2) / sum(w)`,
+                as xarray computes it. `"quantile"` needs `q` and sorts each slice's values
+                against their running weight (the Hazen plotting-position convention), so it does
+                not reduce to numpy's default linear quantile — a weighted quantile and
+                `reduce(how="quantile")` need not agree.
+            q: The quantile in `[0, 1]` when `how="quantile"`; must be `None` otherwise.
             skipna: Whether the declared no-data value counts as a gap. A NaN is left out of
                 both sums either way, so `skipna=False` weights the sentinel as an ordinary
                 value but still skips NaN — where xarray's `skipna=False` makes the whole answer
@@ -5634,14 +5637,15 @@ class Selection(_Engine["NetCDF"]):
 
         Raises:
             TypeError: `weights` is `None`, which names no weighting.
-            ValueError: `how` is unknown; `dims` is empty, names a dimension the variable does
-                not have, names one twice, or mixes spatial axes with band dimensions; `weights`
-                is an unknown name, holds a NaN or an infinity, broadcasts onto neither the
-                weighted axes nor the variable's own shape, or is a raster on another grid;
-                `"area"` is asked of a grid that is not geographic, or of one whose rows run off
-                the globe past 90 degrees; the container has no data variables; or no gridded
-                variable of a container carries the band dimension named, as `reduce` refuses
-                it. A container's gridded variable that does not carry it is carried over
+            ValueError: `how` is unknown; `how="quantile"` is asked without `q`, or `q` is given
+                with another `how`, or `q` is outside `[0, 1]`; `dims` is empty, names a dimension
+                the variable does not have, names one twice, or mixes spatial axes with band
+                dimensions; `weights` is an unknown name, holds a NaN or an infinity, broadcasts
+                onto neither the weighted axes nor the variable's own shape, or is a raster on
+                another grid; `"area"` is asked of a grid that is not geographic, or of one whose
+                rows run off the globe past 90 degrees; the container has no data variables; or no
+                gridded variable of a container carries the band dimension named, as `reduce`
+                refuses it. A container's gridded variable that does not carry it is carried over
                 unchanged, again as `reduce` carries one it cannot reduce.
 
         Warns:
