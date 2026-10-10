@@ -27,6 +27,15 @@ def test_count_is_int64_and_excludes_nan():
     assert df.loc["a", "mean"] == pytest.approx(2.0)
 
 
+def test_inf_counted_like_the_reducers():
+    # `count` counts non-NaN samples (inf included), consistent with the NaN-aware reducers,
+    # which fold inf in: a [2, inf] variable has count 2 and an infinite max/mean.
+    df = variable_summary({"a": np.array([2.0, np.inf])})
+    assert df.loc["a", "count"] == 2
+    assert np.isinf(df.loc["a", "max"])
+    assert np.isinf(df.loc["a", "mean"])
+
+
 def test_all_nan_variable_is_nan_with_zero_count():
     df = variable_summary({"a": np.array([np.nan, np.nan])})
     assert df.loc["a", "count"] == 0

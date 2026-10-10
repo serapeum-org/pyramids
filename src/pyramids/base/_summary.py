@@ -35,8 +35,8 @@ ALLOWED_METRICS: tuple[str, ...] = ("count",) + tuple(
 def _one_metric(values: np.ndarray, metric: str, *, skipna: bool, ddof: int) -> float:
     """One statistic of a flat float64 array; NaN when nothing valid remains."""
     if metric == "count":
-        result = float(int(np.isfinite(values).sum()))
-    elif values.size == 0 or (skipna and not np.isfinite(values).any()):
+        result = float(int((~np.isnan(values)).sum()))
+    elif values.size == 0 or (skipna and bool(np.isnan(values).all())):
         result = float("nan")
     else:
         nan_fn, plain_fn = REDUCERS[metric]
