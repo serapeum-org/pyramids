@@ -38,7 +38,7 @@ classDiagram
 | Read `proj`/`raster`/`eo` metadata (no file open) | `read_extension_metadata` | [Assets](assets.md) |
 | Mosaic one asset across items (lazy VRT) | `build_vrt_from_stac` | [Assets](assets.md) |
 | Item search, un-executed (hit count, paging) | `item_search` | [Client & search](#search) |
-| Discover collections / queryables | `list_collections` · `search_collections` · `get_queryables` | [Search](#search) |
+| Discover collections | `list_collections` · `search_collections` · `get_queryables` | [Search](#search) |
 | Prefer an `alternate-assets` href | `preferred_asset_href` · `asset_alternate_href` | [Assets](assets.md) |
 | Verify an asset is reachable & well-typed | `verify_asset` | [Assets](assets.md) |
 | Windowed read from an Item | `read_item_part` · `read_item_preview` · `read_item_point` | [Assets](assets.md) |
