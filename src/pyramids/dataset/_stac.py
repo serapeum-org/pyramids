@@ -3,9 +3,12 @@
 Given a sequence of STAC Items — :class:`pystac.Item`
 objects, raw JSON dicts, or anything else with `.assets` and
 `.bbox` semantics — extract the chosen asset's `href` from each
-item and delegate to :meth:`DatasetCollection.from_files`. Advanced
-features (geobox-tiled graph, auto-geobox derivation, `fuse_func`,
-`errors_as_nodata`) are deliberately out of scope.
+item and delegate to :meth:`DatasetCollection.from_files`. Grouped
+builds (`groupby`) mosaic each group into one timestep, optionally
+through a caller-supplied `fuse_func`, and `errors_as_nodata` keeps a
+cube alive when a present asset turns out to be unreadable. Advanced
+features (geobox-tiled graph, auto-geobox derivation) are deliberately
+out of scope.
 
 The implementation is fully duck-typed. pyramids does **not** import
 or depend on pystac; the STAC Item / Asset contract is interpreted
@@ -18,9 +21,10 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import warnings
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Hashable, Sequence
 from datetime import UTC, timedelta
 from datetime import datetime as _datetime_cls
 from typing import TYPE_CHECKING, Any, cast
@@ -35,6 +39,7 @@ from pyramids.base._artifacts import artifact_dir
 from pyramids.base._errors import StacAssetError
 from pyramids.base.crs import sr_from_user_input
 from pyramids.base.georeference import GeoReference
+from pyramids.base.remote import cloud_config_from_env, redact_credentials
 from pyramids.dataset.grid import Grid
 from pyramids.utm import utm_epsg
 
@@ -201,8 +206,11 @@ def from_stac(
     signer: Any = None,
     align: bool = True,
     skip_missing: bool = False,
-    groupby: str | None = None,
+    groupby: str | Callable[[Any], Hashable] | None = None,
     grid: Grid | None = None,
+    method: str = "first",
+    fuse_func: Callable[[np.ndarray, np.ndarray], None] | None = None,
+    errors_as_nodata: bool = False,
 ) -> DatasetCollection:
     """Build a :class:`DatasetCollection` from a STAC ItemCollection.
 
@@ -274,23 +282,80 @@ def from_stac(
             a grid/CRS mismatch among an item's assets raises
             :class:`~pyramids.base._errors.AlignmentError`. Ignored in
             single-asset mode.
-        skip_missing: When `True`, items missing any requested asset are
-            dropped instead of raising. When `False` (default), a missing
-            asset raises :class:`~pyramids.base._errors.StacAssetError`.
+        skip_missing: When `True`, items **lacking the asset key** are dropped
+            instead of raising. When `False` (default), a missing asset raises
+            :class:`~pyramids.base._errors.StacAssetError`. This is about the
+            item's metadata only — an asset that *is* declared but cannot be
+            read is a different failure, covered by `errors_as_nodata`.
         groupby: How items map to timesteps. `None` (default) keeps one
-            timestep per item.
+            timestep per item. Anything else collapses the items into groups
+            and mosaics each group into a single timestep (single-asset only),
+            emitting the groups in sorted-key order so `time_length` and the
+            per-timestep order are deterministic. Accepted values:
 
-            `"solar_day"` produces one timestep per acquisition date for
-            **tiled optical Earth-observation** catalogs (Sentinel-2, Landsat,
-            HLS, MODIS), where one overpass of an AOI is delivered as many
-            granules/tiles. Each item's solar day is its UTC timestamp shifted
-            by `centroid_longitude / 15` hours (≈ local solar time; see
-            :func:`_solar_day`), reduced to a calendar date — the shift keeps a
-            single overpass on one date instead of splitting it across
-            UTC midnight. Items sharing a solar day are mosaicked with
-            `merge_rasters(method="first")` (first-valid pixel wins on overlap;
-            see :func:`_from_stac_solar_day`). `time_length` is the number of
-            distinct solar days, in chronological order. Single-asset only.
+            * `"solar_day"` — one timestep per acquisition date for **tiled
+              optical Earth-observation** catalogs (Sentinel-2, Landsat, HLS,
+              MODIS), where one overpass of an AOI is delivered as many
+              granules/tiles. Each item's solar day is its UTC timestamp
+              shifted by `centroid_longitude / 15` hours (≈ local solar time;
+              see :func:`_solar_day`), reduced to a calendar date — the shift
+              keeps a single overpass on one date instead of splitting it
+              across UTC midnight.
+            * `"id"` — one group per item id (the item's `id`, or `"?"` when it
+              declares none, so id-less items collapse together).
+            * `"time"` — one group per distinct item datetime (ISO 8601).
+            * any other `str` — a **property key**, read from the item's
+              `properties` mapping; an item that lacks the key raises
+              `ValueError` (naming the item) even when `skip_missing` is
+              `True`, since a silent regrouping is worse than a stop.
+            * a **callable** `(item) -> hashable` — pyramids' callable is
+              **1-arg**, deliberately unlike odc-stac's 3-arg
+              `(pystac.Item, ParsedItem, index)`, because pyramids has no
+              `ParsedItem`. A callable that raises, or returns an unhashable
+              key, is reported as a `ValueError` naming the item.
+
+            **Precedence.** The reserved names `"solar_day"`, `"id"` and
+            `"time"` always win over a property of the same name. To group by a
+            property literally called `"time"`, pass a callable instead
+            (`groupby=lambda item: item["properties"]["time"]`).
+
+            Group keys are sorted with `sorted`, falling back to `sorted(key=str)`
+            when they are of mixed, mutually-unorderable types.
+        method: Grouped modes only. The overlap-resolution rule handed to
+            :func:`~pyramids.dataset.merge.merge_rasters` when a group's items
+            are mosaicked: `"first"` (default, first-valid pixel wins — today's
+            behaviour), `"last"`, `"min"`, `"max"`, `"sum"`, `"count"` or
+            `"mean"`. Passing anything but `"first"` without a `groupby` raises,
+            rather than being silently ignored.
+        fuse_func: Grouped modes only. An **odc-style in-place fuser**
+            `(dst, src) -> None` that replaces the built-in mosaic for every
+            group: the group's sources are read onto the first source's grid,
+            no-data is normalised to `NaN`, and the callback is applied pairwise
+            in item order (`fuse_func(accumulator, next_source)`), mutating
+            `accumulator`. Its return value is ignored. Mutually exclusive with
+            a non-default `method` (both describe how overlap is resolved), and
+            rejected when `groupby` is `None` — with one timestep per item there
+            is no overlap to fuse. `None` (default) keeps the built-in merge.
+        errors_as_nodata: Tolerate an asset that is **present on the item but
+            unreadable** (404, expired signed URL, corrupt file) by substituting
+            a no-data-filled (`NaN`) plane for that timestep instead of failing
+            the whole cube. Only IO/open errors (`OSError`, GDAL's
+            `RuntimeError`) are converted; a missing asset key, a bad argument
+            or any other programming error still raises — that is
+            `skip_missing`'s job, and the two are independent.
+
+            **The plane needs a grid.** The reference grid is the `grid=` target
+            when one is given, otherwise the grid of the first timestep that
+            *does* open. When nothing opens and no `grid=` was given there is
+            nothing to fill, so a `ValueError` is raised — pair
+            `errors_as_nodata` with `grid=` whenever a total outage must still
+            produce a cube. Each substitution emits a warning with the href
+            redacted (credentials stripped).
+
+            In single-asset mode this **forces an eager open probe** of every
+            href (the hrefs themselves stay the collection's backing files, so
+            reads remain lazy); a lazy build cannot discover an unreadable URL
+            until it is too late to substitute anything.
         grid: Optional :class:`~pyramids.dataset.Grid` describing the target
             output grid; every timestep of the built cube is reprojected /
             resampled onto it (via :meth:`DatasetCollection.align`), guaranteeing
@@ -312,7 +377,11 @@ def from_stac(
             `skip_missing` is `False` (subclasses `KeyError`).
         AlignmentError: Multi-asset with `align=False` and an item's assets
             do not share a grid/CRS.
-        ValueError: When no items remain after filtering / skipping.
+        ValueError: When no items remain after filtering / skipping; when
+            `groupby` is neither `None`, a string nor a callable, or resolves to
+            an absent property / an unusable key; when `fuse_func` or a
+            non-default `method` is combined with a mode they cannot apply to;
+            or when `errors_as_nodata` has no reference grid to fill a plane on.
 
     Examples:
         - Build a DatasetCollection from raw STAC JSON dicts (no
@@ -350,21 +419,34 @@ def from_stac(
     from pyramids.dataset.collection import DatasetCollection
 
     target_grid = _resolve_target_grid(grid)
+    _validate_overlap_options(groupby, method, fuse_func)
 
     if groupby is not None:
-        if groupby != "solar_day":
-            raise ValueError(f"groupby must be None or 'solar_day', got {groupby!r}.")
         if not isinstance(asset, str):
             raise ValueError(
-                "groupby='solar_day' supports a single asset (str), not a "
-                "multi-asset sequence."
+                "groupby supports a single asset (str), not a multi-asset sequence."
             )
-        collection = _from_stac_solar_day(
-            item_list, asset, patch_url, signer, DatasetCollection
+        collection = _from_stac_grouped(
+            item_list,
+            asset,
+            _resolve_groupby(groupby),
+            patch_url,
+            signer,
+            DatasetCollection,
+            method=method,
+            fuse_func=fuse_func,
+            errors_as_nodata=errors_as_nodata,
+            skip_missing=skip_missing,
+            reference=target_grid,
         )
     elif isinstance(asset, str):
         hrefs = [_sign(_resolve_asset_href(item, asset)) for item in item_list]
-        collection = DatasetCollection.from_files(hrefs, gdal_env=gdal_env)
+        if errors_as_nodata:
+            collection = _single_asset_tolerant(
+                hrefs, gdal_env, DatasetCollection, target_grid
+            )
+        else:
+            collection = DatasetCollection.from_files(hrefs, gdal_env=gdal_env)
     else:
         collection = _from_stac_multi_asset(
             item_list,
@@ -374,6 +456,8 @@ def from_stac(
             align,
             skip_missing,
             DatasetCollection,
+            errors_as_nodata=errors_as_nodata,
+            reference=target_grid,
         )
 
     if target_grid is not None:
@@ -522,55 +606,495 @@ def _solar_day(item: Any) -> str:
     return shifted.date().isoformat()
 
 
-def _from_stac_solar_day(
+def _item_time_key(item: Any) -> str:
+    """Return an item's datetime as an ISO 8601 string (the `groupby="time"` key)."""
+    return _item_datetime(item).isoformat()
+
+
+def _resolve_groupby(
+    groupby: str | Callable[[Any], Hashable],
+) -> Callable[[Any], Hashable]:
+    """Resolve a `groupby` spec to a key function `(item) -> hashable`.
+
+    Every grouping mode goes through this one resolver so the modes cannot drift
+    apart: :func:`_from_stac_grouped` only ever sees a key function.
+
+    Precedence: a callable is honoured first, then the reserved names
+    `"solar_day"`, `"id"` and `"time"`, and only then is a string treated as an
+    item property key — so a property named `"time"` is shadowed by the reserved
+    word and has to be reached through a callable.
+
+    Args:
+        groupby: `"solar_day"`, `"id"`, `"time"`, any other property-key string,
+            or a 1-arg callable returning a hashable key.
+
+    Returns:
+        A callable mapping one STAC item to its group key.
+
+    Raises:
+        ValueError: `groupby` is neither a string nor a callable.
+    """
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.stac._item import item_id, item_properties
+
+    def _by_property(item: Any, _key: str = str(groupby)) -> Hashable:
+        properties = item_properties(item)
+        if _key not in properties:
+            raise ValueError(
+                f"groupby property {_key!r} is absent on item {item_id(item)!r}. "
+                "Pass a property every item declares, one of 'solar_day' / 'id' / "
+                "'time', or a callable."
+            )
+        return cast("Hashable", properties[_key])
+
+    reserved: dict[str, Callable[[Any], Hashable]] = {
+        "solar_day": _solar_day,
+        "id": item_id,
+        "time": _item_time_key,
+    }
+    if callable(groupby):
+        key_fn = groupby
+    elif isinstance(groupby, str):
+        key_fn = reserved.get(groupby, _by_property)
+    else:
+        raise ValueError(
+            "groupby must be None, 'solar_day', 'id', 'time', a property-key "
+            f"string, or a callable (item) -> hashable, got {groupby!r}."
+        )
+    return key_fn
+
+
+def _group_key(item: Any, key_fn: Callable[[Any], Hashable]) -> Hashable:
+    """Return `key_fn(item)`, reporting a failing or unhashable key clearly.
+
+    Args:
+        item: The STAC item being grouped.
+        key_fn: The key function from :func:`_resolve_groupby`.
+
+    Returns:
+        The item's group key.
+
+    Raises:
+        ValueError: The key function raised, or returned an unhashable key. The
+            message names the offending item.
+    """
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.stac._item import item_id
+
+    try:
+        key = key_fn(item)
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(
+            f"groupby key function failed on item {item_id(item)!r}: {exc}"
+        ) from exc
+    try:
+        hash(key)
+    except TypeError as exc:
+        raise ValueError(
+            f"groupby key {key!r} for item {item_id(item)!r} is not hashable; a "
+            "group key must be usable as a dict key."
+        ) from exc
+    return key
+
+
+def _sorted_group_keys(keys: Any) -> list[Any]:
+    """Sort group keys deterministically, falling back to their `str` form.
+
+    Keys of one type sort naturally (dates, ids, orbit numbers). A property that
+    yields mutually-unorderable types (e.g. `1` and `"1"`) would raise, so those
+    are ordered by `str(key)` instead of failing the build.
+    """
+    try:
+        ordered = sorted(keys)
+    except TypeError:
+        ordered = sorted(keys, key=str)
+    return ordered
+
+
+def _group_slug(key: Any) -> str:
+    """Return a filename-safe label for a group key."""
+    return re.sub(r"[^A-Za-z0-9_.+-]", "_", str(key))[:60]
+
+
+def _validate_overlap_options(
+    groupby: Any,
+    method: str,
+    fuse_func: Callable[[np.ndarray, np.ndarray], None] | None,
+) -> None:
+    """Reject `method` / `fuse_func` combinations that cannot be honoured.
+
+    Both describe how overlapping pixels in one group are resolved, so they are
+    mutually exclusive, and both are meaningless without a `groupby` (one
+    timestep per item has no overlap to resolve). Failing loudly here beats
+    silently ignoring an argument the caller clearly meant.
+
+    Args:
+        groupby: The `groupby` spec given to :func:`from_stac`.
+        method: The requested mosaic method.
+        fuse_func: The requested in-place fuser, or `None`.
+
+    Raises:
+        TypeError: `fuse_func` is not callable.
+        ValueError: `fuse_func` or a non-default `method` was combined with
+            `groupby=None`, or `fuse_func` with a non-default `method`.
+    """
+    if fuse_func is not None and not callable(fuse_func):
+        raise TypeError(
+            f"fuse_func must be a callable (dst, src) -> None, got {type(fuse_func).__name__}."
+        )
+    if groupby is None:
+        if fuse_func is not None:
+            raise ValueError(
+                "fuse_func only applies to a grouped mosaic: with groupby=None every "
+                "item is its own timestep, so there is no overlap to fuse. Pass "
+                "groupby='solar_day' (or another grouping), or drop fuse_func."
+            )
+        if method != "first":
+            raise ValueError(
+                f"method={method!r} only applies to a grouped mosaic; with groupby=None "
+                "each item is its own timestep. Pass a groupby, or drop method."
+            )
+    elif fuse_func is not None and method != "first":
+        raise ValueError(
+            "fuse_func and method are mutually exclusive: fuse_func replaces the "
+            f"built-in mosaic for each group, so method={method!r} could not be "
+            "honoured. Pass one or the other."
+        )
+
+
+def _sign_href(href: str, signer: Any) -> str:
+    """Apply a signer's `sign_href` to `href` (a no-op without a signer).
+
+    The grouped path hands raw hrefs to `merge_rasters`, which signs them
+    itself; the fusing and probing paths open the hrefs directly and so have to
+    sign them here, with the same hook, to stay consistent with the merge.
+    """
+    return href if signer is None else signer.sign_href(href)
+
+
+def _grid_spec(dataset: Any) -> tuple[Any, Any, int, int, int]:
+    """Summarise a dataset's grid as `(geotransform, epsg, rows, columns, bands)`.
+
+    Only the grid is kept, not the dataset, so a reference grid can outlive the
+    raster it was learned from without holding a GDAL handle open.
+    """
+    return (
+        dataset.geotransform,
+        dataset.epsg,
+        int(dataset.rows),
+        int(dataset.columns),
+        int(dataset.band_count),
+    )
+
+
+def _write_nodata_plane(
+    spec: tuple[Any, Any, int, int, int] | None,
+    out_path: str,
+    *,
+    band_count: int | None = None,
+    reason: str = "",
+) -> None:
+    """Write an all-`NaN` raster on `spec`'s grid (the `errors_as_nodata` filler).
+
+    Args:
+        spec: The reference grid from :func:`_grid_spec`, or `None` when none is
+            known yet.
+        out_path: Where to write the plane.
+        band_count: Band count to write; defaults to the reference's.
+        reason: Appended to the error raised when `spec` is `None`, naming what
+            could not be substituted.
+
+    Raises:
+        ValueError: `spec` is `None` — a no-data plane needs a grid, and none is
+            known.
+    """
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.dataset.dataset import Dataset
+
+    if spec is None:
+        raise ValueError(
+            "errors_as_nodata cannot synthesise a no-data plane: no reference grid "
+            "is known because no timestep opened successfully and no grid= was "
+            f"given. Pass grid=Grid(...) to fix the output grid up front.{reason}"
+        )
+    geo, epsg, rows, columns, bands = spec
+    bands = bands if band_count is None else band_count
+    shape = (rows, columns) if bands == 1 else (bands, rows, columns)
+    plane = np.full(shape, np.nan, dtype="float32")
+    Dataset.from_array(
+        plane, geo_ref=GeoReference(geo=geo, epsg=epsg), no_data_value=np.nan
+    ).to_file(out_path)
+
+
+def _warn_unreadable(href: str, exc: Exception) -> None:
+    """Warn that `href` could not be read, with its credentials redacted."""
+    warnings.warn(
+        f"errors_as_nodata: substituting a no-data plane for unreadable asset "
+        f"{redact_credentials(href)}: {exc}",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
+def _nan_array(dataset: Any) -> np.ndarray:
+    """Read a dataset's values as floats with its no-data normalised to `NaN`.
+
+    `fuse_func` callbacks detect "still empty" cells by testing for `NaN`, so
+    every array handed to one has to share that convention regardless of the
+    sentinel the source file declares.
+    """
+    values = np.ma.asanyarray(dataset.read_array(masked=True)).astype("float64")
+    return np.ma.filled(values, np.nan)
+
+
+def _fuse_group(
+    hrefs: list[str],
+    out_path: str,
+    fuse_func: Callable[[np.ndarray, np.ndarray], None],
+    gdal_env: dict[str, str] | None,
+) -> tuple[Any, Any, int, int, int]:
+    """Fuse one group's sources with an in-place callback and write the result.
+
+    The first source defines the grid; the remaining ones are aligned onto it
+    (nearest) when they differ, so the callback never sees mismatched shapes.
+    Values are read with no-data normalised to `NaN`
+    (see :func:`_nan_array`), the callback is applied pairwise in item order,
+    and the accumulator is written as a `NaN`-no-data raster.
+
+    Args:
+        hrefs: The group's (already signed) source hrefs, in item order.
+        out_path: Where to write the fused raster.
+        fuse_func: In-place fuser `(dst, src) -> None`; its return is ignored.
+        gdal_env: Signer GDAL config installed around the reads.
+
+    Returns:
+        The written raster's grid spec (see :func:`_grid_spec`).
+    """
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.dataset.dataset import Dataset
+
+    with cloud_config_from_env(gdal_env, path=hrefs):
+        reference = Dataset.read_file(hrefs[0])
+        accumulator = _nan_array(reference)
+        for href in hrefs[1:]:
+            source = Dataset.read_file(href)
+            if not source.same_grid(reference):
+                source = source.align(reference)
+            fuse_func(accumulator, _nan_array(source))
+        Dataset.from_array(
+            accumulator,
+            geo_ref=GeoReference(geo=reference.geotransform, epsg=reference.epsg),
+            no_data_value=np.nan,
+        ).to_file(out_path)
+        spec = _grid_spec(reference)
+    return spec
+
+
+def _readable_hrefs(
+    hrefs: list[str],
+    signer: Any,
+    gdal_env: dict[str, str] | None,
+    spec: tuple[Any, Any, int, int, int] | None,
+) -> tuple[list[str], tuple[Any, Any, int, int, int] | None]:
+    """Probe `hrefs`, dropping the unreadable ones and learning a grid.
+
+    The probe opens the **signed** href but returns the surviving hrefs
+    unsigned, because the merge that consumes them signs every source itself —
+    signing twice could graft a second token onto an already-signed URL.
+
+    Args:
+        hrefs: Candidate source hrefs, unsigned.
+        signer: Optional signer whose `sign_href` is applied for the probe.
+        gdal_env: Signer GDAL config installed around the probe opens.
+        spec: The reference grid learned so far, or `None`.
+
+    Returns:
+        The readable subset of `hrefs` (order preserved, unsigned) and the
+        reference grid, taken from the first source that opened when none was
+        known yet.
+    """
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.dataset.dataset import Dataset
+
+    readable: list[str] = []
+    for href in hrefs:
+        signed = _sign_href(href, signer)
+        try:
+            with cloud_config_from_env(gdal_env, path=[signed]):
+                dataset = Dataset.read_file(signed)
+        except (OSError, RuntimeError) as exc:
+            _warn_unreadable(signed, exc)
+            continue
+        if spec is None:
+            spec = _grid_spec(dataset)
+        readable.append(href)
+    return readable, spec
+
+
+def _single_asset_tolerant(
+    hrefs: list[str],
+    gdal_env: dict[str, str] | None,
+    collection_cls: Any,
+    reference: Any,
+) -> DatasetCollection:
+    """Build the single-asset stack, swapping unreadable hrefs for no-data planes.
+
+    Every href is opened once up front (`errors_as_nodata` cannot be lazy — an
+    unreadable URL is only discovered by opening it); the readable ones still
+    back the collection directly, so the pixel reads stay lazy.
+
+    Args:
+        hrefs: The resolved, signed asset hrefs, one per item.
+        gdal_env: Signer GDAL config for the probe opens and the collection.
+        collection_cls: The :class:`DatasetCollection` class (cycle-free).
+        reference: The `grid=` template Dataset, or `None`.
+
+    Returns:
+        DatasetCollection: One timestep per item, unreadable ones filled.
+
+    Raises:
+        ValueError: No href opened and no `grid=` was given, so no plane can be
+            synthesised.
+    """
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.dataset.dataset import Dataset
+
+    spec = None if reference is None else _grid_spec(reference)
+    opened: list[str | None] = []
+    for href in hrefs:
+        try:
+            with cloud_config_from_env(gdal_env, path=[href]):
+                dataset = Dataset.read_file(href)
+        except (OSError, RuntimeError) as exc:
+            _warn_unreadable(href, exc)
+            opened.append(None)
+            continue
+        if spec is None:
+            spec = _grid_spec(dataset)
+        opened.append(href)
+
+    out_dir = artifact_dir()
+    paths: list[str] = []
+    for index, probed in enumerate(opened):
+        if probed is not None:
+            paths.append(probed)
+            continue
+        out_path = os.path.join(out_dir, f"nodata_{index:04d}.tif")
+        _write_nodata_plane(spec, out_path, reason=" The failing timestep is kept.")
+        paths.append(out_path)
+    # collection_cls is always the real DatasetCollection class (passed by every
+    # caller); typed Any here only to dodge the import cycle noted above.
+    return cast(
+        "DatasetCollection", collection_cls.from_files(paths, gdal_env=gdal_env)
+    )
+
+
+def _from_stac_grouped(
     item_list: list[Any],
     asset: str,
+    key_fn: Callable[[Any], Hashable],
     patch_url: Callable[[str], str] | None,
     signer: Any,
     collection_cls: Any,
+    *,
+    method: str = "first",
+    fuse_func: Callable[[np.ndarray, np.ndarray], None] | None = None,
+    errors_as_nodata: bool = False,
+    skip_missing: bool = False,
+    reference: Any = None,
 ) -> DatasetCollection:
-    """Mosaic same-solar-day items of one asset into one timestep each.
+    """Mosaic each group of items of one asset into a single timestep.
 
-    Items are grouped by :func:`_solar_day`; each group's asset hrefs are
-    mosaicked with ``merge_rasters(method="first")`` (the signer is applied
-    there, so hrefs are not pre-signed here — only `patch_url` is). The per-day
-    mosaics, in chronological order, back the returned collection.
+    Items are bucketed by `key_fn` (built by :func:`_resolve_groupby`), and each
+    bucket's asset hrefs are mosaicked with
+    ``merge_rasters(method=method)`` — or, when a `fuse_func` is given, fused
+    with that callback instead. The per-group mosaics, in sorted-key order, back
+    the returned collection. The signer is applied by `merge_rasters`, so hrefs
+    are not pre-signed for that path (only `patch_url` is); the fusing path
+    signs them itself.
 
     Args:
         item_list: The (filtered) STAC items.
         asset: The single asset key to mosaic.
+        key_fn: Maps an item to its group key.
         patch_url: Optional href rewriter applied before the merge's signer.
-        signer: Optional signer (applied by `merge_rasters`).
+        signer: Optional signer (applied by `merge_rasters` / the fuser).
         collection_cls: The :class:`DatasetCollection` class (cycle-free).
+        method: Overlap-resolution rule for `merge_rasters` (default
+            ``"first"`` — the historical solar-day behaviour).
+        fuse_func: Optional in-place `(dst, src) -> None` fuser replacing the
+            built-in merge.
+        errors_as_nodata: Drop unreadable sources from their group, and emit a
+            no-data plane for a group left with none.
+        skip_missing: Drop items lacking the asset key instead of raising.
+        reference: The `grid=` template Dataset used as the no-data plane's
+            grid, or `None`.
 
     Returns:
-        DatasetCollection: One timestep per distinct solar day.
+        DatasetCollection: One timestep per distinct group key.
 
     Raises:
-        ValueError: No items remain to group.
+        ValueError: No items remain to group, or a group needs a no-data plane
+            and no reference grid is known.
     """
     from pyramids.dataset.merge import merge_rasters
 
     if not item_list:
-        raise ValueError("from_stac(groupby='solar_day') received no items.")
+        raise ValueError("from_stac(groupby=...) received no items.")
 
-    groups: dict[str, list[str]] = defaultdict(list)
+    gdal_env = signer.gdal_env() if signer is not None else None
+    groups: dict[Hashable, list[str]] = defaultdict(list)
     for item in item_list:
-        href = _resolve_asset_href(item, asset)
+        try:
+            href = _resolve_asset_href(item, asset)
+        except StacAssetError:
+            if skip_missing:
+                continue
+            raise
         if patch_url is not None:
             href = patch_url(href)
-        groups[_solar_day(item)].append(href)
+        groups[_group_key(item, key_fn)].append(href)
 
+    if not groups:
+        raise ValueError(
+            "from_stac(groupby=...) produced no groups (every item was missing the "
+            "requested asset)."
+        )
+
+    spec = None if reference is None else _grid_spec(reference)
     out_dir = artifact_dir()
-    per_day_paths: list[str] = []
-    for day in sorted(groups):
-        out_path = os.path.join(out_dir, f"{day}.tif")
-        merge_rasters(groups[day], out_path, method="first", signer=signer)
-        per_day_paths.append(out_path)
+    group_paths: list[str] = []
+    for index, key in enumerate(_sorted_group_keys(groups)):
+        out_path = os.path.join(out_dir, f"{index:04d}_{_group_slug(key)}.tif")
+        sources = groups[key]
+        if errors_as_nodata:
+            sources, spec = _readable_hrefs(sources, signer, gdal_env, spec)
+        if not sources:
+            _write_nodata_plane(
+                spec, out_path, reason=f" The empty group is key {key!r}."
+            )
+        elif fuse_func is not None:
+            spec = _fuse_group(
+                [_sign_href(href, signer) for href in sources],
+                out_path,
+                fuse_func,
+                gdal_env,
+            )
+        else:
+            merge_rasters(sources, out_path, method=method, signer=signer)
+        group_paths.append(out_path)
 
     # collection_cls is always the real DatasetCollection class (passed by every
     # caller); typed Any here only to dodge the import cycle noted above.
-    return cast("DatasetCollection", collection_cls.from_files(per_day_paths))
+    return cast("DatasetCollection", collection_cls.from_files(group_paths))
 
 
 def _from_stac_multi_asset(
@@ -581,6 +1105,9 @@ def _from_stac_multi_asset(
     align: bool,
     skip_missing: bool,
     collection_cls: Any,
+    *,
+    errors_as_nodata: bool = False,
+    reference: Any = None,
 ) -> DatasetCollection:
     """Stack multiple assets per item into a band axis, then time-stack them.
 
@@ -598,6 +1125,10 @@ def _from_stac_multi_asset(
         skip_missing: Drop items missing any requested asset instead of raising.
         collection_cls: The :class:`DatasetCollection` class (passed in to keep
             this helper import-cycle-free).
+        errors_as_nodata: Substitute a no-data plane for an item whose assets
+            are declared but cannot be read, instead of raising.
+        reference: The `grid=` template Dataset used as the no-data plane's
+            grid, or `None` (the first readable item's grid is then used).
 
     Returns:
         DatasetCollection: One multi-band timestep per kept item.
@@ -605,14 +1136,16 @@ def _from_stac_multi_asset(
     Raises:
         StacAssetError: An item lacks a requested asset and `skip_missing`
             is `False`.
-        ValueError: No items remain after skipping.
+        ValueError: No items remain after skipping, or an item needs a no-data
+            plane and no reference grid is known.
     """
-    # Lazy imports: cycle-break (Dataset) + reuse the shared env helper.
-    from pyramids.base.remote import cloud_config_from_env
+    # Lazy import to break the cycle (see _resolve_asset_href above).
     from pyramids.dataset.dataset import Dataset
 
     out_dir = artifact_dir()
     per_item_paths: list[str] = []
+    unreadable: list[int] = []
+    spec = None if reference is None else _grid_spec(reference)
     for idx, item in enumerate(item_list):
         try:
             hrefs = [sign(_resolve_asset_href(item, key)) for key in asset_keys]
@@ -621,16 +1154,34 @@ def _from_stac_multi_asset(
                 continue
             raise
         out_path = os.path.join(out_dir, f"stac_item_{idx}.tif")
-        with cloud_config_from_env(gdal_env, path=hrefs):
-            Dataset.from_band_files(
-                hrefs, band_names=asset_keys, align=align, path=out_path
-            )
+        try:
+            with cloud_config_from_env(gdal_env, path=hrefs):
+                Dataset.from_band_files(
+                    hrefs, band_names=asset_keys, align=align, path=out_path
+                )
+        except (OSError, RuntimeError) as exc:
+            if not errors_as_nodata:
+                raise
+            _warn_unreadable(hrefs[0], exc)
+            # A fresh path: the failed stack may have left a partial file behind.
+            out_path = os.path.join(out_dir, f"stac_item_{idx}_nodata.tif")
+            unreadable.append(len(per_item_paths))
+        else:
+            if spec is None:
+                spec = _grid_spec(Dataset.read_file(out_path))
         per_item_paths.append(out_path)
 
     if not per_item_paths:
         raise ValueError(
             "from_stac produced no items (all were missing a requested asset "
             "or filtered out)."
+        )
+    for position in unreadable:
+        _write_nodata_plane(
+            spec,
+            per_item_paths[position],
+            band_count=len(asset_keys),
+            reason=f" The failing timestep is item index {position}.",
         )
     # collection_cls is always the real DatasetCollection class (passed by every
     # caller); typed Any here only to dodge the import cycle noted above.

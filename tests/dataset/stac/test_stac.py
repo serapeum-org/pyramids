@@ -825,12 +825,23 @@ class TestFromStacSolarDay:
         )
 
     def test_invalid_groupby_raises(self, solar_day_items):
-        """An unsupported groupby value raises ValueError.
+        """A groupby that is neither a string nor a callable raises ValueError.
 
         Test scenario:
-            groupby='month' is not supported.
+            groupby=3 is not a spec at all. (Since STAC-06 an unrecognised
+            *string* is read as an item property key instead — see
+            test_from_stac_grouped.py.)
         """
         with pytest.raises(ValueError, match="groupby must be"):
+            DatasetCollection.from_stac(solar_day_items, asset="data", groupby=3)
+
+    def test_unknown_property_groupby_raises(self, solar_day_items):
+        """An unrecognised groupby string is a property key, absent here.
+
+        Test scenario:
+            groupby='month' is no item's property.
+        """
+        with pytest.raises(ValueError, match="absent on item"):
             DatasetCollection.from_stac(solar_day_items, asset="data", groupby="month")
 
     def test_groupby_multi_asset_raises(self, solar_day_items):
