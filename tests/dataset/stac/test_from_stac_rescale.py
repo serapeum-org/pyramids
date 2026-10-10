@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pytest
 
+from pyramids.base import _artifacts as artifacts
+from pyramids.base._errors import StacAssetError
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection, Grid
 from pyramids.dataset._stac import from_stac
@@ -67,6 +71,54 @@ def nodataless_item(tmp_path):
         "assets": {"B05": {"href": path, "type": "image/tiff"}},
         "stac_extensions": [],
     }
+
+
+@pytest.fixture
+def file_packed_item(tmp_path):
+    """A packed item whose raster declares the scale 0.01 in the file itself.
+
+    The shared `packed_item` fixture deliberately leaves the file's packing at
+    identity, which makes "the rebuilt result declares identity packing" true
+    of the source as well — an assertion that cannot fail. Here the source
+    declares `0.01`, so the two sides can disagree.
+
+    Args:
+        tmp_path: pytest temp directory.
+
+    Returns:
+        dict: An item over a file-declared-scale raster, with the same scale in
+        its `raster:bands`.
+    """
+    path = str(tmp_path / "file_packed.tif")
+    source = Dataset.from_array(
+        np.array([[0, 100], [200, 300]], dtype="int16"),
+        no_data_value=0,
+        geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
+    )
+    source.scale = [0.01]
+    source.to_file(path)
+    return {
+        "type": "Feature",
+        "id": "file-packed",
+        "bbox": [0.0, 0.0, 2.0, 2.0],
+        "properties": {"datetime": "2023-06-01T00:00:00Z"},
+        "assets": {
+            "data": {
+                "href": path,
+                "type": "image/tiff",
+                "raster:bands": [{"scale": 0.01, "offset": 0.0, "nodata": 0}],
+            }
+        },
+        "stac_extensions": [],
+    }
+
+
+@pytest.fixture
+def file_packed_items(file_packed_item):
+    """Two copies of the file-declared-scale item, so the cube has two timesteps."""
+    second = {**file_packed_item, "id": "file-packed-2"}
+    second["properties"] = {"datetime": "2023-06-02T00:00:00Z"}
+    return [file_packed_item, second]
 
 
 class TestSingleAssetRescale:
@@ -166,17 +218,34 @@ class TestSingleAssetRescale:
             "the substituted timestep should be entirely no-data"
         )
 
-    def test_rescale_result_declares_identity_packing(self, packed_items):
-        """A rescaled timestep carries no packing of its own.
+    def test_rescale_result_declares_identity_packing(self, file_packed_items):
+        """A rescaled timestep declares identity packing, unlike its source.
 
         Test scenario:
-            The backing raster's scale/offset slots.
+            The source *file* declares scale 0.01 (the shared `packed_item`
+            fixture leaves the file at identity, so there the claim is true of
+            the source too and cannot fail). The rescaled timestep must declare
+            `[1.0]`, and one `read_array(unpack=True)` must give the physical
+            value once — not 0.01x it again.
         """
-        collection = from_stac(packed_items, asset="data", rescale=True)
+        source = Dataset.read_file(file_packed_items[0]["assets"]["data"]["href"])
+        assert source.scale == [0.01], (
+            "the fixture must declare the scale in the file, or the result's identity "
+            f"packing is vacuous, got {source.scale}"
+        )
+        collection = from_stac(file_packed_items, asset="data", rescale=True)
         timestep = collection.iloc(0)
-        assert timestep.scale == [1.0], f"expected identity scale, got {timestep.scale}"
+        assert timestep.scale == [1.0], (
+            f"the rebuilt timestep must declare identity scale, got {timestep.scale}"
+        )
         assert timestep.offset == [0.0], (
-            f"expected identity offset, got {timestep.offset}"
+            f"the rebuilt timestep must declare identity offset, got {timestep.offset}"
+        )
+        unpacked = np.asarray(timestep.read_array(unpack=True), dtype="float64")
+        values = unpacked if unpacked.ndim == 2 else unpacked[0]
+        assert values[1, 1] == pytest.approx(3.0), (
+            "300 counts x 0.01 is 3.0; a second application would give 0.03, got "
+            f"{values[1, 1]}"
         )
 
     def test_rescale_combines_with_a_target_grid(self, packed_items):
@@ -314,7 +383,7 @@ class TestFromStacConfig:
             A key that is neither an alias nor an asset.
         """
         cfg = {"c": {"aliases": {"rededge": "B05"}}}
-        with pytest.raises(KeyError):
+        with pytest.raises(StacAssetError, match="asset 'nir' not found"):
             from_stac([nodataless_item], asset="nir", cfg=cfg)
 
     def test_missing_nodata_is_supplied(self, nodataless_item):
@@ -379,3 +448,176 @@ class TestFromStacConfig:
         assert collection.time_length == 3, (
             f"expected 3 timesteps, got {collection.time_length}"
         )
+
+
+class TestFailedMaterialisationIsNeverSilent:
+    """H3: a failed rescale must not leave a raw-DN timestep in the cube.
+
+    `_materialise_asset` answers `None` to mean "nothing had to be applied",
+    which makes the caller keep the asset's own href as the timestep's backing.
+    Tolerating a *materialisation* failure that way put stored counts in a cube
+    whose other timesteps carry physical units, with no warning — the numbers
+    all look plausible, so any reduction over the time axis is wrong by the
+    packing factor for that subset. Only the **open** is tolerated now.
+    """
+
+    def test_a_materialisation_failure_raises_even_when_tolerated(
+        self, packed_items, monkeypatch
+    ):
+        """errors_as_nodata does not swallow a failure after the open.
+
+        Test scenario:
+            The asset opens, then `materialise` raises `RuntimeError` — a
+            truncated range response or a decompression error mid-read. With
+            `errors_as_nodata=True` that used to return the unrescaled href.
+        """
+        import pyramids.stac._config as config
+
+        def boom(_dataset, _overrides):
+            raise RuntimeError("truncated range response mid-read")
+
+        monkeypatch.setattr(config, "materialise", boom)
+        with pytest.raises(RuntimeError, match="truncated range response"):
+            from_stac(packed_items, asset="data", rescale=True, errors_as_nodata=True)
+
+    def test_no_timestep_is_left_in_stored_counts(self, packed_items, monkeypatch):
+        """The failure cannot produce a cube mixing counts and physical units.
+
+        Test scenario:
+            The materialiser fails for the second item only. Before the fix the
+            build succeeded with timestep 0 physical (1.0 / 2.0 / 3.0) and
+            timestep 1 raw (100 / 200 / 300); now nothing is returned at all.
+        """
+        import pyramids.stac._config as config
+
+        real = config.materialise
+        calls = {"n": 0}
+
+        def flaky(dataset, overrides):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return real(dataset, overrides)
+            raise OSError("the second asset died mid-read")
+
+        monkeypatch.setattr(config, "materialise", flaky)
+        with pytest.raises(OSError, match="died mid-read"):
+            from_stac(packed_items, asset="data", rescale=True, errors_as_nodata=True)
+
+    def test_an_open_failure_is_still_tolerated(self, packed_item, tmp_path):
+        """The narrowing kept the case `errors_as_nodata` exists for.
+
+        Test scenario:
+            The second item's href does not exist, so the *open* fails and the
+            timestep becomes a no-data plane rather than an error.
+        """
+        asset = {**packed_item["assets"]["data"], "href": str(tmp_path / "gone.tif")}
+        second = {
+            **packed_item,
+            "id": "packed-2",
+            "properties": {"datetime": "2023-06-02T00:00:00Z"},
+            "assets": {"data": asset},
+        }
+        with pytest.warns(RuntimeWarning, match="errors_as_nodata"):
+            collection = from_stac(
+                [packed_item, second],
+                asset="data",
+                rescale=True,
+                errors_as_nodata=True,
+            )
+        assert collection.time_length == 2, (
+            f"the unreadable timestep should be kept, got {collection.time_length}"
+        )
+        assert np.isnan(_timestep(collection, 1)).all(), (
+            "the substituted timestep should be entirely no-data"
+        )
+
+
+class TestMaterialisedIntermediatesAreReclaimed:
+    """M8: the copies that do not back the collection are deleted in-call.
+
+    Every `rescale` / `cfg` build writes a full-resolution raster per timestep
+    under the process artefact root, and nothing there is reclaimed before the
+    interpreter exits. The copies the *returned collection* is backed by have
+    to stay, but a grouped build's per-source copies and a multi-asset build's
+    per-band copies are consumed inside the call.
+    """
+
+    @staticmethod
+    def _artefacts():
+        """Return every file currently under the process artefact root."""
+        root = artifacts._ROOT
+        found = []
+        if root is not None:
+            for base, _dirs, names in os.walk(root):
+                found.extend(os.path.join(base, name) for name in names)
+        return found
+
+    def test_multi_asset_keeps_only_the_band_stacks(self, packed_raster_path):
+        """The per-band copies are gone; one stack per timestep remains.
+
+        Test scenario:
+            Two items x two packed assets rescaled. Four band copies are
+            written and consumed, so only the two stacked timesteps survive.
+        """
+        asset = {
+            "href": packed_raster_path,
+            "raster:bands": [{"scale": 0.01, "offset": 0.0, "nodata": 0}],
+        }
+        items = [
+            {
+                "id": f"item-{index}",
+                "bbox": [0.0, 0.0, 2.0, 2.0],
+                "properties": {"datetime": f"2023-06-0{index + 1}T00:00:00Z"},
+                "assets": {"red": dict(asset), "nir": dict(asset)},
+            }
+            for index in range(2)
+        ]
+        before = set(self._artefacts())
+        from_stac(items, asset=["red", "nir"], rescale=True)
+        added = [path for path in self._artefacts() if path not in before]
+        leftovers = [path for path in added if "_band_" in os.path.basename(path)]
+        assert not leftovers, (
+            "the per-band copies are consumed by the stack and must be reclaimed, "
+            f"found {[os.path.basename(p) for p in leftovers]}"
+        )
+        assert len(added) == 2, (
+            "only the two band stacks should survive the call, got "
+            f"{[os.path.basename(p) for p in added]}"
+        )
+
+    def test_grouped_keeps_only_the_group_mosaics(self, packed_items):
+        """The per-source copies are gone; one mosaic per group remains.
+
+        Test scenario:
+            Two packed items grouped by id, so two sources are materialised and
+            two mosaics are written.
+        """
+        before = set(self._artefacts())
+        from_stac(packed_items, asset="data", groupby="id", rescale=True)
+        added = [path for path in self._artefacts() if path not in before]
+        leftovers = [
+            path for path in added if os.path.basename(path).startswith("source_")
+        ]
+        assert not leftovers, (
+            "the materialised sources are consumed by the mosaic and must be "
+            f"reclaimed, found {[os.path.basename(p) for p in leftovers]}"
+        )
+        assert len(added) == 2, (
+            "only the two group mosaics should survive the call, got "
+            f"{[os.path.basename(p) for p in added]}"
+        )
+
+    def test_single_asset_copies_survive_because_they_back_the_cube(self, packed_items):
+        """The reclaim is scoped: a timestep's own backing file is not deleted.
+
+        Test scenario:
+            A single-asset rescale, whose materialised copies *are* the
+            collection's files, so they must still be readable afterwards.
+        """
+        before = set(self._artefacts())
+        collection = from_stac(packed_items, asset="data", rescale=True)
+        added = [path for path in self._artefacts() if path not in before]
+        assert len(added) == 2, (
+            f"one materialised copy per timestep is expected, got {len(added)}"
+        )
+        _assert_physical(_timestep(collection, 1), "the second timestep")

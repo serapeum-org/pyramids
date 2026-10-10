@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pickle
+import warnings
 
 import numpy as np
 import pytest
@@ -93,7 +94,7 @@ class TestPropertiesDefaultOff:
             Assigning to the property on a built collection.
         """
         collection = from_stac(three_local_items, asset="data", properties=True)
-        with pytest.raises(AttributeError):
+        with pytest.raises(AttributeError, match="time_attrs"):
             collection.time_attrs = [{}, {}, {}]
 
 
@@ -328,6 +329,108 @@ class TestGroupedProperties:
         )
         assert len(collection.time_attrs) == collection.time_length, (
             f"expected {collection.time_length} dicts, got {len(collection.time_attrs)}"
+        )
+
+
+class TestReducedGroupRepresentative:
+    """M2: a non-`first` reduction makes the representative item misleading.
+
+    `properties=` attaches the group's first item in item order. Those are the
+    pixels `method="first"` emits, so the pairing is exact there — but every
+    other reduction derives the timestep from the whole group, and the attached
+    per-granule properties then describe a granule that did not produce most of
+    the raster. The build stays well defined, so this warns.
+    """
+
+    def test_mean_with_properties_warns(self, three_local_items):
+        """Combining a reducing method with properties= warns.
+
+        Test scenario:
+            `groupby="orbit"`, `method="mean"` and `properties=True`.
+        """
+        with pytest.warns(RuntimeWarning, match="method='mean' derives the timestep"):
+            from_stac(
+                three_local_items,
+                asset="data",
+                groupby="orbit",
+                method="mean",
+                properties=True,
+            )
+
+    def test_the_warning_is_accurate_about_the_mismatch(self, three_local_items):
+        """The attached value really is the representative's, not the reduction's.
+
+        Test scenario:
+            Orbit 1 groups items with cloud cover 0 and 10 and pixel values 1.0
+            and 2.0; `method="mean"` emits 1.5 while the attributes stay the
+            first item's cloud cover 0 — which is what the warning is about.
+        """
+        with pytest.warns(RuntimeWarning, match="did not produce most of the emitted"):
+            collection = from_stac(
+                three_local_items,
+                asset="data",
+                groupby="orbit",
+                method="mean",
+                properties=["eo:cloud_cover"],
+            )
+        pixels = float(np.asarray(collection.iloc(0).read_array())[0, 0])
+        assert pixels == pytest.approx(1.5), (
+            f"method='mean' must average the group's 1.0 and 2.0, got {pixels}"
+        )
+        assert collection.time_attrs[0]["eo:cloud_cover"] == 0, (
+            "the attached property is still the first item's, which is the mismatch "
+            f"the warning names, got {collection.time_attrs[0]!r}"
+        )
+
+    def test_fuse_func_with_properties_warns(self, three_local_items):
+        """A fuser is a whole-group reduction too, so it warns as well.
+
+        Test scenario:
+            `groupby="orbit"` with an in-place max fuser and `properties=True`.
+        """
+
+        def fuse(dst, src):
+            np.copyto(dst, np.fmax(dst, src))
+
+        with pytest.warns(RuntimeWarning, match="fuse_func derives the timestep"):
+            from_stac(
+                three_local_items,
+                asset="data",
+                groupby="orbit",
+                fuse_func=fuse,
+                properties=True,
+            )
+
+    def test_method_first_with_properties_is_quiet(self, three_local_items):
+        """The default pairing is exact, so nothing warns.
+
+        Test scenario:
+            `groupby="orbit"` with the default method and `properties=True`.
+        """
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from_stac(three_local_items, asset="data", groupby="orbit", properties=True)
+        offenders = [
+            str(w.message) for w in caught if "derives the timestep" in str(w.message)
+        ]
+        assert not offenders, (
+            f"method='first' needs no representative warning, got {offenders}"
+        )
+
+    def test_a_reduction_without_properties_is_quiet(self, three_local_items):
+        """Nothing is attached, so there is no mismatch to warn about.
+
+        Test scenario:
+            `method="mean"` with `properties` left at its default `False`.
+        """
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from_stac(three_local_items, asset="data", groupby="orbit", method="mean")
+        offenders = [
+            str(w.message) for w in caught if "derives the timestep" in str(w.message)
+        ]
+        assert not offenders, (
+            f"no properties means no representative warning, got {offenders}"
         )
 
 

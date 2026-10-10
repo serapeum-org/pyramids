@@ -16,6 +16,19 @@ from pyramids.dataset._stac import _encode_nodata, to_stac_item
 pytestmark = pytest.mark.core
 
 
+# MODIS Sinusoidal: a real projection with no EPSG authority code, so
+# `Dataset.epsg` is `None` for it and only the WKT identifies it.
+_SINUSOIDAL_WKT = (
+    'PROJCS["MODIS Sinusoidal",'
+    'GEOGCS["Unknown datum based upon the custom spheroid",'
+    'DATUM["Not specified",SPHEROID["Custom spheroid",6371007.181,0]],'
+    'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],'
+    'PROJECTION["Sinusoidal"],PARAMETER["longitude_of_center",0],'
+    'PARAMETER["false_easting",0],PARAMETER["false_northing",0],'
+    'UNIT["metre",1,AUTHORITY["EPSG","9001"]]]'
+)
+
+
 def _wgs84_from_array(array, nodata=-9999.0, top_left=(0.0, 4.0)):
     """Build a single-band EPSG:4326 dataset from `array` at cell size 1."""
     return Dataset.from_array(
@@ -87,9 +100,10 @@ class TestToStacItem:
         assert props["proj:code"] == "EPSG:4326", f"proj:code: {props['proj:code']}"
         assert props["proj:shape"] == [4, 4], f"proj:shape: {props['proj:shape']}"
         # proj:transform is the rasterio affine [a,b,c,d,e,f]: xres=1, x0=0, yres=-1, y0=4
-        assert props["proj:transform"] == [1.0, 0.0, 0.0, 0.0, -1.0, 4.0], props[
-            "proj:transform"
-        ]
+        assert props["proj:transform"] == [1.0, 0.0, 0.0, 0.0, -1.0, 4.0], (
+            "proj:transform must be the rasterio affine of a cell-1 grid at "
+            f"(0, 4): [1, 0, 0, 0, -1, 4], got {props['proj:transform']}"
+        )
 
     def test_raster_bands_on_asset(self, wgs84_dataset):
         """raster:bands carries per-band data_type + nodata on the asset.
@@ -161,9 +175,10 @@ class TestToStacItem:
 
         when = dt.datetime(2023, 6, 1, 12, 0, 0)
         item = wgs84_dataset.to_stac_item("x", asset_href="s.tif", datetime=when)
-        assert item["properties"]["datetime"] == when.isoformat(), item["properties"][
-            "datetime"
-        ]
+        assert item["properties"]["datetime"] == when.isoformat(), (
+            f"a datetime must be serialised as {when.isoformat()!r}, got "
+            f"{item['properties']['datetime']!r}"
+        )
 
     def test_with_proj_false_omits_proj(self, wgs84_dataset):
         """with_proj=False omits the proj extension fields and schema.
@@ -172,12 +187,14 @@ class TestToStacItem:
             No proj:* keys and the projection schema is absent.
         """
         item = wgs84_dataset.to_stac_item("x", asset_href="s.tif", with_proj=False)
-        assert not any(k.startswith("proj:") for k in item["properties"]), item[
-            "properties"
-        ]
-        assert not any("projection" in e for e in item["stac_extensions"]), item[
-            "stac_extensions"
-        ]
+        assert not any(k.startswith("proj:") for k in item["properties"]), (
+            "with_proj=False must emit no proj:* property, got "
+            f"{sorted(item['properties'])}"
+        )
+        assert not any("projection" in e for e in item["stac_extensions"]), (
+            "with_proj=False must not advertise the projection schema, got "
+            f"{item['stac_extensions']}"
+        )
 
     def test_crs_less_dataset_world_bbox(self, tmp_path):
         """A dataset without a CRS gets the world bbox + a warning.
@@ -278,9 +295,10 @@ class TestToStacItemDatetime:
             start_datetime=dt.datetime(2023, 1, 1),
             end_datetime=dt.datetime(2023, 12, 31),
         )
-        assert item["properties"]["start_datetime"] == "2023-01-01T00:00:00", item[
-            "properties"
-        ]
+        assert item["properties"]["start_datetime"] == "2023-01-01T00:00:00", (
+            "start_datetime must be the ISO form '2023-01-01T00:00:00', got "
+            f"{item['properties'].get('start_datetime')!r}"
+        )
 
 
 class TestToStacItemBandMetadata:
@@ -298,9 +316,9 @@ class TestToStacItemBandMetadata:
         assert set(band) == {"data_type", "nodata"}, f"extra band keys: {band}"
         assert band["nodata"] == -9999.0, f"nodata changed: {band}"
         assert "eo:bands" not in item["assets"]["data"], "eo:bands must be opt-in"
-        assert not any("/eo/" in e for e in item["stac_extensions"]), item[
-            "stac_extensions"
-        ]
+        assert not any("/eo/" in e for e in item["stac_extensions"]), (
+            f"the eo schema must stay opt-in, got {item['stac_extensions']}"
+        )
 
     def test_with_stats_emits_statistics(self, wgs84_dataset):
         """with_stats=True adds the raster-extension statistics object.
@@ -321,19 +339,32 @@ class TestToStacItemBandMetadata:
         )
         assert stats["stddev"] == 0.0, f"stddev of a constant band: {stats}"
 
-    def test_with_stats_exact_mode_matches_dataset_stats(self, ramp_dataset):
-        """stats_approx_ok=False reports the exact figures Dataset.stats gives.
+    def test_with_stats_exact_mode_reports_the_literal_ramp_figures(self, ramp_dataset):
+        """stats_approx_ok=False reports the ramp's own exact figures.
 
         Test scenario:
-            A 0..15 ramp read exactly reports the same minimum/maximum as
-            Dataset.stats(approx_ok=False).
+            A 0..15 ramp read exactly reports minimum 0, maximum 15, mean 7.5
+            and the population stddev of 0..15 — literals computed from the
+            fixture, not from `Dataset.stats`, which is the very call
+            `_band_statistics` makes (so comparing against it asserts the
+            function equals itself).
         """
-        band = ramp_dataset.to_stac_item(
+        stats = ramp_dataset.to_stac_item(
             "x", asset_href="s.tif", with_stats=True, stats_approx_ok=False
-        )["assets"]["data"]["raster:bands"][0]
-        row = ramp_dataset.stats(band=0, approx_ok=False).iloc[0]
-        assert band["statistics"]["minimum"] == float(row["min"]), band["statistics"]
-        assert band["statistics"]["maximum"] == float(row["max"]), band["statistics"]
+        )["assets"]["data"]["raster:bands"][0]["statistics"]
+        assert stats["minimum"] == 0.0, (
+            f"the 0..15 ramp's exact minimum is 0.0, got {stats['minimum']}"
+        )
+        assert stats["maximum"] == 15.0, (
+            f"the 0..15 ramp's exact maximum is 15.0, got {stats['maximum']}"
+        )
+        assert stats["mean"] == 7.5, (
+            f"the 0..15 ramp's exact mean is 7.5, got {stats['mean']}"
+        )
+        expected_std = float(np.arange(16, dtype="float64").std())
+        assert stats["stddev"] == pytest.approx(expected_std), (
+            f"the 0..15 ramp's exact stddev is {expected_std}, got {stats['stddev']}"
+        )
 
     def test_with_stats_all_nodata_band_warns_and_omits(self, all_nodata_dataset):
         """A band with no valid pixels is skipped with a warning, not an error.
@@ -371,9 +402,10 @@ class TestToStacItemBandMetadata:
             f"count must be the bucket count: {histogram}"
         )
         assert histogram["min"] < histogram["max"], f"edges: {histogram}"
-        assert all(isinstance(c, int) for c in histogram["buckets"]), histogram[
-            "buckets"
-        ]
+        assert all(isinstance(c, int) for c in histogram["buckets"]), (
+            "every bucket count must be a JSON-able int, got "
+            f"{[type(c).__name__ for c in histogram['buckets']]}"
+        )
 
     def test_with_histogram_constant_band_warns_and_omits(self, wgs84_dataset):
         """A band with no value range is skipped with a warning.
@@ -400,12 +432,13 @@ class TestToStacItemBandMetadata:
             A single-band dataset yields [{"name": "Band_1"}].
         """
         item = wgs84_dataset.to_stac_item("x", asset_href="s.tif", with_eo=True)
-        assert item["assets"]["data"]["eo:bands"] == [{"name": "Band_1"}], item[
-            "assets"
-        ]["data"].get("eo:bands")
-        assert any("/eo/" in e for e in item["stac_extensions"]), item[
-            "stac_extensions"
-        ]
+        assert item["assets"]["data"]["eo:bands"] == [{"name": "Band_1"}], (
+            "eo:bands must name the single band 'Band_1', got "
+            f"{item['assets']['data'].get('eo:bands')}"
+        ).get("eo:bands")
+        assert any("/eo/" in e for e in item["stac_extensions"]), (
+            f"with_eo=True must advertise the eo schema, got {item['stac_extensions']}"
+        )
 
     def test_scale_offset_emitted_only_when_non_identity(self, ramp_dataset):
         """scale/offset appear only for a band with real CF packing.
@@ -492,7 +525,10 @@ class TestToStacItemDataFootprint:
         """
         item = corner_dataset.to_stac_item("x", asset_href="s.tif")
         assert item["bbox"] == [0.0, 0.0, 4.0, 4.0], f"bbox: {item['bbox']}"
-        assert item["geometry"]["type"] == "Polygon", item["geometry"]["type"]
+        assert item["geometry"]["type"] == "Polygon", (
+            "a footprint that does not cross the seam stays a single Polygon, got "
+            f"{item['geometry']['type']}"
+        )
 
     def test_data_footprint_tighter_than_bbox(self, corner_dataset):
         """footprint="data" traces the valid pixels only.
@@ -525,7 +561,10 @@ class TestToStacItemDataFootprint:
                 "x", asset_href="s.tif", footprint="data"
             )
         assert item["bbox"] == [0.0, 0.0, 4.0, 4.0], f"bbox: {item['bbox']}"
-        assert item["geometry"]["type"] == "Polygon", item["geometry"]["type"]
+        assert item["geometry"]["type"] == "Polygon", (
+            "a footprint that does not cross the seam stays a single Polygon, got "
+            f"{item['geometry']['type']}"
+        )
         assert any("no valid pixels" in str(w.message) for w in caught), (
             "expected a fallback warning"
         )
@@ -773,7 +812,10 @@ class TestToStacItemAntimeridian:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             item = to_stac_item(ds, "x", asset_href="s.tif")
-        assert item["geometry"]["type"] == "Polygon", item["geometry"]["type"]
+        assert item["geometry"]["type"] == "Polygon", (
+            "a footprint that does not cross the seam stays a single Polygon, got "
+            f"{item['geometry']['type']}"
+        )
         assert item["bbox"] == [-180.0, -90.0, 180.0, 90.0], f"bbox: {item['bbox']}"
 
     def test_wide_span_inside_the_lon_range_is_not_a_crossing(self):
@@ -811,7 +853,10 @@ class TestToStacItemAntimeridian:
             ),
         )
         item = ds.to_stac_item("x", asset_href="s.tif")
-        assert item["geometry"]["type"] == "Polygon", item["geometry"]["type"]
+        assert item["geometry"]["type"] == "Polygon", (
+            "a footprint that does not cross the seam stays a single Polygon, got "
+            f"{item['geometry']['type']}"
+        )
         assert item["bbox"] == [-170.0, -30.0, 50.0, 10.0], f"bbox: {item['bbox']}"
 
     def test_projected_scene_straddling_the_seam_still_splits(self):
@@ -877,3 +922,190 @@ class TestEncodeNodata:
         assert _encode_nodata(sentinel) is sentinel, (
             "a non-coercible sentinel must be passed through"
         )
+
+
+class TestDefaultPayloadChanges:
+    """M4: the two ways `to_stac_item`'s default output differs from before.
+
+    The docstring used to promise that "with none of them passed the emitted
+    Item is exactly what earlier versions produced". It is not, in two ways,
+    and both are pinned here so the compatibility note cannot drift back into
+    an unqualified claim.
+    """
+
+    def test_packed_band_publishes_scale_by_default(self, tmp_path):
+        """A CF-packed band emits `scale` with no keyword passed.
+
+        Test scenario:
+            An int16 raster whose file declares scale 0.01 reports that scale
+            in `raster:bands` on the plain default call.
+        """
+        path = str(tmp_path / "packed.tif")
+        source = Dataset.from_array(
+            np.array([[0, 100], [200, 300]], dtype="int16"),
+            no_data_value=0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
+        )
+        source.scale = [0.01]
+        source.to_file(path)
+        band = Dataset.read_file(path).to_stac_item("x", asset_href="s.tif")["assets"][
+            "data"
+        ]["raster:bands"][0]
+        assert band["scale"] == 0.01, (
+            f"a non-identity scale belongs in the default payload, got {band}"
+        )
+
+    def test_unpacked_band_still_omits_scale_and_offset(self, wgs84_dataset):
+        """A band with identity packing is unchanged, so the addition is additive.
+
+        Test scenario:
+            The default 4x4 float raster declares neither scale nor offset.
+        """
+        band = wgs84_dataset.to_stac_item("x", asset_href="s.tif")["assets"]["data"][
+            "raster:bands"
+        ][0]
+        assert set(band) == {"data_type", "nodata"}, (
+            f"an unpacked band must carry only data_type + nodata, got {sorted(band)}"
+        )
+
+    def test_non_finite_nodata_is_emitted_as_a_string_not_a_float(self):
+        """A NaN sentinel changes type, which is the breaking half of M4.
+
+        Test scenario:
+            A NaN-nodata band reports the string "nan" (JSON-valid) rather than
+            a float NaN (which serialises to the invalid literal `NaN`), so a
+            consumer doing `isinstance(band["nodata"], float)` now fails while
+            `float(band["nodata"])` still works.
+        """
+        ds = _wgs84_from_array(np.ones((4, 4), dtype="float32"), nodata=np.nan)
+        band = ds.to_stac_item("x", asset_href="s.tif")["assets"]["data"][
+            "raster:bands"
+        ][0]
+        assert band["nodata"] == "nan", (
+            f"a non-finite sentinel must be spelled as a string, got {band['nodata']!r}"
+        )
+        assert isinstance(band["nodata"], str), (
+            "the field's type changed from float to str, which is the documented "
+            f"break, got {type(band['nodata']).__name__}"
+        )
+        assert np.isnan(float(band["nodata"])), (
+            f"the string must still parse back to NaN, got {band['nodata']!r}"
+        )
+
+
+class TestPackingFieldsAreMeaningful:
+    """N9: a zero or non-finite scale is not publishable CF packing."""
+
+    def test_zero_scale_is_not_published(self, tmp_path):
+        """A band whose scale is 0 emits no `scale` field.
+
+        Test scenario:
+            The reader's identity check refuses to apply a zero scale, so
+            publishing it would advertise packing nothing reads back.
+        """
+        path = str(tmp_path / "zero_scale.tif")
+        source = Dataset.from_array(
+            np.ones((2, 2), dtype="int16"),
+            no_data_value=0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
+        )
+        source.scale = [0.0]
+        source.to_file(path)
+        band = Dataset.read_file(path).to_stac_item("x", asset_href="s.tif")["assets"][
+            "data"
+        ]["raster:bands"][0]
+        assert "scale" not in band, (
+            f"a zero scale must be omitted, not published, got {band}"
+        )
+
+    def test_a_real_scale_is_still_published(self, tmp_path):
+        """The zero guard does not swallow an ordinary packing.
+
+        Test scenario:
+            A scale of 0.01 is still emitted, so the guard is not a blanket
+            suppression.
+        """
+        path = str(tmp_path / "real_scale.tif")
+        source = Dataset.from_array(
+            np.ones((2, 2), dtype="int16"),
+            no_data_value=0,
+            geo_ref=GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326),
+        )
+        source.scale = [0.01]
+        source.to_file(path)
+        band = Dataset.read_file(path).to_stac_item("x", asset_href="s.tif")["assets"][
+            "data"
+        ]["raster:bands"][0]
+        assert band["scale"] == 0.01, f"a real scale must survive the guard, got {band}"
+
+
+class TestWarningCategories:
+    """N7 / M5: every degraded-metadata path warns with a filterable category."""
+
+    def test_data_footprint_without_an_epsg_code_warns_and_falls_back(self):
+        """M5: footprint="data" is declined out loud, not ignored silently.
+
+        Test scenario:
+            A MODIS Sinusoidal raster (a real projection with no EPSG authority
+            code) asked for the valid-pixel footprint gets the bbox path's
+            world extent, and says so.
+        """
+        array = np.ones((4, 4), dtype="float32")
+        array[0, :] = np.nan
+        ds = Dataset.from_array(
+            array,
+            no_data_value=np.nan,
+            geo_ref=GeoReference(
+                geo=(0.0, 1000.0, 0.0, 4000.0, 0.0, -1000.0), epsg=None
+            ),
+        )
+        ds.crs = _SINUSOIDAL_WKT
+        assert ds.epsg is None, (
+            "the fixture must have no EPSG code for this to test anything, got "
+            f"{ds.epsg}"
+        )
+        with pytest.warns(RuntimeWarning, match="footprint='data' needs an EPSG code"):
+            item = ds.to_stac_item("x", asset_href="s.tif", footprint="data")
+        assert item["bbox"] == [-180.0, -90.0, 180.0, 90.0], (
+            f"the declined footprint falls back to the world extent, got {item['bbox']}"
+        )
+
+    def test_no_valid_pixels_fallback_warns_with_a_category(self, all_nodata_dataset):
+        """The valid-pixel fallback is a RuntimeWarning, not a bare UserWarning.
+
+        Test scenario:
+            An all-nodata dataset asked for footprint="data".
+        """
+        with pytest.warns(RuntimeWarning, match="found no valid pixels"):
+            all_nodata_dataset.to_stac_item("x", asset_href="s.tif", footprint="data")
+
+    def test_missing_statistics_warns_with_a_category(self, all_nodata_dataset):
+        """The omitted-statistics warning carries RuntimeWarning.
+
+        Test scenario:
+            with_stats=True on a band with no valid pixels.
+        """
+        with pytest.warns(RuntimeWarning, match="omitting raster statistics"):
+            all_nodata_dataset.to_stac_item("x", asset_href="s.tif", with_stats=True)
+
+    def test_missing_histogram_warns_with_a_category(self, wgs84_dataset):
+        """The omitted-histogram warning carries RuntimeWarning.
+
+        Test scenario:
+            with_histogram=True on a constant band, which GDAL cannot bucket.
+        """
+        with pytest.warns(RuntimeWarning, match="omitting the raster histogram"):
+            wgs84_dataset.to_stac_item("x", asset_href="s.tif", with_histogram=True)
+
+    def test_world_extent_fallback_warns_with_a_category(self):
+        """The CRS-less world-extent fallback carries RuntimeWarning too.
+
+        Test scenario:
+            A dataset with no projection at all, in the default bbox mode.
+        """
+        ds = Dataset.from_array(
+            np.ones((2, 2), dtype="float32"),
+            geo_ref=GeoReference(geo=(0.0, 1.0, 0.0, 2.0, 0.0, -1.0), epsg=None),
+        )
+        with pytest.warns(RuntimeWarning, match="world extent"):
+            to_stac_item(ds, "x", asset_href="s.tif")

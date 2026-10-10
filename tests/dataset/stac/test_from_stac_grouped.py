@@ -9,6 +9,7 @@ substituting a no-data plane for a present-but-unreadable asset).
 from __future__ import annotations
 
 import copy
+import warnings
 
 import numpy as np
 import pytest
@@ -112,6 +113,49 @@ def _break_asset(items, index, tmp_path, name="missing.tif"):
     broken = copy.deepcopy(items)
     broken[index]["assets"]["data"]["href"] = str(tmp_path / name)
     return broken
+
+
+# MODIS Sinusoidal: a real projection with no EPSG authority code, so
+# `Dataset.epsg` is `None` and only the WKT identifies it. A rebuild that
+# travels through `GeoReference(epsg=...)` alone therefore loses it entirely.
+_SINUSOIDAL_WKT = (
+    'PROJCS["MODIS Sinusoidal",'
+    'GEOGCS["Unknown datum based upon the custom spheroid",'
+    'DATUM["Not specified",SPHEROID["Custom spheroid",6371007.181,0]],'
+    'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],'
+    'PROJECTION["Sinusoidal"],PARAMETER["longitude_of_center",0],'
+    'PARAMETER["false_easting",0],PARAMETER["false_northing",0],'
+    'UNIT["metre",1,AUTHORITY["EPSG","9001"]]]'
+)
+
+
+def _sinusoidal_item(tmp_path, name, value, *, orbit=1, href=None):
+    """A STAC item over a MODIS-Sinusoidal raster (a CRS with no EPSG code).
+
+    Args:
+        tmp_path: pytest temp directory.
+        name: File stem for the written raster.
+        value: The fill value.
+        orbit: The `orbit` property, so a property groupby can bucket items.
+        href: Override the asset href (to point at a missing file).
+
+    Returns:
+        dict: The STAC item dict.
+    """
+    path = str(tmp_path / f"{name}.tif")
+    source = Dataset.from_array(
+        np.full((3, 3), float(value), dtype="float32"),
+        no_data_value=-9999.0,
+        geo_ref=GeoReference(geo=(0.0, 1000.0, 0.0, 3000.0, 0.0, -1000.0), epsg=None),
+    )
+    source.crs = _SINUSOIDAL_WKT
+    source.to_file(path)
+    return {
+        "id": name,
+        "bbox": [0.0, 0.0, 1.0, 1.0],
+        "properties": {"datetime": "2023-06-01T00:00:00Z", "orbit": orbit},
+        "assets": {"data": {"href": path if href is None else href}},
+    }
 
 
 class TestResolveGroupby:
@@ -237,16 +281,78 @@ class TestGroupKey:
         with pytest.raises(ValueError, match="not hashable"):
             _group_key(three_local_items[0], lambda _it: ["a", "b"])
 
-    def test_sorted_keys_fall_back_to_str(self):
-        """Mutually-unorderable keys sort by their string form instead of raising.
+    @pytest.mark.parametrize("failure", [TypeError, AttributeError, KeyError])
+    def test_lookup_shaped_failures_are_reported_as_grouping_errors(
+        self, three_local_items, failure
+    ):
+        """ "This item lacks what the key reads" stays a ValueError naming the item.
 
         Test scenario:
-            {1, '1'} cannot be compared, so the order comes from str().
+            A key function raising each of the lookup-shaped exceptions.
         """
-        assert _sorted_group_keys({1, "1"}) == [1, "1"] or _sorted_group_keys(
-            {1, "1"}
-        ) == ["1", 1], (
-            f"expected a str-ordered fallback, got {_sorted_group_keys({1, '1'})!r}"
+
+        def boom(_item):
+            raise failure("nope")
+
+        with pytest.raises(ValueError, match="groupby key function failed on item"):
+            _group_key(three_local_items[0], boom)
+
+    @pytest.mark.parametrize("failure", [RuntimeError, MemoryError, ZeroDivisionError])
+    def test_other_exceptions_keep_their_own_type(self, three_local_items, failure):
+        """M21: a real bug in the callback is not relabelled a grouping error.
+
+        Test scenario:
+            A key function raising a RuntimeError / MemoryError /
+            ZeroDivisionError reaches the caller with that type, so the
+            traceback is not hidden behind a ValueError about grouping.
+        """
+
+        def boom(_item):
+            raise failure("a genuine programming error")
+
+        with pytest.raises(failure, match="a genuine programming error"):
+            _group_key(three_local_items[0], boom)
+
+    def test_sorted_keys_fall_back_to_str(self):
+        """Mutually-unorderable keys are ordered by their string form.
+
+        Test scenario:
+            `{10, "2"}` cannot be compared natively, and its string order
+            ("10" < "2") is the reverse of its numeric order — so an
+            unsorted or numerically-sorted answer is distinguishable from the
+            documented `str` fallback. `{1, "1"}` cannot tell them apart,
+            because both orders agree there.
+        """
+        ordered = _sorted_group_keys({10, "2"})
+        assert ordered == [10, "2"], (
+            "the str fallback must order by str(key), where '10' < '2', got "
+            f"{ordered!r}"
+        )
+
+    def test_the_str_fallback_only_orders_and_never_converts(self):
+        """The keys come back in their own types, not stringified.
+
+        Test scenario:
+            The same `{10, "2"}` keys: a fallback that converted them would be
+            a silent behaviour change, since the keys reach `_group_slug` and
+            the caller's group dict.
+        """
+        ordered = _sorted_group_keys({10, "2"})
+        assert [type(key).__name__ for key in ordered] == ["int", "str"], (
+            "sorting by str(key) must not convert the keys, got "
+            f"{[type(key).__name__ for key in ordered]}"
+        )
+
+    def test_natively_orderable_keys_sort_natively(self):
+        """The fallback does not take over when the keys compare.
+
+        Test scenario:
+            `{10, 2}` are both ints, so 2 sorts before 10 — the opposite of
+            their string order, which proves the native path is taken.
+        """
+        ordered = _sorted_group_keys({10, 2})
+        assert ordered == [2, 10], (
+            f"comparable keys must sort numerically, got {ordered!r}"
         )
 
 
@@ -399,7 +505,7 @@ class TestFlexibleGroupby:
         """
         items = copy.deepcopy(three_local_items)
         items[2]["assets"] = {}
-        with pytest.raises(StacAssetError):
+        with pytest.raises(StacAssetError, match="asset 'data' not found"):
             DatasetCollection.from_stac(items, asset="data", groupby="orbit")
 
 
@@ -645,7 +751,7 @@ class TestErrorsAsNodata:
             The middle item is missing and the mosaic cannot open it.
         """
         broken = _break_asset(three_local_items, 1, tmp_path)
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuntimeError, match="missing.tif"):
             DatasetCollection.from_stac(broken, asset="data", groupby="orbit")
 
     def test_fills_a_plane_in_single_asset_mode(self, three_local_items, tmp_path):
@@ -806,7 +912,7 @@ class TestErrorsAsNodata:
         for item in items:
             item["assets"]["second"] = dict(item["assets"]["data"])
         items[1]["assets"]["second"]["href"] = str(tmp_path / "gone.tif")
-        with pytest.raises((OSError, RuntimeError)):
+        with pytest.raises((OSError, RuntimeError), match="gone.tif"):
             DatasetCollection.from_stac(items, asset=["data", "second"])
 
     def test_does_not_swallow_a_missing_asset_key(self, three_local_items):
@@ -817,5 +923,203 @@ class TestErrorsAsNodata:
         """
         items = copy.deepcopy(three_local_items)
         items[1]["assets"] = {}
-        with pytest.raises(StacAssetError):
+        with pytest.raises(StacAssetError, match="asset 'data' not found"):
             DatasetCollection.from_stac(items, asset="data", errors_as_nodata=True)
+
+
+class TestErrorsAsNodataNarrowness:
+    """M6: only an IO/open failure converts; a build failure still raises.
+
+    `errors_as_nodata` documents that "only IO/open errors are converted; a bad
+    argument or any other programming error still raises". The multi-asset path
+    used to wrap the whole `Dataset.from_band_files` call — dtype promotion,
+    alignment warps, band naming and the output write included — so a bad
+    creation option or a full disk became a silent all-NaN timestep.
+    """
+
+    def test_a_band_stack_failure_is_not_converted(
+        self, three_local_items, tmp_path, monkeypatch
+    ):
+        """A failure of the stack itself raises even under errors_as_nodata.
+
+        Test scenario:
+            Two readable items; `Dataset.from_band_files` succeeds for the
+            first and raises `RuntimeError` for the second, standing in for a
+            GDAL creation-option / disk failure in the *output write*. Nothing
+            about the sources is wrong, so the error must reach the caller.
+        """
+        items = copy.deepcopy(three_local_items)[:2]
+        for item in items:
+            item["assets"]["second"] = dict(item["assets"]["data"])
+        real = Dataset.from_band_files
+        calls = {"n": 0}
+
+        def flaky(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return real(*args, **kwargs)
+            raise RuntimeError("GDAL refused the creation options")
+
+        monkeypatch.setattr(Dataset, "from_band_files", staticmethod(flaky))
+        with pytest.raises(RuntimeError, match="refused the creation options"):
+            DatasetCollection.from_stac(
+                items, asset=["data", "second"], errors_as_nodata=True
+            )
+
+    def test_an_unreadable_source_is_still_converted(self, three_local_items, tmp_path):
+        """The narrowing did not break the case errors_as_nodata is for.
+
+        Test scenario:
+            The second item's second asset points at a missing file, which is
+            an open failure, so that timestep becomes an all-NaN plane.
+        """
+        items = copy.deepcopy(three_local_items)[:2]
+        for item in items:
+            item["assets"]["second"] = dict(item["assets"]["data"])
+        items[1]["assets"]["second"]["href"] = str(tmp_path / "gone.tif")
+        with pytest.warns(RuntimeWarning, match="errors_as_nodata"):
+            coll = DatasetCollection.from_stac(
+                items, asset=["data", "second"], errors_as_nodata=True
+            )
+        assert coll.time_length == 2, (
+            f"the unreadable timestep must be kept, got {coll.time_length}"
+        )
+        assert np.isnan(coll.datasets[1].read_array()).all(), (
+            "the substituted timestep should be entirely no-data"
+        )
+
+    def test_the_warning_names_the_items_own_index(self, three_local_items, tmp_path):
+        """N6: the substitution error reports the item index, not the ordinal.
+
+        Test scenario:
+            Item 0 is dropped by skip_missing and item 1 is unreadable, so the
+            failing timestep's ordinal (0) and its item index (1) differ. With
+            no grid and nothing readable the message surfaces in the
+            ValueError, which must name index 1.
+        """
+        items = copy.deepcopy(three_local_items)[:2]
+        for item in items:
+            item["assets"]["second"] = dict(item["assets"]["data"])
+        del items[0]["assets"]["data"]
+        items[1]["assets"]["data"]["href"] = str(tmp_path / "gone.tif")
+        with pytest.warns(RuntimeWarning, match="errors_as_nodata"):
+            with pytest.raises(ValueError, match=r"failing timestep is item index 1"):
+                DatasetCollection.from_stac(
+                    items,
+                    asset=["data", "second"],
+                    skip_missing=True,
+                    errors_as_nodata=True,
+                )
+
+
+class TestEmptyGroupPlaneGrid:
+    """M7: an empty group's filler plane borrows another group's grid.
+
+    A group whose every source is unreadable has nothing left to learn a grid
+    from, so the plane lands on the one grid the build knows — some other
+    group's. That is unavoidable without `grid=`, so it is said out loud.
+    """
+
+    def test_an_empty_group_warns_that_it_borrowed_a_grid(
+        self, three_local_items, tmp_path
+    ):
+        """The substitution names the group and recommends grid=.
+
+        Test scenario:
+            Orbit 1 is readable, orbit 2's only source is missing, and no
+            `grid=` was given.
+        """
+        items = copy.deepcopy(three_local_items)
+        items[2]["assets"]["data"]["href"] = str(tmp_path / "gone.tif")
+        with pytest.warns(RuntimeWarning, match="borrows the grid of another group"):
+            coll = DatasetCollection.from_stac(
+                items, asset="data", groupby="orbit", errors_as_nodata=True
+            )
+        assert coll.time_length == 2, (
+            f"both groups must still be emitted, got {coll.time_length}"
+        )
+        assert np.isnan(coll.datasets[1].read_array()).all(), (
+            "the empty group should be entirely no-data"
+        )
+
+    def test_an_explicit_grid_is_not_a_borrowed_one(
+        self, three_local_items, tmp_path, matching_grid
+    ):
+        """With grid= the plane's grid is the caller's, so nothing is borrowed.
+
+        Test scenario:
+            The same build with `grid=` pinned.
+        """
+        items = copy.deepcopy(three_local_items)
+        items[2]["assets"]["data"]["href"] = str(tmp_path / "gone.tif")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            DatasetCollection.from_stac(
+                items,
+                asset="data",
+                groupby="orbit",
+                errors_as_nodata=True,
+                grid=matching_grid,
+            )
+        borrowed = [w for w in caught if "borrows the grid" in str(w.message)]
+        assert not borrowed, (
+            f"grid= pins every plane, so nothing is borrowed, got {borrowed}"
+        )
+
+
+class TestNonEpsgCrsSurvivesTheRebuild:
+    """H1 siblings: both rebuilt-raster sites must keep a WKT-only projection.
+
+    `GeoReference` only carries an `epsg` code and `Dataset.epsg` is `None` for
+    any CRS with no EPSG authority, so a rebuild from the code alone came back
+    with `crs == ''` — no projection at all.
+    """
+
+    def test_the_nodata_filler_plane_keeps_the_source_projection(self, tmp_path):
+        """`_write_nodata_plane`: the filler keeps MODIS Sinusoidal.
+
+        Test scenario:
+            A readable sinusoidal item and an unreadable one in single-asset
+            mode; the substituted plane must carry the sinusoidal WKT.
+        """
+        good = _sinusoidal_item(tmp_path, "sin_ok", 1.0)
+        bad = _sinusoidal_item(
+            tmp_path, "sin_gone", 1.0, href=str(tmp_path / "gone.tif")
+        )
+        with pytest.warns(RuntimeWarning, match="errors_as_nodata"):
+            coll = DatasetCollection.from_stac(
+                [good, bad], asset="data", errors_as_nodata=True
+            )
+        plane = coll.datasets[1]
+        assert plane.epsg is None, (
+            f"the fixture CRS has no EPSG code, so this must stay None, got {plane.epsg}"
+        )
+        assert "Sinusoidal" in plane.crs, (
+            "the filler plane must keep the source projection as WKT, got "
+            f"{plane.crs!r}"
+        )
+
+    def test_a_fused_group_keeps_the_source_projection(self, tmp_path):
+        """`_fuse_group`: the fused output keeps MODIS Sinusoidal.
+
+        Test scenario:
+            Two sinusoidal items in one group fused with an in-place max.
+        """
+        items = [
+            _sinusoidal_item(tmp_path, "sin_a", 1.0),
+            _sinusoidal_item(tmp_path, "sin_b", 9.0),
+        ]
+
+        def fuse(dst, src):
+            np.copyto(dst, np.fmax(dst, src))
+
+        coll = DatasetCollection.from_stac(
+            items, asset="data", groupby="orbit", fuse_func=fuse
+        )
+        fused = coll.datasets[0]
+        assert "Sinusoidal" in fused.crs, (
+            f"the fused group must keep the source projection, got {fused.crs!r}"
+        )
+        assert float(np.asarray(fused.read_array())[0, 0]) == pytest.approx(9.0), (
+            "the fuser must still have run, so the max of 1 and 9 is expected"
+        )

@@ -28,9 +28,11 @@ Zarr / netCDF writers untouched.
 
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 import re
+import shutil
 import warnings
 from collections import defaultdict
 from collections.abc import Callable, Hashable, Sequence
@@ -54,6 +56,14 @@ from pyramids.utm import utm_epsg
 
 if TYPE_CHECKING:
     from pyramids.dataset.collection import DatasetCollection
+
+_GridSpec = tuple[Any, Any, int, int, int, str]
+"""A remembered reference grid: `(geotransform, epsg, rows, columns, bands, crs)`.
+
+What :func:`_grid_spec` learns from a source and :func:`_write_nodata_plane`
+rebuilds an `errors_as_nodata` filler plane on. The projection is kept **twice**
+on purpose — as the EPSG code `GeoReference` accepts, and as the WKT that
+survives a CRS with no authority code (see :func:`_carry_projection`)."""
 
 
 def _iter_items(items: Any) -> list[Any]:
@@ -161,15 +171,28 @@ def _materialise_asset(
         collection_id: The item's collection id, or `None`.
         gdal_env: Signer GDAL config installed around the read.
         tolerate: Answer `None` instead of raising when the asset cannot be
-            read, leaving the caller's `errors_as_nodata` path to report it.
+            **opened**, leaving the caller's `errors_as_nodata` path to report
+            it. A failure of the materialisation itself is never tolerated (see
+            below).
 
     Returns:
         `out_path` when a copy was written, or `None` when nothing had to be
         applied (so the caller keeps backing the timestep with `href` itself).
 
     Raises:
-        OSError: The asset could not be read and `tolerate` is `False`.
-        RuntimeError: GDAL failed to read the asset and `tolerate` is `False`.
+        OSError: The asset could not be opened and `tolerate` is `False`, or
+            the materialised copy could not be written.
+        RuntimeError: GDAL failed to open the asset and `tolerate` is `False`,
+            or the materialisation of an asset that *did* open failed.
+
+    Notes:
+        Only the **open** is tolerated, never the materialisation. Answering
+        `None` makes the caller keep the raw href as the timestep's backing, so
+        a tolerated materialisation failure would silently put stored counts in
+        a cube whose other timesteps carry physical units — the numbers all look
+        plausible and nothing marks the mixture. An open failure is safe to
+        answer `None` for, because the caller's `errors_as_nodata` probe opens
+        the same href again, fails again, and substitutes a no-data plane.
     """
     # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
     # pyramids.dataset import cycle (see _resolve_asset_href above).
@@ -181,19 +204,20 @@ def _materialise_asset(
         item, asset_key, rescale=rescale, cfg=cfg, collection_id=collection_id
     )
     if not overrides.is_empty:
-        try:
-            with cloud_config_from_env(gdal_env, path=[href]):
+        with cloud_config_from_env(gdal_env, path=[href]):
+            try:
                 dataset = Dataset.read_file(href)
+            except (OSError, RuntimeError):
+                # Silent on purpose: the caller's errors_as_nodata path opens
+                # the same href again and owns the substitution warning.
+                if not tolerate:
+                    raise
+                dataset = None
+            if dataset is not None:
                 built = materialise(dataset, overrides)
-        except (OSError, RuntimeError):
-            # Silent on purpose: the caller's errors_as_nodata path opens the
-            # same href again and owns the substitution warning.
-            if not tolerate:
-                raise
-        else:
-            if built is not dataset:
-                built.to_file(out_path)
-                written = out_path
+                if built is not dataset:
+                    built.to_file(out_path)
+                    written = out_path
     return written
 
 
@@ -206,7 +230,8 @@ def _single_asset_hrefs(
     rescale: bool,
     gdal_env: dict[str, str] | None,
     tolerate: bool,
-) -> list[str]:
+    skip_missing: bool,
+) -> tuple[list[str], list[Any]]:
     """Resolve one asset per item, materialising it when overrides apply.
 
     Args:
@@ -218,19 +243,31 @@ def _single_asset_hrefs(
         gdal_env: Signer GDAL config installed around the materialising reads.
         tolerate: Pass an unreadable asset through to the caller's
             `errors_as_nodata` path instead of raising.
+        skip_missing: Drop an item that does not declare the asset instead of
+            raising — the single-asset half of the `from_stac` contract, which
+            the grouped and multi-asset paths honour in their own loops.
 
     Returns:
-        One backing path per item: the resolved href, or the materialised copy
-        when `rescale` / `cfg` had something to apply.
+        One backing path per **kept** item — the resolved href, or the
+        materialised copy when `rescale` / `cfg` had something to apply — and
+        the kept items themselves, in the same order, so the caller's
+        `properties=` attributes stay aligned with the emitted timesteps.
 
     Raises:
-        StacAssetError: An item is missing the requested asset.
+        StacAssetError: An item is missing the requested asset and
+            `skip_missing` is `False`.
     """
     out_dir = artifact_dir() if rescale or cfg is not None else None
     hrefs: list[str] = []
+    kept_items: list[Any] = []
     for index, item in enumerate(item_list):
         key, collection_id = _asset_key_for(item, asset, cfg)
-        href = sign(_resolve_asset_href(item, key))
+        try:
+            href = sign(_resolve_asset_href(item, key))
+        except StacAssetError:
+            if not skip_missing:
+                raise
+            continue
         if out_dir is not None:
             copy = _materialise_asset(
                 item,
@@ -245,7 +282,8 @@ def _single_asset_hrefs(
             )
             href = href if copy is None else copy
         hrefs.append(href)
-    return hrefs
+        kept_items.append(item)
+    return hrefs, kept_items
 
 
 def _horizontal_bounds(b: Sequence[float]) -> tuple[float, float, float, float]:
@@ -446,6 +484,11 @@ def from_stac(
             :class:`~pyramids.base._errors.StacAssetError`. This is about the
             item's metadata only — an asset that *is* declared but cannot be
             read is a different failure, covered by `errors_as_nodata`.
+            Honoured in all three modes (single-asset, grouped and
+            multi-asset), and the dropped items are left out of the
+            `properties=` attributes too, so `time_attrs` stays aligned with
+            the emitted timesteps. Dropping *every* item raises `ValueError`
+            rather than returning an empty cube.
         groupby: How items map to timesteps. `None` (default) keeps one
             timestep per item. Anything else collapses the items into groups
             and mosaics each group into a single timestep (single-asset only),
@@ -470,8 +513,12 @@ def from_stac(
             * a **callable** `(item) -> hashable` — pyramids' callable is
               **1-arg**, deliberately unlike odc-stac's 3-arg
               `(pystac.Item, ParsedItem, index)`, because pyramids has no
-              `ParsedItem`. A callable that raises, or returns an unhashable
-              key, is reported as a `ValueError` naming the item.
+              `ParsedItem`. A callable that returns an unhashable key, or fails
+              the way reading an absent field fails (`TypeError`,
+              `AttributeError`, `KeyError`, `IndexError`), is reported as a
+              `ValueError` naming the item. Any other exception the callable
+              raises propagates **with its own type**, so a real bug in the
+              callback is not relabelled as a grouping error.
 
             **Precedence.** The reserved names `"solar_day"`, `"id"` and
             `"time"` always win over a property of the same name. To group by a
@@ -505,11 +552,21 @@ def from_stac(
 
             **The plane needs a grid.** The reference grid is the `grid=` target
             when one is given, otherwise the grid of the first timestep that
-            *does* open. When nothing opens and no `grid=` was given there is
-            nothing to fill, so a `ValueError` is raised — pair
-            `errors_as_nodata` with `grid=` whenever a total outage must still
-            produce a cube. Each substitution emits a warning with the href
-            redacted (credentials stripped).
+            *does* open — one grid for the whole build, not one per group. A
+            grouped build fills an **empty group** (every source unreadable)
+            from that same reference, and since such a group has nothing
+            readable left to learn a grid from, the plane necessarily lands on
+            another group's grid: in a collection spanning several UTM zones or
+            resolutions the cube then mixes grids, and
+            `DatasetCollection.from_files` either refuses it or stacks
+            misregistered timesteps. The substitution warns when it borrows a
+            grid this way, but `grid=` is the only way to pin it, so treat
+            `grid=` as effectively required for a heterogeneous collection.
+            When nothing opens and no `grid=` was given there is nothing to
+            fill, so a `ValueError` is raised — pair `errors_as_nodata` with
+            `grid=` whenever a total outage must still produce a cube. Each
+            substitution emits a warning with the href redacted (credentials
+            stripped).
 
             In single-asset mode this **forces an eager open probe** of every
             href (the hrefs themselves stay the collection's backing files, so
@@ -530,6 +587,24 @@ def from_stac(
             process artefact root. An asset that declares no `raster:bands`, or
             only the identity, keeps its lazy URL. The grouped and multi-asset
             modes already materialise, so they only change in value.
+
+            Two consequences worth planning for. **Units can be
+            inhomogeneous**: an item that declares no `raster:bands` keeps its
+            stored counts while a sibling in the same collection is rescaled,
+            and nothing marks the cube as mixed, so a reduction over the time
+            axis is wrong by the packing factor for that subset. Check the
+            collection's metadata rather than assuming. **Disk grows per
+            call**: the materialised copies that back the returned collection
+            live under the process artefact root until the interpreter exits
+            (see :mod:`pyramids.base._artifacts`), so a service or notebook
+            calling `from_stac(..., rescale=True)` in a loop accumulates one
+            full-resolution raster per timestep per call. The intermediates
+            that do *not* back the collection — the per-source copies a grouped
+            mosaic fuses, and the per-band copies a multi-asset stack
+            consumes — are deleted as soon as their output is written.
+            Materialising also ends laziness: a rescaled timestep is a local
+            raster, so a later `read_part` / `preview` / `read_tile` can no
+            longer be served from a remote COG's overviews.
         cfg: Optional `stac_cfg`-style mapping (see
             :mod:`pyramids.stac._config`) supplying per-asset metadata the items
             omit (`data_type`, `nodata`, `unit`) and **band aliases**, so
@@ -573,6 +648,14 @@ def from_stac(
             `method="first"` resolves overlap by. Properties that differ within
             a group (a per-granule cloud cover) are therefore the
             representative's value, not an aggregate.
+
+            That representative only describes the emitted pixels for
+            `method="first"`. Under `"last"`, `"min"`, `"max"`, `"sum"`,
+            `"mean"` or `"count"` — and under a `fuse_func` — the pixels come
+            from a reduction over the whole group, so the attached
+            `eo:cloud_cover` / `datetime` belong to a granule that did not
+            produce most of the raster. Combining `properties=` with such a
+            reduction therefore warns (`RuntimeWarning`).
         eo_band_names: Multi-asset only. When `True`, name the output bands from
             each asset's `eo:bands` metadata (its `name`, else its
             `common_name`) instead of the raw asset keys, falling back to the
@@ -638,6 +721,7 @@ def from_stac(
     target_grid = _resolve_target_grid(grid)
     _validate_overlap_options(groupby, method, fuse_func)
     _validate_band_options(asset, groupby, resampling, eo_band_names)
+    _warn_reduced_representative(groupby, method, fuse_func, properties)
 
     # The items that produced the emitted timesteps, in emitted order — the
     # source of the per-timestep `properties` attributes. One item per timestep
@@ -663,7 +747,7 @@ def from_stac(
             cfg=cfg,
         )
     elif isinstance(asset, str):
-        hrefs = _single_asset_hrefs(
+        hrefs, timestep_items = _single_asset_hrefs(
             item_list,
             asset,
             _sign,
@@ -671,14 +755,26 @@ def from_stac(
             rescale=rescale,
             gdal_env=gdal_env,
             tolerate=errors_as_nodata,
+            skip_missing=skip_missing,
         )
+        if not hrefs:
+            # Two distinct causes, kept distinct in the message: nothing arrived
+            # (an empty list, or bbox / max_items filtered everything out), or
+            # items arrived and skip_missing dropped every one of them.
+            cause = (
+                "no item was left to read (the item list was empty, or bbox / "
+                "max_items filtered every item out)"
+                if not item_list
+                else f"every item was missing asset {asset!r}, and skip_missing "
+                "dropped them all"
+            )
+            raise ValueError(f"from_stac produced no timesteps: {cause}.")
         if errors_as_nodata:
             collection = _single_asset_tolerant(
                 hrefs, gdal_env, DatasetCollection, target_grid
             )
         else:
             collection = DatasetCollection.from_files(hrefs, gdal_env=gdal_env)
-        timestep_items = item_list
     else:
         collection, timestep_items = _from_stac_multi_asset(
             item_list,
@@ -745,6 +841,40 @@ def _validate_band_options(
                 "only mode that names bands after the requested assets. Pass a "
                 "sequence of asset keys (and no groupby), or drop eo_band_names."
             )
+
+
+def _warn_reduced_representative(
+    groupby: Any,
+    method: str,
+    fuse_func: Callable[[np.ndarray, np.ndarray], None] | None,
+    properties: bool | str | Sequence[str],
+) -> None:
+    """Warn that a group's representative item does not describe reduced pixels.
+
+    `properties=` attaches the group's **first item in item order** to the
+    emitted timestep. That item is the one whose pixels win under
+    `method="first"`, but every other reduction (and any `fuse_func`) derives
+    the timestep from the whole group, so the attached per-granule properties
+    describe a granule that did not produce most of the raster. The build is
+    still well defined, so this warns rather than raising.
+
+    Args:
+        groupby: The `groupby` spec given to :func:`from_stac`.
+        method: The overlap-resolution rule.
+        fuse_func: The in-place fuser, or `None`.
+        properties: The `properties` spec given to :func:`from_stac`.
+    """
+    reduced = method != "first" or fuse_func is not None
+    if groupby is not None and reduced and properties is not False:
+        rule = "fuse_func" if fuse_func is not None else f"method={method!r}"
+        warnings.warn(
+            f"properties= attaches each group's first item in item order, but {rule} "
+            "derives the timestep from the whole group, so the attached properties "
+            "describe a granule that did not produce most of the emitted pixels. Use "
+            "method='first', or treat the attributes as the representative's own.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
 
 
 def _property_keys(properties: bool | str | Sequence[str]) -> list[str] | None:
@@ -1058,8 +1188,15 @@ def _group_key(item: Any, key_fn: Callable[[Any], Hashable]) -> Hashable:
         The item's group key.
 
     Raises:
-        ValueError: The key function raised, or returned an unhashable key. The
-            message names the offending item.
+        ValueError: The key function raised a **lookup-shaped** failure
+            (`TypeError`, `AttributeError`, `KeyError` / `IndexError`) — the
+            shape of "this item does not carry what the key function reads" —
+            or returned an unhashable key. The message names the offending
+            item.
+        Exception: Anything else the key function raised reaches the caller
+            unchanged, with its own type. Re-labelling every exception as a
+            `ValueError` about grouping hid real programming errors in the
+            callback, and swallowed `MemoryError` / `RecursionError` too.
     """
     # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
     # pyramids.dataset import cycle (see _resolve_asset_href above).
@@ -1069,7 +1206,7 @@ def _group_key(item: Any, key_fn: Callable[[Any], Hashable]) -> Hashable:
         key = key_fn(item)
     except ValueError:
         raise
-    except Exception as exc:
+    except (TypeError, AttributeError, LookupError) as exc:
         raise ValueError(
             f"groupby key function failed on item {item_id(item)!r}: {exc}"
         ) from exc
@@ -1186,19 +1323,42 @@ def _sign_href(href: str, signer: Any) -> str:
     return href if signer is None else signer.sign_href(href)
 
 
-def _grid_spec(dataset: Any) -> tuple[Any, Any, int, int, int]:
-    """Summarise a dataset's grid as `(geotransform, epsg, rows, columns, bands)`.
+def _carry_projection(crs: Any, target: Any) -> None:
+    """Re-assign a source raster's projection onto a rebuilt one, as WKT.
+
+    :class:`~pyramids.base.georeference.GeoReference` only takes an `epsg` code,
+    and `AbstractDataset.epsg` is `None` for every CRS with no EPSG authority
+    code (MODIS sinusoidal, a geostationary product, a custom LCC) — so a raster
+    rebuilt from the code alone comes back with **no CRS at all**, which
+    silently breaks every later `to_crs`, `crop(bbox)`, `align` and write. The
+    WKT carries what the code cannot. A falsy `crs` is skipped: assigning an
+    empty WKT would wipe the `from_array` default.
+
+    Args:
+        crs: The source raster's `crs` (WKT), possibly empty.
+        target: The freshly built, writable raster to stamp it onto.
+    """
+    if crs:
+        target.crs = crs
+
+
+def _grid_spec(dataset: Any) -> _GridSpec:
+    """Summarise a dataset's grid as `(geotransform, epsg, rows, columns, bands, crs)`.
 
     Only the grid is kept, not the dataset, so a reference grid can outlive the
-    raster it was learned from without holding a GDAL handle open.
+    raster it was learned from without holding a GDAL handle open. The
+    projection travels as **WKT alongside** the EPSG code, because `epsg` is
+    `None` for a CRS with no authority code and would lose the projection
+    entirely (see :func:`_carry_projection`).
 
     Args:
         dataset: An open :class:`~pyramids.dataset.dataset.Dataset` whose grid
             is to be remembered.
 
     Returns:
-        A plain `(geotransform, epsg, rows, columns, bands)` tuple — the three
-        counts cast to `int` — in the shape :func:`_write_nodata_plane` expects.
+        A plain `(geotransform, epsg, rows, columns, bands, crs)` tuple — the
+        three counts cast to `int` — in the shape :func:`_write_nodata_plane`
+        expects.
     """
     return (
         dataset.geotransform,
@@ -1206,11 +1366,12 @@ def _grid_spec(dataset: Any) -> tuple[Any, Any, int, int, int]:
         int(dataset.rows),
         int(dataset.columns),
         int(dataset.band_count),
+        dataset.crs,
     )
 
 
 def _write_nodata_plane(
-    spec: tuple[Any, Any, int, int, int] | None,
+    spec: _GridSpec | None,
     out_path: str,
     *,
     band_count: int | None = None,
@@ -1240,13 +1401,15 @@ def _write_nodata_plane(
             "is known because no timestep opened successfully and no grid= was "
             f"given. Pass grid=Grid(...) to fix the output grid up front.{reason}"
         )
-    geo, epsg, rows, columns, bands = spec
+    geo, epsg, rows, columns, bands, crs = spec
     bands = bands if band_count is None else band_count
     shape = (rows, columns) if bands == 1 else (bands, rows, columns)
     plane = np.full(shape, np.nan, dtype="float32")
-    Dataset.from_array(
+    built = Dataset.from_array(
         plane, geo_ref=GeoReference(geo=geo, epsg=epsg), no_data_value=np.nan
-    ).to_file(out_path)
+    )
+    _carry_projection(crs, built)
+    built.to_file(out_path)
 
 
 def _warn_unreadable(href: str, exc: Exception) -> None:
@@ -1264,6 +1427,36 @@ def _warn_unreadable(href: str, exc: Exception) -> None:
         RuntimeWarning,
         stacklevel=3,
     )
+
+
+def _warn_borrowed_plane_grid(key: Any, spec: _GridSpec | None) -> None:
+    """Warn that an empty group's filler plane lands on another group's grid.
+
+    A group whose every source was unreadable has no grid of its own left to
+    learn, so the plane is built on the one grid the build knows — the first
+    source that opened, in some *other* group. For a collection spanning one
+    UTM zone and one resolution that is exactly right; across several it puts a
+    timestep on a foreign CRS/resolution, and the mixture is otherwise
+    unmarked. Only `grid=` can pin it, which is why this warns when no `grid=`
+    was given.
+
+    Args:
+        key: The empty group's key, named in the message.
+        spec: The grid the plane will use, or `None` — in which case
+            :func:`_write_nodata_plane` is about to raise and there is nothing
+            to warn about.
+    """
+    if spec is not None:
+        geo, epsg, rows, columns, _bands, _crs = spec
+        warnings.warn(
+            f"errors_as_nodata: group {key!r} has no readable source, so its no-data "
+            f"plane borrows the grid of another group's first readable source "
+            f"(epsg={epsg}, {rows}x{columns}, cell size {abs(geo[1])}). Pass "
+            "grid=Grid(...) to pin every timestep onto one grid; a collection "
+            "spanning several CRSs or resolutions otherwise mixes grids.",
+            RuntimeWarning,
+            stacklevel=4,
+        )
 
 
 def _nan_array(dataset: Any) -> np.ndarray:
@@ -1290,7 +1483,7 @@ def _fuse_group(
     out_path: str,
     fuse_func: Callable[[np.ndarray, np.ndarray], None],
     gdal_env: dict[str, str] | None,
-) -> tuple[Any, Any, int, int, int]:
+) -> _GridSpec:
     """Fuse one group's sources with an in-place callback and write the result.
 
     The first source defines the grid; the remaining ones are aligned onto it
@@ -1320,11 +1513,13 @@ def _fuse_group(
             if not source.same_grid(reference):
                 source = source.align(reference)
             fuse_func(accumulator, _nan_array(source))
-        Dataset.from_array(
+        fused = Dataset.from_array(
             accumulator,
             geo_ref=GeoReference(geo=reference.geotransform, epsg=reference.epsg),
             no_data_value=np.nan,
-        ).to_file(out_path)
+        )
+        _carry_projection(reference.crs, fused)
+        fused.to_file(out_path)
         spec = _grid_spec(reference)
     return spec
 
@@ -1333,8 +1528,8 @@ def _readable_hrefs(
     hrefs: list[str],
     signer: Any,
     gdal_env: dict[str, str] | None,
-    spec: tuple[Any, Any, int, int, int] | None,
-) -> tuple[list[str], tuple[Any, Any, int, int, int] | None]:
+    spec: _GridSpec | None,
+) -> tuple[list[str], _GridSpec | None]:
     """Probe `hrefs`, dropping the unreadable ones and learning a grid.
 
     The probe opens the **signed** href but returns the surviving hrefs
@@ -1470,8 +1665,12 @@ def _from_stac_grouped(
         errors_as_nodata: Drop unreadable sources from their group, and emit a
             no-data plane for a group left with none.
         skip_missing: Drop items lacking the asset key instead of raising.
-        reference: The `grid=` template Dataset used as the no-data plane's
-            grid, or `None`.
+        reference: The `grid=` template Dataset used as every no-data plane's
+            grid, or `None` — in which case the plane is built on the grid of
+            the first source that opens anywhere in the build. A group that
+            needs a plane has nothing readable of its own left, so that grid is
+            necessarily **another group's**; the substitution warns about it,
+            and `grid=` is the only way to pin it.
         rescale: Apply each source's `raster:bands` `scale` / `offset` before
             it is mosaicked, so a group fuses physical values rather than
             stored counts.
@@ -1538,6 +1737,11 @@ def _from_stac_grouped(
             "requested asset)."
         )
 
+    # `spec` is the grid a filler plane is built on. It is the caller's `grid=`
+    # when given, else the grid of the first source that opens anywhere in the
+    # build: a group that needs a plane has, by definition, nothing readable of
+    # its own left to learn a grid from, so the plane's grid is another group's.
+    # `_warn_borrowed_plane_grid` says so rather than letting it pass silently.
     spec = None if reference is None else _grid_spec(reference)
     out_dir = artifact_dir()
     group_paths: list[str] = []
@@ -1548,6 +1752,8 @@ def _from_stac_grouped(
         if errors_as_nodata:
             sources, spec = _readable_hrefs(sources, source_signer, gdal_env, spec)
         if not sources:
+            if reference is None:
+                _warn_borrowed_plane_grid(key, spec)
             _write_nodata_plane(
                 spec, out_path, reason=f" The empty group is key {key!r}."
             )
@@ -1561,6 +1767,12 @@ def _from_stac_grouped(
         else:
             merge_rasters(sources, out_path, method=method, signer=source_signer)
         group_paths.append(out_path)
+
+    if source_dir is not None:
+        # The materialised per-source copies were only needed until each group's
+        # mosaic was written; the collection is backed by `out_dir`, not by
+        # them, so reclaim them now instead of at interpreter exit.
+        shutil.rmtree(source_dir, ignore_errors=True)
 
     # collection_cls is always the real DatasetCollection class (passed by every
     # caller); typed Any here only to dodge the import cycle noted above.
@@ -1579,7 +1791,7 @@ def _item_band_hrefs(
     cfg: Any,
     gdal_env: dict[str, str] | None,
     tolerate: bool,
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     """Resolve one item's band assets, materialising those with overrides.
 
     Args:
@@ -1594,12 +1806,16 @@ def _item_band_hrefs(
         tolerate: Pass an unreadable asset through instead of raising.
 
     Returns:
-        One path per requested asset, in band order.
+        One path per requested asset, in band order, and the subset of those
+        paths this call **materialised** — intermediates the caller deletes
+        once the band stack has been written, since the collection is backed by
+        the stack and never by them.
 
     Raises:
         StacAssetError: The item lacks one of the requested assets.
     """
     hrefs: list[str] = []
+    materialised: list[str] = []
     for position, asset_key in enumerate(asset_keys):
         key, collection_id = _asset_key_for(item, asset_key, cfg)
         href = sign(_resolve_asset_href(item, key))
@@ -1615,9 +1831,73 @@ def _item_band_hrefs(
                 gdal_env=gdal_env,
                 tolerate=tolerate,
             )
-            href = href if copy is None else copy
+            if copy is not None:
+                href = copy
+                materialised.append(copy)
         hrefs.append(href)
-    return hrefs
+    return hrefs, materialised
+
+
+def _unreadable_source(
+    hrefs: list[str], gdal_env: dict[str, str] | None
+) -> tuple[str, Exception] | None:
+    """Return the first href that will not open, with the error it failed with.
+
+    The `errors_as_nodata` probe for the multi-asset band stack. The stack
+    itself (:meth:`Dataset.from_band_files`) does far more than open its
+    sources — dtype promotion, alignment warps, band naming and the output
+    write — and GDAL reports a bad creation option, a full disk or a failed
+    warp as the same `RuntimeError` / `OSError` an unreachable source raises.
+    Probing the sources separately keeps `errors_as_nodata` to the IO failures
+    it documents and lets a build failure raise.
+
+    Args:
+        hrefs: The item's resolved band hrefs, in band order.
+        gdal_env: Signer GDAL config installed around the probe opens.
+
+    Returns:
+        The first `(href, exception)` that failed to open, or `None` when every
+        source opens.
+    """
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
+    from pyramids.dataset.dataset import Dataset
+
+    failure: tuple[str, Exception] | None = None
+    for href in hrefs:
+        try:
+            with cloud_config_from_env(gdal_env, path=[href]):
+                Dataset.read_file(href)
+        except (OSError, RuntimeError) as exc:
+            failure = (href, exc)
+            break
+    return failure
+
+
+def _disambiguate(candidate: str, fallback: str, taken: Sequence[str]) -> str:
+    """Return the first of `candidate` / `fallback` / a suffix not yet in `taken`.
+
+    The band-name uniqueness guard for :func:`_eo_band_names`. Preferring the
+    `eo:bands` name and falling back to the asset key is not enough on its own:
+    the asset key can be taken too — `asset=["B04", "red"]` where `B04`'s
+    `eo:bands` name is `"red"` collides on *both* candidates — so the last
+    resort appends `_2`, `_3`, … until the name is free.
+
+    Args:
+        candidate: The preferred name (the `eo:bands` one).
+        fallback: The name to use when `candidate` is taken (the asset key).
+        taken: The names already assigned to earlier bands.
+
+    Returns:
+        A name that is not in `taken`.
+    """
+    name = candidate if candidate not in taken else fallback
+    if name in taken:
+        suffix = 2
+        while f"{name}_{suffix}" in taken:
+            suffix += 1
+        name = f"{name}_{suffix}"
+    return name
 
 
 def _eo_band_names(item: Any, asset_keys: list[str], cfg: Any) -> list[str]:
@@ -1626,7 +1906,8 @@ def _eo_band_names(item: Any, asset_keys: list[str], cfg: Any) -> list[str]:
     An asset's `eo:bands` may name several bands, but a `from_stac` band is one
     whole asset, so only a single-entry `eo:bands` can rename it; anything else
     (absent, nameless, or multi-band) keeps the asset key. A name that would
-    collide with another band's also keeps the key, because
+    collide with another band's falls back to the asset key, and then — when
+    that is taken as well — to a `_2` / `_3` suffix, because
     :meth:`Dataset.band_names` must stay one unique name per band.
 
     Args:
@@ -1635,7 +1916,7 @@ def _eo_band_names(item: Any, asset_keys: list[str], cfg: Any) -> list[str]:
         cfg: The `stac_cfg`-style mapping used to resolve an alias, or `None`.
 
     Returns:
-        One band name per requested asset, in band order.
+        One band name per requested asset, in band order, with no duplicates.
     """
     # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
     # pyramids.dataset import cycle (see _resolve_asset_href above).
@@ -1646,7 +1927,7 @@ def _eo_band_names(item: Any, asset_keys: list[str], cfg: Any) -> list[str]:
         key, _collection_id = _asset_key_for(item, asset_key, cfg)
         derived = read_extension_metadata(item, key).get("band_names")
         candidate = derived[0] if derived and len(derived) == 1 else asset_key
-        names.append(candidate if candidate not in names else asset_key)
+        names.append(_disambiguate(candidate, asset_key, names))
     return names
 
 
@@ -1714,7 +1995,10 @@ def _from_stac_multi_asset(
         collection_cls: The :class:`DatasetCollection` class (passed in to keep
             this helper import-cycle-free).
         errors_as_nodata: Substitute a no-data plane for an item whose assets
-            are declared but cannot be read, instead of raising.
+            are declared but cannot be **opened**, instead of raising. The
+            sources are probed one by one (so every href is opened twice); a
+            failure of the band stack itself is not an IO failure and still
+            raises.
         reference: The `grid=` template Dataset used as the no-data plane's
             grid, or `None` (the first readable item's grid is then used).
         rescale: Apply each asset's own `raster:bands` `scale` / `offset`
@@ -1747,11 +2031,11 @@ def _from_stac_multi_asset(
     out_dir = artifact_dir()
     per_item_paths: list[str] = []
     kept_items: list[Any] = []
-    unreadable: list[int] = []
+    unreadable: list[tuple[int, int]] = []
     spec = None if reference is None else _grid_spec(reference)
     for idx, item in enumerate(item_list):
         try:
-            hrefs = _item_band_hrefs(
+            hrefs, materialised = _item_band_hrefs(
                 item,
                 asset_keys,
                 sign,
@@ -1770,7 +2054,13 @@ def _from_stac_multi_asset(
         band_names = (
             _eo_band_names(item, asset_keys, cfg) if eo_band_names else asset_keys
         )
-        try:
+        # The sources are probed separately from the stack, so only an IO/open
+        # failure converts to a no-data plane: the stack's own failures (a bad
+        # creation option, a full disk, a failed warp) raise, as the from_stac
+        # contract promises. The probe is what makes errors_as_nodata open every
+        # href twice.
+        failure = _unreadable_source(hrefs, gdal_env) if errors_as_nodata else None
+        if failure is None:
             with cloud_config_from_env(gdal_env, path=hrefs):
                 Dataset.from_band_files(
                     hrefs,
@@ -1779,16 +2069,19 @@ def _from_stac_multi_asset(
                     resampling=_rekey_resampling(resampling, asset_keys, band_names),
                     path=out_path,
                 )
-        except (OSError, RuntimeError) as exc:
-            if not errors_as_nodata:
-                raise
-            _warn_unreadable(hrefs[0], exc)
-            # A fresh path: the failed stack may have left a partial file behind.
-            out_path = os.path.join(out_dir, f"stac_item_{idx}_nodata.tif")
-            unreadable.append(len(per_item_paths))
-        else:
             if spec is None:
                 spec = _grid_spec(Dataset.read_file(out_path))
+        else:
+            _warn_unreadable(failure[0], failure[1])
+            out_path = os.path.join(out_dir, f"stac_item_{idx}_nodata.tif")
+            unreadable.append((len(per_item_paths), idx))
+        # The materialised per-band copies were only needed until the stack was
+        # written; the collection is backed by `out_path`, not by them.
+        # Best-effort: a GDAL handle the stack has not released yet keeps the
+        # file locked on Windows, and the exit sweep then reclaims it.
+        for copy in materialised:
+            with contextlib.suppress(OSError):
+                os.unlink(copy)
         per_item_paths.append(out_path)
         kept_items.append(item)
 
@@ -1797,12 +2090,12 @@ def _from_stac_multi_asset(
             "from_stac produced no items (all were missing a requested asset "
             "or filtered out)."
         )
-    for position in unreadable:
+    for position, item_index in unreadable:
         _write_nodata_plane(
             spec,
             per_item_paths[position],
             band_count=len(asset_keys),
-            reason=f" The failing timestep is item index {position}.",
+            reason=f" The failing timestep is item index {item_index}.",
         )
     # collection_cls is always the real DatasetCollection class (passed by every
     # caller); typed Any here only to dodge the import cycle noted above.
@@ -2070,6 +2363,7 @@ def _footprint_4326(
             "Cannot reproject the footprint to EPSG:4326 (the dataset has no "
             "EPSG code); setting the STAC geometry/bbox to the world extent "
             "(-180, -90, 180, 90).",
+            RuntimeWarning,
             stacklevel=3,
         )
         world = [-180.0, -90.0, 180.0, 90.0]
@@ -2383,6 +2677,7 @@ def _data_footprint_4326(
         warnings.warn(
             "footprint='data' found no valid pixels; falling back to the bbox "
             "footprint.",
+            RuntimeWarning,
             stacklevel=3,
         )
         result = _footprint_4326(list(dataset.bbox), epsg, precision)
@@ -2421,7 +2716,13 @@ def _encode_nodata(nd: Any) -> Any:
 
     A non-finite sentinel cannot be written as JSON, so the schema spells it as
     the strings `"nan"`, `"inf"` or `"-inf"`. A finite sentinel is passed
-    through **as it came in**, so existing output is unchanged.
+    through **as it came in**.
+
+    This **changes the emitted type** for a non-finite no-data: earlier versions
+    put the float itself in the field, which `json.dumps` then wrote as the
+    invalid JSON literal `NaN`. Fixing the JSON means a consumer doing
+    `float(band["nodata"])` now sees `"nan"` instead of `nan` — a string that
+    `float()` still parses, but `isinstance(..., float)` no longer accepts.
 
     Args:
         nd: The band's nodata value.
@@ -2441,6 +2742,33 @@ def _encode_nodata(nd: Any) -> Any:
         else:
             encoded = nd
     return encoded
+
+
+def _packing_field(value: Any, identities: tuple[float, ...]) -> float | None:
+    """Return a CF packing value worth publishing, or `None` to omit the field.
+
+    A band's `scale` / `offset` is only meaningful `raster:bands` metadata when
+    it is finite and not an identity. A **zero scale** is refused along with
+    `1.0`: the reader's identity check
+    (:func:`pyramids.base._utils._is_identity_packing`) deliberately declines to
+    apply one, so publishing it would advertise packing nothing reads back.
+
+    Args:
+        value: The band's `scale` or `offset`, possibly `None`.
+        identities: The values that mean "no packing" for this field —
+            `(0.0, 1.0)` for a scale, `(0.0,)` for an offset.
+
+    Returns:
+        The value as a float, or `None` when the field should be omitted.
+    """
+    field: float | None = None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = None
+    if number is not None and math.isfinite(number) and number not in identities:
+        field = number
+    return field
 
 
 def _band_statistics(
@@ -2463,6 +2791,7 @@ def _band_statistics(
     except RuntimeError:
         warnings.warn(
             f"band {index} has no valid pixels; omitting raster statistics",
+            RuntimeWarning,
             stacklevel=3,
         )
         stats = None
@@ -2495,6 +2824,7 @@ def _band_histogram(dataset: Any, index: int, bins: int) -> dict[str, Any] | Non
     except RuntimeError:
         warnings.warn(
             f"band {index} has no value range; omitting the raster histogram",
+            RuntimeWarning,
             stacklevel=3,
         )
         histogram = None
@@ -2520,8 +2850,9 @@ def _raster_bands(
     """Build the ``raster:bands`` list for an asset.
 
     Always emits per-band `data_type` and (when set) `nodata`, plus `scale` /
-    `offset` for a band whose CF packing is non-identity. `statistics` and
-    `histogram` are opt-in, since both ask GDAL to look at pixels.
+    `offset` for a band whose CF packing is non-identity and publishable (see
+    :func:`_packing_field` — a zero or non-finite scale is not). `statistics`
+    and `histogram` are opt-in, since both ask GDAL to look at pixels.
 
     Args:
         dataset: The dataset whose bands are described.
@@ -2543,10 +2874,12 @@ def _raster_bands(
         nd = nodata[i] if i < len(nodata) else None
         if nd is not None:
             band["nodata"] = _encode_nodata(nd)
-        if i < len(scales) and scales[i] not in (None, 1.0):
-            band["scale"] = float(scales[i])
-        if i < len(offsets) and offsets[i] not in (None, 0.0):
-            band["offset"] = float(offsets[i])
+        scale = _packing_field(scales[i] if i < len(scales) else None, (0.0, 1.0))
+        if scale is not None:
+            band["scale"] = scale
+        offset = _packing_field(offsets[i] if i < len(offsets) else None, (0.0,))
+        if offset is not None:
+            band["offset"] = offset
         if with_stats:
             stats = _band_statistics(dataset, i, stats_approx_ok)
             if stats is not None:
@@ -2595,8 +2928,18 @@ def to_stac_item(
     `west > east` bbox. pystac is **not** required — a plain dict is returned,
     ready to serialise or feed back into :func:`from_stac`.
 
-    The band-metadata and footprint keywords are all opt-in: with none of them
-    passed the emitted Item is exactly what earlier versions produced.
+    The band-metadata and footprint keywords (`with_stats`, `with_histogram`,
+    `with_eo`, `footprint="data"`, `simplify_tolerance`, `densify`) are all
+    opt-in and add nothing unless passed. The **default** payload is not quite
+    what earlier versions produced, though, in two ways:
+
+    * `raster:bands` now carries `scale` / `offset` for a band whose CF packing
+      is non-identity (a finite, non-zero, non-`1.0` scale; a finite, non-zero
+      offset). Additive — a band with no packing is unchanged.
+    * a non-finite no-data is now emitted as the string `"nan"` / `"inf"` /
+      `"-inf"` rather than the float, because the float serialised to the
+      invalid JSON literal `NaN`. This changes the **type** of an existing
+      field (see :func:`_encode_nodata`).
 
     Args:
         dataset: A :class:`~pyramids.dataset.Dataset` (read via its public
@@ -2633,8 +2976,12 @@ def to_stac_item(
         stats_approx_ok: Let GDAL answer `with_stats` from overviews or a
             subsample (fast); pass `False` for exact figures.
         footprint: `"bbox"` (default) for the dataset's bounding rectangle, or
-            `"data"` for the polygonised extent of its valid pixels. A
-            CRS-less dataset always uses the bbox path.
+            `"data"` for the polygonised extent of its valid pixels. Both paths
+            need an EPSG code to reach EPSG:4326, so a dataset whose CRS has no
+            EPSG authority code — a WKT-only MODIS sinusoidal or geostationary
+            raster as much as a dataset with no CRS at all — cannot be
+            reprojected: `"data"` is then declined with a `RuntimeWarning` and
+            the bbox path's world-extent fallback applies.
         footprint_band: Zero-based band to footprint when `footprint="data"`.
         footprint_max_samples: Approximate pixel budget for the valid-pixel
             mask — accuracy traded for speed — or `None` for an exact read.
@@ -2695,8 +3042,19 @@ def to_stac_item(
             densify=densify,
         )
     else:
-        # "bbox" mode, or a CRS-less dataset (which falls through to the
-        # world-extent branch inside `_footprint_4326`).
+        if footprint == "data":
+            # Not silent: the caller asked for the valid-pixel footprint and is
+            # about to get the world extent instead, which is the geographic
+            # opposite of a narrow granule.
+            warnings.warn(
+                "footprint='data' needs an EPSG code to reproject the valid-pixel "
+                "footprint to EPSG:4326, and this dataset's CRS has none; falling "
+                "back to the bbox footprint.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+        # "bbox" mode, or a dataset with no EPSG code (which falls through to
+        # the world-extent branch inside `_footprint_4326`).
         geometry, bbox_4326 = _footprint_4326(native_bbox, epsg, precision)
     geometry, bbox_4326 = _split_antimeridian(
         geometry, bbox_4326, precision, _native_center_lon(native_bbox, epsg, precision)
