@@ -11,8 +11,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from pyramids.base._summary import variable_summary
 
+from pyramids.base._summary import variable_summary
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf.ugrid import UgridDataset
 

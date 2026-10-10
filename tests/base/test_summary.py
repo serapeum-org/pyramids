@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+
 from pyramids.base._summary import DEFAULT_METRICS, variable_summary
 
 
