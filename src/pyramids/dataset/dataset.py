@@ -231,8 +231,8 @@ def register_dataset_accessor(name: str) -> Callable[[type], type]:
             ```python
             >>> import numpy as np
             >>> from pyramids.dataset import Dataset, GeoReference, register_dataset_accessor
-            >>> @register_dataset_accessor("summary")
-            ... class Summary:
+            >>> @register_dataset_accessor("quicklook")
+            ... class Quicklook:
             ...     def __init__(self, ds):
             ...         self._ds = ds
             ...     def describe(self):
@@ -241,12 +241,12 @@ def register_dataset_accessor(name: str) -> Callable[[type], type]:
             ...     np.zeros((2, 3)),
             ...     geo_ref=GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326),
             ... )
-            >>> ds.summary.describe()
+            >>> ds.quicklook.describe()
             '1-band EPSG:4326'
-            >>> ds.summary is ds.summary  # built once, then cached per Dataset
+            >>> ds.quicklook is ds.quicklook  # built once, then cached per Dataset
             True
             >>> from pyramids.dataset.dataset import _ACCESSOR_REGISTRY
-            >>> delattr(Dataset, "summary"); _ = _ACCESSOR_REGISTRY.pop("summary")
+            >>> delattr(Dataset, "quicklook"); _ = _ACCESSOR_REGISTRY.pop("quicklook")
 
             ```
     """
