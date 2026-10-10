@@ -42,6 +42,11 @@ class TestWeightedQuantile:
         with pytest.raises(ValueError, match="quantile"):
             var.weighted(np.ones((2, 2)), how="quantile")
 
+    def test_q_out_of_range_rejected_early(self):
+        var = _single_band(np.array([[1.0, 2.0], [3.0, 4.0]]))
+        with pytest.raises(ValueError, match=r"q in \[0, 1\]"):
+            var.weighted(np.ones((2, 2)), how="quantile", q=1.5)
+
     def test_q_only_with_quantile(self):
         var = _single_band(np.array([[1.0, 2.0], [3.0, 4.0]]))
         with pytest.raises(ValueError, match="quantile"):
