@@ -8351,9 +8351,10 @@ class NetCDF(Dataset):
         *,
         how: str = "mean",
         skipna: bool = True,
+        q: float | None = None,
     ) -> NetCDF:
         """Facade — :meth:`Selection.weighted <pyramids.netcdf.engines.selection.Selection.weighted>`."""
-        return self.selection.weighted(weights, dims, how=how, skipna=skipna)
+        return self.selection.weighted(weights, dims, how=how, skipna=skipna, q=q)
 
     def argmin(self, dim: str, *, skipna: bool = True) -> NetCDF:
         """Facade — :meth:`Selection.argmin <pyramids.netcdf.engines.selection.Selection.argmin>`."""

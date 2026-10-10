@@ -108,6 +108,17 @@ class TestFill:
         assert out[1].tolist() == [1.0, 1.0]  # within limit
         assert np.isnan(out[2]).all()  # beyond limit
 
+    def test_interpolate_na_cubic_recovers_quadratic(self):
+        # NC3: y = x**2 along time with step 2 a gap; a cubic recovers 4.0, where the default
+        # linear fill would give 5.0.
+        mesh = _temporal_mesh(
+            np.array(
+                [[0.0, 0.0], [1.0, 1.0], [np.nan, np.nan], [9.0, 9.0], [16.0, 16.0]]
+            )
+        )
+        out = mesh.interpolate_na(method="cubic")["d"].data
+        np.testing.assert_allclose(out[2], [4.0, 4.0])
+
 
 class TestRolling:
     def test_trailing_mean(self, mesh):

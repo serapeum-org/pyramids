@@ -21,29 +21,91 @@ from numbers import Real
 from typing import Any
 
 import numpy as np
+from scipy.interpolate import interp1d
+
+#: The interpolations filled by the vectorised two-point pass: a distance-weighted blend of
+#: the two bracketing cells (``"linear"``) or the nearer of them (``"nearest"``).
+_LOCAL_INTERP: frozenset[str] = frozenset({"linear", "nearest"})
+
+#: The higher-order interpolations filled per slice with ``scipy.interpolate.interp1d``, mapped
+#: to the fewest valid cells each needs. A slice with fewer is dropped to ``"linear"``.
+_SPLINE_INTERP: dict[str, int] = {"slinear": 2, "quadratic": 3, "cubic": 4}
+
+#: Every method :func:`interpolated` accepts.
+INTERP_METHODS: tuple[str, ...] = ("linear", "nearest", "slinear", "quadratic", "cubic")
+
+
+def _spline_between(
+    values: np.ndarray, axis: int, positions: np.ndarray, kind: str
+) -> np.ndarray:
+    """Interior fill values from a scipy ``interp1d`` of each slice's valid cells.
+
+    The curve is fitted on the valid cells of each 1-D slice along ``axis`` and evaluated at
+    every position. A slice with fewer valid cells than ``kind`` needs drops to ``"linear"``;
+    one with fewer than two is left NaN. Out-of-range positions come back NaN, but the caller
+    gates the result to the reachable interior, so that never matters.
+
+    Args:
+        values: The float64 values with NaN gaps (numpy; a dask input is materialised first).
+        axis: The axis to interpolate along.
+        positions: What distance is measured along, one per step.
+        kind: One of :data:`_SPLINE_INTERP`.
+
+    Returns:
+        The fill values, same shape as ``values``.
+    """
+    moved = np.moveaxis(np.asarray(values, dtype="float64"), axis, -1)
+    flat = moved.reshape(-1, moved.shape[-1])
+    out = np.full_like(flat, np.nan)
+    need = _SPLINE_INTERP[kind]
+    for index in range(flat.shape[0]):
+        row = flat[index]
+        valid = ~np.isnan(row)
+        count = int(valid.sum())
+        if count >= 2:
+            effective = kind if count >= need else "linear"
+            curve = interp1d(
+                positions[valid],
+                row[valid],
+                kind=effective,
+                bounds_error=False,
+                fill_value=np.nan,
+            )
+            out[index] = curve(positions)
+    return np.moveaxis(out.reshape(moved.shape), -1, axis)
 
 
 def interpolated(
     data: Any, axis: int, positions: np.ndarray, method: str, limit: int | None
 ) -> Any:
-    """``data`` with each interior gap filled from the valid cells on either side.
+    """``data`` with each interior gap filled by interpolating the valid cells around it.
 
-    Both neighbours are found the way :func:`pushed` finds one — a running maximum of the
-    last valid position forwards, and the same backwards — so the whole array is filled in a
-    handful of vectorised passes rather than a loop over the cells.
+    The reachable interior is found the way :func:`pushed` finds one neighbour — a running
+    maximum of the last valid position forwards and the same backwards — so a gap keeps its NaN
+    only where it is leading, trailing or past ``limit``. ``"linear"`` / ``"nearest"`` then fill
+    from the two bracketing cells in a handful of vectorised passes; ``"slinear"`` /
+    ``"quadratic"`` / ``"cubic"`` fit a :func:`scipy.interpolate.interp1d` curve per slice (see
+    :func:`_spline_between`).
 
     Args:
         data: The values as float64 with NaN gaps, numpy or dask.
         axis: The axis to interpolate along.
         positions: What distance is measured along, one per step.
-        method: ``"linear"`` or ``"nearest"``.
+        method: One of :data:`INTERP_METHODS`.
         limit: How many consecutive gaps a run may fill, or ``None`` for no limit.
 
     Returns:
         The values with the reachable interior gaps filled, the rest still NaN.
+
+    Raises:
+        ValueError: ``method`` is not one of :data:`INTERP_METHODS`.
     """
-    # Read once — see `pushed` for why: the accumulations and the two gathers below
-    # would otherwise re-run a dask graph several times over for one call.
+    if method not in _LOCAL_INTERP and method not in _SPLINE_INTERP:
+        raise ValueError(
+            f"interpolate method must be one of {list(INTERP_METHODS)}, got {method!r}."
+        )
+    # Read once — see `pushed` for why: the accumulations and the gathers below would
+    # otherwise re-run a dask graph several times over for one call.
     data = np.asarray(data)
     size = data.shape[axis]
     shape = [size if index == axis else 1 for index in range(data.ndim)]
@@ -54,19 +116,23 @@ def interpolated(
     flipped = np.flip(np.asarray(np.where(valid, steps, size)), axis=axis)
     after = np.flip(np.minimum.accumulate(flipped, axis=axis), axis=axis)
     inner = (before >= 0) & (after < size)
-    left = np.clip(before, 0, size - 1)
-    right = np.clip(after, 0, size - 1)
     values = np.asarray(data)
-    low = np.take_along_axis(values, left, axis=axis)
-    high = np.take_along_axis(values, right, axis=axis)
-    low_x = np.take_along_axis(np.broadcast_to(axis_x, values.shape), left, axis=axis)
-    high_x = np.take_along_axis(np.broadcast_to(axis_x, values.shape), right, axis=axis)
-    span = np.where(high_x == low_x, 1.0, high_x - low_x)
-    weight = (np.broadcast_to(axis_x, values.shape) - low_x) / span
-    if method == "nearest":
-        between = np.where(weight <= 0.5, low, high)
+    if method in _LOCAL_INTERP:
+        left = np.clip(before, 0, size - 1)
+        right = np.clip(after, 0, size - 1)
+        low = np.take_along_axis(values, left, axis=axis)
+        high = np.take_along_axis(values, right, axis=axis)
+        broad_x = np.broadcast_to(axis_x, values.shape)
+        low_x = np.take_along_axis(broad_x, left, axis=axis)
+        high_x = np.take_along_axis(broad_x, right, axis=axis)
+        span = np.where(high_x == low_x, 1.0, high_x - low_x)
+        weight = (broad_x - low_x) / span
+        if method == "nearest":
+            between = np.where(weight <= 0.5, low, high)
+        else:
+            between = low + (high - low) * weight
     else:
-        between = low + (high - low) * weight
+        between = _spline_between(values, axis, positions, method)
     reachable = inner
     if limit is not None:
         reachable = reachable & ((steps - before) <= limit)
@@ -313,12 +379,76 @@ def window_coordinates(
 #: ``"sum_of_weights"`` / ``"sum"`` / ``"mean"`` / ``"var"`` as ``"std"`` (its catch-all
 #: ``else``), so an unchecked typo would silently return the standard deviation.
 WEIGHTED_HOWS: frozenset[str] = frozenset(
-    {"mean", "sum", "sum_of_weights", "std", "var"}
+    {"mean", "sum", "sum_of_weights", "std", "var", "quantile"}
 )
 
 
+def _weighted_quantile(
+    data: np.ndarray, weights: np.ndarray, axes: tuple[int, ...], q: float | None
+) -> np.ndarray:
+    """The weighted ``q``-quantile of ``data`` over ``axes``, reduced axes kept length 1.
+
+    Uses the Hazen plotting-position convention: each valid cell sits at cumulative weight
+    ``(C_i - w_i / 2) / Σw`` once sorted by value, and the quantile is a linear interpolation of
+    those positions against the sorted values (clamped at the ends). With equal weights this is
+    numpy's ``method="hazen"`` — it does **not** reduce to numpy's default linear (type 7)
+    quantile, so a weighted quantile and ``reduce(how="quantile")`` need not agree. NaN cells and
+    non-positive weights are dropped; a slice with nothing left, or zero total weight, is NaN.
+
+    Args:
+        data: The float64 values with NaN gaps.
+        weights: The weights, broadcast to ``data``'s shape.
+        axes: The axes to reduce.
+        q: The quantile in ``[0, 1]``.
+
+    Returns:
+        The quantile, float64, with each reduced axis kept as length 1.
+
+    Raises:
+        ValueError: ``q`` is missing or outside ``[0, 1]``.
+    """
+    if q is None or not 0.0 <= float(q) <= 1.0:
+        raise ValueError(f"weighted quantile needs q in [0, 1], got {q!r}.")
+    count = len(axes)
+    dest = tuple(range(data.ndim - count, data.ndim))
+    moved = np.moveaxis(np.asarray(data, dtype="float64"), axes, dest)
+    moved_w = np.moveaxis(
+        np.asarray(np.broadcast_to(weights, data.shape), dtype="float64"), axes, dest
+    )
+    outer = moved.shape[: data.ndim - count]
+    flat_values = moved.reshape(-1, int(np.prod(moved.shape[data.ndim - count :])))
+    flat_weights = moved_w.reshape(flat_values.shape)
+    out = np.full(flat_values.shape[0], np.nan)
+    for index in range(flat_values.shape[0]):
+        values = flat_values[index]
+        row_weights = flat_weights[index]
+        good = ~np.isnan(values) & (row_weights > 0)
+        if not good.any():
+            continue
+        picked = values[good]
+        spread = row_weights[good]
+        order = np.argsort(picked, kind="stable")
+        picked = picked[order]
+        spread = spread[order]
+        total = spread.sum()
+        if total <= 0:
+            continue
+        positions = (np.cumsum(spread) - 0.5 * spread) / total
+        out[index] = float(np.interp(float(q), positions, picked))
+    result = out.reshape(outer) if outer else out.reshape(())
+    for axis in sorted(axis % data.ndim for axis in axes):
+        result = np.expand_dims(result, axis)
+    return result
+
+
 def weighted_statistic(
-    arr: Any, spread: Any, axes: tuple[int, ...], how: str, ndv: Any, skipna: bool
+    arr: Any,
+    spread: Any,
+    axes: tuple[int, ...],
+    how: str,
+    ndv: Any,
+    skipna: bool,
+    q: float | None = None,
 ) -> Any:
     """The weighted statistic of ``arr`` over ``axes``, the reduced axes kept as length 1.
 
@@ -342,9 +472,11 @@ def weighted_statistic(
         arr: The unflattened values, numpy or dask.
         spread: The weights, shaped to broadcast against ``arr``.
         axes: The axes to reduce.
-        how: One of ``"mean"``, ``"sum"``, ``"sum_of_weights"``, ``"std"``, ``"var"``.
+        how: One of ``"mean"``, ``"sum"``, ``"sum_of_weights"``, ``"std"``, ``"var"``,
+            ``"quantile"`` (which needs ``q``; see :func:`_weighted_quantile` for its convention).
         ndv: The sentinel as it appears in ``arr``, or ``None``.
         skipna: Whether the declared sentinel counts as a gap.
+        q: The quantile in ``[0, 1]`` when ``how == "quantile"``; ignored otherwise.
 
     Returns:
         The statistic, float64.
@@ -371,6 +503,8 @@ def weighted_statistic(
             values = np.where(anything, weighted_sum, np.nan)
         elif how == "mean":
             values = np.where(usable, mean, np.nan)
+        elif how == "quantile":
+            values = _weighted_quantile(data, weights, axes, q)
         else:
             deviation = np.sum(
                 np.where(valid, weights * np.where(valid, data - mean, 0.0) ** 2, 0.0),

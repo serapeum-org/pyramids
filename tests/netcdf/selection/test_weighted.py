@@ -414,10 +414,10 @@ class TestWeightedRefusals:
             container.weighted(other)
 
     def test_an_unknown_statistic(self):
-        """`how` is one of the weighted statistics; a quantile is not among them."""
+        """`how` is one of the weighted statistics; `median` is not among them."""
         container = _container()
         with pytest.raises(ValueError, match="how must be one of"):
-            container.weighted("area", how="quantile")
+            container.weighted("area", how="median")
 
     def test_an_unknown_dimension(self):
         """A name that is neither a band dimension nor a spatial axis is refused."""

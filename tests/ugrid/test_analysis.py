@@ -287,3 +287,19 @@ class TestRound2AnalysisFixes:
         assert row["count"] == layered.size
         assert row["min"] == float(layered.min())
         assert row["max"] == float(layered.max())
+
+
+class TestWeightedQuantile:
+    """NC2 — the area-weighted quantile on the mesh."""
+
+    def test_quantile_endpoints_clamp(self, unit_mesh):
+        assert unit_mesh.weighted("depth", how="quantile", q=0.0) == pytest.approx(10.0)
+        assert unit_mesh.weighted("depth", how="quantile", q=1.0) == pytest.approx(20.0)
+
+    def test_quantile_requires_q(self, unit_mesh):
+        with pytest.raises(ValueError, match="quantile"):
+            unit_mesh.weighted("depth", how="quantile")
+
+    def test_q_only_with_quantile(self, unit_mesh):
+        with pytest.raises(ValueError, match="quantile"):
+            unit_mesh.weighted("depth", how="mean", q=0.5)

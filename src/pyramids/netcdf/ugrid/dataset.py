@@ -1258,6 +1258,7 @@ class UgridDataset:
         *,
         how: str = "mean",
         time_index: int = 0,
+        q: float | None = None,
     ) -> float:
         """Area-weighted statistic of a face variable over the mesh.
 
@@ -1268,9 +1269,12 @@ class UgridDataset:
 
         Args:
             variable_name: Name of a **face-located** data variable.
-            how: One of ``"mean"``, ``"sum"``, ``"sum_of_weights"``, ``"std"``, ``"var"``.
-                Defaults to ``"mean"``.
+            how: One of ``"mean"``, ``"sum"``, ``"sum_of_weights"``, ``"std"``, ``"var"``,
+                ``"quantile"`` (which needs ``q``). Defaults to ``"mean"``.
             time_index: Step for a temporal variable. Defaults to 0.
+            q: The quantile in ``[0, 1]`` when ``how="quantile"`` (the area-weighted quantile
+                uses the Hazen convention and does not match ``reduce(how="quantile")``); must be
+                ``None`` otherwise.
 
         Returns:
             float: The area-weighted statistic over all faces.
@@ -1303,6 +1307,12 @@ class UgridDataset:
             raise ValueError(
                 f"weighted: how must be one of {sorted(WEIGHTED_HOWS)}, got {how!r}."
             )
+        if how == "quantile" and q is None:
+            raise ValueError("weighted(how='quantile') needs q in [0, 1].")
+        if how != "quantile" and q is not None:
+            raise ValueError(
+                f"weighted(q=...) is only valid with how='quantile', not {how!r}."
+            )
         var, arr = self._element_values(variable_name, time_index=time_index)
         if var.location != "face":
             raise ValueError(
@@ -1317,7 +1327,7 @@ class UgridDataset:
             )
         # `arr` already carries NaN for gaps, so `ndv=None` and `skipna=True` reduce over
         # the single face axis; the kernel keeps the axis as length 1, squeezed off here.
-        result = weighted_statistic(arr, areas, (0,), how, None, True)
+        result = weighted_statistic(arr, areas, (0,), how, None, True, q)
         return float(np.asarray(result).ravel()[0])
 
     def zonal_stats(
@@ -1715,7 +1725,9 @@ class UgridDataset:
         trailing gap has only one neighbour and is left alone.
 
         Args:
-            method: ``"linear"`` (distance-weighted) or ``"nearest"``. Defaults to ``"linear"``.
+            method: One of ``"linear"`` (distance-weighted), ``"nearest"``, or the scipy spline
+                kinds ``"slinear"`` / ``"quadratic"`` / ``"cubic"`` (each falling back to linear on
+                a variable with too few valid steps). Defaults to ``"linear"``.
             limit: Maximum consecutive gaps a run may fill, or ``None`` for no limit.
 
         Returns:

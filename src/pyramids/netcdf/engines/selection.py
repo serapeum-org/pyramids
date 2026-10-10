@@ -5559,6 +5559,7 @@ class Selection(_Engine["NetCDF"]):
         *,
         how: str = "mean",
         skipna: bool = True,
+        q: float | None = None,
     ) -> NetCDF:
         """Weight the cells along one or more dimensions and reduce them.
 
@@ -5715,7 +5716,13 @@ class Selection(_Engine["NetCDF"]):
         """
         nc = self._ds
         _check_how(how, set(_WEIGHTED_HOWS))
-        return _weighted_result(nc, weights, dims, how=how, skipna=bool(skipna))
+        if how == "quantile" and q is None:
+            raise ValueError("weighted(how='quantile') needs q in [0, 1].")
+        if how != "quantile" and q is not None:
+            raise ValueError(
+                f"weighted(q=...) is only valid with how='quantile', not {how!r}."
+            )
+        return _weighted_result(nc, weights, dims, how=how, skipna=bool(skipna), q=q)
 
     def ffill(self, dim: str, *, limit: int | None = None) -> NetCDF:
         """Carry the last valid value along a non-spatial dimension into the gaps after it.
@@ -5919,8 +5926,9 @@ class Selection(_Engine["NetCDF"]):
             dim: The non-spatial dimension to interpolate along.
             method: `"linear"` (default) places a gap between its neighbours in proportion to
                 its distance from each; `"nearest"` gives it the closer neighbour's value,
-                the earlier one when the distances are equal. The spline methods xarray
-                offers are not implemented.
+                the earlier one when the distances are equal. `"slinear"` / `"quadratic"` /
+                `"cubic"` fit a scipy spline through the valid cells, falling back to linear on a
+                slice with too few of them.
             limit: How many consecutive gaps one run may fill, counted from the valid cell
                 before it exactly as `ffill`'s limit is, an integer of at least 1. `None`
                 (default) fills a run of any length.
@@ -5988,8 +5996,11 @@ class Selection(_Engine["NetCDF"]):
         return _along_either(self._ds, dim, op)
 
 
-_INTERPOLATION_METHODS = ("linear", "nearest")
-"""The interpolations `interpolate_na` offers; xarray's spline methods are not implemented."""
+_INTERPOLATION_METHODS = ("linear", "nearest", "slinear", "quadratic", "cubic")
+"""The interpolations `interpolate_na` offers, kept in step with
+`pyramids.base._reductions.INTERP_METHODS`: the two local two-point blends plus the scipy spline
+kinds (`slinear` / `quadratic` / `cubic`), each falling back to linear on a slice with too few
+valid cells."""
 
 _DROPNA_HOWS = ("any", "all")
 """The `how` modes of `dropna`, in xarray's vocabulary."""

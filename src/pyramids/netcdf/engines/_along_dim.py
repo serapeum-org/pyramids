@@ -933,7 +933,8 @@ class _Interpolate(_AlongDim):
 
     Attributes:
         method: `"linear"` weights the two neighbours by distance; `"nearest"` takes the
-            closer one.
+            closer one; `"slinear"` / `"quadratic"` / `"cubic"` fit a scipy spline through the
+            valid cells (falling back to linear where there are too few).
         limit: How many consecutive gaps one run may fill, counted from the valid cell
             before it, as `ffill`'s is; `None` for no limit.
         use_coordinate: Measure the distance along the dimension's coordinate values, so an
