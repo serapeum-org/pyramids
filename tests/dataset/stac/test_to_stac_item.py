@@ -11,7 +11,7 @@ from shapely.geometry import shape
 
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
-from pyramids.dataset._stac import to_stac_item
+from pyramids.dataset._stac import _encode_nodata, to_stac_item
 
 pytestmark = pytest.mark.core
 
@@ -441,6 +441,31 @@ class TestToStacItemBandMetadata:
         ][0]
         assert band["nodata"] == "nan", f"nodata: {band}"
 
+    def test_positive_infinite_nodata_is_stringified(self):
+        """A `+inf` nodata sentinel is emitted as the string "inf".
+
+        Test scenario:
+            JSON has no spelling for an infinity, so the raster extension uses
+            the string form.
+        """
+        ds = _wgs84_from_array(np.ones((4, 4), dtype="float32"), nodata=np.inf)
+        band = ds.to_stac_item("x", asset_href="s.tif")["assets"]["data"][
+            "raster:bands"
+        ][0]
+        assert band["nodata"] == "inf", f"nodata: {band}"
+
+    def test_negative_infinite_nodata_is_stringified(self):
+        """A `-inf` nodata sentinel keeps its sign in the string form.
+
+        Test scenario:
+            The negative infinity must not collapse onto "inf".
+        """
+        ds = _wgs84_from_array(np.ones((4, 4), dtype="float32"), nodata=-np.inf)
+        band = ds.to_stac_item("x", asset_href="s.tif")["assets"]["data"][
+            "raster:bands"
+        ][0]
+        assert band["nodata"] == "-inf", f"nodata: {band}"
+
     def test_with_raster_false_omits_bands_but_keeps_eo(self, wgs84_dataset):
         """with_raster=False drops raster:bands while with_eo still applies.
 
@@ -750,3 +775,64 @@ class TestToStacItemAntimeridian:
             item = to_stac_item(ds, "x", asset_href="s.tif")
         assert item["geometry"]["type"] == "Polygon", item["geometry"]["type"]
         assert item["bbox"] == [-180.0, -90.0, 180.0, 90.0], f"bbox: {item['bbox']}"
+
+    def test_wide_span_inside_the_lon_range_is_unwrapped_then_split(self):
+        """A footprint spanning more than 180 degrees is read as a crossing.
+
+        Test scenario:
+            A grid running -100 -> 100 keeps every longitude inside
+            [-180, 180], so the ring is first lifted into a continuous
+            [0, 360) frame and only then cut at the seam — yielding two parts
+            and a west > east bbox.
+        """
+        ds = Dataset.from_array(
+            np.ones((2, 2), dtype="float32"),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(geo=(-100.0, 100.0, 0.0, 2.0, 0.0, -1.0), epsg=4326),
+        )
+        item = ds.to_stac_item("x", asset_href="s.tif")
+        geom = shape(item["geometry"])
+        assert geom.geom_type == "MultiPolygon", f"geom type: {geom.geom_type}"
+        assert len(geom.geoms) == 2, f"expected 2 parts, got {len(geom.geoms)}"
+        west, _, east, _ = item["bbox"]
+        assert (west, east) == (100.0, -100.0), f"bbox lons: {item['bbox']}"
+
+
+class TestEncodeNodata:
+    """STAC-01: the raster-extension nodata encoder, driven directly.
+
+    The non-finite spellings are reachable through `to_stac_item` (see
+    `TestToStacItemBandMetadata`); the non-numeric fallback is not, because a
+    GDAL band only ever reports a number or nothing, so it is pinned here.
+    """
+
+    def test_finite_value_passes_through_unchanged(self):
+        """A finite sentinel is emitted as the number it already is.
+
+        Test scenario:
+            -9999.0 needs no string spelling, so it is returned untouched.
+        """
+        assert _encode_nodata(-9999.0) == -9999.0, "a finite sentinel must not change"
+
+    def test_non_numeric_value_passes_through_unchanged(self):
+        """A sentinel that is not a number at all is handed back as it came in.
+
+        Test scenario:
+            A string that `float()` rejects must not break the emission; the
+            value is passed through for the caller to deal with.
+        """
+        assert _encode_nodata("unset") == "unset", (
+            "an unparseable sentinel must be passed through"
+        )
+
+    def test_non_coercible_object_passes_through_unchanged(self):
+        """An object `float()` cannot take is passed through, not raised on.
+
+        Test scenario:
+            A list is a TypeError rather than a ValueError for `float()`, and
+            both are tolerated by the same fallback.
+        """
+        sentinel = [1, 2]
+        assert _encode_nodata(sentinel) is sentinel, (
+            "a non-coercible sentinel must be passed through"
+        )

@@ -495,6 +495,37 @@ class TestMaterialise:
             f"expected the configured unit, got {result.band_units}"
         )
 
+    def test_unit_override_does_not_replace_a_declared_unit(self):
+        """A band that already carries a unit keeps it, and the skip warns.
+
+        Test scenario:
+            The raster declares "K" on its only band; cfg asks for "degC".
+        """
+        dataset = Dataset.from_array(
+            np.array([[1, 2], [3, 4]], dtype="int16"), no_data_value=None, geo_ref=_GEO
+        )
+        dataset.band_units = ["K"]
+        with pytest.warns(AssetMetadataWarning, match="already declares"):
+            result = materialise(dataset, AssetOverrides(unit="degC"))
+        assert result.band_units == ["K"], (
+            f"the declared unit must win, got {result.band_units}"
+        )
+
+    def test_quiet_suppresses_the_unit_skip_warning(self, recwarn):
+        """`warnings: ignore` silences the skipped-unit warning.
+
+        Test scenario:
+            The same skipped unit override with quiet=True.
+        """
+        dataset = Dataset.from_array(
+            np.array([[1, 2], [3, 4]], dtype="int16"), no_data_value=None, geo_ref=_GEO
+        )
+        dataset.band_units = ["K"]
+        materialise(dataset, AssetOverrides(unit="degC", quiet=True))
+        assert not [w for w in recwarn if w.category is AssetMetadataWarning], (
+            "quiet=True must emit no AssetMetadataWarning for a skipped unit"
+        )
+
     def test_data_type_override_casts_the_counts(self, nodataless):
         """A configured data_type casts the stored values.
 

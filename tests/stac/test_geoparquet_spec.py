@@ -359,6 +359,158 @@ class TestSpecRoundTrip:
 
 
 @pytest.mark.parquet
+class TestSpecTimestampCoercion:
+    """The timestamp columns accept every spelling, and refuse the rest cleanly."""
+
+    def test_datetime_object_is_normalised_to_utc(self, tmp_path):
+        """A naive `datetime` property is read as UTC and emitted with a `Z`.
+
+        Test scenario:
+            The item carries a `datetime` object rather than an RFC 3339 string,
+            with no tzinfo, so the writer must stamp UTC on it itself.
+        """
+        pytest.importorskip("pyarrow")
+        item = _item("a", 1.0, 2.0)
+        item["properties"]["datetime"] = datetime(2024, 3, 4, 5, 6, 7)
+        path = str(tmp_path / "object.parquet")
+        to_geoparquet_spec([item], path)
+
+        stamp = from_geoparquet_spec(path)[0]["properties"]["datetime"]
+        assert stamp == "2024-03-04T05:06:07Z", f"datetime not normalised: {stamp}"
+
+    def test_aware_datetime_object_keeps_its_instant(self, tmp_path):
+        """A `datetime` that already carries a tzinfo is converted, not restamped.
+
+        Test scenario:
+            A `+02:00` datetime must come back as the same instant in UTC.
+        """
+        pytest.importorskip("pyarrow")
+        item = _item("a", 1.0, 2.0)
+        item["properties"]["datetime"] = datetime.fromisoformat(
+            "2024-03-04T05:06:07+02:00"
+        )
+        path = str(tmp_path / "aware.parquet")
+        to_geoparquet_spec([item], path)
+
+        stamp = from_geoparquet_spec(path)[0]["properties"]["datetime"]
+        assert stamp == "2024-03-04T03:06:07Z", f"instant not preserved: {stamp}"
+
+    def test_item_without_a_datetime_still_gets_the_column(self, tmp_path):
+        """`datetime` is always a column, even when no item carries the property.
+
+        Test scenario:
+            The only item has no `datetime` at all: the schema still holds the
+            column (all null) and the key does not reappear on the way back.
+        """
+        pytest.importorskip("pyarrow")
+        pq = pytest.importorskip("pyarrow.parquet")
+        item = _item("a", 1.0, 2.0)
+        del item["properties"]["datetime"]
+        path = str(tmp_path / "nodatetime.parquet")
+        to_geoparquet_spec([item], path)
+
+        columns = pq.read_table(path).column_names
+        assert "datetime" in columns, f"datetime column missing: {columns}"
+        restored = from_geoparquet_spec(path)[0]
+        assert "datetime" not in restored["properties"], (
+            f"datetime was invented: {restored['properties']}"
+        )
+        assert restored == item, f"item changed: {restored}"
+
+    def test_unparseable_datetime_string_falls_back_to_a_string_column(self, tmp_path):
+        """A `datetime` that is not RFC 3339 is kept verbatim as a string.
+
+        Test scenario:
+            `"last tuesday"` cannot be parsed, so the timestamp column is
+            abandoned and the text survives the round trip unchanged.
+        """
+        pa = pytest.importorskip("pyarrow")
+        pq = pytest.importorskip("pyarrow.parquet")
+        item = _item("a", 1.0, 2.0)
+        item["properties"]["datetime"] = "last tuesday"
+        path = str(tmp_path / "badtext.parquet")
+        to_geoparquet_spec([item], path)
+
+        field = pq.read_table(path).schema.field("datetime")
+        assert field.type == pa.string(), f"expected a string fallback, got {field}"
+        restored = from_geoparquet_spec(path)[0]
+        assert restored["properties"]["datetime"] == "last tuesday", (
+            f"unparseable datetime was altered: {restored['properties']}"
+        )
+
+    def test_non_timestamp_datetime_type_falls_back_to_its_own_type(self, tmp_path):
+        """A `datetime` that is neither a string nor a datetime is kept as-is.
+
+        Test scenario:
+            An integer epoch is not a timestamp spelling the writer accepts, so
+            the column is built from the value's own Arrow type instead.
+        """
+        pa = pytest.importorskip("pyarrow")
+        pq = pytest.importorskip("pyarrow.parquet")
+        item = _item("a", 1.0, 2.0)
+        item["properties"]["datetime"] = 1700000000
+        path = str(tmp_path / "epoch.parquet")
+        to_geoparquet_spec([item], path)
+
+        field = pq.read_table(path).schema.field("datetime")
+        assert not pa.types.is_timestamp(field.type), (
+            f"an int epoch must not be typed as a timestamp, got {field}"
+        )
+        restored = from_geoparquet_spec(path)[0]
+        assert restored["properties"]["datetime"] == 1700000000, (
+            f"int datetime was altered: {restored['properties']}"
+        )
+
+
+@pytest.mark.parquet
+class TestSpecTypedColumnFallbacks:
+    """A spec column whose values reject its declared type still round-trips."""
+
+    def test_mixed_typed_id_falls_back_to_json(self, tmp_path):
+        """An `id` that is an int in one item and a string in another survives.
+
+        Test scenario:
+            `id` is declared as a string column, which an int rejects, and the
+            inferred type cannot unify the two either — so the column is
+            JSON-encoded and both values come back as themselves.
+        """
+        pa = pytest.importorskip("pyarrow")
+        pq = pytest.importorskip("pyarrow.parquet")
+        first = _item(7, 1.0, 2.0)
+        second = _item("b", 3.0, 4.0)
+        path = str(tmp_path / "mixedid.parquet")
+        to_geoparquet_spec([first, second], path)
+
+        field = pq.read_table(path).schema.field("id")
+        assert field.type == pa.string(), f"expected a string column, got {field}"
+        restored = from_geoparquet_spec(path)
+        assert [item["id"] for item in restored] == [7, "b"], (
+            f"the json fallback lost an id: {restored}"
+        )
+        assert restored == [first, second], f"mixed ids did not survive: {restored}"
+
+    def test_out_of_range_int_property_falls_back_to_json(self, tmp_path):
+        """An integer too large for Arrow becomes a JSON column, not an error.
+
+        Test scenario:
+            `2 ** 70` overflows every Arrow integer type, so the property is
+            JSON-encoded and decoded back to the same Python int.
+        """
+        pytest.importorskip("pyarrow")
+        first = _item("a", 1.0, 2.0)
+        first["properties"]["huge"] = 2**70
+        second = _item("b", 3.0, 4.0)
+        second["properties"]["huge"] = 1
+        path = str(tmp_path / "huge.parquet")
+        to_geoparquet_spec([first, second], path)
+
+        restored = from_geoparquet_spec(path)
+        assert [item["properties"]["huge"] for item in restored] == [2**70, 1], (
+            f"the overflowing int did not survive: {restored}"
+        )
+
+
+@pytest.mark.parquet
 class TestSpecInteropWithTheBlobLayout:
     """The two layouts coexist: the blob default is untouched and detectable."""
 
@@ -391,6 +543,33 @@ class TestSpecInteropWithTheBlobLayout:
 
         restored = from_geoparquet(path)
         assert restored == items, f"auto-detected read changed the items: {restored}"
+
+    def test_non_parquet_file_reports_the_blob_readers_error(self, tmp_path):
+        """The auto-detect probe stays silent and lets the blob reader complain.
+
+        Test scenario:
+            A text file named `.parquet` makes the metadata probe fail; the read
+            must still surface the "not a parquet file" error rather than a
+            crash inside the probe.
+        """
+        pytest.importorskip("pyarrow")
+        path = tmp_path / "text.parquet"
+        path.write_text("this is not a parquet file\n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="parquet"):
+            from_geoparquet(str(path))
+
+    def test_missing_path_reports_the_blob_readers_error(self, tmp_path):
+        """A path that does not exist fails as a missing file, not in the probe.
+
+        Test scenario:
+            The probe's `read_metadata` raises an OSError, which is swallowed so
+            the blob reader reports the missing file itself.
+        """
+        pytest.importorskip("pyarrow")
+
+        with pytest.raises(FileNotFoundError):
+            from_geoparquet(str(tmp_path / "absent.parquet"))
 
     def test_spec_items_feed_from_stac(self, tmp_path):
         """Items restored from the spec layout can still drive from_stac.

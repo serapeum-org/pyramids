@@ -124,6 +124,48 @@ class TestSingleAssetRescale:
             f"nothing to rescale must keep the asset href, got {backing}"
         )
 
+    def test_unreadable_asset_raises_while_materialising(self, packed_item, tmp_path):
+        """A rescale that cannot open its asset raises instead of staying silent.
+
+        Test scenario:
+            The item declares a scale, so the materialiser must open the asset —
+            but the href points at a missing file and `errors_as_nodata` is off.
+        """
+        asset = {**packed_item["assets"]["data"], "href": str(tmp_path / "gone.tif")}
+        item = {**packed_item, "assets": {"data": asset}}
+        with pytest.raises(FileNotFoundError):
+            from_stac([item], asset="data", rescale=True)
+
+    def test_unreadable_asset_is_tolerated_under_errors_as_nodata(
+        self, packed_item, tmp_path
+    ):
+        """With errors_as_nodata the failed materialisation is left to the caller.
+
+        Test scenario:
+            The second item's href is missing; the materialiser stays silent and
+            the timestep is substituted with a no-data plane instead.
+        """
+        asset = {**packed_item["assets"]["data"], "href": str(tmp_path / "gone.tif")}
+        second = {
+            **packed_item,
+            "id": "packed-2",
+            "properties": {"datetime": "2023-06-02T00:00:00Z"},
+            "assets": {"data": asset},
+        }
+        with pytest.warns(RuntimeWarning, match="errors_as_nodata"):
+            collection = from_stac(
+                [packed_item, second],
+                asset="data",
+                rescale=True,
+                errors_as_nodata=True,
+            )
+        assert collection.time_length == 2, (
+            f"the unreadable timestep should be kept, got {collection.time_length}"
+        )
+        assert np.isnan(_timestep(collection, 1)).all(), (
+            "the substituted timestep should be entirely no-data"
+        )
+
     def test_rescale_result_declares_identity_packing(self, packed_items):
         """A rescaled timestep carries no packing of its own.
 

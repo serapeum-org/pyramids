@@ -70,6 +70,43 @@ def holed_items(tmp_path):
     return items
 
 
+@pytest.fixture
+def offgrid_items(tmp_path):
+    """Two same-group items whose rasters sit on grids half a cell apart.
+
+    Both are 3x3 EPSG:4326 rasters at cell size 1 carrying ``orbit=1``, but the
+    second starts at ``(0.5, 3.5)`` instead of ``(0.0, 3.0)``, so a fuser can
+    only see them together once the second has been aligned onto the first.
+
+    Args:
+        tmp_path: pytest temp directory.
+
+    Returns:
+        list[dict]: Two STAC item dicts sharing one group key.
+    """
+    corners = ((0.0, 3.0), (0.5, 3.5))
+    items = []
+    for index, (value, corner) in enumerate(zip((1.0, 9.0), corners)):
+        path = str(tmp_path / f"offgrid{index}.tif")
+        Dataset.from_array(
+            np.full((3, 3), value, dtype="float32"),
+            no_data_value=-9999.0,
+            geo_ref=GeoReference(top_left_corner=corner, cell_size=1.0, epsg=4326),
+        ).to_file(path)
+        items.append(
+            {
+                "id": f"offgrid{index}",
+                "bbox": [0.0, 0.0, 3.0, 3.0],
+                "properties": {
+                    "datetime": f"2023-08-0{index + 1}T00:00:00Z",
+                    "orbit": 1,
+                },
+                "assets": {"data": {"href": path}},
+            }
+        )
+    return items
+
+
 def _break_asset(items, index, tmp_path, name="missing.tif"):
     """Return a copy of `items` whose item `index` points at a non-existent file."""
     broken = copy.deepcopy(items)
@@ -339,6 +376,21 @@ class TestFlexibleGroupby:
             f"expected only the orbit-1 group to survive, got {coll.time_length}"
         )
 
+    def test_skip_missing_with_no_surviving_item_raises(self, three_local_items):
+        """Skipping every item leaves no group to build, which is an error.
+
+        Test scenario:
+            All three items lose their 'data' asset while skip_missing is on, so
+            the grouping ends up empty rather than silently building nothing.
+        """
+        items = copy.deepcopy(three_local_items)
+        for item in items:
+            item["assets"] = {}
+        with pytest.raises(ValueError, match="produced no groups"):
+            DatasetCollection.from_stac(
+                items, asset="data", groupby="orbit", skip_missing=True
+            )
+
     def test_missing_asset_raises_by_default(self, three_local_items):
         """Without skip_missing a grouped item lacking the asset still raises.
 
@@ -473,6 +525,32 @@ class TestFuseFunc:
         )
         assert seen == [pytest.approx(9.0)], (
             f"expected one pairwise call with the second source, got {seen}"
+        )
+
+    def test_offgrid_source_is_aligned_onto_the_first(self, offgrid_items):
+        """A group whose sources sit on different grids is aligned before fusing.
+
+        Test scenario:
+            The second item's grid is shifted by half a cell, so it must be
+            aligned onto the first before the fuser ever sees it — the callback
+            gets the reference shape and the aligned values reach the output.
+        """
+        seen = []
+
+        def record(dst, src):
+            seen.append(src.shape)
+            np.copyto(dst, src, where=~np.isnan(src))
+
+        coll = DatasetCollection.from_stac(
+            offgrid_items, asset="data", groupby="orbit", fuse_func=record
+        )
+        assert seen == [(3, 3)], (
+            f"the fuser must see the reference shape (3, 3), got {seen}"
+        )
+        fused = coll.datasets[0].read_array()
+        assert fused.shape == (3, 3), f"the fused grid should be the first's: {fused}"
+        assert float(fused[1, 1]) == pytest.approx(9.0), (
+            f"the aligned source should have landed on the reference grid: {fused}"
         )
 
     def test_fuser_result_is_overridable(self, three_local_items):
@@ -716,6 +794,20 @@ class TestErrorsAsNodata:
         assert np.isnan(coll.datasets[1].read_array()).all(), (
             "the substituted multi-asset timestep should be entirely no-data"
         )
+
+    def test_multi_asset_default_still_raises(self, three_local_items, tmp_path):
+        """Without errors_as_nodata an unstackable multi-asset item still fails.
+
+        Test scenario:
+            Two assets per item with the middle item's second asset missing, and
+            the no-data substitution switched off, so the band stack raises.
+        """
+        items = copy.deepcopy(three_local_items)
+        for item in items:
+            item["assets"]["second"] = dict(item["assets"]["data"])
+        items[1]["assets"]["second"]["href"] = str(tmp_path / "gone.tif")
+        with pytest.raises((OSError, RuntimeError)):
+            DatasetCollection.from_stac(items, asset=["data", "second"])
 
     def test_does_not_swallow_a_missing_asset_key(self, three_local_items):
         """errors_as_nodata is not skip_missing: a missing key still raises.

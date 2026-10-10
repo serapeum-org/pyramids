@@ -146,6 +146,18 @@ class TestGeometryBounds:
         bounds = geometry_bounds(_Bounded((1.0, 2.0, 3.0, 4.0)))
         assert bounds == (1.0, 2.0, 3.0, 4.0), f"bounds not used: {bounds}"
 
+    def test_bare_coordinate_nesting(self):
+        """A bare `coordinates` nesting is bounded without a geometry wrapper.
+
+        Test scenario:
+            A ring handed in on its own — no mapping, no `type` — is walked
+            straight into the position reader.
+        """
+        ring = [[1.0, 2.0], [4.0, 2.0], [4.0, 6.0], [1.0, 2.0]]
+        assert geometry_bounds(ring) == (1.0, 2.0, 4.0, 6.0), (
+            f"bare nesting not bounded: {geometry_bounds(ring)}"
+        )
+
     def test_empty_geometry_raises(self):
         """An empty geometry is an error, not a silent whole-raster read."""
         with pytest.raises(ValueError, match="no coordinates"):
