@@ -41,10 +41,23 @@ from pyramids.feature.bbox import normalise_longitude
 from pyramids.feature.bbox import transform as bbox_transform
 
 _VRT_METHODS = ("first", "last")
-_REDUCE_METHODS = ("min", "max", "sum")
+_REDUCE_METHODS = ("min", "max", "sum", "count", "mean")
 _MERGE_METHODS = _VRT_METHODS + _REDUCE_METHODS
 
-# Rows per strip for the min/max/sum reduction. The union grid is reduced one
+# Reductions asked for by name that the strip model cannot answer, mapped to why.
+# Refused rather than approximated: a caller who asked for a median and silently got
+# something else has no way to tell, which is worse than being told no.
+_DEFERRED_METHODS = {
+    "median": (
+        "a median needs every overlapping source's value for a cell held at once, "
+        "which costs O(n_sources x strip) memory, while the reduction is built "
+        "around a single O(strip) accumulator per strip. Nothing here can "
+        "approximate it without quietly returning a number that is not a median. "
+        "Use method='mean' for a central value, or 'min'/'max' for an envelope."
+    )
+}
+
+# Rows per strip for every reduction method. The union grid is reduced one
 # full-width strip at a time so peak memory is O(strip) rather than O(grid).
 _MERGE_STRIP_ROWS = 512
 
@@ -56,9 +69,18 @@ _MERGE_STRIP_ROWS = 512
 _GRID_SNAP_TOLERANCE = 1e-6
 
 # Value a strip accumulator starts at, per reduction, so the first real sample wins:
-# +inf loses every fmin, -inf loses every fmax, 0 is the additive identity. Cells that
-# never receive a sample keep this value and are replaced by the fill at the end.
-_REDUCE_IDENTITY = {"min": np.inf, "max": -np.inf, "sum": 0.0}
+# +inf loses every fmin, -inf loses every fmax, 0 is the additive identity -- for
+# `"sum"` and `"mean"`'s running total alike, and for `"count"`, whose accumulator
+# counts contributions rather than holding values. Cells that never receive a sample
+# keep this value and are replaced by the fill at the end, `"count"` excepted: there
+# the identity is already the answer (no source contributed, so the tally is 0).
+_REDUCE_IDENTITY = {
+    "min": np.inf,
+    "max": -np.inf,
+    "sum": 0.0,
+    "count": 0.0,
+    "mean": 0.0,
+}
 
 
 @dataclass(frozen=True)
@@ -1203,10 +1225,18 @@ def merge_rasters(
     * ``"last"`` (default) / ``"first"`` — z-order compositing: the last (or
       first) source covering a pixel wins. Implemented cheaply with
       :func:`gdal.BuildVRT` + :func:`gdal.Translate`.
-    * ``"min"`` / ``"max"`` / ``"sum"`` — per-pixel reduction across every
-      source overlapping that pixel, ignoring no-data. Each source is aligned
-      onto the union grid and the bands are stacked and reduced with NaN-aware
-      numpy.
+    * ``"min"`` / ``"max"`` / ``"sum"`` / ``"count"`` / ``"mean"`` — per-pixel
+      reduction across every source overlapping that pixel, ignoring no-data.
+      Each source is aligned onto the union grid and folded into a NaN-aware
+      accumulator one strip at a time, so peak memory is ``O(strip)`` whichever
+      reduction is asked for. ``"count"`` reports how many sources contributed a
+      *valid* value to each cell, and ``"mean"`` divides the total by that same
+      count -- never by the number of sources merely overlapping the cell.
+
+    ``"median"`` is recognised but not implemented: it would have to hold every
+    overlapping source's value for a cell at once, which the one-accumulator strip
+    reduction cannot do, and asking for it raises :class:`NotImplementedError`
+    rather than returning an approximation.
 
     Args:
         src (Sequence[str | Path]):
@@ -1272,7 +1302,9 @@ def merge_rasters(
             a literal `0` on an integer mosaic, which then poisons
             :meth:`~pyramids.dataset.Dataset.stats`. The reduction methods
             write Float64 and take ``NaN``, which no real cell can hold,
-            whatever the sources' footprints. The z-order methods take the value
+            whatever the sources' footprints — except ``method="count"``, whose
+            uncovered cells hold a real ``0`` and so leave the declared marker
+            unused. The z-order methods take the value
             those pixels would otherwise hold, `init` — so ``NaN`` too on a
             floating mosaic, the common case. Where the band cannot store
             ``NaN``, the footprints decide. Sources that **tile their whole
@@ -1331,7 +1363,25 @@ def merge_rasters(
             gaps and the inherited marker agree.
         method (str):
             Overlap-resolution rule: one of ``"first"``, ``"last"`` (default),
-            ``"min"``, ``"max"``, ``"sum"``.
+            ``"min"``, ``"max"``, ``"sum"``, ``"count"``, ``"mean"``.
+
+            ``"count"`` writes the number of sources that contributed a valid
+            value to each cell -- a source's own no-data holes are not counted,
+            so a cell covered by three sources where one declares a hole counts
+            ``2``. Its **uncovered cells hold a real ``0``** rather than the
+            no-data fill every other reduction writes there: zero contributions
+            is the honest tally, no covered cell can hold it, and the alternative
+            would be to report ``-9999`` contributions. The output still declares
+            whatever marker was inherited or passed, but on a count mosaic
+            nothing holds it, since every cell carries a real tally.
+
+            ``"mean"`` divides each cell's total by that same valid count, so a
+            cell covered by two of three sources averages the two values it
+            holds. Its uncovered cells take the no-data fill like ``"min"``,
+            ``"max"`` and ``"sum"``, there being no mean of nothing.
+
+            ``"median"`` raises :class:`NotImplementedError`: see the summary
+            above.
         dst_crs (int | str | None):
             Target CRS for the mosaic, as an EPSG code (``32632``) or any
             GDAL-parseable CRS string (``"EPSG:32632"``, a WKT, a PROJ string).
@@ -1423,17 +1473,23 @@ def merge_rasters(
         ``BuildVRT`` takes its band type from; one whose band type disagrees is
         skipped entirely, with a GDAL warning naming it, so the output then
         covers the remaining sources' extent rather than the union. The
-        reduction methods (``"min"``/``"max"``/``"sum"``) align every source onto
+        reduction methods (``"min"``/``"max"``/``"sum"``/``"count"``/``"mean"``)
+        align every source onto
         the union grid with ``gdal.Warp`` (nearest resampling — exact for
         already-aligned tiles) and write a single-precision-safe **Float64**
         output regardless of the source dtype, so they may differ in dtype from a
-        z-order merge of the same integer inputs. The warp itself is asked for
+        z-order merge of the same integer inputs. ``"count"`` is Float64 too,
+        rather than an integer band of its own: one reduction path writes one
+        dtype, and a tally is exact in Float64 far past any plausible source
+        count. The warp itself is asked for
         Float64 as well, so that the ``NaN`` marking a strip's uncovered pixels
         survives it: rounded into an integer destination it would come back as a
         real ``0`` (or the type's minimum for Int32) and be folded into the
         result as data.
 
     Raises:
+        NotImplementedError: ``method="median"`` — recognised, deliberately not
+            implemented, and refused rather than approximated.
         TypeError: ``resampling`` is not a string, or ``bbox`` is not four numbers
             (a string, a scalar, or a sequence holding a non-numeric element).
         ValueError: ``method``/``resampling`` is not a supported value,
@@ -1475,6 +1531,22 @@ def merge_rasters(
             ...     "mosaic_max.tif",
             ...     no_data_value=-9999.0,
             ...     method="max",
+            ... )
+
+            ```
+        - Composite the average of every source covering a pixel, and write the
+          matching per-pixel tally of how many of them contributed it:
+            ```python
+            >>> from pyramids.dataset.merge import merge_rasters
+            >>> merge_rasters(  # doctest: +SKIP
+            ...     ["scene_a.tif", "scene_b.tif", "scene_c.tif"],
+            ...     "mosaic_mean.tif",
+            ...     method="mean",
+            ... )
+            >>> merge_rasters(  # doctest: +SKIP
+            ...     ["scene_a.tif", "scene_b.tif", "scene_c.tif"],
+            ...     "mosaic_count.tif",
+            ...     method="count",
             ... )
 
             ```
@@ -1537,6 +1609,14 @@ def merge_rasters(
 
             ```
     """
+    if method in _DEFERRED_METHODS:
+        # A name this function knows and deliberately does not answer, separated from
+        # a name it does not know at all: "median is not implemented, and here is what
+        # it would cost" is a different message from "median is not a method".
+        raise NotImplementedError(
+            f"method={method!r} is not implemented by merge_rasters: "
+            f"{_DEFERRED_METHODS[method]}"
+        )
     if method not in _MERGE_METHODS:
         raise ValueError(
             f"method must be one of {list(_MERGE_METHODS)}, got {method!r}."
@@ -1940,11 +2020,17 @@ def _fold_into(
 ) -> None:
     """Fold one warped source into the strip accumulator, in place.
 
+    ``"count"`` is the one reduction whose accumulator never sees a value: it
+    counts the cells this source contributes, so the accumulator *is* the tally
+    and no second array is needed for it. ``"sum"`` and ``"mean"`` share the one
+    running total; what separates them is the division :func:`_reduce_strip`
+    applies at the end.
+
     Args:
         acc: The strip accumulator, modified in place.
         array: The warped source strip, no-data as NaN.
         valid: Mask of the finite cells in `array`.
-        method: One of ``"min"``, ``"max"``, ``"sum"``.
+        method: One of ``"min"``, ``"max"``, ``"sum"``, ``"count"``, ``"mean"``.
 
     Returns:
         None
@@ -1953,6 +2039,8 @@ def _fold_into(
         np.fmin(acc, array, out=acc)  # fmin/fmax ignore NaN
     elif method == "max":
         np.fmax(acc, array, out=acc)
+    elif method == "count":
+        np.add(acc, 1.0, out=acc, where=valid)
     else:
         np.add(acc, array, out=acc, where=valid)
 
@@ -1974,6 +2062,10 @@ def _reduce_strip(
     from :func:`_merge_reduce` to keep that function's nesting (cognitive complexity)
     low.
 
+    Peak memory stays ``O(strip)`` for every method: one float64 accumulator, a bool
+    coverage mask, and -- for ``"mean"`` alone -- one float64 tally of the values that
+    went into the total. No method buffers the overlapping sources' values.
+
     Args:
         src_paths: Sources as :class:`_Source` pairs, or bare paths/open
             datasets (labelled by their repr).
@@ -1981,9 +2073,10 @@ def _reduce_strip(
         strip_bounds: The strip's ``[west, south, east, north]`` output bounds.
         strip_lat: The strip's ``(south, north)`` latitude band for the overlap prune.
         shape: The strip cube shape ``(band_count, rows, cols)``.
-        method: One of ``"min"``, ``"max"``, ``"sum"``.
+        method: One of ``"min"``, ``"max"``, ``"sum"``, ``"count"``, ``"mean"``.
         src_nodata: Source pixel value to treat as no-data, or ``None``.
-        fill: Value written where no source covers a pixel.
+        fill: Value written where no source covers a pixel -- except for
+            ``"count"``, whose uncovered cells hold a real ``0``.
 
     Returns:
         np.ndarray: The reduced strip, shape ``shape``.
@@ -1993,9 +2086,13 @@ def _reduce_strip(
     """
     _, ysize, x_size = shape
     acc = np.full(shape, _REDUCE_IDENTITY[method], dtype="float64")
-    # A boolean "has any valid source" mask suffices: min/max/sum never divide by a
-    # count, only test presence below, so a bool cube (1 byte/px) replaces int64.
+    # A boolean "has any valid source" mask suffices for every method but `"mean"`:
+    # min/max/sum/count never divide by a count, only test presence below, so a bool
+    # cube (1 byte/px) replaces int64. `"mean"` is the one that needs the tally
+    # itself, and carries a second accumulator for it rather than making every other
+    # method pay for one.
     covered = np.zeros(shape, dtype=bool)
+    tally = np.zeros(shape, dtype="float64") if method == "mean" else None
 
     for source, bounds in zip(src_paths, src_bounds):
         if _source_misses_strip(bounds, strip_lat, strip_bounds):
@@ -2004,10 +2101,31 @@ def _reduce_strip(
         valid = ~np.isnan(array)
         covered |= valid
         _fold_into(acc, array, valid, method)
+        if tally is not None:
+            # Count the cells this source really contributed, not the cells it
+            # overlapped: a no-data hole inside its footprint is not a measurement,
+            # and averaging over it would pull the result toward zero.
+            np.add(tally, 1.0, out=tally, where=valid)
         del array, valid
 
-    # No-coverage cells are still +inf/-inf/0 in acc; replace them with the fill.
-    return np.where(covered, acc, fill)
+    if tally is not None:
+        # Divide by the *valid* count, never by the number of sources overlapping the
+        # cell -- a cell covered by two of three sources averages the two values it
+        # holds. `where=covered` keeps the division off the uncovered cells, whose
+        # tally is 0 and whose accumulator the fill replaces below.
+        np.divide(acc, tally, out=acc, where=covered)
+
+    if method == "count":
+        # Uncovered cells keep the identity, 0, rather than taking the fill: "no
+        # source contributed here" is exactly what a count of 0 says, and no covered
+        # cell can hold it, so the gaps stay distinguishable without a marker. Taking
+        # the fill would instead report an invented tally (-9999 contributions) or a
+        # NaN where the honest answer exists.
+        reduced = acc
+    else:
+        # No-coverage cells are still +inf/-inf/0 in acc; replace them with the fill.
+        reduced = np.where(covered, acc, fill)
+    return reduced
 
 
 def _merge_reduce(
@@ -2019,7 +2137,7 @@ def _merge_reduce(
     bbox: Sequence[float] | None = None,
     bbox_crs: int | str | None = None,
 ) -> None:
-    """Merge sources by reducing overlapping pixels with min/max/sum.
+    """Merge sources by reducing overlapping pixels with min/max/sum/count/mean.
 
     The union grid (from a scratch :func:`gdal.BuildVRT`) is reduced one full-width
     row strip at a time: each source is warped onto that strip's window and folded
@@ -2030,7 +2148,8 @@ def _merge_reduce(
     skipped (they would warp to all-no-data). Nearest-neighbour warping onto the
     exact union grid makes the strip reduction byte-identical to a whole-grid pass.
     Pixels with no source coverage are written as `no_data_value`, or as ``NaN``
-    when that is `None`. The output is Float64 whatever the sources' dtype, since
+    when that is `None` -- except under ``method="count"``, where they hold the
+    real tally ``0``. The output is Float64 whatever the sources' dtype, since
     the fold works in NaN-aware floating point throughout.
 
     Args:
@@ -2039,7 +2158,7 @@ def _merge_reduce(
             :class:`gdal.Dataset` objects (e.g. reprojected warped VRTs from
             :func:`_prepare_sources`).
         dst: Output raster path.
-        method: One of ``"min"``, ``"max"``, ``"sum"``.
+        method: One of ``"min"``, ``"max"``, ``"sum"``, ``"count"``, ``"mean"``.
         no_data_value: Output no-data value and no-coverage fill. ``None``
             means the caller asked for no marker at all, so uncovered pixels are
             filled with NaN and the output declares nothing -- the same answer
