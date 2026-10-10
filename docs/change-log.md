@@ -1,6 +1,38 @@
 ﻿# Change log
 
 
+## 0.66.0 (2026-10-09)
+
+### BREAKING CHANGE
+
+- NetCDF.read_array() and Variable.read_array() now return
+the dimension-preserving (*band_sizes, rows, cols) layout by default
+instead of the flattened (bands, rows, cols) with a size-1 result
+squeezed to 2-D. Pass squeeze=True to restore the previous layout; a
+band= read is unaffected.
+
+### Feat
+
+- **netcdf**: add curvefit, rolling_exp and the dict round trip (#1269)
+- **netcdf**: add calculus and calendar members, and container selection (#1264)
+- **dataset,netcdf**: broadcast a band axis, write CF coordinate roles (#1255)
+- **netcdf**: add rename_dims, assign_coords, drop_dims and update (#1245)
+- **geodesy**: measure ground distance and area on the ellipsoid (#1243)
+- **netcdf**: compose lazy op-chains over the dask-backed cube surface (#1244)
+- **netcdf**: dimension-preserving read_array default + lazy masked reads (#1240)
+- **netcdf**: lazy dask-backed cube surface and to_dask_dataframe (#1239)
+- **netcdf**: add rank, pad and transpose (last Tier 2c xarray members) (#1218)
+- **dataset**: add to_dataframe/to_geodataframe, consolidate cell exports (#1213)
+- **netcdf**: add interp and interp_like for band-axis interpolation (#1212)
+- **dataset,feature**: array-native point reprojection and gridding (#1204)
+- **netcdf**: add groupby_bins, value-interval grouping over reduce (#1208)
+- **netcdf**: add from_dataframe, the inverse of to_dataframe (#1203)
+
+### Fix
+
+- **netcdf**: correct lazy read chunking and guard in-process reopen (#1232)
+- **ci**: build the OGR VRT driver into the from-source GDAL (#1215)
+
 ## 0.65.0 (2026-09-26)
 
 ### Feat
