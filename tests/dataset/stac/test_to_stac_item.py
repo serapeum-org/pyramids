@@ -776,14 +776,14 @@ class TestToStacItemAntimeridian:
         assert item["geometry"]["type"] == "Polygon", item["geometry"]["type"]
         assert item["bbox"] == [-180.0, -90.0, 180.0, 90.0], f"bbox: {item['bbox']}"
 
-    def test_wide_span_inside_the_lon_range_is_unwrapped_then_split(self):
-        """A footprint spanning more than 180 degrees is read as a crossing.
+    def test_wide_span_inside_the_lon_range_is_not_a_crossing(self):
+        """A wide footprint that stays inside [-180, 180] is left intact.
 
         Test scenario:
-            A grid running -100 -> 100 keeps every longitude inside
-            [-180, 180], so the ring is first lifted into a continuous
-            [0, 360) frame and only then cut at the seam — yielding two parts
-            and a west > east bbox.
+            A grid running -100 -> 100 spans 200 degrees but never reaches the
+            seam, so it must stay a single Polygon with its real bbox. Reading
+            a wide span as a crossing emitted the geographic *complement* of
+            the extent, which silently corrupts spatial search.
         """
         ds = Dataset.from_array(
             np.ones((2, 2), dtype="float32"),
@@ -792,10 +792,51 @@ class TestToStacItemAntimeridian:
         )
         item = ds.to_stac_item("x", asset_href="s.tif")
         geom = shape(item["geometry"])
-        assert geom.geom_type == "MultiPolygon", f"geom type: {geom.geom_type}"
-        assert len(geom.geoms) == 2, f"expected 2 parts, got {len(geom.geoms)}"
+        assert geom.geom_type == "Polygon", f"geom type: {geom.geom_type}"
         west, _, east, _ = item["bbox"]
-        assert (west, east) == (100.0, -100.0), f"bbox lons: {item['bbox']}"
+        assert (west, east) == (-100.0, 100.0), f"bbox lons: {item['bbox']}"
+
+    def test_very_wide_span_is_not_a_crossing(self):
+        """A 220-degree extent is emitted with west < east, not its complement.
+
+        Test scenario:
+            (-170, 50) is an ordinary wide extent. Treating any span over 180
+            degrees as a crossing turned it into bbox [50, ..., -170, ...] —
+            the complement — on the DEFAULT path with no new kwargs.
+        """
+        ds = Dataset.from_array(
+            np.ones((4, 22), dtype="float32"),
+            geo_ref=GeoReference(
+                top_left_corner=(-170.0, 10.0), cell_size=10.0, epsg=4326
+            ),
+        )
+        item = ds.to_stac_item("x", asset_href="s.tif")
+        assert item["geometry"]["type"] == "Polygon", item["geometry"]["type"]
+        assert item["bbox"] == [-170.0, -30.0, 50.0, 10.0], f"bbox: {item['bbox']}"
+
+    def test_projected_scene_straddling_the_seam_still_splits(self):
+        """A genuine crossing is still detected once the span heuristic is gone.
+
+        Test scenario:
+            A UTM 60N scene either side of the antimeridian reprojects to
+            corner longitudes near +179 and -179 — both inside [-180, 180] —
+            so a correct detector cannot rely on the range alone. Its centre
+            reprojects outside [west, east], which is what marks the crossing.
+        """
+        ds = Dataset.from_array(
+            np.ones((4, 40), dtype="float32"),
+            geo_ref=GeoReference(
+                top_left_corner=(700000.0, 300000.0), cell_size=5000.0, epsg=32660
+            ),
+        )
+        item = ds.to_stac_item("x", asset_href="s.tif")
+        west, _, east, _ = item["bbox"]
+        assert item["geometry"]["type"] == "MultiPolygon", (
+            f"a straddling scene must be split into parts, got {item['geometry']['type']}"
+        )
+        assert west > east, (
+            f"a scene straddling the seam must emit west > east per RFC 7946, got {item['bbox']}"
+        )
 
 
 class TestEncodeNodata:

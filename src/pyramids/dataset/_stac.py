@@ -2241,8 +2241,43 @@ def _split_at_seam(
     return result
 
 
+def _native_center_lon(
+    native_bbox: Sequence[float], epsg: int | None, precision: int
+) -> float | None:
+    """Reproject the native extent's centre and return its longitude.
+
+    This is the signal that separates the two readings of an emitted bbox: a
+    scene straddling the antimeridian and a scene spanning most of the globe
+    both land corners near +/-179, but only the former has a centre outside
+    them.
+
+    Args:
+        native_bbox: The dataset's `[minx, miny, maxx, maxy]` in its own CRS.
+        epsg: The dataset's EPSG code, or `None` when it has no CRS.
+        precision: Decimal places to round the reprojected longitude to.
+
+    Returns:
+        float | None: The centre longitude in EPSG:4326, or `None` when the
+        dataset has no CRS or the reprojection fails (the caller then relies on
+        the out-of-range test alone).
+    """
+    centre = None
+    if epsg is not None:
+        minx, miny, maxx, maxy = (float(v) for v in native_bbox)
+        try:
+            centre = _transform_to_4326(
+                [((minx + maxx) / 2.0, (miny + maxy) / 2.0)], epsg, precision
+            )[0][0]
+        except (RuntimeError, TypeError, ValueError):
+            centre = None
+    return centre
+
+
 def _split_antimeridian(
-    geometry: dict[str, Any], bbox: list[float], precision: int
+    geometry: dict[str, Any],
+    bbox: list[float],
+    precision: int,
+    center_lon: float | None = None,
 ) -> tuple[dict[str, Any], list[float]]:
     """Split an emitted EPSG:4326 footprint that crosses the antimeridian.
 
@@ -2252,16 +2287,26 @@ def _split_antimeridian(
     globe. A footprint that does not cross is returned untouched, so the
     default (`footprint="bbox"`) output is unchanged.
 
-    Crossing is detected from the emitted coordinates: longitudes outside
-    `[-180, 180]` (a grid that simply runs past the seam), or a longitude span
-    wider than 180 degrees (a reprojected scene whose corners landed on both
-    sides of it). A geometry that reaches both -180 and +180 is treated as a
-    global extent and left alone.
+    Crossing is detected two ways. A longitude outside `[-180, 180]` means the
+    grid simply runs past the seam. Otherwise the extent's **centre** decides:
+    reprojected into lon/lat it must fall between the emitted `west` and
+    `east`, and when it does not, those two are the complement of the real
+    extent and the footprint crosses. A geometry reaching both -180 and +180 is
+    a global extent and is left alone.
+
+    The centre is what makes the two ambiguous readings of a bbox separable. A
+    reprojected scene straddling the seam emits corners near +179 and -179, and
+    so does a scene spanning almost the whole globe; a longitude span alone
+    cannot tell them apart, and treating every span over 180 degrees as a
+    crossing emitted the complement of any ordinary wide extent.
 
     Args:
         geometry: The emitted GeoJSON geometry in EPSG:4326.
         bbox: Its `[w, s, e, n]` bbox.
         precision: Decimal places to round re-emitted coordinates to.
+        center_lon: The extent's centre longitude in EPSG:4326, or `None` when
+            it is unavailable (a CRS-less dataset), in which case only the
+            out-of-range test applies.
 
     Returns:
         A `(geometry, bbox)` tuple — the inputs unchanged when there is no
@@ -2271,9 +2316,9 @@ def _split_antimeridian(
     lons = shapely.get_coordinates(geom)[:, 0]
     west, east = float(lons.min()), float(lons.max())
     global_extent = west <= -180.0 and east >= 180.0
-    crossing = not global_extent and (
-        east > 180.0 or west < -180.0 or east - west > 180.0
-    )
+    out_of_range = east > 180.0 or west < -180.0
+    centre_outside = center_lon is not None and not (west <= center_lon <= east)
+    crossing = not global_extent and (out_of_range or centre_outside)
     result = (geometry, bbox)
     if crossing:
         if west >= -180.0 and east <= 180.0:
@@ -2653,7 +2698,9 @@ def to_stac_item(
         # "bbox" mode, or a CRS-less dataset (which falls through to the
         # world-extent branch inside `_footprint_4326`).
         geometry, bbox_4326 = _footprint_4326(native_bbox, epsg, precision)
-    geometry, bbox_4326 = _split_antimeridian(geometry, bbox_4326, precision)
+    geometry, bbox_4326 = _split_antimeridian(
+        geometry, bbox_4326, precision, _native_center_lon(native_bbox, epsg, precision)
+    )
 
     # A null `datetime` is only STAC-valid alongside a start/end range. When the
     # caller gives neither, default to "now" so the Item is always valid
