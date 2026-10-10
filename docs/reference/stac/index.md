@@ -37,16 +37,26 @@ classDiagram
 | Read one asset → `Dataset`/`NetCDF` | `load_asset` · `which_engine` · `resolved_href` | [Assets](assets.md) |
 | Read `proj`/`raster`/`eo` metadata (no file open) | `read_extension_metadata` | [Assets](assets.md) |
 | Mosaic one asset across items (lazy VRT) | `build_vrt_from_stac` | [Assets](assets.md) |
-| Download assets to local files (`[stac]` extra) | `download_item` | [Assets](assets.md) |
+| Item search, un-executed (hit count, paging) | `item_search` | [Client & search](#search) |
+| Discover collections / queryables | `list_collections` · `search_collections` · `get_queryables` | [Search](#search) |
+| Prefer an `alternate-assets` href | `preferred_asset_href` · `asset_alternate_href` | [Assets](assets.md) |
+| Verify an asset is reachable & well-typed | `verify_asset` | [Assets](assets.md) |
+| Windowed read from an Item | `read_item_part` · `read_item_preview` · `read_item_point` | [Assets](assets.md) |
+| Download assets (`[stac]` extra) | `download_item` · `download_item_collection` | [Assets](assets.md) |
 | Serialize items ↔ GeoParquet (`[parquet]` extra) | `to_geoparquet` · `from_geoparquet` | [Assets](assets.md) |
+| Interoperable stac-geoparquet 1.1 layout | `to_geoparquet_spec` · `from_geoparquet_spec` | [Assets](assets.md) |
 | Cloud credentials (generic signers) | `Signer` protocol + concrete signers | [Signers](signers.md) |
 
 Two STAC entry points live on the raster classes (documented there):
 
-- **`DatasetCollection.from_stac(items, asset, *, signer, align, skip_missing, groupby, like, crs, resolution,
-  bounds)`** — build a time-stacked cube from STAC items (single asset → time stack, or a
-  list of assets → band axis; `groupby="solar_day"` mosaics same-overpass tiles;
-  `like=`/`crs`+`resolution`+`bounds` matches a target grid).
+- **`DatasetCollection.from_stac(items, asset, *, signer, align, skip_missing, groupby, grid, method,
+  fuse_func, errors_as_nodata, rescale, cfg)`** — build a time-stacked cube from STAC
+  items (single asset → time stack, or a list of assets → band axis). `groupby` takes
+  `"solar_day"`, `"id"`, `"time"`, any item **property key**, or a **callable**, and each
+  group is mosaicked with `method=` (`first`/`last`/`min`/`max`/`sum`/`count`/`mean`) or a
+  custom `fuse_func`. `grid=` matches a target grid, `rescale=True` returns physical units,
+  `cfg=` supplies missing metadata and band aliases, and `errors_as_nodata=True` fills a
+  nodata plane for an unreadable asset instead of losing the cube.
   See [DatasetCollection](../dataset_collection.md).
 - **`DatasetCollection.from_point(lat, lon, *, collection, bands, start_date, end_date, edge_size, resolution)`**
   — a cubo-style point + edge-size convenience cube. See
