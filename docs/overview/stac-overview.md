@@ -4,8 +4,7 @@ A deep dive into pyramids' STAC (SpatioTemporal Asset Catalog) support: what it
 does, how it is implemented, and where its limits are.
 
 > Scope: this document describes the `pyramids.stac` subpackage plus the STAC
-> constructors that live on `Dataset` / `DatasetCollection`. It is a snapshot of
-> the code as read on the `claude/bold-mccarthy-2n5f1k` branch.
+> constructors that live on `Dataset` / `DatasetCollection`.
 
 ---
 
