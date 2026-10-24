@@ -411,3 +411,69 @@ class TestWriterTimeDimensionName:
             "2001-01-02",
             "2001-01-03",
         ]
+
+
+class TestWriteFailuresAlsoWarn:
+    """All three swallowed failures must warn, not just the re-encode (review M6).
+
+    Only the re-encode path is reachable with real data. The other two need GDAL itself to
+    refuse, so they are driven against `_write_time_coordinate` directly with a stand-in root
+    group - patching GDAL globally is not an option, because the data-variable writer uses the
+    same calls and would fail before this function ran. Without these the warning was proven
+    at one point of three, and the other two are exactly the ones an unfamiliar driver hits.
+    """
+
+    @staticmethod
+    def _variables():
+        stamps = np.array(
+            ["2001-01-01", "2001-01-02", "2001-01-03"], dtype="datetime64[ns]"
+        )
+        return _temporal_mesh(
+            stamps=list(stamps), units="days since 2001-01-01"
+        )._data_variables
+
+    def test_a_refused_array_creation_warns(self, monkeypatch):
+        """The `CreateMDArray` collision path.
+
+        Args:
+            monkeypatch: used to report no existing array, so creation is attempted.
+        """
+        from pyramids.netcdf.ugrid import dataset as ugrid_dataset
+
+        monkeypatch.setattr(ugrid_dataset, "open_mdarray", lambda *_a, **_k: None)
+
+        class RefusingGroup:
+            """A root group whose array creation collides, as netCDF's can."""
+
+            def CreateMDArray(self, *_args):  # noqa: N802 - matches GDAL's method name
+                raise RuntimeError("String match to name in use")
+
+        with pytest.warns(UserWarning, match="could not create"):
+            ugrid_dataset._write_time_coordinate(
+                RefusingGroup(), {"time": object()}, self._variables()
+            )
+
+    def test_a_refused_write_warns(self, monkeypatch):
+        """The `array.Write` path, where the driver takes the array then refuses the data.
+
+        Args:
+            monkeypatch: used to hand back an array whose Write refuses.
+        """
+        from pyramids.netcdf.ugrid import dataset as ugrid_dataset
+
+        class RefusingArray:
+            """Stands in for a coordinate array whose driver refuses the write."""
+
+            def Write(self, _values):  # noqa: N802 - matches GDAL's method name
+                raise RuntimeError("driver refused the write")
+
+        monkeypatch.setattr(
+            ugrid_dataset, "open_mdarray", lambda *_a, **_k: RefusingArray()
+        )
+        monkeypatch.setattr(
+            ugrid_dataset, "write_attributes_to_md_array", lambda *_a, **_k: None
+        )
+        with pytest.warns(UserWarning, match="refused the time coordinate write"):
+            ugrid_dataset._write_time_coordinate(
+                object(), {"time": object()}, self._variables()
+            )
