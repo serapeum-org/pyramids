@@ -405,11 +405,13 @@ class TestInterpLikeCalendarMetadata:
         source, target = self._cross()
         by_like = source.interp_like(target)["d"]
         by_calendar = source.interp_calendar(target)["d"]
-        assert by_like.attributes[TIME_CALENDAR_ATTR] == (
-            by_calendar.attributes[TIME_CALENDAR_ATTR]
+        assert (
+            by_like.attributes[TIME_CALENDAR_ATTR]
+            == (by_calendar.attributes[TIME_CALENDAR_ATTR])
         )
-        assert by_like.attributes[TIME_UNITS_ATTR] == (
-            by_calendar.attributes[TIME_UNITS_ATTR]
+        assert (
+            by_like.attributes[TIME_UNITS_ATTR]
+            == (by_calendar.attributes[TIME_UNITS_ATTR])
         )
 
     def test_an_undated_target_strips_the_stale_metadata(self):
@@ -430,7 +432,11 @@ class TestInterpLikeCalendarMetadata:
             "standard",
         )
         target = self._dated(
-            _days("standard", (2001, 1, 3),), "days since 2000-01-01", "standard"
+            _days(
+                "standard",
+                (2001, 1, 3),
+            ),
+            "days since 2000-01-01",
+            "standard",
         )
         assert source.interp_like(target)["d"].n_time_steps == 1
-

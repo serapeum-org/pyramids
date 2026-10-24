@@ -490,12 +490,10 @@ class TestCoarsenAllMissingBlocks:
         assert np.isnan(coarsen_axis(values, 2, "sum")[0]), "the empty block is missing"
         assert coarsen_axis(values, 2, "sum")[1] == pytest.approx(4.0)
 
-    @pytest.mark.parametrize(
-        "how", ["mean", "sum", "min", "max", "median", "std"]
-    )
+    @pytest.mark.parametrize("how", ["mean", "sum", "min", "max", "median", "std"])
     def test_every_reducer_reports_an_all_missing_block_as_nan(self, how):
         """Args:
-            how: The reducer under test.
+        how: The reducer under test.
         """
         values = np.array([np.nan, np.nan, 1.0, 3.0])
         assert np.isnan(coarsen_axis(values, 2, how)[0]), f"{how} on an empty block"
@@ -511,7 +509,8 @@ class TestCoarsenAllMissingBlocks:
         """
         coarsen_axis(np.array([np.nan, np.nan, 1.0, 3.0]), 2, how)
         slice_warnings = [
-            w for w in recwarn if "empty slice" in str(w.message) or "All-NaN" in str(w.message)
+            w
+            for w in recwarn
+            if "empty slice" in str(w.message) or "All-NaN" in str(w.message)
         ]
         assert not slice_warnings, f"{how} leaked {len(slice_warnings)} warning(s)"
-

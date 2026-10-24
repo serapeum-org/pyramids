@@ -7010,7 +7010,6 @@ def _interp_targets(target: Any, dim: str, caller: str = "interp") -> np.ndarray
     return values
 
 
-
 def _cf_time_units(nc: NetCDF, dim: str, *, caller: str) -> tuple[str, str]:
     """The CF `(units, calendar)` the time dimension `dim` declares.
 

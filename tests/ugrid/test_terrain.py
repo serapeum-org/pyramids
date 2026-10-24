@@ -246,4 +246,3 @@ class TestNodataIsNotTerrain:
         nan = _void_dem([0.0, 0.0, 0.0, 0.0, 0.0, np.nan], nodata=None).slope()
         assert np.isnan(sentinel[1]) and np.isnan(nan[1])
         assert sentinel[0] == pytest.approx(nan[0])
-

@@ -440,7 +440,7 @@ class TestUnknownVariableNameIsRefused:
     )
     def test_each_member_refuses_an_unknown_name(self, call):
         """Args:
-            call: The member invoked with a name the dataset does not have.
+        call: The member invoked with a name the dataset does not have.
         """
         with pytest.raises(KeyError, match="nope"):
             call(_two_variables())
@@ -517,4 +517,3 @@ class TestIntegrateStaticResult:
             [[True, True], [False, False], [True, True]], dtype=bool
         )
         assert ds.integrate()["d"].active is None
-

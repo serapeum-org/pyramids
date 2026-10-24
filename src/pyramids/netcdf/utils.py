@@ -1947,6 +1947,7 @@ def _decimal_years(instants: Any) -> np.ndarray:
         years[index] = instant.year + (instant - start).total_seconds() / length
     return years
 
+
 __all__ = [
     "AttributeScalar",
     "AttributeValue",

@@ -290,5 +290,6 @@ class TestOpenMfdataset:
             ds.to_file(str(path))
             paths.append(str(path))
         stacked = UgridDataset.open_mfdataset(paths)
-        assert stacked["d"].data[:, 0].tolist() == [2.0, 9.0], "dated files sort by stamp"
-
+        assert stacked["d"].data[:, 0].tolist() == [2.0, 9.0], (
+            "dated files sort by stamp"
+        )
