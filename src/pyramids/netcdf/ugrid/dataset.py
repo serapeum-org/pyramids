@@ -4419,8 +4419,9 @@ class UgridDataset(_UgridFacades):
 
         Raises:
             AlignmentError: ``other`` sits on a different mesh.
-            ValueError: Either side has no time dimension, or this one has fewer than two steps
-                to interpolate between.
+            ValueError: Either side has no time dimension; this one has fewer than two steps to
+                interpolate between; or one side is dated and the other positional, which have
+                no common scale.
 
         See Also:
             interp_time: Interpolate onto a given number of evenly spaced steps.
@@ -6387,7 +6388,10 @@ def _interp_scale(source: Any, target: Any) -> tuple[np.ndarray, np.ndarray]:
     to ``Y+1.0``. Measuring the target from the source's first stamp instead cannot work across
     calendars at all, because ``cftime`` refuses to subtract two dates on different calendars.
 
-    Undated axes are positional, so they are used as plain numbers.
+    Two undated axes are positional on both sides, which is coherent — a step index means the
+    same thing in each — so they are used as plain numbers. A **mixed** pair is refused: one
+    side counting seconds and the other counting steps has no common scale, and answering
+    anyway was wrong by whatever the step interval happens to be.
 
     Args:
         source: The coordinate the values sit on.
@@ -6395,8 +6399,24 @@ def _interp_scale(source: Any, target: Any) -> tuple[np.ndarray, np.ndarray]:
 
     Returns:
         tuple: ``(source_scale, target_scale)`` as float arrays.
+
+    Raises:
+        ValueError: One axis is dated and the other positional.
     """
-    if _is_dated(source) and _is_dated(target):
+    source_dated, target_dated = _is_dated(source), _is_dated(target)
+    if source_dated != target_dated:
+        # One side counts seconds from its first stamp and the other counts steps, and there
+        # is no defensible mapping between them: feeding both to the interpolator silently
+        # answered an hourly source at "step 1" as though that were one second, out by 3600.
+        dated, positional = (
+            ("this dataset", "`other`") if source_dated else ("`other`", "this dataset")
+        )
+        raise ValueError(
+            f"interp_like: {dated} has a dated time axis while {positional} is positional "
+            f"(no CF time units), and a step index cannot be placed on a calendar. Give both "
+            f"sides real stamps, or use interp_time() to resample onto evenly spaced steps."
+        )
+    if source_dated:
         return (
             _decimal_years(
                 np.asarray([_to_cftime(stamp) for stamp in source], dtype=object)

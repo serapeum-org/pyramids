@@ -414,15 +414,15 @@ class TestInterpLikeCalendarMetadata:
             == (by_calendar.attributes[TIME_UNITS_ATTR])
         )
 
-    def test_an_undated_target_strips_the_stale_metadata(self):
-        """Positional stamps under a live CF units string would be encoded as real dates that
-        were never in either dataset."""
+    def test_an_undated_target_is_refused_outright(self):
+        """This test used to assert that the stale CF attributes were stripped when
+        interpolating onto an undated target - checking the metadata of a call whose VALUES
+        were silently wrong by the step interval (round 2 review H1). The case is now refused,
+        so the metadata question does not arise.
+        """
         source, _ = self._cross()
-        result = source.interp_like(self._undated(3))["d"]
-        assert TIME_UNITS_ATTR not in result.attributes, (
-            f"stale units left behind: {result.attributes.get(TIME_UNITS_ATTR)!r}"
-        )
-        assert TIME_CALENDAR_ATTR not in result.attributes
+        with pytest.raises(ValueError, match="(?i)dated.*positional|positional.*dated"):
+            source.interp_like(self._undated(3))
 
     def test_a_same_calendar_interpolation_still_works(self):
         """The ordinary path must be unaffected."""
@@ -440,3 +440,72 @@ class TestInterpLikeCalendarMetadata:
             "standard",
         )
         assert source.interp_like(target)["d"].n_time_steps == 1
+
+
+class TestInterpLikeRefusesMixedScales:
+    """A dated axis and a positional one cannot be interpolated between (round 2 H1).
+
+    `_interp_scale` used decimal years only when BOTH sides were dated, and otherwise fed the
+    raw coordinates to the interpolator - pairing seconds-from-the-first-stamp against bare
+    step indices. An hourly source interpolated onto `[0, 1, 2]` came back wrong by a factor
+    of 3600, with no NaN and no warning.
+    """
+
+    @staticmethod
+    def _dated(steps):
+        stamps = np.array(
+            [f"2001-01-01T{hour:02d}" for hour in range(steps)], dtype="datetime64[ns]"
+        )
+        ds = UgridDataset.from_arrays(
+            node_x=_NODE_X,
+            node_y=_NODE_Y,
+            face_node_connectivity=_TRIANGLES,
+            data={
+                "d": np.stack(
+                    [np.arange(steps) * 10.0, np.arange(steps) * 20.0], axis=1
+                )
+            },
+            data_locations={"d": "face"},
+        )
+        ds["d"].attributes = {
+            **ds["d"].attributes,
+            "time_values": list(stamps),
+            TIME_UNITS_ATTR: "hours since 2001-01-01",
+            TIME_CALENDAR_ATTR: "standard",
+        }
+        return ds
+
+    @staticmethod
+    def _positional(steps):
+        return UgridDataset.from_arrays(
+            node_x=_NODE_X,
+            node_y=_NODE_Y,
+            face_node_connectivity=_TRIANGLES,
+            data={"d": np.zeros((steps, 2))},
+            data_locations={"d": "face"},
+        )
+
+    def test_a_dated_source_onto_a_positional_target_is_refused(self):
+        """Was [[0, 0], [0.0028, 0.0056], [0.0056, 0.0111]] - silently 3600x out."""
+        with pytest.raises(ValueError, match="(?i)dated.*positional|positional.*dated"):
+            self._dated(3).interp_like(self._positional(3))
+
+    def test_a_positional_source_onto_a_dated_target_is_refused(self):
+        """The mirror case, equally meaningless."""
+        with pytest.raises(ValueError, match="(?i)dated.*positional|positional.*dated"):
+            self._positional(3).interp_like(self._dated(3))
+
+    def test_the_message_points_at_the_alternatives(self):
+        with pytest.raises(ValueError, match="interp_time"):
+            self._dated(3).interp_like(self._positional(3))
+
+    def test_two_dated_axes_still_interpolate(self):
+        source = self._dated(3)
+        target = self._dated(2)
+        assert source.interp_like(target)["d"].n_time_steps == 2
+
+    def test_two_positional_axes_still_interpolate(self):
+        """Both on step indices is coherent - they mean the same thing."""
+        source = self._positional(4)
+        target = self._positional(2)
+        assert source.interp_like(target)["d"].n_time_steps == 2
