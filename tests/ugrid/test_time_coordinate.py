@@ -343,7 +343,7 @@ class TestSilentLossIsWarned:
 
     def test_an_unencodable_stamp_warns(self, tmp_path):
         ds = _temporal_mesh(stamps=["not-a-date"] * 3, units="days since 2001-01-01")
-        with pytest.warns(UserWarning, match="time coordinate"):
+        with pytest.warns(UserWarning, match="could not write the time coordinate"):
             ds.to_file(str(tmp_path / "unencodable.nc"))
 
     def test_the_warning_names_the_units_it_could_not_use(self, tmp_path):
@@ -477,3 +477,64 @@ class TestWriteFailuresAlsoWarn:
             ugrid_dataset._write_time_coordinate(
                 object(), {"time": object()}, self._variables()
             )
+
+
+class TestRoundTripWithoutHandSetDimensions:
+    """The round trip must work through the public API alone (round 2 review H4).
+
+    Every other round-trip test here hand-sets `.dimensions`, and no public constructor does -
+    `from_arrays` leaves it empty. So the guarantee #1381 exists to provide was only ever
+    tested on a hand-patched object, while the ordinary path dropped the stamps silently.
+    """
+
+    @staticmethod
+    def _from_arrays_with_stamps():
+        """A dataset built the way a caller builds one: no `.dimensions` assignment."""
+        ds = UgridDataset.from_arrays(
+            node_x=_NODE_X,
+            node_y=_NODE_Y,
+            face_node_connectivity=_TRIANGLES,
+            data={"depth": np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])},
+            data_locations={"depth": "face"},
+        )
+        stamps = np.array(
+            ["2020-03-01", "2020-03-02", "2020-03-03"], dtype="datetime64[ns]"
+        )
+        ds["depth"].attributes = {
+            **ds["depth"].attributes,
+            "time_values": list(stamps),
+            TIME_UNITS_ATTR: "days since 2020-03-01",
+            TIME_CALENDAR_ATTR: "standard",
+        }
+        return ds
+
+    def test_the_stamps_survive_a_round_trip(self, tmp_path):
+        """Was `[0, 1, 2]`, with nothing written and nothing warned."""
+        path = tmp_path / "from_arrays.nc"
+        self._from_arrays_with_stamps().to_file(str(path))
+        read = UgridDataset.read_file(str(path))
+        assert [str(value)[:10] for value in read.time_values] == [
+            "2020-03-01",
+            "2020-03-02",
+            "2020-03-03",
+        ], f"the stamps did not survive: {read.time_values!r}"
+
+    def test_the_name_resolves_without_dimension_names(self):
+        """`_time_coordinate_name` needed `axis < len(dimensions)`, which an array-built
+        variable can never satisfy - though `has_time` and `time_index` both say there is an
+        axis."""
+        ds = self._from_arrays_with_stamps()
+        assert ds["depth"].dimensions == (), "from_arrays leaves this empty"
+        assert ds["depth"].has_time and ds["depth"].time_index == 0
+        assert _time_coordinate_name(ds._data_variables) is not None
+
+    def test_a_dataset_that_cannot_write_its_coordinate_says_so(self):
+        """The silent case must disappear: all three existing warnings sat AFTER the early
+        return, so the most likely way to lose the stamps warned about nothing."""
+        from pyramids.netcdf.ugrid import dataset as ugrid_dataset
+
+        variables = self._from_arrays_with_stamps()._data_variables
+        with pytest.warns(UserWarning, match="no 'time' dimension was registered"):
+            # No "time" dimension registered, so the coordinate cannot be placed - which is
+            # exactly the state that used to return silently.
+            ugrid_dataset._write_time_coordinate(object(), {}, variables)

@@ -1480,13 +1480,15 @@ class UgridDataset(_UgridFacades):
             write_volume_topology(rg, mesh_name, self._volume_topology, dims)
 
         for var in self._data_variables.values():
-            if var.has_time and "time" not in dims:
+            if var.has_time and DEFAULT_TIME_DIM not in dims:
                 # The writer's time dimension is always called "time": the topology writer and
                 # `write_ugrid_data_variable` both address it by that name, so a variable
                 # whose own axis is named otherwise is written against this one. See
                 # `_write_time_coordinate` for what that means for the coordinate.
-                time_dim = rg.CreateDimension("time", None, None, var.n_time_steps)
-                dims["time"] = time_dim
+                time_dim = rg.CreateDimension(
+                    DEFAULT_TIME_DIM, None, None, var.n_time_steps
+                )
+                dims[DEFAULT_TIME_DIM] = time_dim
             # `load_array` reads each variable without memoising it on the shared dataset, so the
             # write streams one variable at a time instead of holding the whole cube resident (#982).
             write_ugrid_data_variable(
@@ -6673,6 +6675,9 @@ def _attach_active_masks(rg: gdal.Group, variables: dict[str, MeshVariable]) -> 
 TIME_UNITS_ATTR = "time_units"
 TIME_CALENDAR_ATTR = "calendar"
 
+DEFAULT_TIME_DIM = "time"
+"""The name the writer registers the time dimension under; see `_write_time_coordinate`."""
+
 
 def _write_time_coordinate(
     rg: gdal.Group, dims: dict[str, Any], variables: dict[str, MeshVariable]
@@ -6701,9 +6706,27 @@ def _write_time_coordinate(
     # say - is written against the "time" dimension, so its coordinate goes there too. The
     # name is therefore not round-tripped, which is a limitation of the data writer rather
     # than of this function.
-    if _time_coordinate_name(variables) is None or "time" not in dims:
+    name = DEFAULT_TIME_DIM
+    if _time_coordinate_name(variables) is None or name not in dims:
+        # A dataset that declares stamps AND CF units plainly wanted a coordinate written, so
+        # failing to place one is reported rather than returned from quietly - the three
+        # warnings below all sit past this point, which left the most likely way to lose the
+        # stamps as the one path that said nothing (round 2 review H4).
+        if any(
+            var.has_time
+            and var.attributes.get("time_values") is not None
+            and var.attributes.get(TIME_UNITS_ATTR)
+            for var in variables.values()
+        ):
+            warnings.warn(
+                f"to_file(): the dataset declares CF time units and stamps, but no "
+                f"{name!r} dimension was registered to hang the coordinate on. The mesh and "
+                f"its data are written, but the time axis will read back as positional "
+                f"indices.",
+                UserWarning,
+                stacklevel=2,
+            )
         return
-    name = "time"
     source = next(
         (
             var
@@ -6782,18 +6805,27 @@ def _time_coordinate_name(variables: dict[str, MeshVariable]) -> str | None:
     assuming ``"time"``. A CF coordinate variable is conventionally named after its dimension,
     which is what makes this usable as the array name to open.
 
+    A variable that carries **no** dimension names — which is every variable built through
+    :meth:`UgridDataset.from_arrays` — still reports ``has_time`` and a ``time_index``, so the
+    axis exists and only its name is unknown. Those fall back to ``"time"``, the name the
+    writer registers the dimension under. Returning ``None`` for them meant the whole CF
+    coordinate write was skipped for any dataset a caller built in memory, silently.
+
     Args:
         variables: The data variables already built.
 
     Returns:
-        str | None: The dimension name, or ``None`` when nothing is temporal or the dimension
-        names are unknown (an array-built variable carries none).
+        str | None: The dimension name, or ``None`` when nothing is temporal at all.
     """
+    result = None
     for var in variables.values():
         axis = var.time_index
-        if var.has_time and axis is not None and axis < len(var.dimensions):
-            return var.dimensions[axis]
-    return None
+        if var.has_time and axis is not None:
+            result = (
+                var.dimensions[axis] if axis < len(var.dimensions) else DEFAULT_TIME_DIM
+            )
+            break
+    return result
 
 
 def _decode_time_coordinate(rg: gdal.Group, variables: dict[str, MeshVariable]) -> None:
