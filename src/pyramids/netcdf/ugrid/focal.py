@@ -177,6 +177,7 @@ def focal_mean(
 
     Raises:
         ValueError: ``rings`` is less than 1, or the shapes do not line up.
+        TypeError: ``func`` returned something other than a scalar.
     """
     array, usable = _usable(values, nodata, active, mesh)
     matrix = neighbourhood(mesh, rings) if reach is None else reach
@@ -263,6 +264,7 @@ def focal_apply(
 
     Raises:
         ValueError: ``rings`` is less than 1, or the shapes do not line up.
+        TypeError: ``func`` returned something other than a scalar.
     """
     array, usable = _usable(values, nodata, active, mesh)
     matrix = neighbourhood(mesh, rings) if reach is None else reach

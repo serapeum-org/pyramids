@@ -292,6 +292,12 @@ def where_values(
             [nan, 5.0]
 
             ```
+
+    Raises:
+        ValueError: ``cond``'s shape does not match ``values``. Broadcasting is not
+            attempted, because a condition built against the wrong variable would then
+            mask silently rather than being reported.
+
     """
     array = np.asarray(values)
     mask = np.asarray(cond, dtype=bool)
