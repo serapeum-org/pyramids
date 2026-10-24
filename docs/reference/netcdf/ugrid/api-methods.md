@@ -231,6 +231,25 @@ grouped by category.
 
 ## Temporal Operations
 
+!!! warning "Behaviour change: `time_values` now carries decoded dates"
+
+    For a file whose time variable declares CF `units` (`"<interval> since <origin>"`),
+    `time_values` and `to_dataframe()["time"]` return **decoded stamps** — `numpy.datetime64`
+    for the Gregorian calendar family, `cftime` objects for a model calendar such as
+    `360_day`. They previously returned positional integers for those files.
+
+    ```python
+    # before
+    ds.time_values            # [0, 1]
+    # after
+    ds.time_values            # [datetime64('2001-05-05T00:00:05'), ...]
+    ```
+
+    Code that treated the values as integers (`ds.time_values[0] + 1`, or comparing against
+    `0`) needs updating. A file carrying **no** CF time units is unaffected and still reports
+    positional indices, so the fallback behaviour is unchanged.
+
+
 | Method | Source | Description |
 |--------|--------|-------------|
 | `polyfit(deg, variable_name)` | **(D)** | Per-element polynomial fit along time (trend map) |
