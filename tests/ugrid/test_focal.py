@@ -57,8 +57,9 @@ class TestNeighbourhood:
         assert reach[1].tolist() == [1, 1, 1, 1]
 
     def test_rings_below_one_is_refused(self):
+        mesh = _strip([0.0] * 4).mesh
         with pytest.raises(ValueError, match="at least 1"):
-            neighbourhood(_strip([0.0] * 4).mesh, 0)
+            neighbourhood(mesh, 0)
 
 
 class TestFocalMean:

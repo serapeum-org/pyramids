@@ -447,10 +447,11 @@ class TestWriteFailuresAlsoWarn:
             def CreateMDArray(self, *_args):  # noqa: N802 - matches GDAL's method name
                 raise RuntimeError("String match to name in use")
 
+        group = RefusingGroup()
+        dims = {"time": object()}
+        variables = self._variables()
         with pytest.warns(UserWarning, match="could not create"):
-            ugrid_dataset._write_time_coordinate(
-                RefusingGroup(), {"time": object()}, self._variables()
-            )
+            ugrid_dataset._write_time_coordinate(group, dims, variables)
 
     def test_a_refused_write_warns(self, monkeypatch):
         """The `array.Write` path, where the driver takes the array then refuses the data.
@@ -472,10 +473,11 @@ class TestWriteFailuresAlsoWarn:
         monkeypatch.setattr(
             ugrid_dataset, "write_attributes_to_md_array", lambda *_a, **_k: None
         )
+        group = object()
+        dims = {"time": object()}
+        variables = self._variables()
         with pytest.warns(UserWarning, match="refused the time coordinate write"):
-            ugrid_dataset._write_time_coordinate(
-                object(), {"time": object()}, self._variables()
-            )
+            ugrid_dataset._write_time_coordinate(group, dims, variables)
 
 
 class TestRoundTripWithoutHandSetDimensions:
@@ -534,7 +536,8 @@ class TestRoundTripWithoutHandSetDimensions:
         from pyramids.netcdf.ugrid import dataset as ugrid_dataset
 
         variables = self._from_arrays_with_stamps()._data_variables
+        group = object()
+        # No "time" dimension registered, so the coordinate cannot be placed - which is
+        # exactly the state that used to return silently.
         with pytest.warns(UserWarning, match="no 'time' dimension was registered"):
-            # No "time" dimension registered, so the coordinate cannot be placed - which is
-            # exactly the state that used to return silently.
-            ugrid_dataset._write_time_coordinate(object(), {}, variables)
+            ugrid_dataset._write_time_coordinate(group, {}, variables)
