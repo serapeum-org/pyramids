@@ -579,6 +579,8 @@ class TestDispatch:
         """
 
         class Explodes(GoodDriver):
+            suffixes = (".geojson",)
+
             @classmethod
             def can_open(cls, source):
                 raise RuntimeError("bad can_open")
@@ -591,6 +593,28 @@ class TestDispatch:
         assert any(
             "raised from can_open" in str(record.message) for record in caught
         ), "expected the skipped-can_open RuntimeWarning"
+
+    def test_can_open_is_not_called_for_a_non_matching_suffix(self, registered):
+        """The scan pre-filters by suffix/scheme, so can_open runs only for a plausible driver.
+
+        Test scenario:
+            A ``.cityjson``-only driver whose can_open would claim anything is installed, and a
+            ``.geojson`` is read. The suffix pre-filter means can_open is never consulted, so OGR
+            reads the file and every feature comes back — one slow/over-broad plugin cannot tax or
+            hijack an unrelated read.
+        """
+        calls = []
+
+        class Nosy(GoodDriver):
+            @classmethod
+            def can_open(cls, source):
+                calls.append(source)
+                return True
+
+        registered(Nosy)
+        fc = FeatureCollection.read_file(str(GAUGES))
+        assert len(fc) == GAUGES_FEATURES, "an unmatched-suffix source must reach OGR"
+        assert calls == [], f"can_open must not run for a non-matching suffix, got {calls}"
 
     def test_the_scan_does_not_instantiate_a_non_claiming_driver(self, registered):
         """can_open is a classmethod; only the chosen driver is ever constructed."""

@@ -595,14 +595,82 @@ def resolve_driver(name: str) -> type[VectorDriver]:
     return selected
 
 
+def _source_tokens(source: Any) -> set[str]:
+    """The URL scheme and file suffix of ``source``, lowercased, for the scan's pre-filter.
+
+    The scan keys off the **final path component's last suffix** and the **leading URL scheme**
+    only — not a VSI chain's inner scheme, not a compound suffix (``foo.tar.gz`` → ``.gz``). A
+    ``?query`` or ``#fragment`` is stripped first, a trailing slash is ignored, and a
+    leading-dot-only name (a dotfile like ``.bashrc``) has no suffix.
+
+    Args:
+        source: The source passed to :meth:`FeatureCollection.read_file`.
+
+    Returns:
+        The non-empty members of ``{scheme, suffix}`` — ``scheme`` without ``://`` (e.g. ``"https"``)
+        and ``suffix`` dot-prefixed (e.g. ``".cityjson"``), matching the ``suffixes`` / ``schemes``
+        spellings.
+
+    Examples:
+        - A URL contributes both its scheme and its suffix:
+            ```python
+            >>> from pyramids.feature._drivers import _source_tokens
+            >>> sorted(_source_tokens("https://host/city.cityjson"))
+            ['.cityjson', 'https']
+
+            ```
+        - A bare name with neither suffix nor scheme yields nothing:
+            ```python
+            >>> from pyramids.feature._drivers import _source_tokens
+            >>> _source_tokens("no-suffix-no-scheme")
+            set()
+
+            ```
+    """
+    text = str(source)
+    scheme = text.split("://", 1)[0].lower() if "://" in text else ""
+    path_part = text.split("://", 1)[-1].split("?", 1)[0].split("#", 1)[0]
+    name = path_part.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    head, dot, ext = name.rpartition(".")
+    suffix = f".{ext.lower()}" if dot and head and ext else ""
+    return {token for token in (scheme, suffix) if token}
+
+
+def _declared_tokens(candidate: type[VectorDriver]) -> set[str]:
+    """A driver's declared suffix/scheme tokens, lowercased; empty for a malformed declaration.
+
+    Never raises. It accepts only string members of ``suffixes`` / ``schemes`` so a driver injected
+    directly into the registry (as the tests do) with a junk member cannot crash the scan.
+
+    Args:
+        candidate: A registered driver class.
+
+    Returns:
+        set[str]: The lowercased suffix and scheme tokens the driver declares.
+    """
+    return {
+        token.lower()
+        for token in (*candidate.suffixes, *candidate.schemes)
+        if isinstance(token, str)
+    }
+
+
 def select_driver(source: Any, driver: str | None = None) -> type[VectorDriver] | None:
     """Pick the driver class for a source, honouring an explicit ``driver=``.
 
     Dispatch order matches :meth:`FeatureCollection.read_file`: an explicit ``driver`` name wins (via
-    :func:`resolve_driver`); otherwise the first registered driver whose
-    :meth:`VectorDriver.can_open` claims the source; otherwise ``None`` (the caller falls back to the
-    built-in geopandas/pyogrio reader). A ``can_open`` that raises is treated as "does not claim"
-    and warned about, so one broken driver cannot block the scan.
+    :func:`resolve_driver`); otherwise the first registered driver that **both** declares the
+    source's suffix or scheme **and** whose :meth:`VectorDriver.can_open` then claims it; otherwise
+    ``None`` (the caller falls back to the built-in geopandas/pyogrio reader).
+
+    The cheap suffix/scheme pre-filter runs before ``can_open``, so a plugin's ``can_open`` is only
+    consulted for a source it could plausibly match — a ``.cityjson`` driver is never invoked for a
+    ``.shp`` read. This bounds the per-read cost once a plugin is installed and keeps one slow or
+    over-broad ``can_open`` from taxing or hijacking unrelated reads (the same gate the raster hook's
+    pre-empt scan applies). It preserves content-sniffing: a driver declaring ``.json`` is still
+    consulted for a ``.json`` source and reads bytes inside ``can_open`` to decide. A ``can_open``
+    that raises is treated as "does not claim" and warned about, so one broken driver cannot block
+    the scan.
 
     Args:
         source: The source passed to :meth:`FeatureCollection.read_file`.
@@ -615,7 +683,7 @@ def select_driver(source: Any, driver: str | None = None) -> type[VectorDriver] 
         DriverNotExistError: ``driver`` names a driver that is not registered.
 
     Examples:
-        - The first driver whose `can_open` claims the source wins; an unclaimed source yields None:
+        - A driver is chosen only when its declared suffix matches and ``can_open`` then confirms:
             ```python
             >>> from pyramids.feature import _drivers
             >>> class CityJSON:
@@ -636,8 +704,15 @@ def select_driver(source: Any, driver: str | None = None) -> type[VectorDriver] 
     if driver is not None:
         return resolve_driver(driver)
     installed = vector_drivers()
+    if not installed:
+        return None
+    tokens = _source_tokens(source)
+    if not tokens:
+        return None
     result: type[VectorDriver] | None = None
     for candidate in installed.values():
+        if not tokens & _declared_tokens(candidate):
+            continue
         try:
             claims = bool(candidate.can_open(source))
         except Exception as error:  # noqa: BLE001 - a plugin may fail in any way at all
