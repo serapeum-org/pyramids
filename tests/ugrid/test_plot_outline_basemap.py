@@ -9,9 +9,14 @@ visual in most mesh notebooks, which is exactly where a backdrop is wanted.
 is requested, with the right CRS and provider), not that tiles are fetched over the network.
 """
 
-import matplotlib
 import numpy as np
 import pytest
+
+# matplotlib ships only with the [viz]/plot extra; the core wheel test env has no
+# plotting stack. Import it through importorskip so this plot-marked module SKIPS at
+# collection there instead of raising ModuleNotFoundError (collection runs before the
+# `-m "core and not vfs and not slow"` deselection).
+matplotlib = pytest.importorskip("matplotlib")
 
 matplotlib.use("Agg")
 
