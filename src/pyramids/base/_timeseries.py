@@ -58,11 +58,14 @@ def numeric_coordinate(values: Any) -> np.typing.NDArray:
         np.ndarray: A 1-D float64 coordinate.
 
     Raises:
-        ValueError: The coordinate cannot be read as numbers or datetimes.
+        ValueError: The coordinate cannot be read as numbers or datetimes, or it mixes
+            calendars that have no common scale.
     """
     array = np.asarray(values)
     if np.issubdtype(array.dtype, np.datetime64):
-        deltas = array - array[0]
+        # `.flat[0]` rather than `[0]`, matching the cftime branch below: a coordinate handed
+        # in as a 2-D array would otherwise subtract a whole row here and a single stamp there.
+        deltas = array - array.flat[0]
         return np.asarray(
             deltas.astype("timedelta64[ns]").astype("float64") / 1e9, dtype="float64"
         )
@@ -74,10 +77,22 @@ def numeric_coordinate(values: Any) -> np.typing.NDArray:
             # by type. cftime's own subtraction is calendar-correct for every calendar and
             # needs no units string.
             origin = array.flat[0]
-            return np.asarray(
-                [(stamp - origin).total_seconds() for stamp in array.flat],
-                dtype="float64",
-            ).reshape(array.shape)
+            try:
+                elapsed = [(stamp - origin).total_seconds() for stamp in array.flat]
+            except TypeError as error:
+                # cftime refuses to subtract two dates on different calendars, and says so in
+                # its own terms. A mixed-calendar axis is reachable from this branch -
+                # `convert_calendar` produces one calendar and `concat` can bring another - so
+                # the message names what to do about it.
+                calendars = sorted(
+                    {getattr(stamp, "calendar", "?") for stamp in array.flat}
+                )
+                raise ValueError(
+                    f"coordinate: the time axis mixes calendars {calendars}, which have no "
+                    f"common scale to measure elapsed time on. Put both on one calendar with "
+                    f"convert_calendar() first."
+                ) from error
+            return np.asarray(elapsed, dtype="float64").reshape(array.shape)
         # A list of datetimes arrives as object dtype; let numpy try the datetime reading
         # first, then fall back to plain numbers.
         try:
@@ -135,15 +150,20 @@ def polyfit_axis(
     usable = np.isfinite(flat)
     out = np.full((deg + 1, flat.shape[1]), np.nan, dtype="float64")
     whole = usable.all(axis=0)
-    if whole.any():
-        out[:, whole] = np.polyfit(x, flat[:, whole], deg)
-    for column in np.flatnonzero(~whole):
-        rows = usable[:, column]
-        if rows.sum() < deg + 1:
-            # Fewer points than the polynomial has coefficients: no fit is defined, so this
-            # element stays NaN rather than returning an arbitrary one.
-            continue
-        out[:, column] = np.polyfit(x[rows], flat[rows, column], deg)
+    with warnings.catch_warnings():
+        # numpy warns when a fit is rank-deficient ("Polyfit may be poorly conditioned"). The
+        # coefficients it returns are still the least-squares answer, and every other function
+        # in this module keeps its arithmetic warnings to itself, so this one does too.
+        warnings.simplefilter("ignore", np.exceptions.RankWarning)
+        if whole.any():
+            out[:, whole] = np.polyfit(x, flat[:, whole], deg)
+        for column in np.flatnonzero(~whole):
+            rows = usable[:, column]
+            if rows.sum() < deg + 1:
+                # Fewer points than the polynomial has coefficients: no fit is defined, so
+                # this element stays NaN rather than returning an arbitrary one.
+                continue
+            out[:, column] = np.polyfit(x[rows], flat[rows, column], deg)
     return np.moveaxis(out.reshape((deg + 1, *array.shape[1:])), 0, axis)
 
 
@@ -190,7 +210,26 @@ def curvefit_axis(
             inspect.Parameter.POSITIONAL_ONLY,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
         )
-        parameters = list(inspect.signature(func).parameters.values())
+        if isinstance(func, np.ufunc):
+            # A ufunc DOES expose a signature, but it is the ufunc machinery's - `out`,
+            # `where`, `casting`, ... - so counting it gave `np.add` two "fitted" parameters
+            # and an all-NaN result with no diagnostic. A ufunc has no free parameters to fit
+            # at all, so there is nothing to infer.
+            raise ValueError(
+                f"curvefit: {getattr(func, '__name__', func)!r} is a numpy ufunc, whose "
+                f"signature describes numpy's own keywords rather than parameters to fit. "
+                f"Pass a model function of the form f(x, *params), with p0 if its parameter "
+                f"count cannot be read from its signature."
+            )
+        try:
+            parameters = list(inspect.signature(func).parameters.values())
+        except (TypeError, ValueError) as error:
+            # Many C callables expose no signature at all, so the count cannot be inferred.
+            raise ValueError(
+                f"curvefit: cannot read the signature of "
+                f"{getattr(func, '__name__', func)!r} to tell how many parameters it fits. "
+                f"Pass p0 with one starting value per parameter."
+            ) from error
         fitted = [p for p in parameters[1:] if p.kind in kinds]
         variadic = any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in parameters)
         if variadic or not fitted:

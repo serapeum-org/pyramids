@@ -8,6 +8,8 @@ coordinate normalisation, and the ``axis`` handling that a mesh dataset never ex
 its time axis is always leading.
 """
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -514,3 +516,62 @@ class TestCoarsenAllMissingBlocks:
             if "empty slice" in str(w.message) or "All-NaN" in str(w.message)
         ]
         assert not slice_warnings, f"{how} leaked {len(slice_warnings)} warning(s)"
+
+
+class TestCoordinateEdgeCases:
+    """Coordinates the branch itself makes reachable (round 2 M9, L6, L7, L9)."""
+
+    def test_a_mixed_calendar_axis_is_refused_with_a_message(self):
+        """cftime refuses to subtract across calendars and says so in its own terms. The axis
+        is reachable - `convert_calendar` produces one calendar, `concat` can bring another."""
+        import cftime
+
+        stamps = [
+            cftime.datetime(2001, 1, 1, calendar="standard"),
+            cftime.datetime(2001, 1, 2, calendar="noleap"),
+        ]
+        with pytest.raises(ValueError, match="mixes calendars"):
+            numeric_coordinate(stamps)
+
+    def test_the_message_names_both_calendars_and_the_remedy(self):
+        import cftime
+
+        stamps = [
+            cftime.datetime(2001, 1, 1, calendar="360_day"),
+            cftime.datetime(2001, 1, 2, calendar="noleap"),
+        ]
+        with pytest.raises(ValueError, match="convert_calendar") as info:
+            numeric_coordinate(stamps)
+        assert "360_day" in str(info.value) and "noleap" in str(info.value)
+
+    def test_a_ufunc_model_is_refused(self):
+        """A ufunc exposes a signature, but it is numpy's own keywords (`out`, `where`, ...),
+        so counting it gave `np.add` two "fitted" parameters and an all-NaN result."""
+        with pytest.raises(ValueError, match="is a numpy ufunc"):
+            curvefit_axis(np.array([[1.0], [2.0], [3.0]]), [0.0, 1.0, 2.0], np.add)
+
+    def test_a_real_model_is_unaffected_by_the_ufunc_check(self):
+        fitted = curvefit_axis(
+            np.array([[1.0], [3.0], [5.0]]), [0.0, 1.0, 2.0], lambda x, m, c: m * x + c
+        )
+        assert fitted[:, 0].tolist() == pytest.approx([2.0, 1.0], rel=1e-6)
+
+    def test_a_rank_deficient_fit_does_not_leak_numpys_warning(self):
+        """Every other function here keeps its arithmetic warnings to itself; polyfit let
+        numpy's RankWarning through."""
+        values = np.array([[1.0], [2.0], [3.0], [4.0]])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", np.exceptions.RankWarning)
+            polyfit_axis(values, [0.0, 1.0, 2.0, 3.0], 3)
+
+    def test_a_two_dimensional_datetime_coordinate_reads_its_first_stamp(self):
+        """The datetime64 branch used `array[0]`, which on a 2-D coordinate subtracts a whole
+        row, while the cftime branch used `array.flat[0]`. They now agree."""
+        stamps = np.array(
+            [["2001-01-01", "2001-01-02"], ["2001-01-03", "2001-01-04"]],
+            dtype="datetime64[ns]",
+        )
+        result = numeric_coordinate(stamps)
+        assert result.shape == (2, 2)
+        assert result.flat[0] == 0.0, "measured from the first stamp"
+        assert result.flat[1] == pytest.approx(86400.0)

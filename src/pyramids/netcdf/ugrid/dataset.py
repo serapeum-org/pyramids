@@ -6477,6 +6477,18 @@ def _variable_time_coord(var: MeshVariable) -> list:
     if stamps is not None and len(stamps) == var.n_time_steps:
         result = list(stamps)
     else:
+        if stamps is not None:
+            # Falling back is not a missing answer but a differently scaled one: a derivative
+            # comes out per step instead of per second, which is the same number of orders of
+            # magnitude wrong as the interval. Silence would make that undetectable.
+            warnings.warn(
+                f"{var.name!r} stores {len(stamps)} time stamp(s) for "
+                f"{var.n_time_steps} step(s), so they cannot be trusted as the coordinate. "
+                f"Falling back to step positions, which means rates come out per step rather "
+                f"than per second.",
+                UserWarning,
+                stacklevel=3,
+            )
         result = list(range(var.n_time_steps))
     return result
 
