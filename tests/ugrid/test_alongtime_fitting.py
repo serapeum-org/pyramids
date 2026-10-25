@@ -649,3 +649,97 @@ class TestUnknownVariableMessageParity:
         message = str(info.value)
         assert "is not a data variable" in message, message
         assert "['v']" in message, f"the available names are not listed: {message}"
+
+
+class TestDerivedResultsDeclareNoSourceSentinel:
+    """A derived quantity must not inherit the input's sentinel (round 2 M2).
+
+    `cluster` was fixed in round 1 on the stated ground that "a sentinel that IS representable
+    but describes the input, not the answer" must not be carried onto a different quantity.
+    The along-time members build their results without going through `_rewrap` and kept it -
+    `rank` most visibly, writing NaN for the gaps while still declaring `_FillValue = -9999`,
+    so `to_file` stamped a marker the data does not use.
+    """
+
+    @staticmethod
+    def _with_sentinel():
+        ds = UgridDataset.from_arrays(
+            node_x=_NODE_X,
+            node_y=_NODE_Y,
+            face_node_connectivity=_FACES,
+            data={"d": np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])},
+            data_locations={"d": "face"},
+        )
+        ds["d"].nodata = -9999.0
+        return ds
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda ds: ds.polyfit(1),
+            lambda ds: ds.curvefit(lambda x, m, c: m * x + c),
+            lambda ds: ds.rank(),
+            lambda ds: ds.differentiate(),
+            lambda ds: ds.cumulative_integrate(),
+            lambda ds: ds.integrate(),
+        ],
+        ids=["polyfit", "curvefit", "rank", "differentiate", "cumulative", "integrate"],
+    )
+    def test_the_result_declares_no_nodata(self, call):
+        """Args:
+        call: The member whose result is a different quantity from its input.
+        """
+        result = call(self._with_sentinel())["d"]
+        assert result.nodata is None, f"carried the source sentinel: {result.nodata}"
+
+    def test_the_source_is_untouched(self):
+        ds = self._with_sentinel()
+        ds.rank()
+        assert ds["d"].nodata == -9999.0
+
+    def test_convert_units_keeps_the_sentinel(self):
+        """The legitimate exception: the values stay the same quantity, just rescaled, and
+        the sentinel is deliberately preserved there."""
+        ds = self._with_sentinel()
+        ds["d"].units = "K"
+        assert ds.convert_units("celsius")["d"].nodata == -9999.0
+
+
+class TestStaticMaskSurvivesInterpolation:
+    """A static element mask is unaffected by re-stamping the axis (round 2 M3).
+
+    Round 1 changed `integrate` from `active=None` to the implicit carry, and gave `coarsen`
+    the same treatment, on the ground that a static mask describes the elements rather than
+    the steps. The two interpolation members were left dropping it.
+    """
+
+    @staticmethod
+    def _masked():
+        ds = UgridDataset.from_arrays(
+            node_x=_NODE_X,
+            node_y=_NODE_Y,
+            face_node_connectivity=_FACES,
+            data={"d": np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])},
+            data_locations={"d": "face"},
+        )
+        ds["d"].active = np.array([True, False], dtype=bool)
+        return ds
+
+    def test_interp_like_keeps_a_static_mask(self):
+        ds = self._masked()
+        assert ds.interp_like(ds)["d"].active is not None
+        assert ds.interp_like(ds)["d"].active.tolist() == [True, False]
+
+    def test_it_agrees_with_integrate_and_coarsen(self):
+        """All three time-axis members must treat a static mask the same way."""
+        ds = self._masked()
+        for result in (ds.interp_like(ds), ds.integrate(), ds.coarsen(2)):
+            assert result["d"].active is not None, "a static mask was dropped"
+
+    def test_a_per_step_mask_is_still_dropped_by_interp_like(self):
+        """It cannot follow an axis that was re-stamped to a different length."""
+        ds = self._masked()
+        ds["d"].active = np.array(
+            [[True, True], [False, False], [True, True]], dtype=bool
+        )
+        assert ds.interp_like(ds)["d"].active is None

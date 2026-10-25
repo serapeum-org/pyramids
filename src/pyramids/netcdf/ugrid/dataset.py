@@ -4156,7 +4156,11 @@ class UgridDataset(_UgridFacades):
                 mesh_name=var.mesh_name,
                 shape=fitted.shape,
                 attributes=attributes,
-                nodata=var.nodata,
+                # Coefficients are a different quantity from the values they were fitted to,
+                # so the source's sentinel describes nothing here - and the kernels mark a
+                # missing result with NaN, so declaring `-9999` would claim a marker the data
+                # does not use. Same reasoning as `_rewrap(keep_nodata=False)`.
+                nodata=None,
                 units=var.units,
                 standard_name=var.standard_name,
                 dimensions=dims,
@@ -4293,9 +4297,14 @@ class UgridDataset(_UgridFacades):
                 raise ValueError(
                     f"Variable {name!r} has no loaded data for {operation}."
                 )
-            new_vars[name] = var.with_data(
+            transformed = var.with_data(
                 kernel(np.asarray(data), axis, var.nodata, _variable_time_coord(var))
             )
+            # A rate, a running total or a rank is not the input quantity: the kernels write
+            # NaN where the value was missing, so carrying the input's sentinel would declare
+            # a marker the result never uses.
+            transformed.nodata = None
+            new_vars[name] = transformed
         return self._rebuild(new_vars)
 
     def integrate(self, variable_name: str | None = None) -> UgridDataset:
@@ -4339,6 +4348,9 @@ class UgridDataset(_UgridFacades):
             # Passing `active=None` here force-dropped both.
             collapsed = _static_from(var, total, axis)
             collapsed.attributes = _without_time_metadata(collapsed.attributes)
+            # The total is in value-seconds, not the input's units, so the input's sentinel
+            # does not describe it.
+            collapsed.nodata = None
             new_vars[name] = collapsed
         return self._rebuild(new_vars)
 
@@ -4456,7 +4468,10 @@ class UgridDataset(_UgridFacades):
                 _timeseries.interp_axis(
                     np.asarray(data), source_scale, target_scale, axis
                 ),
-                active=None,
+                # A static mask describes the elements, not the steps, so re-stamping the time
+                # axis leaves it valid; only a per-step mask cannot follow. This is the same
+                # carry `integrate` and `coarsen` use.
+                active=None if var.active_has_time else _KEEP_ACTIVE,
             )
             attributes = {**var.attributes, "time_values": list(target)}
             if target_units is None:
@@ -4679,7 +4694,8 @@ class UgridDataset(_UgridFacades):
                 _timeseries.interp_axis(
                     np.asarray(data), source_years, target_years, axis
                 ),
-                active=None,
+                # As in `interp_like`: a static element mask is unaffected by re-stamping.
+                active=None if var.active_has_time else _KEEP_ACTIVE,
             )
             moved.attributes = {
                 **var.attributes,
