@@ -14,11 +14,13 @@ it did before this module existed. It mirrors the raster-driver hook
 and a driver whose backend is absent is never offered — with **one deliberate difference**:
 
 - **A claiming vector driver pre-empts OGR, rather than being a post-failure fallback.** The raster
-  hook tries GDAL first and only consults a driver when GDAL *fails*, because GDAL fails cleanly on
-  a source it cannot read. OGR does not: it will happily open a CityJSON ``.json`` with its GeoJSON
+  hook defaults to GDAL-first — it consults a driver as a fallback only when GDAL *fails*, with
+  pre-emption opt-in per suffix via a ``preempts`` attribute — because GDAL fails cleanly on a
+  source it cannot read. OGR does not: it will happily open a CityJSON ``.json`` with its GeoJSON
   driver and return the wrong geometry. So a "try OGR, then fall back" order is unsafe for vector
-  data; instead a registered driver whose :meth:`VectorDriver.can_open` claims the source wins
-  **before** the geopandas/pyogrio path is tried. A cheap suffix/scheme pre-filter runs first, so a
+  data, and vector pre-emption is not opt-in — it applies to *any* claiming driver: a registered
+  driver whose :meth:`VectorDriver.can_open` claims the source wins **before** the geopandas/pyogrio
+  path is tried. A cheap suffix/scheme pre-filter runs first, so a
   plugin's ``can_open`` is consulted only for a read whose suffix or scheme the driver declares (a
   ``.cityjson`` driver is never asked about a ``.shp``); it should still be cheap and specific,
   content-sniffing only once the suffix already matches.
@@ -581,10 +583,10 @@ def resolve_driver(name: str) -> type[VectorDriver]:
             >>> _drivers._CACHE = {"cityjson": CityJSON}
             >>> _drivers.resolve_driver("cityjson").long_name
             'CityJSON'
-            >>> _drivers.resolve_driver("nope")
+            >>> _drivers.resolve_driver("nope")  # doctest: +ELLIPSIS
             Traceback (most recent call last):
                 ...
-            pyramids.base._errors.DriverNotExistError: No vector driver named 'nope' is registered. Installed: ['cityjson'].
+            pyramids.base._errors.DriverNotExistError: No vector driver named 'nope' is registered...
             >>> _drivers.clear_driver_cache()
 
             ```

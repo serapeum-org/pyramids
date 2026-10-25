@@ -856,12 +856,12 @@ def read_file(
         raise ValueError(f"backend must be 'pandas' or 'dask', got {backend!r}")
     # Let a registered third-party vector driver (the ``pyramids.vector_drivers`` entry-point
     # group) claim the source before the built-in geopandas/pyogrio OGR path. Unlike the raster
-    # hook's GDAL-first order, a claiming vector driver pre-empts OGR: OGR would otherwise silently
-    # mis-read a look-alike (a CityJSON ``.json`` handed to its GeoJSON driver), so "try OGR then
-    # fall back" is unsafe here. A bare install registers nothing, so ``vector_drivers()`` is an
-    # empty cached mapping and the scan is skipped; ``select_driver`` resolves an explicit
-    # ``driver=`` by name, or scans ``can_open`` when none was given, or returns ``None`` to fall
-    # through to OGR.
+    # hook's default GDAL-first order (its pre-emption is opt-in per suffix via ``preempts``), a
+    # claiming vector driver always pre-empts OGR: OGR would otherwise silently mis-read a look-alike
+    # (a CityJSON ``.json`` handed to its GeoJSON driver), so "try OGR then fall back" is unsafe
+    # here. A bare install registers nothing, so ``vector_drivers()`` is an empty cached mapping and
+    # the scan is skipped; ``select_driver`` resolves an explicit ``driver=`` by name, or scans
+    # ``can_open`` when none was given, or returns ``None`` to fall through to OGR.
     selected = None
     if driver is not None or vector_drivers():
         selected = select_driver(str(path), driver)

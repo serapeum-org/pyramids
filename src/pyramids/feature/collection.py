@@ -922,13 +922,14 @@ class FeatureCollection(GeoDataFrame):
                 CityJSON reader shipped by a plugin). `None` (the
                 default) lets a registered driver claim the source by
                 content, else falls back to the built-in
-                geopandas/pyogrio OGR reader. A bare install (no
-                plugins) ignores this and always uses OGR. A
-                driver-selected read (an explicit `driver=` or a
-                plugin `can_open` claim) always returns an eager
-                `FeatureCollection`: `backend="dask"` is rejected for
-                it with a `ValueError`, and `npartitions` / `chunksize`
-                do not apply.
+                geopandas/pyogrio OGR reader. With no plugins
+                installed, `driver=None` always uses OGR; passing an
+                explicit `driver=` name that is not registered raises
+                `DriverNotExistError`. A driver-selected read (an
+                explicit `driver=` or a plugin `can_open` claim) always
+                returns an eager `FeatureCollection`: `backend="dask"`
+                is rejected for it with a `ValueError`, and
+                `npartitions` / `chunksize` do not apply.
             **kwargs:
                 Forwarded to :func:`geopandas.read_file` verbatim for
                 engine-specific options (`engine="pyogrio"`,
