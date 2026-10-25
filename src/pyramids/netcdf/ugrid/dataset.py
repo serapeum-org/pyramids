@@ -7540,7 +7540,7 @@ def _netcdf_fallback_driver(
 
 
 def _resolve_read_driver(
-    path: str | Path, driver: str | None
+    path: str | Path, driver: str | None, expected: str = "UgridDataset"
 ) -> tuple[MeshDriver | None, bool]:
     """Decide which reader opens a file.
 
@@ -7552,6 +7552,12 @@ def _resolve_read_driver(
     Args:
         path: The file to read.
         driver: An explicitly requested driver name, or ``None`` to detect.
+        expected: The class the calling entry point returns, forwarded to
+            :func:`_needs_mesh_error`. Defaults to ``"UgridDataset"``. A
+            :class:`Network1d` caller reaches this function for every non-NetCDF suffix,
+            which is the route the ``needs_mesh`` formats actually use -- an SMS ``.dat``,
+            an XMDF or an XDMF -- so without it the advice named an ``attach_data`` that
+            :class:`Network1d` does not have.
 
     Returns:
         ``(driver, native)``. ``driver`` is the driver to use, or ``None`` for the built-in
@@ -7573,7 +7579,7 @@ def _resolve_read_driver(
         selected, native = _detected_read_driver(target)
 
     if selected is not None and "needs_mesh" in selected.capabilities:
-        raise _needs_mesh_error(selected, target)
+        raise _needs_mesh_error(selected, target, expected)
     return selected, native
 
 

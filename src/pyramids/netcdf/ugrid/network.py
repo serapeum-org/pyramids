@@ -297,7 +297,7 @@ class Network1d:
                 f"declares. Read {path} with UgridDataset.read_file to get that mesh, or "
                 f"name a plugin driver that reads this file as a 1D network."
             )
-        selected, _native = _resolve_read_driver(path, driver)
+        selected, _native = _resolve_read_driver(path, driver, "Network1d")
         if selected is None:
             # A NetCDF suffix short-circuits ahead of driver discovery inside
             # `_detected_read_driver`, so a `.nc` network never reached the driver able to read

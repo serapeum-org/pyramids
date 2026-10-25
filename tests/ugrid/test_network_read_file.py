@@ -379,3 +379,45 @@ class TestResultsOnlyDriver:
             f"the UgridDataset recipe must not be offered to a network caller, "
             f"got:\n{message}"
         )
+
+    @pytest.mark.parametrize(
+        ("suffix", "filename"),
+        [(".nc", "values.nc"), (".dat", "values.dat")],
+        ids=["netcdf-arm", "non-netcdf-arm"],
+    )
+    def test_the_advice_is_right_on_both_resolution_arms(
+        self, tmp_path, registered, suffix, filename
+    ):
+        """Both routes to the `needs_mesh` refusal must know the caller's class (M2).
+
+        Test scenario:
+            Round 1 threaded `expected` through `_netcdf_fallback_driver` only. A
+            `Network1d` caller reaches `_resolve_read_driver` first, and for a non-NetCDF
+            suffix that is the route the refusal comes from -- the fallback returns early.
+            The `needs_mesh` formats `_drivers.py` itself names are an SMS `.dat`, an XMDF
+            and an XDMF, none of which is NetCDF, so the unpatched arm was the principal
+            one.
+        """
+
+        class ResultsOnly(NetworkNetcdfDriver):
+            """Carries values but no topology."""
+
+            name = "results_only"
+            long_name = "Results-only (fake)"
+            suffixes = (suffix,)
+            capabilities = frozenset({"needs_mesh", "read_data"})
+
+        registered(ResultsOnly())
+        target = tmp_path / filename
+        target.write_bytes(b"")
+        with pytest.raises(UnsupportedMeshFormatError) as caught:
+            Network1d.read_file(target)
+        message = str(caught.value)
+        assert "no attach_data" in message, (
+            f"the {suffix} arm must say why the usual recipe does not apply; got:"
+            f"\n{message}"
+        )
+        assert "mesh.attach_data" not in message, (
+            f"the UgridDataset recipe must not reach a network caller on the {suffix} "
+            f"arm; got:\n{message}"
+        )
