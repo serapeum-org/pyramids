@@ -28,7 +28,12 @@ from pyproj import CRS as PyProjCRS
 from scipy.spatial import cKDTree
 from shapely.geometry import LineString
 
-from pyramids.netcdf.ugrid._drivers import UnsupportedMeshFormatError, mesh_drivers
+from pyramids.netcdf.ugrid._drivers import (
+    NETCDF_SUFFIXES,
+    UnsupportedMeshFormatError,
+    drivers_for_suffix,
+    mesh_drivers,
+)
 from pyramids.netcdf.ugrid.connectivity import Connectivity
 from pyramids.netcdf.ugrid.dataset import (
     _netcdf_fallback_driver,
@@ -40,30 +45,62 @@ from pyramids.netcdf.ugrid.dataset import (
 def _no_network_driver_message(path: str | Path) -> str:
     """Build the error text for a file no installed driver reads as a 1D network.
 
-    The previous message sent the caller to :meth:`UgridDataset.read_file`, which refuses a
-    network by design and sends them back here -- a loop that named neither the ``driver=``
-    argument nor the drivers actually installed.
+    Three things had to be right here, and the first two versions each got one of them
+    wrong. The original sent the caller to :meth:`UgridDataset.read_file`, which refuses a
+    network by design and sent them straight back -- a loop. Removing that pointer
+    overcorrected: handing a perfectly good surface mesh to the 1D entry point is the most
+    likely mistake, and the only imperative line then told the caller to install a plugin
+    for a format pyramids already reads. And suggesting `driver=` from the installed names
+    sorted alphabetically named a driver with no relation to the file -- possibly a
+    ``needs_mesh`` results-only reader, which :func:`_resolve_read_driver` refuses outright,
+    so following the advice could not work.
+
+    So the suggestion is drawn only from the drivers that claim this suffix and can open a
+    file on their own, the surface-mesh pointer appears only for a NetCDF suffix where that
+    confusion is possible, and "install a plugin" is reserved for a suffix no installed
+    reader claims at all.
 
     Args:
         path: The file that could not be read, named in the message.
 
     Returns:
-        A message naming the installed plugin drivers and the explicit-driver call.
+        A message whose every imperative line is followable for this particular file.
     """
-    installed = sorted(mesh_drivers())
-    available = ", ".join(installed) or "none installed"
-    if installed:
-        hint = f"  Name one explicitly: read_file(path, driver={installed[0]!r})\n"
-    else:
-        hint = "  Install a mesh driver plugin that reads this format.\n"
-    result = (
-        f"No installed driver reads {str(path)!r} as a 1D network.\n"
-        f"  Plugin drivers installed: {available}\n"
-        f"{hint}"
-        "  The built-in UGRID reader is not a route: it builds a 2D mesh whatever "
-        "topology dimension a file declares."
+    suffix = Path(path).suffix.lower()
+    # A `needs_mesh` driver carries values but no topology, so naming it would hit
+    # `_resolve_read_driver`'s attach_data refusal -- one dead end traded for another.
+    claiming = sorted(
+        driver.name
+        for driver in drivers_for_suffix(suffix)
+        if "needs_mesh" not in driver.capabilities
     )
-    return result
+    # The path is interpolated bare rather than through `!r`: on Windows the repr doubles
+    # every separator, which is noisy in a message this long.
+    lines = [f"No installed driver reads {path} as a 1D network."]
+    if claiming:
+        lines.append(f"  Drivers claiming {suffix!r}: {', '.join(claiming)}")
+        lines.append(
+            f"  None recognised this file. Force one with "
+            f"read_file(path, driver='{claiming[0]}') if you know it is the right reader."
+        )
+    else:
+        installed = ", ".join(sorted(mesh_drivers())) or "none installed"
+        # "claims" would be false when a `needs_mesh` driver claims the suffix but cannot
+        # open a file by itself, which is exactly the case filtered out above.
+        lines.append(
+            f"  No installed driver opens {suffix!r} on its own. Installed: {installed}"
+        )
+        lines.append("  Install a mesh driver plugin that reads this format.")
+    if suffix in NETCDF_SUFFIXES:
+        lines.append(
+            "  If this file holds a surface mesh rather than a 1D network, read it with "
+            "UgridDataset.read_file."
+        )
+    lines.append(
+        "  The built-in UGRID reader is not a route to a network: it builds a 2D mesh "
+        "whatever topology dimension a file declares."
+    )
+    return "\n".join(lines)
 
 
 class Network1d:

@@ -1628,10 +1628,12 @@ class TestNetwork1dEntryPoint:
         claiming `.nc` first, so this is the case where none is installed.
 
         Test scenario:
-            With no driver registered, a `.nc` path raises `UnsupportedMeshFormatError` that
-            says nothing is installed and asks for a plugin. It must **not** point back at
-            `UgridDataset.read_file`: that call refuses a network by design, so the two
-            messages used to send the caller round in a loop (#1351).
+            With no driver registered, a `.nc` path raises `UnsupportedMeshFormatError`
+            that says nothing claims the suffix and asks for a plugin. It also points at
+            `UgridDataset.read_file` -- but as the answer to "this might be a surface mesh",
+            not as a bare redirect. The loop #1351 reported is broken by
+            `_read_through_driver` naming `driver=`, not by deleting the pointer, and
+            deleting it left the most likely mistake with no correct advice at all.
         """
         registered()
         with pytest.raises(UnsupportedMeshFormatError) as caught:
@@ -1641,8 +1643,12 @@ class TestNetwork1dEntryPoint:
         assert "none installed" in message, (
             f"the message should say no driver is installed, got:\n{message}"
         )
-        assert "UgridDataset.read_file" not in message, (
-            f"the circular pointer must be gone (#1351), got:\n{message}"
+        assert "surface mesh" in message, (
+            f"a .nc is most likely a surface mesh handed to the wrong entry point, so the "
+            f"message must point at UgridDataset.read_file for that case; got:\n{message}"
+        )
+        assert "driver=" not in message, (
+            f"with no driver claiming the suffix there is none to suggest; got:\n{message}"
         )
 
 

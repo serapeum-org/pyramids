@@ -217,12 +217,13 @@ class TestNoDriverMessage:
             Network1d.read_file(netcdf_path)
         message = str(caught.value)
         assert "as a 1D network" in message
-        assert "declines" in message, "the installed drivers must be listed"
+        assert "declines" in message, "a driver claiming the suffix must be listed"
         assert "driver='declines'" in message, (
             f"the message must name the explicit-driver call, got:\n{message}"
         )
-        assert "UgridDataset.read_file" not in message, (
-            "the old message pointed at the call that refuses a network by design"
+        assert "surface mesh" in message, (
+            f"a .nc may well be a surface mesh, and that is the most likely mistake here, "
+            f"so the message must say where to read one; got:\n{message}"
         )
 
     def test_the_message_says_so_when_nothing_is_installed(
@@ -235,6 +236,9 @@ class TestNoDriverMessage:
         message = str(caught.value)
         assert "none installed" in message
         assert "Install a mesh driver plugin" in message
+        assert "driver=" not in message, (
+            f"with nothing claiming the suffix there is no driver to name; got:\n{message}"
+        )
 
     def test_a_missing_file_is_a_missing_file(self, tmp_path, registered):
         """A path that does not exist reports as missing, not as an unsupported format."""
