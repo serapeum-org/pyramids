@@ -160,6 +160,22 @@ class TestRendering:
         _fig, _ax, im = dataset.plot_vector_field("un", "vn")
         assert im.N == 4, f"one arrow per node, got {im.N}"
 
+    def test_colorbar_is_forwarded_when_set(self, velocity):
+        """An explicit `colorbar` reaches cleopatra; `None` leaves its default alone.
+
+        Test scenario:
+            The renderer forwards `colorbar` only when the caller sets it, so cleopatra's own
+            default survives otherwise. Both arms are exercised: the figure drawn with
+            `colorbar=True` carries an extra axes for the bar, the one with `colorbar=False`
+            does not.
+        """
+        with_bar, _ax, _im = velocity.plot_vector_field("ucx", "ucy", colorbar=True)
+        without_bar, _ax, _im = velocity.plot_vector_field("ucx", "ucy", colorbar=False)
+        assert len(with_bar.axes) > len(without_bar.axes), (
+            f"colorbar=True should add an axes: {len(with_bar.axes)} vs "
+            f"{len(without_bar.axes)}"
+        )
+
 
 class TestTimeStep:
     """How a temporal component is reduced to the single step that gets drawn."""

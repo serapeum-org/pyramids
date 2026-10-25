@@ -279,6 +279,47 @@ class TestSort:
         with pytest.raises(ValueError, match="cycle"):
             net.sort()
 
+    def test_the_message_says_so_when_no_node_is_a_candidate(self):
+        """A network whose every node has two or more edges has no outlet to suggest.
+
+        Test scenario:
+            In a ring every node has degree 2, so the degree-1 heuristic finds nothing. The
+            message has to say that rather than print an empty candidate list.
+        """
+        ring = Network1d.from_arrays(
+            np.array([0.0, 1.0, 1.0, 0.0]),
+            np.array([0.0, 0.0, 1.0, 1.0]),
+            np.array([[0, 1], [1, 2], [2, 3], [3, 0]]),
+        )
+        with pytest.raises(ValueError) as caught:
+            ring.sort()
+        message = str(caught.value)
+        assert "No degree-1 node to suggest" in message, (
+            f"a ring has no leaf to offer, got:\n{message}"
+        )
+        assert "two or more edges" in message
+
+    def test_the_candidate_list_is_truncated(self):
+        """A hub with many spokes lists the first candidates and marks the rest elided.
+
+        Test scenario:
+            Ten leaves would make the message a wall of indices, so only the first eight are
+            named and the list ends in an ellipsis.
+        """
+        spokes = 10
+        hub_x = np.concatenate([[0.0], np.arange(1, spokes + 1, dtype="float64")])
+        star = Network1d.from_arrays(
+            hub_x,
+            np.zeros(spokes + 1),
+            np.array([[0, spoke] for spoke in range(1, spokes + 1)]),
+        )
+        with pytest.raises(ValueError) as caught:
+            star.sort()
+        message = str(caught.value)
+        assert "1, 2, 3, 4, 5, 6, 7, 8, ..." in message, (
+            f"eight candidates then an ellipsis, got:\n{message}"
+        )
+
 
 class TestTopologySubset:
     """Edge subsetting with node renumbering."""
