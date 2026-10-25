@@ -184,7 +184,9 @@ class TestValidation:
 
         fake_entry_points(("noread", NoRead))
         with pytest.warns(RuntimeWarning, match="does not implement"):
-            assert vector_drivers() == {}, "a driver missing a promised method must not register"
+            assert vector_drivers() == {}, (
+                "a driver missing a promised method must not register"
+            )
 
     def test_every_capability_token_is_accepted(self, fake_entry_points):
         """A driver may declare every known token (``read`` + the declarative ``needs_auth``).
@@ -249,7 +251,9 @@ class TestValidation:
         with pytest.warns(RuntimeWarning, match="registered twice"):
             drivers = vector_drivers()
         assert list(drivers) == ["cityjson"], "the first registration must win"
-        assert drivers["cityjson"].long_name == "CityJSON", "the kept driver is the first"
+        assert drivers["cityjson"].long_name == "CityJSON", (
+            "the kept driver is the first"
+        )
 
 
 class TestExtraGating:
@@ -300,7 +304,9 @@ class TestExtraGating:
         fake_entry_points(("needs", NeedsChild))
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            assert vector_drivers() == {}, "an unresolvable extra must gate the driver out"
+            assert vector_drivers() == {}, (
+                "an unresolvable extra must gate the driver out"
+            )
 
 
 class TestHelpers:
@@ -561,7 +567,9 @@ class TestDispatch:
         """
         registered(GoodDriver)
         fc = FeatureCollection.read_file(str(GAUGES))
-        assert len(fc) == GAUGES_FEATURES, "an unclaimed source must fall through to OGR"
+        assert len(fc) == GAUGES_FEATURES, (
+            "an unclaimed source must fall through to OGR"
+        )
 
     def test_driver_returning_non_geodataframe_raises_typeerror(self, registered):
         """A driver whose read returns a non-GeoDataFrame is rejected with a clear TypeError."""
@@ -634,7 +642,9 @@ class TestDispatch:
         registered(Nosy)
         fc = FeatureCollection.read_file(str(GAUGES))
         assert len(fc) == GAUGES_FEATURES, "an unmatched-suffix source must reach OGR"
-        assert calls == [], f"can_open must not run for a non-matching suffix, got {calls}"
+        assert calls == [], (
+            f"can_open must not run for a non-matching suffix, got {calls}"
+        )
 
     def test_the_scan_does_not_instantiate_a_non_claiming_driver(self, registered):
         """can_open is a classmethod; only the chosen driver is ever constructed."""
@@ -711,7 +721,9 @@ class TestMalformedDeclaredTokens:
             suffixes = bad
 
         registered(Malformed)
-        assert select_driver("city.cityjson") is None, f"{bad!r} must not claim or raise"
+        assert select_driver("city.cityjson") is None, (
+            f"{bad!r} must not claim or raise"
+        )
 
     def test_a_suffixes_whose_iter_raises_is_tolerated(self, registered):
         """A suffixes object whose ``__iter__``/``__bool__`` raises is rejected before iteration."""
@@ -727,7 +739,9 @@ class TestMalformedDeclaredTokens:
             suffixes = Weird()
 
         registered(Malformed)
-        assert select_driver("city.cityjson") is None, "a raising container must be tolerated"
+        assert select_driver("city.cityjson") is None, (
+            "a raising container must be tolerated"
+        )
 
     def test_a_missing_suffixes_attribute_is_tolerated(self, registered):
         """A driver missing ``suffixes`` entirely contributes only its schemes, without raising."""
@@ -743,4 +757,6 @@ class TestMalformedDeclaredTokens:
                 return True
 
         registered(NoSuffixes)
-        assert select_driver("roads.shp") is None, "a missing suffixes attr must be tolerated"
+        assert select_driver("roads.shp") is None, (
+            "a missing suffixes attr must be tolerated"
+        )
