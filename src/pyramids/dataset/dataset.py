@@ -1342,6 +1342,8 @@ class Dataset(RasterBase):
         interval: int = 200,
         fig: Figure | None = None,
         ax: Axes | None = None,
+        *,
+        backend: str = "matplotlib",
         **kwargs: Any,
     ) -> Any:
         """Animate the raster's bands as successive frames (issue #1380).
@@ -1357,6 +1359,10 @@ class Dataset(RasterBase):
             interval: Milliseconds between frames.
             fig: Existing figure to draw on.
             ax: Existing axes to draw on.
+            backend: Renderer backend. ``"matplotlib"`` (default) animates through cleopatra;
+                any other name routes to a ``pyramids.plot_backends`` plugin (in practice
+                ``digitalearth``) with ``animate=True`` and returns that backend's own object.
+                ``fig`` / ``ax`` do not apply off matplotlib. Requires the backend's package.
             **kwargs: Forwarded to cleopatra's animate path.
 
         Returns:
@@ -1376,6 +1382,15 @@ class Dataset(RasterBase):
             plot: One band, statically.
             NetCDF.animate: Along a cube's own dimension rather than bands.
         """
+        if backend != "matplotlib":
+            forwarded = forward_kwargs(
+                bands=bands,
+                animation_axis_values=animation_axis_values,
+                exclude_value=exclude_value,
+                basemap=basemap,
+                interval=interval,
+            )
+            return render_via_backend(self, backend, animate=True, **forwarded, **kwargs)
         return self.analysis.animate(
             bands=bands,
             animation_axis_values=animation_axis_values,

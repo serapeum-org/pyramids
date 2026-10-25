@@ -38,6 +38,12 @@ from pyramids.base._utils import (
     lazy_extra_hint,
     resolve_resampling,
 )
+from pyramids.base._plot_backends import (
+    forward_kwargs,
+    is_colorbar_spec,
+    reject_mpl_only_params,
+    render_via_backend,
+)
 from pyramids.base.crs import crs_spec, epsg_from_user_input
 from pyramids.base.georeference import GeoReference
 from pyramids.base.remote import (
@@ -3463,6 +3469,7 @@ class DatasetCollection:
         data_style: DataStyle | None = None,
         animation_axis_values: Any = None,
         *,
+        backend: str = "matplotlib",
         fig: Figure | None = None,
         ax: Axes | None = None,
         **kwargs: Unpack[AnimateKwargs],
@@ -3495,6 +3502,16 @@ class DatasetCollection:
             band (int):
                 The band you want to get its data. Default is 0.
                 Ignored when ``rgb`` is set (RGB reads every band).
+            backend (str, optional):
+                Renderer backend. ``"matplotlib"`` (default) draws the animation through
+                cleopatra and returns an ``ArrayGlyph``. Any other name (e.g.
+                ``"interactive"`` / ``"3d"`` / ``"web"``) is routed to a registered
+                ``pyramids.plot_backends`` plugin — in practice ``digitalearth`` — with
+                ``animate=True``, and returns that backend's own object. The matplotlib-only
+                render groups (``color`` / ``contour`` / ``cells`` / ``data_style`` /
+                ``points`` / ``frame_label`` / a ``ColorBar`` instance) then raise a
+                :class:`ValueError` if set, and ``fig`` / ``ax`` do not apply. Requires the
+                backend's package installed.
             exclude_value (Any):
                 Value to exclude from the plot, in addition to the no-data
                 cells. Default is None. The frames are physical values (a
@@ -3650,6 +3667,26 @@ class DatasetCollection:
             raise ValueError(
                 "plot: cannot render an empty collection (time_length == 0)."
             )
+        if backend != "matplotlib":
+            reject_mpl_only_params(
+                backend,
+                color=color,
+                contour=contour,
+                cells=cells,
+                data_style=data_style,
+                points=points,
+                frame_label=frame_label,
+                colorbar=colorbar if is_colorbar_spec(colorbar) else None,
+            )
+            forwarded = forward_kwargs(
+                band=band,
+                exclude_value=exclude_value,
+                rgb_options=rgb_options,
+                basemap=basemap,
+                colorbar=None if is_colorbar_spec(colorbar) else colorbar,
+                animation_axis_values=animation_axis_values,
+            )
+            return render_via_backend(self, backend, animate=True, **forwarded, **kwargs)
         # Unpack the grouped ``rgb_options`` exactly as ``Dataset.plot`` does, so both
         # facades share one RGB-parameter contract.
         rgb, surface_reflectance, cutoff, percentile = Dataset._unpack_rgb_options(

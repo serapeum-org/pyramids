@@ -41,6 +41,12 @@ from shapely.geometry import LineString, box
 from pyramids.base import _timeseries
 from pyramids.base._array_ops import array_equals, array_identical
 from pyramids.base._errors import AlignmentError, DriverNotExistError
+from pyramids.base._plot_backends import (
+    forward_kwargs,
+    is_colorbar_spec,
+    reject_mpl_only_params,
+    render_via_backend,
+)
 from pyramids.base._reductions import (
     COUNTING_REDUCERS,
     FLAG_NO_DATA,
@@ -5813,6 +5819,8 @@ class UgridDataset(_UgridFacades):
         color: ColorScaling | None = None,
         contour: Contour | None = None,
         data_style: DataStyle | None = None,
+        *,
+        backend: str = "matplotlib",
         **kwargs: Any,
     ) -> Any:
         """Plot a mesh data variable.
@@ -5827,6 +5835,13 @@ class UgridDataset(_UgridFacades):
         Args:
             variable_name: Name of the data variable to plot.
             ax: matplotlib Axes. Created if None.
+            backend: Renderer backend. ``"matplotlib"`` (default) draws the mesh through
+                cleopatra and returns a ``MeshGlyph``. Any other name (e.g. ``"interactive"``
+                / ``"3d"`` / ``"web"``) routes to a ``pyramids.plot_backends`` plugin (in
+                practice ``digitalearth``) and returns that backend's own object. The
+                matplotlib-only render groups (``color`` / ``contour`` / ``data_style`` /
+                ``points`` / a ``ColorBar`` instance) then raise a :class:`ValueError` if set,
+                and ``ax`` does not apply. Requires the backend's package installed.
             cmap: Colormap name.
             title: Plot title. Defaults to variable name.
             basemap: If True, add an OpenStreetMap basemap. If a string,
@@ -5881,6 +5896,24 @@ class UgridDataset(_UgridFacades):
             ValueError: If the selected variable has no loaded data, or if
                 `basemap` is requested while the dataset has no CRS (`epsg`).
         """
+        if backend != "matplotlib":
+            reject_mpl_only_params(
+                backend,
+                color=color,
+                contour=contour,
+                data_style=data_style,
+                points=points,
+                colorbar=colorbar if is_colorbar_spec(colorbar) else None,
+            )
+            forwarded = forward_kwargs(
+                variable_name=variable_name,
+                cmap=cmap,
+                title=title,
+                basemap=basemap,
+                colorbar=None if is_colorbar_spec(colorbar) else colorbar,
+                kind=None if kind == "auto" else kind,
+            )
+            return render_via_backend(self, backend, **forwarded, **kwargs)
         var = self.get_data(variable_name)
         data = var.data
         if data is None:
@@ -5921,6 +5954,7 @@ class UgridDataset(_UgridFacades):
         variable_name: str | None = None,
         *,
         interval: int = 200,
+        backend: str = "matplotlib",
         **kwargs: Any,
     ) -> Any:
         """Animate a temporal mesh variable over its time axis (issue #1380).
@@ -5933,6 +5967,10 @@ class UgridDataset(_UgridFacades):
         Args:
             variable_name: Variable to animate (default: the only temporal one).
             interval: Milliseconds between frames. Defaults to 200.
+            backend: Renderer backend. ``"matplotlib"`` (default) animates through cleopatra;
+                any other name routes to a ``pyramids.plot_backends`` plugin (in practice
+                ``digitalearth``) with ``animate=True`` and returns that backend's own object.
+                Requires the backend's package installed.
             **kwargs: Forwarded to cleopatra's ``MeshGlyph.animate`` — ``colorbar``, ``color``,
                 ``contour``, ``data_style``, ``edgecolor``, ``text_loc``, …
 
@@ -5962,6 +6000,9 @@ class UgridDataset(_UgridFacades):
                 >>> anim.save("depth.gif")  # doctest: +SKIP
                 ```
         """
+        if backend != "matplotlib":
+            forwarded = forward_kwargs(variable_name=variable_name, interval=interval)
+            return render_via_backend(self, backend, animate=True, **forwarded, **kwargs)
         var = self._facade_variable("animate", variable_name)
         if not var.has_time:
             raise ValueError(
