@@ -54,8 +54,10 @@ def make_publish_entry_points(
 
     def _publish(*pairs: Any) -> None:
         entries = []
-        for index, (name, factory) in enumerate(pairs):
-            attribute = f"{prefix}{index}"
+        for name, factory in pairs:
+            # Index off the running total, not enumerate(pairs), so a second _publish call in one
+            # test does not reuse (and overwrite) the first call's module attributes.
+            attribute = f"{prefix}{len(published)}"
             published.append(attribute)
             setattr(module, attribute, factory)
             entries.append(
