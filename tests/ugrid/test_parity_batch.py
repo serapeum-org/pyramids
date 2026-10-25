@@ -69,8 +69,9 @@ class TestConvertUnits:
 
     def test_naming_a_variable_with_no_unit_is_refused(self):
         """An explicit request must not pass silently."""
+        subject = _mesh([1.0, 2.0])
         with pytest.raises(ValueError, match="declares no units"):
-            _mesh([1.0, 2.0]).convert_units("celsius", variable_name="t")
+            subject.convert_units("celsius", variable_name="t")
 
     def test_a_sweep_skips_variables_with_no_unit(self):
         """Converting everything should not fail on a variable that has nothing to convert."""
@@ -79,8 +80,9 @@ class TestConvertUnits:
         assert not result["t"].units
 
     def test_an_unsupported_pair_is_refused(self):
+        subject = _mesh([1.0, 2.0], units="K")
         with pytest.raises(ValueError):
-            _mesh([1.0, 2.0], units="K").convert_units("metres")
+            subject.convert_units("metres")
 
 
 class TestToImage:
@@ -90,7 +92,8 @@ class TestToImage:
 
     def test_it_returns_an_image_of_the_mesh(self):
         image = _mesh([1.0, 5.0]).to_image()
-        assert image.size[0] > 1 and image.size[1] > 1
+        assert image.size[0] > 1
+        assert image.size[1] > 1
 
     def test_the_default_resolution_is_about_512_px_on_the_long_side(self):
         """So a caller need not reason about a cell size in unknown coordinate units."""
@@ -139,8 +142,9 @@ class TestToDaskDataframe:
         assert _mesh([1.0, 2.0]).to_dask_dataframe(npartitions=2).npartitions == 2
 
     def test_zero_partitions_is_refused(self):
+        subject = _mesh([1.0, 2.0])
         with pytest.raises(ValueError, match="at least 1"):
-            _mesh([1.0, 2.0]).to_dask_dataframe(npartitions=0)
+            subject.to_dask_dataframe(npartitions=0)
 
 
 class TestOpenMfdataset:

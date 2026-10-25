@@ -85,8 +85,9 @@ class TestUgridAnimate:
 
     def test_a_static_variable_is_refused(self):
         """One frame is not an animation; the message points at plot()."""
+        subject = _mesh([1.0, 2.0])
         with pytest.raises(ValueError, match="plot()"):
-            _mesh([1.0, 2.0]).animate()
+            subject.animate()
 
     def test_a_layered_variable_is_refused_with_a_hint(self):
         """(time, layer, face) has no single value per element per frame."""
@@ -147,21 +148,25 @@ class TestDatasetAnimate:
         assert _raster(3).animate(exclude_value=1.0) is not None
 
     def test_a_single_frame_is_refused(self):
+        subject = _raster(3)
         with pytest.raises(ValueError, match="at least two frames"):
-            _raster(3).animate(bands=[1])
+            subject.animate(bands=[1])
 
     def test_an_out_of_range_band_is_refused(self):
+        subject = _raster(3)
         with pytest.raises(ValueError, match="out of range"):
-            _raster(3).animate(bands=[0, 9])
+            subject.animate(bands=[0, 9])
 
     def test_a_label_count_mismatch_is_refused(self):
         """Silently recycling or truncating labels would mislabel the frames."""
+        subject = _raster(3)
         with pytest.raises(ValueError, match="one label per frame"):
-            _raster(3).animate(animation_axis_values=["only-one"])
+            subject.animate(animation_axis_values=["only-one"])
 
     def test_a_single_band_raster_is_refused(self):
+        subject = _raster(1)
         with pytest.raises(ValueError, match="at least two frames"):
-            _raster(1).animate()
+            subject.animate()
 
 
 class TestNetCDFAnimate:

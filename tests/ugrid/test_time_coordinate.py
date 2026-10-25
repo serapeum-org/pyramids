@@ -294,9 +294,8 @@ class TestDecodingIsBestEffort:
         read = UgridDataset.read_file(str(path))
         assert read is not None, "a failed decode must not fail the read"
         stamps = read.time_values
-        assert stamps is not None and len(stamps) == 3, (
-            f"the axis keeps its length; got {stamps!r}"
-        )
+        assert stamps is not None
+        assert len(stamps) == 3, f"the axis keeps its length; got {stamps!r}"
         assert all(isinstance(value, (int, np.integer)) for value in stamps), (
             f"expected the positional fallback, got {stamps!r}"
         )
@@ -525,7 +524,8 @@ class TestRoundTripWithoutHandSetDimensions:
         axis."""
         ds = self._from_arrays_with_stamps()
         assert ds["depth"].dimensions == (), "from_arrays leaves this empty"
-        assert ds["depth"].has_time and ds["depth"].time_index == 0
+        assert ds["depth"].has_time
+        assert ds["depth"].time_index == 0
         assert _time_coordinate_name(ds._data_variables) is not None
 
     def test_a_dataset_that_cannot_write_its_coordinate_says_so(self):

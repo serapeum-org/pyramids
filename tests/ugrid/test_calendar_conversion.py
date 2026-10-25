@@ -124,18 +124,21 @@ class TestConvertCalendar:
         # Every month on a 360_day calendar is 30 days, so no 31st survives. (29 February
         # does, which is why the leap day alone would not have emptied the axis.)
         stamps = _days("standard", (2001, 1, 31), (2001, 12, 31))
+        subject = _mesh(stamps)
         with pytest.raises(ValueError, match="would drop every step"):
-            _mesh(stamps).convert_calendar("360_day")
+            subject.convert_calendar("360_day")
 
     def test_an_unknown_calendar_is_refused(self):
         stamps = _days("standard", (2001, 1, 1), (2001, 1, 2))
+        subject = _mesh(stamps)
         with pytest.raises(ValueError, match="cftime does not know"):
-            _mesh(stamps).convert_calendar("mayan")
+            subject.convert_calendar("mayan")
 
     def test_an_unknown_alignment_is_refused(self):
         stamps = _days("standard", (2001, 1, 1), (2001, 1, 2))
+        subject = _mesh(stamps)
         with pytest.raises(ValueError, match="align_on"):
-            _mesh(stamps).convert_calendar("noleap", align_on="month")
+            subject.convert_calendar("noleap", align_on="month")
 
     def test_a_positional_axis_is_refused_with_a_reason(self):
         """No CF units means the steps are positions, so there is no calendar to convert."""
@@ -324,8 +327,9 @@ class TestUnloadedDataGuards:
         """Args:
         operation: The along-time member to call on the unloaded dataset.
         """
+        dataset = self._unloaded()
         with pytest.raises(ValueError, match="depth"):
-            operation(self._unloaded())
+            operation(dataset)
 
 
 class TestInterpLikeCalendarMetadata:
@@ -421,8 +425,9 @@ class TestInterpLikeCalendarMetadata:
         so the metadata question does not arise.
         """
         source, _ = self._cross()
+        target = self._undated(3)
         with pytest.raises(ValueError, match="(?i)dated.*positional|positional.*dated"):
-            source.interp_like(self._undated(3))
+            source.interp_like(target)
 
     def test_a_same_calendar_interpolation_still_works(self):
         """The ordinary path must be unaffected."""
@@ -487,17 +492,23 @@ class TestInterpLikeRefusesMixedScales:
 
     def test_a_dated_source_onto_a_positional_target_is_refused(self):
         """Was [[0, 0], [0.0028, 0.0056], [0.0056, 0.0111]] - silently 3600x out."""
+        subject = self._dated(3)
+        target = self._positional(3)
         with pytest.raises(ValueError, match="(?i)dated.*positional|positional.*dated"):
-            self._dated(3).interp_like(self._positional(3))
+            subject.interp_like(target)
 
     def test_a_positional_source_onto_a_dated_target_is_refused(self):
         """The mirror case, equally meaningless."""
+        subject = self._positional(3)
+        target = self._dated(3)
         with pytest.raises(ValueError, match="(?i)dated.*positional|positional.*dated"):
-            self._positional(3).interp_like(self._dated(3))
+            subject.interp_like(target)
 
     def test_the_message_points_at_the_alternatives(self):
+        subject = self._dated(3)
+        target = self._positional(3)
         with pytest.raises(ValueError, match="interp_time"):
-            self._dated(3).interp_like(self._positional(3))
+            subject.interp_like(target)
 
     def test_two_dated_axes_still_interpolate(self):
         source = self._dated(3)

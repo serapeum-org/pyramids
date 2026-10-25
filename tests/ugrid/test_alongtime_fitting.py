@@ -59,12 +59,14 @@ class TestPolyfit:
         assert coeffs[0].tolist() == pytest.approx([1.0, 2.0]), "the t^2 term leads"
 
     def test_too_few_steps_for_the_degree_is_refused(self):
+        subject = _temporal(_RAMP)
         with pytest.raises(ValueError, match="at least"):
-            _temporal(_RAMP).polyfit(5)
+            subject.polyfit(5)
 
     def test_a_negative_degree_is_refused(self):
+        subject = _temporal(_RAMP)
         with pytest.raises(ValueError, match="non-negative"):
-            _temporal(_RAMP).polyfit(-1)
+            subject.polyfit(-1)
 
     def test_a_static_dataset_is_refused(self):
         static = UgridDataset.from_arrays(
@@ -213,17 +215,20 @@ class TestCoarsen:
         assert np.allclose(_temporal(_RAMP).coarsen(2, "min")["v"].data, [[0.0, 0.0]])
 
     def test_an_unknown_reducer_is_refused(self):
+        subject = _temporal(_RAMP)
         with pytest.raises(ValueError, match="how must be one of"):
-            _temporal(_RAMP).coarsen(2, "geometric-mean")
+            subject.coarsen(2, "geometric-mean")
 
     def test_a_window_longer_than_the_axis_is_refused(self):
         """Rather than silently reporting nothing."""
+        subject = _temporal(_RAMP)
         with pytest.raises(ValueError, match="nothing to report"):
-            _temporal(_RAMP).coarsen(99)
+            subject.coarsen(99)
 
     def test_a_window_below_one_is_refused(self):
+        subject = _temporal(_RAMP)
         with pytest.raises(ValueError, match="at least 1"):
-            _temporal(_RAMP).coarsen(0)
+            subject.coarsen(0)
 
     def test_window_one_is_a_no_op(self):
         assert np.allclose(_temporal(_RAMP).coarsen(1)["v"].data, _RAMP)
@@ -442,14 +447,18 @@ class TestUnknownVariableNameIsRefused:
         """Args:
         call: The member invoked with a name the dataset does not have.
         """
+        dataset = _two_variables()
         with pytest.raises(KeyError, match="nope"):
-            call(_two_variables())
+            call(dataset)
 
     def test_the_message_lists_the_names_that_do_exist(self):
         """So the fix is obvious from the error rather than requiring a dir() call."""
+        dataset = _two_variables()
         with pytest.raises(KeyError) as info:
-            _two_variables().differentiate(variable_name="nope")
-        assert "'a'" in str(info.value) and "'b'" in str(info.value)
+            dataset.differentiate(variable_name="nope")
+        message = str(info.value)
+        assert "'a'" in message
+        assert "'b'" in message
 
     def test_a_known_name_is_unaffected(self):
         result = _two_variables().differentiate(variable_name="a")
@@ -545,17 +554,22 @@ class TestRaggedDatasetCannotBeWritten:
         self, tmp_path
     ):
         ragged = self._two_equal().coarsen(2, variable_name="a")
-        assert ragged["a"].n_time_steps == 2 and ragged["b"].n_time_steps == 4
+        assert ragged["a"].n_time_steps == 2
+        assert ragged["b"].n_time_steps == 4
+        destination = str(tmp_path / "ragged.nc")
         with pytest.raises(ValueError, match="(?i)time step|step count|same number"):
-            ragged.to_file(str(tmp_path / "ragged.nc"))
+            ragged.to_file(destination)
 
     def test_the_message_names_the_variables_and_their_lengths(self, tmp_path):
         ragged = self._two_equal().coarsen(2, variable_name="a")
+        destination = str(tmp_path / "ragged2.nc")
         with pytest.raises(ValueError) as info:
-            ragged.to_file(str(tmp_path / "ragged2.nc"))
+            ragged.to_file(destination)
         message = str(info.value)
-        assert "'a'" in message and "'b'" in message, message
-        assert "2" in message and "4" in message, message
+        assert "'a'" in message, message
+        assert "'b'" in message, message
+        assert "2" in message, message
+        assert "4" in message, message
 
     def test_coarsening_every_variable_writes_fine(self, tmp_path):
         """The ordinary sweep keeps the lengths equal, so it still writes."""
@@ -644,8 +658,9 @@ class TestUnknownVariableMessageParity:
         """Args:
         call: The member invoked with a name the dataset does not have.
         """
+        dataset = self._single()
         with pytest.raises(KeyError) as info:
-            call(self._single())
+            call(dataset)
         message = str(info.value)
         assert "is not a data variable" in message, message
         assert "['v']" in message, f"the available names are not listed: {message}"

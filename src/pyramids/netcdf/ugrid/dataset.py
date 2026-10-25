@@ -4062,7 +4062,6 @@ class UgridDataset(_UgridFacades):
         self._require_variable_name("polyfit", variable_name)
         self._alongtime_coord("polyfit")
         return self._fit_alongtime(
-            "polyfit",
             variable_name,
             lambda values, axis, nodata, coord: _timeseries.polyfit_axis(
                 values, coord, deg, axis, nodata
@@ -4099,7 +4098,6 @@ class UgridDataset(_UgridFacades):
         self._require_variable_name("curvefit", variable_name)
         self._alongtime_coord("curvefit")
         return self._fit_alongtime(
-            "curvefit",
             variable_name,
             lambda values, axis, nodata, coord: _timeseries.curvefit_axis(
                 values, coord, func, p0, axis, nodata
@@ -4109,7 +4107,6 @@ class UgridDataset(_UgridFacades):
 
     def _fit_alongtime(
         self,
-        operation: str,
         variable_name: str | None,
         kernel: Any,
         axis_name: str,
@@ -4120,7 +4117,6 @@ class UgridDataset(_UgridFacades):
         — it is no longer indexed by time — so the time coordinate is dropped with it.
 
         Args:
-            operation: The calling method's name, for messages.
             variable_name: Variable to fit, or ``None`` for every temporal one.
             kernel: ``f(values, axis, nodata, coord) -> fitted`` doing the fit. The
                 sentinel and the coordinate are both passed per variable, so a declared

@@ -101,8 +101,9 @@ class TestApply:
 
     def test_refuses_a_shape_changing_function(self):
         """A function that drops elements would mis-align the result against the mesh."""
+        subject = _mesh([1.0, 2.0, 3.0])
         with pytest.raises(ValueError, match="changed the array shape"):
-            _mesh([1.0, 2.0, 3.0]).apply(lambda a: a[:2])
+            subject.apply(lambda a: a[:2])
 
 
 class TestGetHistogram:
@@ -138,8 +139,9 @@ class TestGetHistogram:
         assert counts.sum() == shared.size
 
     def test_all_nodata_is_refused(self):
+        subject = _mesh([-999.0, -999.0, -999.0], nodata=-999.0)
         with pytest.raises(ValueError, match="No valid samples"):
-            _mesh([-999.0, -999.0, -999.0], nodata=-999.0).get_histogram()
+            subject.get_histogram()
 
 
 class TestWhereDtypePromotion:

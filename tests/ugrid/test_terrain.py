@@ -51,8 +51,9 @@ class TestSlope:
         )
 
     def test_invalid_units_are_refused(self):
+        subject = _dem(_NODE_X)
         with pytest.raises(ValueError, match="degrees.*radians"):
-            _dem(_NODE_X).slope("gradians")
+            subject.slope("gradians")
 
 
 class TestAspect:
@@ -244,5 +245,6 @@ class TestNodataIsNotTerrain:
         """The two spellings of "missing" must agree."""
         sentinel = _void_dem([0.0, 0.0, 0.0, 0.0, 0.0, -9999.0]).slope()
         nan = _void_dem([0.0, 0.0, 0.0, 0.0, 0.0, np.nan], nodata=None).slope()
-        assert np.isnan(sentinel[1]) and np.isnan(nan[1])
+        assert np.isnan(sentinel[1])
+        assert np.isnan(nan[1])
         assert sentinel[0] == pytest.approx(nan[0])

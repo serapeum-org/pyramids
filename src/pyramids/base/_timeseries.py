@@ -167,6 +167,62 @@ def polyfit_axis(
     return np.moveaxis(out.reshape((deg + 1, *array.shape[1:])), 0, axis)
 
 
+def _fit_parameter_count(func: Any, p0: Any) -> int:
+    """How many parameters ``func`` fits, from ``p0`` or from its signature.
+
+    Pulled out of :func:`curvefit_axis` so that function stays readable: resolving this is a
+    cluster of special cases, and none of them is about fitting.
+
+    Args:
+        func: The model ``f(x, *params)``.
+        p0: Initial parameter guess, or ``None`` to read the count from ``func``.
+
+    Returns:
+        int: The number of parameters to fit.
+
+    Raises:
+        ValueError: ``p0`` is absent and the count cannot be read from ``func`` — it is a
+            numpy ufunc, exposes no signature, is variadic, or declares nothing after ``x``.
+    """
+    if p0 is not None:
+        return len(np.atleast_1d(p0))
+    if isinstance(func, np.ufunc):
+        # A ufunc DOES expose a signature, but it is the ufunc machinery's - `out`, `where`,
+        # `casting`, ... - so counting it gave `np.add` two "fitted" parameters and an all-NaN
+        # result with no diagnostic. A ufunc has no free parameters to fit at all.
+        raise ValueError(
+            f"curvefit: {getattr(func, '__name__', func)!r} is a numpy ufunc, whose signature "
+            f"describes numpy's own keywords rather than parameters to fit. Pass a model "
+            f"function of the form f(x, *params), with p0 if its parameter count cannot be "
+            f"read from its signature."
+        )
+    try:
+        parameters = list(inspect.signature(func).parameters.values())
+    except (TypeError, ValueError) as error:
+        # Many C callables expose no signature at all, so the count cannot be inferred.
+        raise ValueError(
+            f"curvefit: cannot read the signature of {getattr(func, '__name__', func)!r} to "
+            f"tell how many parameters it fits. Pass p0 with one starting value per parameter."
+        ) from error
+    kinds = (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    )
+    # Only the positional parameters after `x` are fitted. Counting `*args`, keyword-only
+    # parameters or `**kwargs` gave a count that did not match what curve_fit returns,
+    # surfacing as a raw numpy broadcast error from the result assignment.
+    fitted = [p for p in parameters[1:] if p.kind in kinds]
+    variadic = any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in parameters)
+    if variadic or not fitted:
+        raise ValueError(
+            f"curvefit: cannot tell how many parameters "
+            f"{getattr(func, '__name__', func)!r} fits from its signature "
+            f"({'it is variadic' if variadic else 'it declares none after x'}). "
+            f"Pass p0 with one starting value per parameter."
+        )
+    return len(fitted)
+
+
 def curvefit_axis(
     values: np.ndarray,
     coord: Any,
@@ -201,47 +257,7 @@ def curvefit_axis(
     x = numeric_coordinate(coord)
     flat = array.reshape(array.shape[0], -1).copy()
     flat[nodata_mask(flat, nodata)] = np.nan
-    if p0 is None:
-        # Only the positional parameters after `x` are fitted. Counting `*args`,
-        # keyword-only parameters or `**kwargs` as fitted gave a count that did not match
-        # what curve_fit returns, surfacing as a raw numpy broadcast error from the result
-        # assignment below.
-        kinds = (
-            inspect.Parameter.POSITIONAL_ONLY,
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-        )
-        if isinstance(func, np.ufunc):
-            # A ufunc DOES expose a signature, but it is the ufunc machinery's - `out`,
-            # `where`, `casting`, ... - so counting it gave `np.add` two "fitted" parameters
-            # and an all-NaN result with no diagnostic. A ufunc has no free parameters to fit
-            # at all, so there is nothing to infer.
-            raise ValueError(
-                f"curvefit: {getattr(func, '__name__', func)!r} is a numpy ufunc, whose "
-                f"signature describes numpy's own keywords rather than parameters to fit. "
-                f"Pass a model function of the form f(x, *params), with p0 if its parameter "
-                f"count cannot be read from its signature."
-            )
-        try:
-            parameters = list(inspect.signature(func).parameters.values())
-        except (TypeError, ValueError) as error:
-            # Many C callables expose no signature at all, so the count cannot be inferred.
-            raise ValueError(
-                f"curvefit: cannot read the signature of "
-                f"{getattr(func, '__name__', func)!r} to tell how many parameters it fits. "
-                f"Pass p0 with one starting value per parameter."
-            ) from error
-        fitted = [p for p in parameters[1:] if p.kind in kinds]
-        variadic = any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in parameters)
-        if variadic or not fitted:
-            raise ValueError(
-                f"curvefit: cannot tell how many parameters {getattr(func, '__name__', func)!r} "
-                f"fits from its signature "
-                f"({'it is variadic' if variadic else 'it declares none after x'}). "
-                f"Pass p0 with one starting value per parameter."
-            )
-        n_params = len(fitted)
-    else:
-        n_params = len(np.atleast_1d(p0))
+    n_params = _fit_parameter_count(func, p0)
     out = np.full((n_params, flat.shape[1]), np.nan, dtype="float64")
     for column in range(flat.shape[1]):
         series = flat[:, column]

@@ -542,7 +542,9 @@ class TestCoordinateEdgeCases:
         ]
         with pytest.raises(ValueError, match="convert_calendar") as info:
             numeric_coordinate(stamps)
-        assert "360_day" in str(info.value) and "noleap" in str(info.value)
+        message = str(info.value)
+        assert "360_day" in message
+        assert "noleap" in message
 
     def test_a_ufunc_model_is_refused(self):
         """A ufunc exposes a signature, but it is numpy's own keywords (`out`, `where`, ...),
