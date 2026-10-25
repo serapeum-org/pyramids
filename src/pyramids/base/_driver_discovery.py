@@ -15,9 +15,11 @@ Today the **raster** hook (:mod:`pyramids.dataset._drivers`) and the **vector** 
 logic; migrating it onto this core is a candidate follow-up, not done here.
 
 Nothing here imports the rest of pyramids, so it is safe to import from any hook without a cycle.
-Its validation and token helpers do not raise: validation reports a problem as a message string (the
-caller decides whether to warn or skip), and the token helpers answer with a set — the one exception
-is the unavoidable ``str(source)`` in :func:`extract_tokens`, which assumes a path/URL/id source.
+Validation normally reports a problem as a message string rather than raising, and the token helpers
+answer with a set — but a pathological driver attribute can still raise: an unhashable capability
+token trips ``set(...)`` with a ``TypeError``, and a ``__str__`` that raises trips ``str(source)`` in
+:func:`extract_tokens`. Each hook's per-driver loader wraps the call in ``try/except`` so such a
+driver is skipped with a warning rather than crashing discovery.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from importlib.util import find_spec
 from typing import Any
 
 __all__ = [
+    "declared_route_tokens",
     "extra_missing",
     "extract_tokens",
     "is_scheme_token",
