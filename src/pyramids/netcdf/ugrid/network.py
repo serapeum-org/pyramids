@@ -417,6 +417,38 @@ class Network1d:
         end = np.array([self._node_x[nodes[1]], self._node_y[nodes[1]]])
         return start, end
 
+    @property
+    def _sortable_edges(self) -> tuple[np.typing.NDArray, np.typing.NDArray]:
+        """The edge rows a traversal may use, with their positions in the full table.
+
+        Every traversal member needs the same two things from the edge table, and reading it
+        raw gave each of them a different wrong answer. A padded row holds the fill value, so
+        `np.bincount` refused it as a negative and the adjacency build resolved it to the last
+        node; an index past the node count overflowed the adjacency list as `IndexError`. The
+        mask lives in :attr:`_real_edges` and the position map in :attr:`real_edge_indices` --
+        this pairs them and adds the upper-bound check neither does, so a message reports the
+        file's own row number rather than a compacted one.
+
+        Returns:
+            tuple: The `(n_real, 2)` node pairs, and their positions in the declared table.
+
+        Raises:
+            ValueError: A real edge names a node index that is not in `[0, n_node)`.
+        """
+        positions = self.real_edge_indices
+        edges = self._edge_nodes[self._real_edges]
+        node_count = self.n_node
+        if edges.size:
+            beyond = np.argwhere(edges >= node_count)
+            if beyond.size:
+                row, column = (int(value) for value in beyond[0])
+                raise ValueError(
+                    f"edge {int(positions[row])} names node {int(edges[row, column])}, which "
+                    f"is outside the node range [0, {node_count - 1}]. The edge table and the "
+                    f"node coordinates disagree about how many nodes this network has."
+                )
+        return edges, positions
+
     def _missing_outlet_message(self) -> str:
         """Build the error text for an undirected network asked to sort with no outlet.
 
@@ -428,7 +460,8 @@ class Network1d:
         Returns:
             A message naming the degree-1 candidate outlets and both ways forward.
         """
-        degree = np.bincount(self._edge_nodes.ravel(), minlength=self.n_node)
+        edges, _positions = self._sortable_edges
+        degree = np.bincount(edges.ravel(), minlength=self.n_node)
         leaves = np.flatnonzero(degree == 1)
         if leaves.size:
             shown = ", ".join(str(int(index)) for index in leaves[:8])
@@ -456,24 +489,31 @@ class Network1d:
         only sink and the result acyclic by construction, so Kahn's algorithm downstream
         applies unchanged.
 
+        Padded rows are stepped over: :attr:`_sortable_edges` drops them and validates the
+        rest, so the result holds one row per **real** edge rather than one per declared row.
+        A traversal does not index the table positionally, so the compaction is invisible to
+        it, and an error still names the row's position in the declared table.
+
         Args:
             outlet: Index of the node every edge should drain towards.
 
         Returns:
-            An ``(n_edge, 2)`` array of ``(from_node, to_node)`` pairs.
+            An ``(n_real_edge, 2)`` array of ``(from_node, to_node)`` pairs.
 
         Raises:
-            ValueError: If ``outlet`` is not a node index, if an edge's two ends are the same
-                distance from ``outlet`` (nothing decides which way it runs), or if an edge
-                sits in a component ``outlet`` cannot reach.
+            ValueError: If ``outlet`` is not a node index, if a real edge names a node outside
+                the node range, if an edge's two ends are the same distance from ``outlet``
+                (nothing decides which way it runs), or if an edge sits in a component
+                ``outlet`` cannot reach.
         """
         node_count = self.n_node
         if not 0 <= int(outlet) < node_count:
             raise ValueError(
                 f"outlet must be a node index in [0, {node_count - 1}], got {outlet!r}."
             )
+        edges, positions = self._sortable_edges
         neighbours: list[list[int]] = [[] for _ in range(node_count)]
-        for first, second in self._edge_nodes:
+        for first, second in edges:
             neighbours[int(first)].append(int(second))
             neighbours[int(second)].append(int(first))
 
@@ -488,8 +528,9 @@ class Network1d:
                     distance[neighbour] = distance[node] + 1
                     queue.append(neighbour)
 
-        oriented = np.empty_like(self._edge_nodes)
-        for position, (first, second) in enumerate(self._edge_nodes):
+        oriented = np.empty_like(edges)
+        for row, (first, second) in enumerate(edges):
+            position = int(positions[row])
             near, far = int(first), int(second)
             if distance[near] == unreached or distance[far] == unreached:
                 raise ValueError(
@@ -506,7 +547,7 @@ class Network1d:
                 )
             if distance[near] < distance[far]:
                 near, far = far, near
-            oriented[position] = (near, far)
+            oriented[row] = (near, far)
         return oriented
 
     def sort(
@@ -613,7 +654,7 @@ class Network1d:
                     "its edges carry the orientation. Drop outlet=, or rebuild with "
                     "directed=False to orient from the outlet instead."
                 )
-            edges = self._edge_nodes
+            edges, _positions = self._sortable_edges
         elif outlet is None:
             raise ValueError(self._missing_outlet_message())
         else:

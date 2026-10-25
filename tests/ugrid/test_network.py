@@ -320,6 +320,95 @@ class TestSort:
             f"eight candidates then an ellipsis, got:\n{message}"
         )
 
+    def test_sort_steps_over_a_padded_row_when_undirected(self):
+        """A fill row must not reach the degree census or the orientation (H1).
+
+        Test scenario:
+            `Connectivity.from_gdal_array` writes `-1` into every slot that held a file's
+            `_FillValue`, so a driver-read network is padded. Reading the raw table put `-1`
+            into `np.bincount`, which refuses negatives -- so the helper whose only job is to
+            build a friendly message died inside numpy, and the caller never saw the
+            candidate-outlet guidance at all.
+        """
+        padded = Network1d.from_arrays(
+            np.array([0.0, 1.0, 2.0, 3.0]),
+            np.array([0.0, 0.0, 0.0, 0.0]),
+            np.array([[0, 1], [1, 2], [-1, -1]]),
+        )
+        with pytest.raises(ValueError) as caught:
+            padded.sort()
+        message = str(caught.value)
+        assert "Candidate outlets" in message, (
+            f"the padded row must not reach bincount, got:\n{message}"
+        )
+        assert "0, 2" in message, (
+            f"nodes 0 and 2 are the degree-1 ends of the two real edges, got:\n{message}"
+        )
+
+    def test_sort_orients_a_padded_network(self):
+        """A padded row is skipped rather than refused as an unreachable component (H1).
+
+        Test scenario:
+            The fill row used to be read as an edge joining nodes -1 and -1, which the
+            reachability guard then reported as a component the outlet cannot reach -- a
+            confident, wrong diagnosis naming an edge and nodes that do not exist. Node 3 is
+            unattached here, so the two real edges orient towards node 2.
+        """
+        padded = Network1d.from_arrays(
+            np.array([0.0, 1.0, 2.0, 3.0]),
+            np.array([0.0, 0.0, 0.0, 0.0]),
+            np.array([[0, 1], [1, 2], [-1, -1]]),
+        )
+        order = padded.sort(outlet=2).tolist()
+        assert order[-1] == 2, f"the outlet is the sink, got {order}"
+        assert order.index(0) < order.index(1) < order.index(2), (
+            f"the chain must drain 0 -> 1 -> 2, got {order}"
+        )
+
+    def test_sort_directed_steps_over_a_padded_row(self):
+        """The directed path skips a fill row instead of reporting a cycle (L9).
+
+        Test scenario:
+            `adjacency[-1].append(-1)` and `indegree[-1] += 1` corrupted the last node, so
+            Kahn's algorithm could not place every node and the chain was reported as cyclic.
+        """
+        padded = Network1d.from_arrays(
+            np.array([0.0, 1.0, 2.0, 3.0]),
+            np.array([0.0, 0.0, 0.0, 0.0]),
+            np.array([[0, 1], [1, 2], [2, 3], [-1, -1]]),
+            directed=True,
+        )
+        assert padded.sort().tolist() == [0, 1, 2, 3], (
+            "a padded row must not make an acyclic chain look cyclic"
+        )
+
+    @pytest.mark.parametrize(
+        "edges",
+        [
+            [[0, 1], [1, 5]],
+            [[0, 1], [9, 2]],
+        ],
+        ids=["out-of-range-target", "out-of-range-source"],
+    )
+    def test_sort_refuses_an_edge_index_past_the_node_count(self, edges):
+        """An index beyond the node count is named, not leaked as IndexError (M4).
+
+        Test scenario:
+            The adjacency list is sized `n_node`, so `neighbours[5]` on a 3-node network
+            raised `IndexError` -- a type the documented contract does not promise. The
+            degree census had the matching defect, reporting node 5 as a candidate outlet of
+            a 3-node network because `np.bincount` widens past `minlength`.
+        """
+        net = Network1d.from_arrays(
+            np.array([0.0, 1.0, 2.0]),
+            np.array([0.0, 0.0, 0.0]),
+            np.array(edges),
+        )
+        with pytest.raises(ValueError, match=r"outside the node range"):
+            net.sort(outlet=0)
+        with pytest.raises(ValueError, match=r"outside the node range"):
+            net.sort()
+
 
 class TestTopologySubset:
     """Edge subsetting with node renumbering."""
