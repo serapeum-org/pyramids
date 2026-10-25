@@ -228,6 +228,7 @@ nav:
     - Geodesy helpers: reference/base/geodesy.md
     - UTM helpers: reference/utm.md
     - Basemap: reference/basemap.md
+    - Plot backends: reference/plot-backends.md
     - STAC:
       - Overview: reference/stac/index.md
       - Signers: reference/stac/signers.md
