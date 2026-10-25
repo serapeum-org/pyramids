@@ -87,7 +87,10 @@ def neighbourhood(mesh: Mesh2d, rings: int = 1) -> Any:
             f"its memory and the time to build it grow with the square of the mesh. Use fewer "
             f"rings, or a whole-mesh reduction if that is what you meant.",
             UserWarning,
-            stacklevel=2,
+            # `neighbourhood` <- `_resolve_reach` <- `focal_mean` <- the facade <- the caller.
+            # Four is the common case (a facade call); a direct kernel call lands one frame
+            # early, which is still inside the caller's own file.
+            stacklevel=5,
         )
     return result
 

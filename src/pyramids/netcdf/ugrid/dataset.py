@@ -4363,6 +4363,13 @@ class UgridDataset(_UgridFacades):
         A trailing remainder shorter than a full window is dropped, so every reported bin is a
         full one rather than a short bin that would read as a dip in the series.
 
+        A variable with fewer steps than one window cannot be binned at all. In a sweep
+        (``variable_name=None``) it is passed through untouched, so one short variable does not
+        lose the whole call — the choice :meth:`convert_units` makes for a variable with no
+        units. Naming such a variable explicitly raises, since that is a request rather than a
+        sweep, and so does a sweep in which **no** variable could be binned: that call did
+        nothing, and returning the dataset unchanged would look like success.
+
         Args:
             window: Steps per block, at least 1.
             how: ``"mean"`` (default), ``"sum"``, ``"min"``, ``"max"``, ``"median"`` or
@@ -4386,6 +4393,8 @@ class UgridDataset(_UgridFacades):
         self._require_variable_name("coarsen", variable_name)
         self._alongtime_coord("coarsen")
         new_vars: dict[str, MeshVariable] = {}
+        skipped: list[str] = []
+        binned = 0
         for name, var in self._data_variables.items():
             if not var.has_time or (
                 variable_name is not None and name != variable_name
@@ -4399,10 +4408,20 @@ class UgridDataset(_UgridFacades):
             coord = _variable_time_coord(var)
             blocks = len(coord) // window
             if blocks == 0:
+                if variable_name is None:
+                    # A sweep skips what it cannot bin, as `convert_units` skips the variables
+                    # with no units to convert from: one short variable should not lose the
+                    # whole call. Naming a variable explicitly is a request, so that raises.
+                    # Whether ANY variable was binned is checked after the loop - a sweep that
+                    # did nothing at all must not look like it succeeded.
+                    skipped.append(f"{name!r}({len(coord)})")
+                    new_vars[name] = var
+                    continue
                 raise ValueError(
                     f"coarsen: {name!r} has {len(coord)} step(s), fewer than one window of "
                     f"{window}; there would be nothing to report."
                 )
+            binned += 1
             labels = [coord[index * window] for index in range(blocks)]
             reduced = _timeseries.coarsen_axis(np.asarray(data), window, how, axis)
             # The axis is re-binned, so a per-step mask no longer lines up with it.
@@ -4411,6 +4430,12 @@ class UgridDataset(_UgridFacades):
             )
             moved.attributes = {**var.attributes, "time_values": labels}
             new_vars[name] = moved
+        if variable_name is None and binned == 0:
+            raise ValueError(
+                f"coarsen: no variable has as many as {window} step(s) "
+                f"({', '.join(skipped)}), so a window of {window} would report nothing at "
+                f"all. Use a smaller window."
+            )
         return self._rebuild(new_vars)
 
     def interp_like(self, other: UgridDataset) -> UgridDataset:
@@ -5973,8 +5998,11 @@ class UgridDataset(_UgridFacades):
                 f"shape {data.shape} — a dimension besides time and the elements. Select a "
                 f"layer first, e.g. with isel(layer=0) or collapse_layer()."
             )
-        stamps = self.time_values
-        labels = list(stamps) if stamps is not None else list(range(frames.shape[0]))
+        # The variable's own coordinate, not the dataset's: `self.time_values` is the FIRST
+        # temporal variable's, so animating a second one of a different length failed inside
+        # cleopatra ("time length (3) does not match frame count (6)"). Every other along-time
+        # member moved onto this helper in 2c8a308; `animate` was missed.
+        labels = _variable_time_coord(var)
         return _ugrid_plot.animate_mesh_data(
             self._mesh,
             frames,
@@ -5996,8 +6024,9 @@ class UgridDataset(_UgridFacades):
             ax: matplotlib Axes. Created if None.
             basemap: ``True`` or a web-tile provider name, drawing a tile backdrop under the
                 wireframe — the same backdrop :meth:`plot` draws under a filled mesh. ``None``
-                (default) draws none. The dataset's own ``epsg`` supplies the CRS, so a mesh
-                with no CRS raises rather than mis-placing the tiles (issue #1354).
+                (default) draws none. The dataset's own ``epsg`` supplies the CRS unless
+                ``basemap_epsg`` is passed explicitly, so a mesh with no CRS raises rather
+                than mis-placing the tiles (issue #1354).
             **kwargs: Additional arguments passed to plot_mesh_outline.
 
         Returns:
@@ -6006,11 +6035,14 @@ class UgridDataset(_UgridFacades):
                 handles; ``glyph.im`` is ``None`` (an outline carries no
                 scalar mapping, so no mappable is produced).
         """
+        # `basemap_epsg` is a documented parameter of `plot_mesh_outline`, so passing it
+        # here used to collide with the dataset's own CRS ("got multiple values for keyword
+        # argument"). An explicit one wins; otherwise the dataset's CRS supplies it.
+        kwargs.setdefault("basemap_epsg", self.epsg)
         result = _ugrid_plot.plot_mesh_outline(
             self._mesh,
             ax=ax,
             basemap=basemap,
-            basemap_epsg=self.epsg,
             **kwargs,
         )
         return result
@@ -6811,7 +6843,8 @@ def _write_time_coordinate(
                 f"its data are written, but the time axis will read back as positional "
                 f"indices.",
                 UserWarning,
-                stacklevel=2,
+                # `_write_time_coordinate` <- `to_file` <- the caller.
+                stacklevel=3,
             )
         return
     source = next(
@@ -6845,7 +6878,8 @@ def _write_time_coordinate(
             f"against {units!r} failed ({error}). The mesh and its data are written, but the "
             f"time axis will read back as positional indices.",
             UserWarning,
-            stacklevel=2,
+            # `_write_time_coordinate` <- `to_file` <- the caller.
+            stacklevel=3,
         )
         return
     # netCDF reserves the dimension's own name for its coordinate variable, so creating the
@@ -6879,7 +6913,8 @@ def _write_time_coordinate(
             f"to_file(): the driver refused the time coordinate write ({error}). The mesh and "
             f"its data are written, but the time axis will read back as positional indices.",
             UserWarning,
-            stacklevel=2,
+            # `_write_time_coordinate` <- `to_file` <- the caller.
+            stacklevel=3,
         )
         return
 

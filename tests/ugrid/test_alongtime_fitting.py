@@ -220,10 +220,42 @@ class TestCoarsen:
             subject.coarsen(2, "geometric-mean")
 
     def test_a_window_longer_than_the_axis_is_refused(self):
-        """Rather than silently reporting nothing."""
+        """Rather than silently reporting nothing.
+
+        The message changed with the sweep policy (round 2 L12): a sweep now passes a short
+        variable through rather than failing the whole call, so this refusal is the one that
+        fires when NO variable could be binned - the call would otherwise return the dataset
+        unchanged and look like success.
+        """
         subject = _temporal(_RAMP)
-        with pytest.raises(ValueError, match="nothing to report"):
+        with pytest.raises(ValueError, match="would report nothing at all"):
             subject.coarsen(99)
+
+    def test_a_sweep_passes_a_short_variable_through(self):
+        """One variable too short for the window must not lose the whole sweep - the choice
+        `convert_units` makes for a variable with no units to convert from."""
+        ds = UgridDataset.from_arrays(
+            node_x=_NODE_X,
+            node_y=_NODE_Y,
+            face_node_connectivity=_FACES,
+            data={"a": np.zeros((3, 2)), "b": np.ones((1, 2))},
+            data_locations={"a": "face", "b": "face"},
+        )
+        result = ds.coarsen(2)
+        assert result["a"].data.shape[0] == 1, "binned"
+        assert result["b"].data.shape[0] == 1, "passed through untouched"
+
+    def test_naming_a_short_variable_still_raises(self):
+        """A named variable is a request, not a sweep."""
+        ds = UgridDataset.from_arrays(
+            node_x=_NODE_X,
+            node_y=_NODE_Y,
+            face_node_connectivity=_FACES,
+            data={"a": np.zeros((3, 2)), "b": np.ones((1, 2))},
+            data_locations={"a": "face", "b": "face"},
+        )
+        with pytest.raises(ValueError, match="nothing to report"):
+            ds.coarsen(2, variable_name="b")
 
     def test_a_window_below_one_is_refused(self):
         subject = _temporal(_RAMP)
