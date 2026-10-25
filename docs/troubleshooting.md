@@ -323,7 +323,7 @@ Output:
 
 If the above doesn't solve your problem:
 
-<https://github.com/Serapieum-of-alex/pyramids/issues/new>
+<https://github.com/serapeum-org/pyramids-core/issues/new>
 
 Include:
 

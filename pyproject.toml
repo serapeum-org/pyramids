@@ -173,10 +173,10 @@ docs = [
 pyramids = "pyramids.cli:main"
 
 [project.urls]
-homepage = "https://github.com/serapeum-org/pyramids"
-repository = "https://github.com/serapeum-org/pyramids"
-documentation = "https://serapeum-org.github.io/pyramids"
-Changelog = "https://github.com/serapeum-org/pyramids/blob/main/docs/change-log.md"
+homepage = "https://github.com/serapeum-org/pyramids-core"
+repository = "https://github.com/serapeum-org/pyramids-core"
+documentation = "https://serapeum-org.github.io/pyramids-core"
+Changelog = "https://github.com/serapeum-org/pyramids-core/blob/main/docs/change-log.md"
 
 
 [build-system]

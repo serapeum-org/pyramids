@@ -1037,7 +1037,8 @@ class Catalog:
                 f"The given extension: {extension} is not associated with any driver in the "
                 "driver catalog, if this driver is supported by gdal please open an issue "
                 "asking for your extension to be added to the catalog: "
-                "https://github.com/serapeum-org/pyramids/issues/new?assignees=&labels=&template=feature_request.md&title=add%20extension"
+                "https://github.com/serapeum-org/pyramids-core/issues/new"
+                "?assignees=&labels=&template=feature_request.md&title=add%20extension"
             )
 
         return key

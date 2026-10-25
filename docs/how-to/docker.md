@@ -142,7 +142,7 @@ Image naming convention for GHCR: `ghcr.io/<owner>/<repo>[:tag]`.
 For this repository, a convenient image name at release time is:
 
 ```
-ghcr.io/serapeum-org/pyramids
+ghcr.io/serapeum-org/pyramids-core
 ```
 
 Example (adjust owner/repo):

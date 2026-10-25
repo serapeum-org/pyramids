@@ -5,18 +5,18 @@
        src="docs/_images/branding/docs-header-light.svg" width="100%">
 </picture>
 
-[![Documentations](https://img.shields.io/badge/Documentations-blue?logo=github&logoColor=white)](https://serapeum-org.github.io/pyramids/main/)
+[![Documentations](https://img.shields.io/badge/Documentations-blue?logo=github&logoColor=white)](https://serapeum-org.github.io/pyramids-core/main/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/pyramids-core.png)](https://img.shields.io/pypi/pyversions/pyramids-core)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
-![GitHub last commit](https://img.shields.io/github/last-commit/serapeum-org/pyramids)
-![GitHub Repo stars](https://img.shields.io/github/stars/serapeum-org/pyramids?style=social)
-[![codecov](https://codecov.io/gh/serapeum-org/pyramids/graph/badge.svg?token=g0DV4dCa8N)](https://codecov.io/gh/serapeum-org/pyramids)
-[![Codacy Badge](https://app.codacy.com/project/badge/Grade/5e3aa4d0acc843d1a91caf33545ecf03)](https://www.codacy.com/gh/serapeum-org/pyramids/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=serapeum-org/pyramids&amp;utm_campaign=Badge_Grade)
+![GitHub last commit](https://img.shields.io/github/last-commit/serapeum-org/pyramids-core)
+![GitHub Repo stars](https://img.shields.io/github/stars/serapeum-org/pyramids-core?style=social)
+[![codecov](https://codecov.io/gh/serapeum-org/pyramids-core/graph/badge.svg?token=g0DV4dCa8N)](https://codecov.io/gh/serapeum-org/pyramids-core)
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/5e3aa4d0acc843d1a91caf33545ecf03)](https://www.codacy.com/gh/serapeum-org/pyramids-core/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=serapeum-org/pyramids-core&amp;utm_campaign=Badge_Grade)
 
-![GitHub commits since latest release (by SemVer including pre-releases)](https://img.shields.io/github/commits-since/serapeum-org/pyramids/latest?include_prereleases&style=plastic)
+![GitHub commits since latest release (by SemVer including pre-releases)](https://img.shields.io/github/commits-since/serapeum-org/pyramids-core/latest?include_prereleases&style=plastic)
 
-[![pages-build-deployment](https://github.com/serapeum-org/pyramids/actions/workflows/pages/pages-build-deployment/badge.svg)](https://github.com/serapeum-org/pyramids/actions/workflows/pages/pages-build-deployment)
+[![pages-build-deployment](https://github.com/serapeum-org/pyramids-core/actions/workflows/pages/pages-build-deployment/badge.svg)](https://github.com/serapeum-org/pyramids-core/actions/workflows/pages/pages-build-deployment)
 
 Current release info
 ====================
@@ -127,7 +127,7 @@ conda search pyramids --channel conda-forge
 To install the latest development version, you can install the library from GitHub:
 
 ```
-pip install git+https://github.com/serapeum-org/pyramids
+pip install git+https://github.com/serapeum-org/pyramids-core
 ```
 Note: installing from GitHub uses the sdist and requires a pre-installed
 system GDAL. See the full [installation guide](docs/installation.md)

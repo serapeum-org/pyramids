@@ -179,4 +179,4 @@ none of this would work without that project's two decades of work.
 
 If you find a missing attribution, an incorrect license entry, or a bundled
 binary whose license text isn't in `pyramids/_licenses/`, please open an issue
-at https://github.com/serapeum-org/pyramids/issues — we want to get this right.
+at https://github.com/serapeum-org/pyramids-core/issues — we want to get this right.

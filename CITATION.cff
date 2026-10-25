@@ -10,8 +10,8 @@ authors:
 version: "0.63.0"
 date-released: 2026-09-13
 license: GPL-3.0
-repository-code: "https://github.com/serapeum-org/pyramids"
-url: "https://serapeum-org.github.io/pyramids/"
+repository-code: "https://github.com/serapeum-org/pyramids-core"
+url: "https://serapeum-org.github.io/pyramids-core/"
 keywords:
   - "GIS"
   - "gdal"

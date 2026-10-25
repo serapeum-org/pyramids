@@ -1,8 +1,8 @@
 site_name: pyramids
 site_description: GIS package
-site_url: https://serapeum-org.github.io/pyramids/
-repo_url: https://github.com/serapeum-org/pyramids
-repo_name: serapeum-org/pyramids
+site_url: https://serapeum-org.github.io/pyramids-core/
+repo_url: https://github.com/serapeum-org/pyramids-core
+repo_name: serapeum-org/pyramids-core
 
 theme:
   name: material
@@ -309,7 +309,7 @@ nav:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/serapeum-org/pyramids
+      link: https://github.com/serapeum-org/pyramids-core
   version:
       provider: mike
   version_selector: true
