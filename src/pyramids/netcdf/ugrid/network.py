@@ -158,6 +158,35 @@ class Network1d:
             DriverNotExistError: ``driver`` names a driver that is not installed.
             UnsupportedMeshFormatError: No installed driver reads the file, or the driver
                 returned a surface mesh rather than a network.
+
+        Examples:
+            - Read a D-Flow FM 1D network, letting detection find the driver:
+                ```python
+                >>> from pyramids.netcdf.ugrid.network import Network1d
+                >>> net = Network1d.read_file("FlowFM_net.nc")      # doctest: +SKIP
+                >>> net.n_node, net.n_edge                          # doctest: +SKIP
+                (86, 91)
+
+                ```
+            - Name the driver to bypass detection, which is worth doing when two installed
+              plugins claim the same suffix:
+                ```python
+                >>> from pyramids.netcdf.ugrid.network import Network1d
+                >>> net = Network1d.read_file(
+                ...     "FlowFM_net.nc", driver="deltares1d"
+                ... )                                               # doctest: +SKIP
+                >>> net.bounds                                      # doctest: +SKIP
+                (4.0, 51.0, 5.0, 52.0)
+
+                ```
+            - Pick one topology out of a file declaring several:
+                ```python
+                >>> from pyramids.netcdf.ugrid.network import Network1d
+                >>> net = Network1d.read_file(
+                ...     "FlowFM_net.nc", mesh_name="network1d"
+                ... )                                               # doctest: +SKIP
+
+                ```
         """
         selected, _native = _resolve_read_driver(path, driver)
         if selected is None:
@@ -519,6 +548,59 @@ class Network1d:
                 component not reaching it); if the network is undirected and no ``outlet``
                 is given; or if the network contains a cycle (no valid topological order
                 exists).
+
+        Examples:
+            - A directed chain sorts from its headwater to its outlet:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid.network import Network1d
+                >>> chain = Network1d.from_arrays(
+                ...     np.array([0.0, 1.0, 2.0, 3.0]),
+                ...     np.array([0.0, 0.0, 0.0, 0.0]),
+                ...     np.array([[0, 1], [1, 2], [2, 3]]),
+                ...     directed=True,
+                ... )
+                >>> chain.sort().tolist()
+                [0, 1, 2, 3]
+                >>> chain.sort("upstream").tolist()
+                [3, 2, 1, 0]
+
+                ```
+            - The same topology undirected: name the outlet and the orientation follows,
+              giving the answer the directed network gives:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid.network import Network1d
+                >>> plain = Network1d.from_arrays(
+                ...     np.array([0.0, 1.0, 2.0, 3.0]),
+                ...     np.array([0.0, 0.0, 0.0, 0.0]),
+                ...     np.array([[0, 1], [1, 2], [2, 3]]),
+                ... )
+                >>> plain.directed
+                False
+                >>> plain.sort(outlet=3).tolist()
+                [0, 1, 2, 3]
+                >>> plain.sort(outlet=0).tolist()
+                [3, 2, 1, 0]
+
+                ```
+            - With no outlet the network cannot be oriented, and the error names the
+              degree-1 nodes that are candidates:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid.network import Network1d
+                >>> plain = Network1d.from_arrays(
+                ...     np.array([0.0, 1.0, 2.0]),
+                ...     np.array([0.0, 0.0, 0.0]),
+                ...     np.array([[0, 1], [1, 2]]),
+                ... )
+                >>> try:
+                ...     plain.sort()
+                ... except ValueError as error:
+                ...     print(str(error).splitlines()[1])
+                  Candidate outlets (degree-1 nodes): 0, 2
+
+                ```
         """
         if direction not in ("downstream", "upstream"):
             raise ValueError(

@@ -217,6 +217,34 @@ def plot_vector_field_data(
     Raises:
         OptionalPackageDoesNotExist: If cleopatra is not installed.
         ValueError: If a loose colour-bar kwarg the `ColorBar` spec replaces is passed.
+
+    Examples:
+        - Draw a face-located velocity field and read back the arrow count:
+            ```python
+            >>> from pyramids.netcdf.ugrid.plot import plot_vector_field_data
+            >>> fig, ax, im = plot_vector_field_data(   # doctest: +SKIP
+            ...     mesh, u_values, v_values
+            ... )
+            >>> im.N                                    # doctest: +SKIP
+            2
+
+            ```
+        - Thin a large mesh and draw wind barbs instead of arrows:
+            ```python
+            >>> from pyramids.netcdf.ugrid.plot import plot_vector_field_data
+            >>> fig, ax, im = plot_vector_field_data(   # doctest: +SKIP
+            ...     mesh, u_values, v_values, kind="barbs", thin=4
+            ... )
+
+            ```
+        - Anchor node-located components at the nodes rather than the face centroids:
+            ```python
+            >>> from pyramids.netcdf.ugrid.plot import plot_vector_field_data
+            >>> fig, ax, im = plot_vector_field_data(   # doctest: +SKIP
+            ...     mesh, u_nodes, v_nodes, location="node", title="Surface current"
+            ... )
+
+            ```
     """
     glyph = _mesh_to_glyph(mesh)
     _reject_replaced_cbar_kwargs(kwargs)
