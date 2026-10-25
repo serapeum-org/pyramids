@@ -6450,7 +6450,18 @@ def _to_cftime(stamp: Any, calendar: str = "standard") -> Any:
 
 
 def _is_dated(stamps: Any) -> bool:
-    """True when ``stamps`` are real dates rather than positional indices."""
+    """True when ``stamps`` are real dates rather than positional indices.
+
+    What tells a decoded CF axis from the positional fallback, which is the distinction
+    :func:`_interp_scale` needs: one counts elapsed time and the other counts steps.
+
+    Args:
+        stamps: A variable's time coordinate, or ``None``.
+
+    Returns:
+        bool: True when the first stamp is a ``cftime`` object, a ``datetime64`` or a
+        ``datetime``; False for numbers, an empty coordinate or ``None``.
+    """
     result = False
     if stamps is not None and len(stamps) > 0:
         first = stamps[0]

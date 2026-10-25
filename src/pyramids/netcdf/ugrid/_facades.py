@@ -335,6 +335,10 @@ class _UgridFacades:
         Args:
             rings: Adjacency hops the neighbourhood spans. Defaults to 1.
             variable_name: Variable to act on (default: the only one).
+            reach: A neighbourhood matrix to reuse across calls, built with
+                ``pyramids.netcdf.ugrid.focal.neighbourhood(ds.mesh, rings)``. Without it each
+                call builds its own, so a sweep over many variables or steps rebuilds the same
+                sparse power every time. Leave ``rings`` at its default when passing it.
 
         Returns:
             numpy.ndarray: Per-face population standard deviation; ``NaN`` where the
@@ -375,6 +379,10 @@ class _UgridFacades:
             func: Callable taking a 1-D array and returning a scalar.
             rings: Adjacency hops the neighbourhood spans. Defaults to 1.
             variable_name: Variable to act on (default: the only one).
+            reach: A neighbourhood matrix to reuse across calls, built with
+                ``pyramids.netcdf.ugrid.focal.neighbourhood(ds.mesh, rings)``. Without it each
+                call builds its own, so a sweep over many variables or steps rebuilds the same
+                sparse power every time. Leave ``rings`` at its default when passing it.
 
         Returns:
             numpy.ndarray: Per-face aggregate; ``NaN`` where the neighbourhood holds no usable
