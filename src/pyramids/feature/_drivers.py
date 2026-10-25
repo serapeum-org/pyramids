@@ -18,9 +18,10 @@ and a driver whose backend is absent is never offered — with **one deliberate 
   a source it cannot read. OGR does not: it will happily open a CityJSON ``.json`` with its GeoJSON
   driver and return the wrong geometry. So a "try OGR, then fall back" order is unsafe for vector
   data; instead a registered driver whose :meth:`VectorDriver.can_open` claims the source wins
-  **before** the geopandas/pyogrio path is tried. The cost of this is that a plugin's ``can_open``
-  runs on each read, so a plugin author must keep it cheap and specific (sniff a suffix first, read
-  bytes only when the suffix already matches).
+  **before** the geopandas/pyogrio path is tried. A cheap suffix/scheme pre-filter runs first, so a
+  plugin's ``can_open`` is consulted only for a read whose suffix or scheme the driver declares (a
+  ``.cityjson`` driver is never asked about a ``.shp``); it should still be cheap and specific,
+  content-sniffing only once the suffix already matches.
 
 Three properties matter enough to state outright, because each is load-bearing:
 
@@ -120,11 +121,14 @@ class VectorDriver(Protocol):
     def can_open(cls, source: Any) -> bool:
         """Report whether this driver recognises ``source``.
 
-        A ``classmethod`` so the registry can ask without constructing the driver. Because a
-        claiming driver pre-empts the built-in OGR reader, this runs on **every** vector read, so it
-        must be cheap — check the suffix first, and read file bytes to content-sniff only once the
-        suffix already matches. It must never raise for any input (an unknown path, a directory, a
-        URL, a non-string all answer ``False``).
+        A ``classmethod`` so the registry can ask without constructing the driver. The scan
+        pre-filters by suffix/scheme, so this is consulted only for a source whose suffix or scheme
+        the driver already declares — but it then runs before the built-in OGR reader on every such
+        read, so keep it cheap: read file bytes to content-sniff only when the suffix alone cannot
+        decide (e.g. telling CityJSON from GeoJSON for a ``.json``). The built-in dispatch always
+        hands it ``str(path)``; it may receive other types only if called directly, and in every
+        case it must answer ``False`` rather than raise (an unknown path, a directory, a URL, a
+        non-string all answer ``False``).
 
         Args:
             source: The path, URL, or directory the caller passed to

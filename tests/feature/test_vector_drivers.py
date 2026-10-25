@@ -196,6 +196,28 @@ class TestValidation:
         with pytest.warns(RuntimeWarning, match="missing attribute"):
             assert vector_drivers() == {}, "a class missing claims must not register"
 
+    def test_a_driver_missing_a_promised_method_is_skipped(self, fake_entry_points):
+        """A driver declaring 'read' but not implementing it is skipped with a 'does not implement' warning.
+
+        Test scenario:
+            The class is otherwise valid but defines no ``read`` method, so ``_validate_claims``
+            reports the missing method and discovery drops it, leaving an empty registry.
+        """
+
+        class NoRead:
+            name, long_name = "noread", "No Read"
+            api_version = VECTOR_DRIVER_API_VERSION
+            suffixes, schemes = (".noread",), ()
+            capabilities, extra = frozenset({"read"}), None
+
+            @classmethod
+            def can_open(cls, source):
+                return False
+
+        fake_entry_points(("noread", NoRead))
+        with pytest.warns(RuntimeWarning, match="does not implement"):
+            assert vector_drivers() == {}, "a driver missing a promised method must not register"
+
     def test_every_capability_token_is_accepted(self, fake_entry_points):
         """A driver may declare every known token (``read`` + the declarative ``needs_auth``).
 

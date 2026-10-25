@@ -59,7 +59,7 @@ from pyramids.base._ogc_api import (
 from pyramids.base._utils import extra_hint, import_pyarrow
 from pyramids.base.crs import _pyproj_crs_via_gdal, crs_from_user_input
 from pyramids.base.remote import _ARCHIVE_MARKER_RE, is_remote, to_fsspec_url
-from pyramids.feature._drivers import select_driver, vector_drivers
+from pyramids.feature._drivers import VectorDriver, select_driver, vector_drivers
 
 if TYPE_CHECKING:
     from pyramids.feature._lazy_collection import LazyFeatureCollection
@@ -797,7 +797,7 @@ def read_file_dask(
 
 
 def _read_via_vector_driver(
-    driver_class: Any, source: str, passthrough: dict[str, Any]
+    driver_class: type[VectorDriver], source: str, passthrough: dict[str, Any]
 ) -> GeoDataFrame:
     """Construct a vector driver, read ``source``, and validate it returned a GeoDataFrame.
 
