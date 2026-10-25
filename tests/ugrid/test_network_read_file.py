@@ -289,3 +289,44 @@ class TestNoDriverMessage:
         registered(NetworkNetcdfDriver())
         with pytest.raises(FileNotFoundError):
             Network1d.read_file(tmp_path / "absent_net.nc")
+
+
+class TestResultsOnlyDriver:
+    """A `needs_mesh` driver reached through the fallback (issue #1351, L10)."""
+
+    def test_the_advice_does_not_name_a_method_network1d_lacks(
+        self, netcdf_path, registered
+    ):
+        """A results-only driver must not send a network caller to `attach_data` (L10).
+
+        Test scenario:
+            `_needs_mesh_error` was written for `UgridDataset.read_file`, so its recipe is
+            `mesh = UgridDataset.read_file(...)` then `mesh.attach_data(...)`. Reached from
+            `Network1d.read_file` that is wrong twice over: the caller asked for a network,
+            and `Network1d` has no `attach_data` at all.
+        """
+
+        class ResultsOnlyDriver(NetworkNetcdfDriver):
+            """Carries values but no topology, like a TUFLOW FV results reader."""
+
+            name = "results_only"
+            long_name = "Results-only NetCDF (fake)"
+            capabilities = frozenset({"needs_mesh", "read_data"})
+
+        registered(ResultsOnlyDriver())
+        assert not hasattr(Network1d, "attach_data"), (
+            "the premise of this test is that Network1d has no attach_data"
+        )
+        with pytest.raises(UnsupportedMeshFormatError) as caught:
+            Network1d.read_file(netcdf_path)
+        message = str(caught.value)
+        assert "no attach_data" in message, (
+            f"the message must say why the usual recipe does not apply, got:\n{message}"
+        )
+        assert "UgridDataset.read_file" in message, (
+            f"it must still name where the mesh comes from, got:\n{message}"
+        )
+        assert "mesh.attach_data" not in message, (
+            f"the UgridDataset recipe must not be offered to a network caller, "
+            f"got:\n{message}"
+        )

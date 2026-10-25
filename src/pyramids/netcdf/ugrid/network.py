@@ -108,6 +108,13 @@ def _no_network_driver_message(path: str | Path) -> str:
 class Network1d:
     """1D network mesh topology (nodes + edges, no faces).
 
+    The element is the edge, so there are no centroids, no areas, and **no** ``n_face`` --
+    use :attr:`n_node` and :attr:`n_edge`. The attribute is genuinely absent rather than
+    present-and-raising: a property whose body only raised left ``dir()`` and
+    ``hasattr(Network1d, "n_face")`` advertising a member that could never be read, while
+    ``hasattr(net, "n_face")`` denied it. Use ``isinstance(obj, Network1d)`` or
+    ``topology_dimension`` to tell a network from a surface mesh.
+
     Holds node coordinates and an edge-node connectivity table describing a
     1D network such as a river tree or a 1D hydraulic model. Provides derived
     geometric properties (edge lengths, edge midpoints, bounds), nearest-neighbour
@@ -195,8 +202,10 @@ class Network1d:
         Raises:
             FileNotFoundError: The file does not exist.
             DriverNotExistError: ``driver`` names a driver that is not installed.
-            UnsupportedMeshFormatError: No installed driver reads the file, or the driver
-                returned a surface mesh rather than a network.
+            UnsupportedMeshFormatError: No installed driver reads the file; the named
+                driver is the built-in reader, which cannot build a network; the driver that
+                claims the file carries values but no topology (so it cannot open one on its
+                own); or the driver returned a surface mesh rather than a network.
 
         Examples:
             - Read a D-Flow FM 1D network, letting detection find the driver:
@@ -247,7 +256,7 @@ class Network1d:
             # has raised NoMeshTopologyError; a network has no built-in read to fail first --
             # pyramids' UGRID reader builds a Mesh2d whatever dimension a file declares -- so
             # the fallback runs here, at resolution time, instead.
-            selected = _netcdf_fallback_driver(path, driver)
+            selected = _netcdf_fallback_driver(path, driver, "Network1d")
         if selected is None:
             raise UnsupportedMeshFormatError(_no_network_driver_message(path))
         result = _read_through_driver(selected, path, mesh_name, cls, lazy)
@@ -603,23 +612,27 @@ class Network1d:
         oriented = np.empty_like(edges)
         for row, (first, second) in enumerate(edges):
             position = int(positions[row])
-            near, far = int(first), int(second)
-            if distance[near] == unreached or distance[far] == unreached:
+            # `first`/`second` are the table's two columns and carry no meaning yet; the
+            # edge becomes `source -> target` only once their distances are compared.
+            left, right = int(first), int(second)
+            if distance[left] == unreached or distance[right] == unreached:
                 raise ValueError(
-                    f"edge {position} joins nodes {near} and {far}, which node {outlet} "
+                    f"edge {position} joins nodes {left} and {right}, which node {outlet} "
                     f"cannot reach; orient one component at a time, or subset the network "
                     f"with topology_subset() first."
                 )
-            if distance[near] == distance[far]:
+            if distance[left] == distance[right]:
                 raise ValueError(
-                    f"edge {position} joins nodes {near} and {far}, both "
-                    f"{int(distance[near])} hop(s) from outlet {outlet}, so nothing decides "
+                    f"edge {position} joins nodes {left} and {right}, both "
+                    f"{int(distance[left])} hop(s) from outlet {outlet}, so nothing decides "
                     f"which way it runs. Build the network with directed=True to state the "
                     f"orientation."
                 )
-            if distance[near] < distance[far]:
-                near, far = far, near
-            oriented[row] = (near, far)
+            # The farther end drains into the nearer one, so it is the source.
+            source, target = (
+                (left, right) if distance[left] > distance[right] else (right, left)
+            )
+            oriented[row] = (source, target)
         return oriented
 
     def sort(

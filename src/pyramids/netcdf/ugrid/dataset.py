@@ -7487,7 +7487,9 @@ def _detected_read_driver(target: str) -> tuple[MeshDriver | None, bool]:
     return result
 
 
-def _netcdf_fallback_driver(path: str | Path, driver: str | None) -> MeshDriver | None:
+def _netcdf_fallback_driver(
+    path: str | Path, driver: str | None, expected: str = "UgridDataset"
+) -> MeshDriver | None:
     """Find a driver for a NetCDF-suffixed file the built-in reader could not read.
 
     Consulted **only** after :meth:`UgridDataset._read_ugrid_netcdf` raises
@@ -7506,6 +7508,10 @@ def _netcdf_fallback_driver(path: str | Path, driver: str | None) -> MeshDriver 
         path: The file the built-in reader rejected.
         driver: The name the caller passed to the entry point, or ``None`` to detect. A
             non-``None`` value means the caller chose the reader explicitly, so no fallback.
+        expected: The class the calling entry point returns, forwarded to
+            :func:`_needs_mesh_error` so a ``Network1d`` caller is not sent to an
+            ``attach_data`` that only :class:`UgridDataset` has. Defaults to
+            ``"UgridDataset"``.
 
     Returns:
         The first driver claiming the NetCDF suffix whose ``can_open`` accepts the file, or
@@ -7523,8 +7529,8 @@ def _netcdf_fallback_driver(path: str | Path, driver: str | None) -> MeshDriver 
     selected = _first_claiming_driver(suffix, target)
     if selected is not None and "needs_mesh" in selected.capabilities:
         # Mirror the detection path: a results-only driver cannot open a file on its own, so
-        # refuse it with the attach_data guidance rather than calling its read.
-        raise _needs_mesh_error(selected, target)
+        # refuse it with guidance the calling entry point can actually follow.
+        raise _needs_mesh_error(selected, target, expected)
     return selected
 
 
@@ -7566,21 +7572,34 @@ def _resolve_read_driver(
     return selected, native
 
 
-def _needs_mesh_error(selected: MeshDriver, target: str) -> UnsupportedMeshFormatError:
+def _needs_mesh_error(
+    selected: MeshDriver, target: str, expected: str = "UgridDataset"
+) -> UnsupportedMeshFormatError:
     """Build the error for a results-only driver asked to read a file on its own.
 
-    A ``needs_mesh`` driver carries values but no topology, so it cannot open a file by itself.
-    Shared by :func:`_resolve_read_driver` (the detection path) and :func:`_netcdf_fallback_driver`
-    (the NetCDF fallback) so both refuse it with the same actionable message rather than letting
-    the driver's own ``read`` raise whatever it likes.
+    A ``needs_mesh`` driver carries values but no topology, so it cannot open a file by
+    itself. Shared by :func:`_resolve_read_driver` (the detection path) and
+    :func:`_netcdf_fallback_driver` (the NetCDF fallback) so both refuse it with the same
+    actionable message rather than letting the driver's own ``read`` raise whatever it likes.
 
     Args:
         selected: The driver, named in the message.
         target: The path the caller gave, shown in the suggested ``attach_data`` call.
+        expected: The class the caller asked for. ``"UgridDataset"`` (the default) gets the
+            ``attach_data`` recipe; a :class:`Network1d` caller cannot be given it, because
+            ``Network1d`` has no ``attach_data``, so it is told that instead of being sent to
+            a method that does not exist.
 
     Returns:
-        An :class:`UnsupportedMeshFormatError` directing the caller to read a mesh then attach.
+        An :class:`UnsupportedMeshFormatError` whose advice the caller can actually follow.
     """
+    if expected != "UgridDataset":
+        return UnsupportedMeshFormatError(
+            f"{selected.long_name} files carry values but no mesh, so {target!r} cannot be "
+            f"opened on its own -- and {expected} has no attach_data to combine them with a "
+            f"topology. Read the mesh this file's values belong to with "
+            f"UgridDataset.read_file, then attach them there."
+        )
     return UnsupportedMeshFormatError(
         f"{selected.long_name} files carry values but no mesh, so {target!r} cannot be "
         f"opened on its own. Read the mesh first, then attach these values to it:\n"

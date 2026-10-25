@@ -210,7 +210,7 @@ grouped by category.
 | `plot(variable_name, ax, cmap, title, ...)` | **(D)** | Plot mesh data via cleopatra |
 | `plot_outline(ax, **kwargs)` | **(D)** | Plot mesh wireframe |
 | `plot_histogram(bins, variable_name, ...)` | **(F)** | Histogram of a variable's values |
-| `plot_vector_field(u, v, kind, thin, time_index, ...)` | **(D)** | Draw two face- or node-located components as a quiver / barbs field |
+| `plot_vector_field(u, v, kind, thin, ...)` | **(D)** | Quiver / barbs field from two components |
 | `animate(variable_name, interval, **kwargs)` | **(D)** | Animate a temporal variable over its time axis |
 | `to_image(variable_name, cell_size, cmap, method)` | **(D)** | Rasterise and colour-map to a PIL image |
 
