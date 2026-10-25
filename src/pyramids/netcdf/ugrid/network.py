@@ -17,6 +17,7 @@ because the built-in reader has only one mesh type to build: :class:`UgridDatase
 
 from __future__ import annotations
 
+import operator
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ from shapely.geometry import LineString
 
 from pyramids.netcdf.ugrid._drivers import (
     NETCDF_SUFFIXES,
+    RESERVED_NAMES,
     UnsupportedMeshFormatError,
     drivers_for_suffix,
     mesh_drivers,
@@ -225,6 +227,18 @@ class Network1d:
 
                 ```
         """
+        if driver is not None and driver.strip().lower() in RESERVED_NAMES:
+            # The docstring has always said a reserved name is refused here. It was not:
+            # `_named_read_driver` mapped it to the built-in reader, the fallback declined
+            # because a driver was named, and the generic message then reported "no
+            # installed driver ... none installed" -- false, since `ugrid` is installed as
+            # the built-in reader, and unhelpful to a caller who had just named it.
+            raise UnsupportedMeshFormatError(
+                f"{driver!r} is pyramids' built-in UGRID reader, which cannot produce a "
+                f"Network1d: it builds a 2D mesh whatever topology dimension a file "
+                f"declares. Read {path} with UgridDataset.read_file to get that mesh, or "
+                f"name a plugin driver that reads this file as a 1D network."
+            )
         selected, _native = _resolve_read_driver(path, driver)
         if selected is None:
             # A NetCDF suffix short-circuits ahead of driver discovery inside
@@ -548,13 +562,24 @@ class Network1d:
             An ``(n_real_edge, 2)`` array of ``(from_node, to_node)`` pairs.
 
         Raises:
-            ValueError: If ``outlet`` is not a node index, if a real edge names a node outside
+            ValueError: If ``outlet`` is not an integer, or not a node index, if a real
+                edge names a node outside
                 the node range, if an edge's two ends are the same distance from ``outlet``
                 (nothing decides which way it runs), or if an edge sits in a component
                 ``outlet`` cannot reach.
         """
         node_count = self.n_node
-        if not 0 <= int(outlet) < node_count:
+        # `int(outlet)` alone accepted True (orienting towards node 1) and 2.9 (towards node
+        # 2), each returning a plausible order for a node the caller never named. `bool` is
+        # excluded explicitly because it is a subclass of `int` and `operator.index` admits
+        # it.
+        if isinstance(outlet, bool) or not hasattr(outlet, "__index__"):
+            raise ValueError(
+                f"outlet must be an integer node index, got {outlet!r} "
+                f"({type(outlet).__name__})."
+            )
+        outlet = operator.index(outlet)
+        if not 0 <= outlet < node_count:
             raise ValueError(
                 f"outlet must be a node index in [0, {node_count - 1}], got {outlet!r}."
             )
@@ -638,7 +663,8 @@ class Network1d:
 
         Raises:
             ValueError: If ``direction`` is not ``"downstream"``/``"upstream"``; if
-                ``outlet`` is given for a directed network, is out of range, or leaves an
+                ``outlet`` is given for a directed network, is not an integer, is out of
+                range, or leaves an
                 edge unorientable (its two ends equidistant from ``outlet``, or its
                 component not reaching it); if the network is undirected and no ``outlet``
                 is given; or if the network contains a cycle (no valid topological order

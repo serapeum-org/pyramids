@@ -466,6 +466,41 @@ class TestSort:
             "with no edge to orient, the nodes come back in index order"
         )
 
+    @pytest.mark.parametrize("outlet", [True, False], ids=["True", "False"])
+    def test_sort_refuses_a_bool_outlet(self, outlet):
+        """A bool is not a node index, even though it indexes like one (M7).
+
+        Test scenario:
+            `0 <= int(outlet) < n` accepts `True` and silently orients towards node 1, which
+            is a plausible-looking order for a node the caller never named.
+        """
+        net = Network1d.from_arrays(*CHAIN)
+        with pytest.raises(ValueError, match="outlet must be an integer node index"):
+            net.sort(outlet=outlet)
+
+    @pytest.mark.parametrize("outlet", [2.9, 0.5, 3.0], ids=["2.9", "0.5", "3.0"])
+    def test_sort_refuses_a_float_outlet(self, outlet):
+        """A float is refused rather than truncated (M7).
+
+        Test scenario:
+            `int(2.9)` is 2, so the network was oriented towards node 2 for a caller who
+            asked for something that is not a node index at all. Even `3.0`, which truncates
+            exactly, is refused -- the signature says `int`.
+        """
+        net = Network1d.from_arrays(*CHAIN)
+        with pytest.raises(ValueError, match="outlet must be an integer node index"):
+            net.sort(outlet=outlet)
+
+    def test_sort_accepts_a_numpy_integer_outlet(self):
+        """A numpy integer is a node index and must keep working (M7).
+
+        Test scenario:
+            The type guard must not reject the integer types numpy hands back from
+            `argmin`/`flatnonzero`, which is how a caller would most naturally pick an outlet.
+        """
+        net = Network1d.from_arrays(*CHAIN)
+        assert net.sort(outlet=np.int64(3)).tolist() == [0, 1, 2, 3]
+
 
 class TestTopologySubset:
     """Edge subsetting with node renumbering."""

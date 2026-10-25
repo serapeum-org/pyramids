@@ -180,6 +180,50 @@ class TestNetcdfFallback:
         with pytest.raises(UnsupportedMeshFormatError, match="not a Network1d"):
             Network1d.read_file(netcdf_path)
 
+    def test_a_reserved_driver_name_is_refused_with_the_documented_reason(
+        self, netcdf_path, registered
+    ):
+        """`driver="ugrid"` is refused by name, not reported as "none installed" (M3).
+
+        Test scenario:
+            The docstring says `"ugrid"` is refused here because the built-in reader builds a
+            `Mesh2d` whatever dimension a file declares. No such refusal existed: the
+            reserved name resolved to the built-in reader, the fallback declined because a
+            driver was named, and the generic message then claimed no driver was installed --
+            false, since `ugrid` is the built-in one.
+        """
+        registered(NetworkNetcdfDriver())
+        with pytest.raises(UnsupportedMeshFormatError) as caught:
+            Network1d.read_file(netcdf_path, driver="ugrid")
+        message = str(caught.value)
+        assert "ugrid" in message
+        assert "2D mesh" in message or "Mesh2d" in message, (
+            f"the refusal must give the documented reason, got:\n{message}"
+        )
+        assert "none installed" not in message, (
+            f"'ugrid' is the built-in reader, so this is false; got:\n{message}"
+        )
+
+    def test_a_reserved_name_is_refused_case_insensitively(
+        self, netcdf_path, registered
+    ):
+        """Reserved names are matched the way `_named_read_driver` matches them (M3).
+
+        Test scenario:
+            `_named_read_driver` lowercases and strips before testing membership, so the
+            refusal has to as well -- otherwise `driver="UGRID"` slips past it and lands on
+            the generic "no installed driver" message again. The name is echoed back as the
+            caller spelled it.
+        """
+        registered(NetworkNetcdfDriver())
+        with pytest.raises(
+            UnsupportedMeshFormatError, match="built-in UGRID reader"
+        ) as caught:
+            Network1d.read_file(netcdf_path, driver="UGRID")
+        assert "'UGRID'" in str(caught.value), (
+            f"the name is echoed as spelled, got: {caught.value}"
+        )
+
 
 class TestNoDriverMessage:
     """What `read_file` says when no installed driver claims the file (issue #1351)."""
