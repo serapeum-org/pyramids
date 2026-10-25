@@ -852,6 +852,7 @@ class FeatureCollection(GeoDataFrame):
         rows: slice | int | None = None,
         columns: list[str] | None = None,
         where: str | None = None,
+        driver: str | None = None,
         backend: str = "pandas",
         npartitions: int | None = None,
         chunksize: int | None = None,
@@ -915,6 +916,20 @@ class FeatureCollection(GeoDataFrame):
                 OGR SQL `WHERE`-clause predicate pushed down to the
                 driver (e.g. `"population > 10000"`). Avoids loading
                 non-matching features.
+            driver (str | None):
+                Name of a third-party reader registered in the
+                `pyramids.vector_drivers` entry-point group (e.g. a
+                CityJSON reader shipped by a plugin). `None` (the
+                default) lets a registered driver claim the source by
+                content, else falls back to the built-in
+                geopandas/pyogrio OGR reader. With no plugins
+                installed, `driver=None` always uses OGR; passing an
+                explicit `driver=` name that is not registered raises
+                `DriverNotExistError`. A driver-selected read (an
+                explicit `driver=` or a plugin `can_open` claim) always
+                returns an eager `FeatureCollection`: `backend="dask"`
+                is rejected for it with a `ValueError`, and
+                `npartitions` / `chunksize` do not apply.
             **kwargs:
                 Forwarded to :func:`geopandas.read_file` verbatim for
                 engine-specific options (`engine="pyogrio"`,
@@ -946,6 +961,7 @@ class FeatureCollection(GeoDataFrame):
             rows=rows,
             columns=columns,
             where=where,
+            driver=driver,
             backend=backend,
             npartitions=npartitions,
             chunksize=chunksize,
