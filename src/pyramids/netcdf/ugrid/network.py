@@ -158,16 +158,19 @@ class Network1d:
     Holds node coordinates and an edge-node connectivity table describing a
     1D network such as a river tree or a 1D hydraulic model. Provides derived
     geometric properties (edge lengths, edge midpoints, bounds), nearest-neighbour
-    KD-trees on nodes and edge midpoints, and a topological network sort for
-    upstream/downstream ordering of a directed network.
+    KD-trees on nodes and edge midpoints, and :meth:`sort` for upstream/downstream
+    ordering -- over the stored edge directions when the network is directed, and over an
+    orientation derived from a named outlet when it is not.
 
     This class does NOT inherit from Dataset or RasterBase and is independent
-    of :class:`Mesh2d`. The core element is the **edge**; there are no faces,
-    centroids, or areas.
+    of :class:`Mesh2d`.
 
-    Built from arrays, not read from a file: there is no 1-D reader or writer yet, and
-    :class:`UgridDataset` holds a :class:`Mesh2d`, so a network does not travel through
-    `read_file` / `to_file`.
+    Read with :meth:`read_file`, which dispatches to a registered
+    ``pyramids.mesh_drivers`` plugin -- including for a `.nc` network such as a D-Flow FM
+    `_net.nc` file. There is no built-in route, because the UGRID topology parser builds a
+    :class:`Mesh2d` whatever ``topology_dimension`` a file declares, so a network always
+    comes from a plugin. Writing a network is still unimplemented, so it does not travel
+    through ``to_file``.
 
     Attributes:
         _node_x: Node x-coordinates (n_node,), float64.
