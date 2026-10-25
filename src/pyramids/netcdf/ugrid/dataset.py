@@ -6084,7 +6084,19 @@ class UgridDataset(_UgridFacades):
                 f"edge-located component to faces first."
             )
         if var.has_time:
-            steps = np.asarray(var.data).shape[cast("int", var.time_index)]
+            shape = np.asarray(var.data).shape
+            axis = cast("int", var.time_index)
+            if not -len(shape) <= axis < len(shape):
+                # `time_index` is derived from `dimensions` by name, so a variable declaring
+                # more axes than its data has yields an axis past the array's rank. Indexing
+                # `shape` with it raised a bare IndexError out of the very pre-check that
+                # exists to report this case well.
+                raise ValueError(
+                    f"plot_vector_field: {role} component {variable_name!r} declares a time "
+                    f"axis at position {axis} but its data has {len(shape)} axis/axes "
+                    f"{shape}; the variable's dimensions and its array disagree."
+                )
+            steps = shape[axis]
             if not -steps <= time_index < steps:
                 raise ValueError(
                     f"plot_vector_field: time_index {time_index} is outside "

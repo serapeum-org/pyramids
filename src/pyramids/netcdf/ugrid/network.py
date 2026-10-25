@@ -246,6 +246,7 @@ class Network1d:
         Raises:
             FileNotFoundError: The file does not exist.
             DriverNotExistError: ``driver`` names a driver that is not installed.
+            IsADirectoryError: ``path`` is a directory no installed driver claims.
             UnsupportedMeshFormatError: No installed driver reads the file; the named
                 driver is the built-in reader, which cannot build a network; the driver that
                 claims the file carries values but no topology (so it cannot open one on its
@@ -307,6 +308,13 @@ class Network1d:
             # the fallback runs here, at resolution time, instead.
             selected = _netcdf_fallback_driver(path, driver, "Network1d")
         if selected is None:
+            if Path(path).is_dir():
+                # `_require_existing_file` lets a directory through on purpose -- Esri TIN
+                # is one -- and leaves it to the fallback read to report. `UgridDataset`
+                # has a GDAL fallback that does; a network has none, so an unclaimed
+                # directory reached the no-driver message, whose one imperative line
+                # ("install a plugin") cannot fix having passed a directory.
+                raise IsADirectoryError(f"Not a mesh file: {path} is a directory.")
             raise UnsupportedMeshFormatError(_no_network_driver_message(path))
         result = _read_through_driver(selected, path, mesh_name, cls, lazy)
         return result

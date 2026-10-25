@@ -247,6 +247,48 @@ class TestNetcdfFallback:
         with pytest.raises(FileNotFoundError):
             Network1d.read_file(absent, **kwargs)
 
+    def test_a_directory_is_reported_as_a_directory(self, tmp_path, registered):
+        """An unclaimed directory must not be reported as a missing plugin (M3).
+
+        Test scenario:
+            `_require_existing_file` deliberately lets a directory through, because Esri TIN
+            is a directory format, and its docstring says the fallback path reports one as a
+            directory. That arm lives on `UgridDataset`'s GDAL fallback; `Network1d` has no
+            built-in read to fall back to, so an unclaimed directory fell out of the
+            no-driver message -- whose one imperative line, "Install a mesh driver plugin",
+            cannot fix having passed a directory.
+        """
+        registered()
+        a_dir = tmp_path / "a_dir"
+        a_dir.mkdir()
+        with pytest.raises(IsADirectoryError) as caught:
+            Network1d.read_file(a_dir)
+        assert "directory" in str(caught.value), (
+            f"the message must name the real problem, got: {caught.value}"
+        )
+
+    def test_a_directory_a_driver_claims_still_reaches_it(self, tmp_path, registered):
+        """A directory format is not broken by the guard (M3).
+
+        Test scenario:
+            Esri TIN is a directory. The refusal must fire only when no driver claimed the
+            target, so a driver that does claim it still gets the read.
+        """
+
+        class DirectoryDriver(NetworkNetcdfDriver):
+            """Reads a directory, as an Esri TIN driver does."""
+
+            name = "tin_dir"
+            long_name = "Directory format (fake)"
+            suffixes = ("",)
+
+        driver = registered(DirectoryDriver())
+        a_dir = tmp_path / "tin_dir_input"
+        a_dir.mkdir()
+        result = Network1d.read_file(a_dir)
+        assert (result.n_node, result.n_edge) == (4, 3)
+        assert driver.read_calls, "the claiming driver must still be used"
+
 
 class TestNoDriverMessage:
     """What `read_file` says when no installed driver claims the file (issue #1351)."""

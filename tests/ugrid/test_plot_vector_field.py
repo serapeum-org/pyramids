@@ -217,6 +217,34 @@ class TestTimeStep:
         with pytest.raises(ValueError, match=r"time_index .* is outside"):
             temporal_velocity.plot_vector_field("ucx", "ucy", time_index=step)
 
+    def test_a_time_index_past_the_data_rank_is_named(self):
+        """A declared time axis the data does not have is refused, not leaked (M4).
+
+        Test scenario:
+            `time_index` comes from `MeshVariable.dimensions` by name, so a variable whose
+            declared dimensions name more axes than its data has yields an axis past the
+            array's rank. Indexing `shape` with it raised a bare `IndexError: tuple index
+            out of range` -- a type the documented contract does not promise, naming neither
+            the method nor the variable, from the pre-check that exists to report this well.
+        """
+        skewed = MeshVariable(
+            name="ux",
+            location="face",
+            mesh_name="mesh2d",
+            shape=(2,),
+            _data=np.array([1.0, 2.0]),
+            dimensions=["nFaces", "time"],
+        )
+        other = _variable("uy", [0.0, 1.0])
+        dataset = _dataset(ux=skewed, uy=other)
+        with pytest.raises(ValueError) as caught:
+            dataset.plot_vector_field("ux", "uy")
+        message = str(caught.value)
+        assert "plot_vector_field" in message, (
+            f"the refusal must be branded, got: {message}"
+        )
+        assert "ux" in message, f"the refusal must name the variable, got: {message}"
+
 
 class TestRefusals:
     """The inputs the facade refuses instead of drawing arrows in the wrong place."""
