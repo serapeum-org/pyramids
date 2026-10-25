@@ -222,8 +222,17 @@ class TestWhereShapeMessage:
         """Was numpy's bare "operands could not be broadcast together"."""
         from pyramids.base._array_ops import where_values
 
-        with pytest.raises(ValueError, match=r"does not match the values"):
+        with pytest.raises(ValueError, match=r"cannot be broadcast against the values"):
             where_values(np.array([1.0, 2.0]), np.array([True, True, True]))
+
+    def test_a_condition_on_one_axis_broadcasts(self):
+        """A `(n_face,)` condition against a `(time, face)` variable means "these faces, every
+        step" - the natural thing to write, and what the docstring promised all along."""
+        from pyramids.base._array_ops import where_values
+
+        values = np.ones((2, 2))
+        result = where_values(values, np.array([True, False]), other=0.0)
+        assert result.tolist() == [[1.0, 0.0], [1.0, 0.0]]
 
     def test_the_message_suggests_how_to_build_the_condition(self):
         from pyramids.base._array_ops import where_values

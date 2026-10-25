@@ -1242,7 +1242,14 @@ class _UgridFacades:
         """
         var = self._facade_variable("where", variable_name)
         result = _array_ops.where_values(np.asarray(var.data), cond, other, var.nodata)
-        return self._rewrap(var, result)
+        # With a non-NaN `other`, every no-data element is overwritten by it, so the result no
+        # longer uses the source's sentinel to mark anything and declaring it would claim a
+        # marker that is now an ordinary value. With the default NaN fill the gaps stay
+        # missing, so the sentinel still describes them.
+        overwrites_gaps = other is not None and not (
+            isinstance(other, float) and np.isnan(other)
+        )
+        return self._rewrap(var, result, keep_nodata=not overwrites_gaps)
 
     def apply(self, func: Any, variable_name: str | None = None) -> Any:
         """Apply ``func`` to every element of a variable (issue #1375).

@@ -61,38 +61,38 @@ def numeric_coordinate(values: Any) -> np.typing.NDArray:
         ValueError: The coordinate cannot be read as numbers or datetimes, or it mixes
             calendars that have no common scale.
     """
-    array = np.asarray(values)
+    # Ravelled once here so the `A 1-D float64 coordinate` this function promises is actually
+    # true, and so both branches below measure from the same single origin. Previously the
+    # datetime64 branch subtracted `array[0]` - a whole row of a 2-D coordinate - while the
+    # cftime branch took one scalar.
+    array = np.asarray(values).ravel()
     if np.issubdtype(array.dtype, np.datetime64):
-        # `.flat[0]` rather than `[0]`, matching the cftime branch below: a coordinate handed
-        # in as a 2-D array would otherwise subtract a whole row here and a single stamp there.
-        deltas = array - array.flat[0]
+        deltas = array - array[0]
         return np.asarray(
             deltas.astype("timedelta64[ns]").astype("float64") / 1e9, dtype="float64"
         )
     if array.dtype == object:
-        if array.size and hasattr(array.flat[0], "calendar"):
+        if array.size and hasattr(array[0], "calendar"):
             # A cftime stamp is NOT routed through datetime64: a model calendar has dates the
             # proleptic Gregorian one does not (29/30 February on `360_day`, 29 February on
             # `all_leap`), and numpy raises `SystemError` on those - not something catchable
             # by type. cftime's own subtraction is calendar-correct for every calendar and
             # needs no units string.
-            origin = array.flat[0]
+            origin = array[0]
             try:
-                elapsed = [(stamp - origin).total_seconds() for stamp in array.flat]
+                elapsed = [(stamp - origin).total_seconds() for stamp in array]
             except TypeError as error:
                 # cftime refuses to subtract two dates on different calendars, and says so in
                 # its own terms. A mixed-calendar axis is reachable from this branch -
                 # `convert_calendar` produces one calendar and `concat` can bring another - so
                 # the message names what to do about it.
-                calendars = sorted(
-                    {getattr(stamp, "calendar", "?") for stamp in array.flat}
-                )
+                calendars = sorted({getattr(stamp, "calendar", "?") for stamp in array})
                 raise ValueError(
                     f"coordinate: the time axis mixes calendars {calendars}, which have no "
                     f"common scale to measure elapsed time on. Put both on one calendar with "
                     f"convert_calendar() first."
                 ) from error
-            return np.asarray(elapsed, dtype="float64").reshape(array.shape)
+            return np.asarray(elapsed, dtype="float64")
         # A list of datetimes arrives as object dtype; let numpy try the datetime reading
         # first, then fall back to plain numbers.
         try:

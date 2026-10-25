@@ -566,14 +566,17 @@ class TestCoordinateEdgeCases:
             warnings.simplefilter("error", np.exceptions.RankWarning)
             polyfit_axis(values, [0.0, 1.0, 2.0, 3.0], 3)
 
-    def test_a_two_dimensional_datetime_coordinate_reads_its_first_stamp(self):
-        """The datetime64 branch used `array[0]`, which on a 2-D coordinate subtracts a whole
-        row, while the cftime branch used `array.flat[0]`. They now agree."""
+    def test_a_two_dimensional_coordinate_is_flattened_to_one_origin(self):
+        """The datetime64 branch subtracted `array[0]` - a whole row of a 2-D coordinate, so
+        each column got its own origin - while the cftime branch took one scalar. Both now
+        ravel first, which also makes the "1-D float64 coordinate" the docstring promises
+        actually true."""
         stamps = np.array(
             [["2001-01-01", "2001-01-02"], ["2001-01-03", "2001-01-04"]],
             dtype="datetime64[ns]",
         )
         result = numeric_coordinate(stamps)
-        assert result.shape == (2, 2)
-        assert result.flat[0] == 0.0, "measured from the first stamp"
-        assert result.flat[1] == pytest.approx(86400.0)
+        assert result.shape == (4,), f"expected a 1-D coordinate, got {result.shape}"
+        assert result[0] == 0.0, "measured from the single first stamp"
+        assert result[1] == pytest.approx(86400.0)
+        assert result[3] == pytest.approx(3 * 86400.0)

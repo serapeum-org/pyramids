@@ -294,19 +294,24 @@ def where_values(
             ```
 
     Raises:
-        ValueError: ``cond``'s shape does not match ``values``. Broadcasting is not
-            attempted, because a condition built against the wrong variable would then
-            mask silently rather than being reported.
+        ValueError: ``cond`` cannot be broadcast against ``values`` — a condition shaped for a
+            different variable entirely, rather than one axis of this one.
 
     """
     array = np.asarray(values)
     mask = np.asarray(cond, dtype=bool)
     if mask.shape != array.shape:
-        raise ValueError(
-            f"where: the condition's shape {mask.shape} does not match the values' "
-            f"{array.shape}. Build the condition from this variable (for example "
-            f"`ds[name].data > 0`) so the two line up element for element."
-        )
+        try:
+            # Broadcasting is what the docstring promises, and it is the natural thing to
+            # write for a temporal variable: a `(n_face,)` condition means "these faces, every
+            # step". Only a condition that cannot broadcast at all is an error.
+            mask = np.broadcast_to(mask, array.shape)
+        except ValueError as error:
+            raise ValueError(
+                f"where: the condition's shape {mask.shape} cannot be broadcast against the "
+                f"values' {array.shape}. Build the condition from this variable (for example "
+                f"`ds[name].data > 0`), or from one axis of it."
+            ) from error
     keep = mask & ~nodata_mask(array, nodata)
     if other is None or (isinstance(other, float) and np.isnan(other)):
         result = array.astype("float64", copy=True)
@@ -341,12 +346,17 @@ def _fits(value: Any, dtype: np.dtype) -> bool:
     if value is not None:
         # `result_type(None, float64)` is float64, but assigning None stores NaN rather than
         # the value itself, so None does not "fit" in the sense this function answers.
+        # NEP 50 makes a *numpy* scalar strong, so `result_type(np.int64(5), int32)` is
+        # int64 and a value that fits perfectly was reported as not fitting - which left the
+        # range check below unreachable for those. Unwrapping to the Python equivalent puts it
+        # back on the weak-promotion path the rest of this function reasons about.
+        candidate = value.item() if isinstance(value, np.generic) else value
         try:
             # Compare the VALUE, not its dtype. `np.asarray(0).dtype` is int64, which never
             # casts safely into int32, so every Python int used to force a float64 promotion.
             # NEP 50 weak promotion answers what actually happens: `result_type(0, int32)` is
             # int32.
-            promoted: Any = np.result_type(value, dtype)
+            promoted: Any = np.result_type(candidate, dtype)
             readable = True
         except (TypeError, ValueError):
             # A separate flag, not a `None` sentinel: `np.dtype("float64") == None` is True,
@@ -354,12 +364,12 @@ def _fits(value: Any, dtype: np.dtype) -> bool:
             # report that anything unreadable fits a float64 array.
             promoted, readable = None, False
         if readable and promoted == dtype:
-            if dtype.kind in "iu" and isinstance(value, (int, np.integer)):
+            if dtype.kind in "iu" and isinstance(candidate, (int, np.integer)):
                 # `result_type` reports the kind, not the range: it calls 2**40 an int32. Out
                 # of range the value still has to promote, or the assignment would raise
                 # OverflowError on a value float64 holds exactly.
                 info = np.iinfo(dtype)
-                result = bool(info.min <= int(value) <= info.max)
+                result = bool(info.min <= int(candidate) <= info.max)
             else:
                 result = True
     return result
