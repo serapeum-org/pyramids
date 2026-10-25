@@ -667,12 +667,12 @@ class TestAmbiguousFillValue:
             downstream consumes it unchecked. The ambiguity is refused at construction
             instead.
         """
+        node_x = np.array([0.0, 1.0, 2.0, 3.0])
+        node_y = np.array([0.0, 0.0, 0.0, 0.0])
+        connectivity = self._connectivity(fill_value)
+
         with pytest.raises(ValueError, match="fill value") as caught:
-            Network1d(
-                np.array([0.0, 1.0, 2.0, 3.0]),
-                np.array([0.0, 0.0, 0.0, 0.0]),
-                self._connectivity(fill_value),
-            )
+            Network1d(node_x, node_y, connectivity)
         message = str(caught.value)
         assert str(fill_value) in message, f"the fill must be named, got: {message}"
         assert "valid node index" in message, (
