@@ -475,6 +475,7 @@ class TestSourceTokens:
             ("/data/city.CityJSON", {".cityjson"}),
             ("https://host/city.cityjson", {".cityjson", "https"}),
             ("s3://bucket/roads.gml", {".gml", "s3"}),
+            ("s3://bucket", {"s3"}),
             ("no-suffix-no-scheme", set()),
             ("/data/.bashrc", set()),
             ("foo.tar.gz", {".gz"}),
