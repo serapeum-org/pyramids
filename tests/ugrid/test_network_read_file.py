@@ -313,6 +313,32 @@ class TestNoDriverMessage:
         with pytest.raises(FileNotFoundError):
             Network1d.read_file(tmp_path / "absent_net.nc")
 
+    def test_a_non_netcdf_suffix_gets_no_surface_mesh_pointer(
+        self, tmp_path, registered
+    ):
+        """The `UgridDataset.read_file` line is for a NetCDF suffix only.
+
+        Test scenario:
+            The pointer exists because a `.nc` handed to the 1D entry point is most likely a
+            surface mesh. For a format that cannot be one -- a `.2dm`, say -- the line would
+            be noise, so the message omits it. Every other test here uses `.nc`, which left
+            this arm of the branch unexercised.
+        """
+        registered()
+        target = tmp_path / "channels.2dm"
+        target.write_bytes(b"")
+        with pytest.raises(UnsupportedMeshFormatError) as caught:
+            Network1d.read_file(target)
+        message = str(caught.value)
+        assert "'.2dm'" in message, f"the suffix must be named, got:\n{message}"
+        assert "surface mesh" not in message, (
+            f"a .2dm cannot be read by the built-in UGRID reader, so pointing at "
+            f"UgridDataset.read_file would be misleading; got:\n{message}"
+        )
+        assert "Install a mesh driver plugin" in message, (
+            f"nothing claims '.2dm' here, so a plugin is the way forward; got:\n{message}"
+        )
+
 
 class TestResultsOnlyDriver:
     """A `needs_mesh` driver reached through the fallback (issue #1351, L10)."""
