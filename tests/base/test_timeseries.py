@@ -363,7 +363,9 @@ class TestModelCalendarCoordinates:
         ids=["360_day-feb30", "360_day-feb29", "all_leap-feb29"],
     )
     def test_a_date_with_no_gregorian_equivalent_is_handled(self, calendar, day):
-        """Args:
+        """A model-calendar date numpy cannot represent is still measured.
+
+        Args:
         calendar: The CF calendar of the stamps.
         day: A February day that calendar has and the Gregorian one does not.
         """
@@ -494,7 +496,9 @@ class TestCoarsenAllMissingBlocks:
 
     @pytest.mark.parametrize("how", ["mean", "sum", "min", "max", "median", "std"])
     def test_every_reducer_reports_an_all_missing_block_as_nan(self, how):
-        """Args:
+        """Every reducer, not only `sum`, reports an empty block as missing.
+
+        Args:
         how: The reducer under test.
         """
         values = np.array([np.nan, np.nan, 1.0, 3.0])

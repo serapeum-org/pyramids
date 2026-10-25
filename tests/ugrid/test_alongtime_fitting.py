@@ -476,7 +476,9 @@ class TestUnknownVariableNameIsRefused:
         ],
     )
     def test_each_member_refuses_an_unknown_name(self, call):
-        """Args:
+        """Each member refuses the name instead of returning the dataset unchanged.
+
+        Args:
         call: The member invoked with a name the dataset does not have.
         """
         dataset = _two_variables()
@@ -687,7 +689,9 @@ class TestUnknownVariableMessageParity:
         ],
     )
     def test_every_member_names_the_operation_and_the_alternatives(self, call):
-        """Args:
+        """Both halves of the API name the operation and list the real variables.
+
+        Args:
         call: The member invoked with a name the dataset does not have.
         """
         dataset = self._single()
@@ -733,7 +737,9 @@ class TestDerivedResultsDeclareNoSourceSentinel:
         ids=["polyfit", "curvefit", "rank", "differentiate", "cumulative", "integrate"],
     )
     def test_the_result_declares_no_nodata(self, call):
-        """Args:
+        """A derived quantity declares no sentinel of its own.
+
+        Args:
         call: The member whose result is a different quantity from its input.
         """
         result = call(self._with_sentinel())["d"]

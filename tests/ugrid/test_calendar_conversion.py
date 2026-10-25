@@ -324,7 +324,9 @@ class TestUnloadedDataGuards:
         ],
     )
     def test_each_member_names_the_variable_it_could_not_read(self, operation):
-        """Args:
+        """Each along-time member names the variable whose data never loaded.
+
+        Args:
         operation: The along-time member to call on the unloaded dataset.
         """
         dataset = self._unloaded()

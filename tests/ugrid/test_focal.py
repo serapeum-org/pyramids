@@ -271,7 +271,9 @@ class TestReachIsValidated:
 
     @pytest.mark.parametrize("helper", ["mean", "std", "apply"])
     def test_a_wrong_sized_reach_is_refused_by_every_helper(self, helper):
-        """Args:
+        """Every focal helper refuses a reach matrix built for a different mesh.
+
+        Args:
         helper: Which of the three focal helpers to call.
         """
         from scipy import sparse
