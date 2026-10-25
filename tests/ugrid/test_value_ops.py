@@ -239,3 +239,20 @@ class TestWhereShapeMessage:
 
         with pytest.raises(ValueError, match=r"ds\[name\]"):
             where_values(np.array([1.0, 2.0]), np.array([True, True, True]))
+
+
+class TestUnknownVariableMessageWording:
+    """The shared message, including the empty-dataset wording (round 2 /test gap)."""
+
+    def test_an_empty_dataset_says_so_rather_than_printing_an_empty_list(self):
+        from pyramids.netcdf.ugrid.messages import unknown_variable_message
+
+        message = unknown_variable_message("slope", "z", [])
+        assert "holds no data variables" in message, message
+        assert "[]" not in message, message
+
+    def test_a_populated_dataset_lists_its_names_sorted(self):
+        from pyramids.netcdf.ugrid.messages import unknown_variable_message
+
+        message = unknown_variable_message("polyfit", "dpeth", ["velocity", "depth"])
+        assert "['depth', 'velocity']" in message, message

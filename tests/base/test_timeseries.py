@@ -584,3 +584,26 @@ class TestCoordinateEdgeCases:
         assert result[0] == 0.0, "measured from the single first stamp"
         assert result[1] == pytest.approx(86400.0)
         assert result[3] == pytest.approx(3 * 86400.0)
+
+
+class TestUnreadableSignature:
+    """A callable with no signature at all (round 2 /test coverage gap).
+
+    The ufunc check catches numpy's own callables; this is the other arm - a C callable that
+    exposes nothing for `inspect.signature` to read, where the count cannot be inferred and
+    `p0` is the only way through.
+    """
+
+    def test_a_callable_with_no_signature_raises_the_documented_error(self):
+        from pyramids.base._timeseries import _fit_parameter_count
+
+        # `range` is a C type whose signature `inspect.signature` refuses outright - checked
+        # rather than assumed, since several builtins (`len`, `print`, `dict.get`) do expose
+        # one.
+        with pytest.raises(ValueError, match="cannot read the signature"):
+            _fit_parameter_count(range, None)
+
+    def test_p0_still_gets_through_for_such_a_callable(self):
+        from pyramids.base._timeseries import _fit_parameter_count
+
+        assert _fit_parameter_count(range, [1.0, 2.0]) == 2

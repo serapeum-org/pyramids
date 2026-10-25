@@ -218,3 +218,24 @@ class TestDatasetCollectionAnimate:
         """`animate` takes no arguments of its own, so anything `plot` accepts must pass
         straight through."""
         assert self._collection().animate(band=0) is not None
+
+
+class TestSingleBandRepeatedFrames:
+    """A one-band raster animated by repeating its band (round 2 N1).
+
+    `Dataset.animate` reshapes a 2-D read into `(1, rows, cols)`. That branch carried a
+    `# pragma: no cover` claiming the frame-count check above made it unreachable; it does not,
+    because `bands=[0, 0]` passes that check with a single band. The pragma was removed, so
+    this test is what keeps the claim honest.
+    """
+
+    def test_one_band_repeated_gives_two_frames(self):
+        raster = _raster(1)
+        assert raster.band_count == 1
+        glyph = raster.animate(bands=[0, 0])
+        assert glyph is not None
+
+    def test_the_read_really_is_two_dimensional(self):
+        """The precondition the branch exists for."""
+        raster = _raster(1)
+        assert np.asarray(raster.read_array(band=None)).ndim == 2
