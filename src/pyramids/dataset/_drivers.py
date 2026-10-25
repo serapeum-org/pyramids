@@ -45,8 +45,8 @@ from importlib.metadata import EntryPoint, entry_points
 from typing import TYPE_CHECKING, Any, Protocol
 
 from pyramids.base._driver_discovery import (
-    extract_tokens,
     extra_missing,
+    extract_tokens,
     lower_string_tokens,
     validate_driver,
 )

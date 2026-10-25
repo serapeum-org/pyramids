@@ -48,8 +48,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from pyramids.base._driver_discovery import (
     declared_route_tokens,
-    extract_tokens,
     extra_missing,
+    extract_tokens,
     validate_driver,
 )
 from pyramids.base._errors import DriverNotExistError
@@ -157,7 +157,7 @@ class VectorDriver(Protocol):
         columns: Any = None,
         where: Any = None,
         **kwargs: Any,
-    ) -> "GeoDataFrame":
+    ) -> GeoDataFrame:
         """Read ``source`` into a :class:`geopandas.GeoDataFrame`.
 
         Must return a `GeoDataFrame` (:meth:`FeatureCollection.read_file` rejects any other type with

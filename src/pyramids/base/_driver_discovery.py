@@ -240,7 +240,14 @@ def _validate(
         The first problem message, or ``None``.
     """
     problem: str | None = None
-    required = ("name", "long_name", "api_version", "suffixes", "schemes", "capabilities")
+    required = (
+        "name",
+        "long_name",
+        "api_version",
+        "suffixes",
+        "schemes",
+        "capabilities",
+    )
     missing = [attribute for attribute in required if not hasattr(driver, attribute)]
     name = getattr(driver, "name", None)
     raw_capabilities = getattr(driver, "capabilities", None)
@@ -307,9 +314,13 @@ def _validate_tokens(
     elif "read" not in declared:
         problem = "does not declare the required 'read' capability"
     elif not isinstance(raw_suffixes, (tuple, list, set, frozenset)):
-        problem = f"declares suffixes {raw_suffixes!r}; expected a tuple, e.g. ('.ext',)"
+        problem = (
+            f"declares suffixes {raw_suffixes!r}; expected a tuple, e.g. ('.ext',)"
+        )
     elif not isinstance(raw_schemes, (tuple, list, set, frozenset)):
-        problem = f"declares schemes {raw_schemes!r}; expected a tuple, e.g. ('scheme',)"
+        problem = (
+            f"declares schemes {raw_schemes!r}; expected a tuple, e.g. ('scheme',)"
+        )
     elif not raw_suffixes and not raw_schemes:
         problem = "declares neither suffixes nor schemes, so nothing would route to it"
     else:
@@ -352,7 +363,9 @@ def _validate_claims(
     expected.extend(
         method for token, method in method_capabilities.items() if token in declared
     )
-    absent = [method for method in expected if not callable(getattr(driver, method, None))]
+    absent = [
+        method for method in expected if not callable(getattr(driver, method, None))
+    ]
 
     if bad_suffix:
         return (

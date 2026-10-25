@@ -24,7 +24,9 @@ def make_register(monkeypatch: Any, module: Any) -> Callable[..., Any]:
     """
 
     def _register(*drivers: Any) -> Any:
-        monkeypatch.setattr(module, "_CACHE", {driver.name: driver for driver in drivers})
+        monkeypatch.setattr(
+            module, "_CACHE", {driver.name: driver for driver in drivers}
+        )
         return drivers[0] if len(drivers) == 1 else drivers
 
     return _register
