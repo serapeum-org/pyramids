@@ -517,3 +517,60 @@ class TestIntegrateStaticResult:
             [[True, True], [False, False], [True, True]], dtype=bool
         )
         assert ds.integrate()["d"].active is None
+
+
+class TestRaggedDatasetCannotBeWritten:
+    """A dataset whose temporal variables disagree in length must say so (round 2 H2).
+
+    The writer registers ONE `"time"` dimension, sized from the first temporal variable, so a
+    ragged dataset cannot be written at all - and said so only through GDAL's internals:
+
+        RuntimeError: arrayStartIdx[0] + (count[0]-1) * arrayStep[0] >= 2
+
+    The round-1 per-variable fix made such a dataset easy to produce (`coarsen` on one named
+    variable), and its docstring advertises mixed lengths as legitimate for reading.
+    """
+
+    @staticmethod
+    def _two_equal():
+        return UgridDataset.from_arrays(
+            node_x=_NODE_X,
+            node_y=_NODE_Y,
+            face_node_connectivity=_FACES,
+            data={"a": np.zeros((4, 2)), "b": np.ones((4, 2))},
+            data_locations={"a": "face", "b": "face"},
+        )
+
+    def test_a_selective_coarsen_then_write_is_refused_with_a_clear_message(
+        self, tmp_path
+    ):
+        ragged = self._two_equal().coarsen(2, variable_name="a")
+        assert ragged["a"].n_time_steps == 2 and ragged["b"].n_time_steps == 4
+        with pytest.raises(ValueError, match="(?i)time step|step count|same number"):
+            ragged.to_file(str(tmp_path / "ragged.nc"))
+
+    def test_the_message_names_the_variables_and_their_lengths(self, tmp_path):
+        ragged = self._two_equal().coarsen(2, variable_name="a")
+        with pytest.raises(ValueError) as info:
+            ragged.to_file(str(tmp_path / "ragged2.nc"))
+        message = str(info.value)
+        assert "'a'" in message and "'b'" in message, message
+        assert "2" in message and "4" in message, message
+
+    def test_coarsening_every_variable_writes_fine(self, tmp_path):
+        """The ordinary sweep keeps the lengths equal, so it still writes."""
+        path = tmp_path / "even.nc"
+        self._two_equal().coarsen(2).to_file(str(path))
+        assert path.stat().st_size > 0
+
+    def test_a_dataset_with_one_temporal_variable_writes_fine(self, tmp_path):
+        ds = UgridDataset.from_arrays(
+            node_x=_NODE_X,
+            node_y=_NODE_Y,
+            face_node_connectivity=_FACES,
+            data={"a": np.zeros((4, 2)), "static": np.array([1.0, 2.0])},
+            data_locations={"a": "face", "static": "face"},
+        )
+        path = tmp_path / "one_temporal.nc"
+        ds.coarsen(2, variable_name="a").to_file(str(path))
+        assert path.stat().st_size > 0, "a static variable must not count as ragged"

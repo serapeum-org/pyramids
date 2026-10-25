@@ -1479,6 +1479,7 @@ class UgridDataset(_UgridFacades):
             # `location="volume"` variable is written against it (issue #1330).
             write_volume_topology(rg, mesh_name, self._volume_topology, dims)
 
+        _require_one_time_length(self._data_variables)
         for var in self._data_variables.values():
             if var.has_time and DEFAULT_TIME_DIM not in dims:
                 # The writer's time dimension is always called "time": the topology writer and
@@ -6697,6 +6698,41 @@ TIME_CALENDAR_ATTR = "calendar"
 
 DEFAULT_TIME_DIM = "time"
 """The name the writer registers the time dimension under; see `_write_time_coordinate`."""
+
+
+def _require_one_time_length(variables: dict[str, MeshVariable]) -> None:
+    """Refuse a dataset whose temporal variables disagree about the number of steps.
+
+    The writer registers a single ``time`` dimension, sized from the first temporal variable,
+    so a ragged dataset cannot be written at all. Without this check it failed inside GDAL
+    instead — ``arrayStartIdx[0] + (count[0]-1) * arrayStep[0] >= 2`` — which says nothing
+    about which variables disagree or why.
+
+    Such a dataset is easy to produce on purpose: coarsening or interpolating one named
+    variable re-bins its axis and leaves the others alone. Reading one is legitimate (a mesh
+    file may hold a per-timestep variable beside a per-interval one, which the along-time
+    members handle per variable); it is only writing that cannot represent it.
+
+    Args:
+        variables: The data variables about to be written.
+
+    Raises:
+        ValueError: Two or more temporal variables report different step counts.
+    """
+    lengths: dict[str, int] = {
+        name: var.n_time_steps for name, var in variables.items() if var.has_time
+    }
+    distinct = sorted(set(lengths.values()))
+    if len(distinct) > 1:
+        shown = ", ".join(
+            f"{name!r}={steps}" for name, steps in sorted(lengths.items())
+        )
+        raise ValueError(
+            f"to_file(): the temporal variables do not share the same number of time steps "
+            f"({shown}), and the file format has one time dimension to write them against. "
+            f"Apply the same along-time operation to every variable - call it without "
+            f"variable_name - or write the variables to separate files."
+        )
 
 
 def _write_time_coordinate(
