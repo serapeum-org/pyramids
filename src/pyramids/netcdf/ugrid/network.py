@@ -44,6 +44,10 @@ from pyramids.netcdf.ugrid.dataset import (
     _resolve_read_driver,
 )
 
+#: Distance marker for a node a breadth-first sweep from the outlet never reached. Shared by
+#: `_hop_distances` and `_oriented_towards`, which have to agree on it.
+_UNREACHED = -1
+
 
 def _no_network_driver_message(path: str | Path) -> str:
     """Build the error text for a file no installed driver reads as a 1D network.
@@ -556,6 +560,69 @@ class Network1d:
         )
         return result
 
+    def _validated_outlet(self, outlet: int) -> int:
+        """Return ``outlet`` as a node index, or refuse it.
+
+        `int(outlet)` alone accepted ``True`` (orienting towards node 1) and ``2.9``
+        (towards node 2), each returning a plausible order for a node the caller never
+        named. ``bool`` is excluded explicitly because it subclasses ``int`` and
+        :func:`operator.index` admits it.
+
+        Args:
+            outlet: The value the caller passed as the outlet.
+
+        Returns:
+            int: The index, narrowed through :func:`operator.index`.
+
+        Raises:
+            ValueError: ``outlet`` is not integral, or not in ``[0, n_node)``.
+        """
+        if isinstance(outlet, bool) or not hasattr(outlet, "__index__"):
+            raise ValueError(
+                f"outlet must be an integer node index, got {outlet!r} "
+                f"({type(outlet).__name__})."
+            )
+        index = operator.index(outlet)
+        node_count = self.n_node
+        if not 0 <= index < node_count:
+            raise ValueError(
+                f"outlet must be a node index in [0, {node_count - 1}], got {outlet!r}."
+            )
+        return index
+
+    def _hop_distances(
+        self, outlet: int, edges: np.typing.NDArray
+    ) -> np.typing.NDArray:
+        """Hop distance from ``outlet`` to every node, over the undirected edges.
+
+        Breadth-first, so the distance is the shortest number of edges. A node the sweep
+        never reaches keeps ``_UNREACHED``; the caller decides what that means, which differs
+        for a node in no edge (passed through) and an edge in another component (refused).
+
+        Args:
+            outlet: The node to measure from, already validated.
+            edges: The ``(n_real_edge, 2)`` node pairs to walk, already validated.
+
+        Returns:
+            np.ndarray: One distance per node, ``_UNREACHED`` where the sweep did not reach.
+        """
+        node_count = self.n_node
+        neighbours: list[list[int]] = [[] for _ in range(node_count)]
+        for first, second in edges:
+            neighbours[int(first)].append(int(second))
+            neighbours[int(second)].append(int(first))
+
+        distance = np.full(node_count, _UNREACHED, dtype=np.intp)
+        distance[outlet] = 0
+        queue: deque[int] = deque([outlet])
+        while queue:
+            node = queue.popleft()
+            for neighbour in neighbours[node]:
+                if distance[neighbour] == _UNREACHED:
+                    distance[neighbour] = distance[node] + 1
+                    queue.append(neighbour)
+        return distance
+
     def _oriented_towards(self, outlet: int) -> np.typing.NDArray:
         """Direct every edge towards ``outlet``, by hop distance over the undirected graph.
 
@@ -583,38 +650,10 @@ class Network1d:
                 (nothing decides which way it runs), or if an edge sits in a component
                 ``outlet`` cannot reach.
         """
-        node_count = self.n_node
-        # `int(outlet)` alone accepted True (orienting towards node 1) and 2.9 (towards node
-        # 2), each returning a plausible order for a node the caller never named. `bool` is
-        # excluded explicitly because it is a subclass of `int` and `operator.index` admits
-        # it.
-        if isinstance(outlet, bool) or not hasattr(outlet, "__index__"):
-            raise ValueError(
-                f"outlet must be an integer node index, got {outlet!r} "
-                f"({type(outlet).__name__})."
-            )
-        outlet = operator.index(outlet)
-        if not 0 <= outlet < node_count:
-            raise ValueError(
-                f"outlet must be a node index in [0, {node_count - 1}], got {outlet!r}."
-            )
+        outlet = self._validated_outlet(outlet)
         edges, positions = self._sortable_edges
-        neighbours: list[list[int]] = [[] for _ in range(node_count)]
-        for first, second in edges:
-            neighbours[int(first)].append(int(second))
-            neighbours[int(second)].append(int(first))
-
-        unreached = -1
-        distance = np.full(node_count, unreached, dtype=np.intp)
-        distance[int(outlet)] = 0
-        queue: deque[int] = deque([int(outlet)])
-        while queue:
-            node = queue.popleft()
-            for neighbour in neighbours[node]:
-                if distance[neighbour] == unreached:
-                    distance[neighbour] = distance[node] + 1
-                    queue.append(neighbour)
-
+        distance = self._hop_distances(outlet, edges)
+        unreached = _UNREACHED
         oriented = np.empty_like(edges)
         for row, (first, second) in enumerate(edges):
             position = int(positions[row])

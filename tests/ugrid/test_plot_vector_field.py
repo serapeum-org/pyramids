@@ -120,7 +120,8 @@ class TestRendering:
         from matplotlib.quiver import Quiver
 
         fig, ax, im = velocity.plot_vector_field("ucx", "ucy")
-        assert fig is not None and ax is not None
+        assert fig is not None, "a figure must come back even when no ax was supplied"
+        assert ax is not None, "the axes the field was drawn on must come back"
         assert isinstance(im, Quiver), f"expected a Quiver, got {type(im).__name__}"
         assert im.N == 2, f"one arrow per face, got {im.N}"
 
