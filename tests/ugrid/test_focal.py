@@ -253,3 +253,95 @@ class TestFocalApplyContract:
         ds = _strip([0.0, 10.0, 20.0, 30.0])
         with pytest.raises(TypeError, match="np.median|np.ptp"):
             ds.focal_apply(lambda neighbourhood: neighbourhood * 2.0)
+
+
+class TestReachIsValidated:
+    """A supplied `reach` must be checked, not trusted (round 2 M5, M6, L5).
+
+    The three helpers failed differently on a bad matrix: `focal_mean` and `focal_std` raised
+    numpy's `matmul: dimension mismatch`, and `focal_apply` returned a WRONG ANSWER - it reads
+    `indices`/`indptr` positionally, so an oversized matrix was silently truncated to the
+    first `n_face` rows.
+    """
+
+    @staticmethod
+    def _mesh_and_values():
+        ds = _strip([1.0, 3.0, 5.0, 7.0])
+        return ds, ds.mesh, np.array([1.0, 3.0, 5.0, 7.0])
+
+    @pytest.mark.parametrize("helper", ["mean", "std", "apply"])
+    def test_a_wrong_sized_reach_is_refused_by_every_helper(self, helper):
+        """Args:
+        helper: Which of the three focal helpers to call.
+        """
+        from scipy import sparse
+
+        from pyramids.netcdf.ugrid.focal import focal_apply, focal_mean, focal_std
+
+        _ds, mesh, values = self._mesh_and_values()
+        wrong = sparse.identity(9, dtype=bool, format="csr")
+        calls = {
+            "mean": lambda: focal_mean(mesh, values, reach=wrong),
+            "std": lambda: focal_std(mesh, values, reach=wrong),
+            "apply": lambda: focal_apply(mesh, values, np.median, reach=wrong),
+        }
+        with pytest.raises(ValueError, match="reach matrix is"):
+            calls[helper]()
+
+    def test_the_message_names_both_shapes(self):
+        from scipy import sparse
+
+        from pyramids.netcdf.ugrid.focal import focal_mean
+
+        _ds, mesh, values = self._mesh_and_values()
+        wrong = sparse.identity(9, dtype=bool, format="csr")
+        with pytest.raises(ValueError) as info:
+            focal_mean(mesh, values, reach=wrong)
+        message = str(info.value)
+        assert "(9, 9)" in message, message
+        assert "(4, 4)" in message, message
+
+    def test_rings_alongside_reach_is_refused(self):
+        """Honouring the matrix and ignoring `rings` is a contradiction the caller would
+        discover much later."""
+        from pyramids.netcdf.ugrid.focal import focal_mean
+
+        _ds, mesh, values = self._mesh_and_values()
+        reach = neighbourhood(mesh, 1)
+        with pytest.raises(ValueError, match="given together with a precomputed reach"):
+            focal_mean(mesh, values, rings=3, reach=reach)
+
+    def test_a_non_csr_reach_is_accepted_by_focal_apply(self):
+        """`focal_apply` needs CSR while the others only multiply; all three now take the
+        same thing."""
+        from scipy import sparse
+
+        from pyramids.netcdf.ugrid.focal import focal_apply
+
+        _ds, mesh, values = self._mesh_and_values()
+        as_coo = sparse.coo_matrix(neighbourhood(mesh, 1))
+        assert np.allclose(
+            focal_apply(mesh, values, np.mean, reach=as_coo),
+            focal_apply(mesh, values, np.mean),
+        )
+
+
+class TestReachReachableFromTheFacade:
+    """The documented reuse must be usable without importing the kernel (round 2 M6)."""
+
+    def test_the_facade_accepts_a_precomputed_reach(self):
+        ds = _strip([0.0, 10.0, 20.0, 30.0])
+        reach = neighbourhood(ds.mesh, 1)
+        assert np.allclose(ds.focal_mean(reach=reach), ds.focal_mean())
+        assert np.allclose(ds.focal_std(reach=reach), ds.focal_std())
+        assert np.allclose(
+            ds.focal_apply(np.median, reach=reach), ds.focal_apply(np.median)
+        )
+
+    def test_the_facade_refuses_a_wrong_sized_reach_too(self):
+        from scipy import sparse
+
+        ds = _strip([0.0, 10.0, 20.0, 30.0])
+        wrong = sparse.identity(9, dtype=bool, format="csr")
+        with pytest.raises(ValueError, match="reach matrix is"):
+            ds.focal_mean(reach=wrong)

@@ -275,7 +275,10 @@ class _UgridFacades:
         return var, values, active
 
     def focal_mean(
-        self, rings: int = 1, variable_name: str | None = None
+        self,
+        rings: int = 1,
+        variable_name: str | None = None,
+        reach: Any = None,
     ) -> np.ndarray:
         """The mean of each face's k-ring neighbourhood, centre included (issue #1376).
 
@@ -292,6 +295,10 @@ class _UgridFacades:
         Args:
             rings: Adjacency hops the neighbourhood spans. Defaults to 1.
             variable_name: Variable to act on (default: the only one).
+            reach: A neighbourhood matrix to reuse across calls, built with
+                ``pyramids.netcdf.ugrid.focal.neighbourhood(ds.mesh, rings)``. Without it each
+                call builds its own, so a sweep over many variables or steps rebuilds the same
+                sparse power every time. Leave ``rings`` at its default when passing it.
 
         Returns:
             numpy.ndarray: Per-face mean of length ``n_face``; ``NaN`` where the neighbourhood
@@ -311,9 +318,15 @@ class _UgridFacades:
             rings=rings,
             nodata=var.nodata,
             active=active,
+            reach=reach,
         )
 
-    def focal_std(self, rings: int = 1, variable_name: str | None = None) -> np.ndarray:
+    def focal_std(
+        self,
+        rings: int = 1,
+        variable_name: str | None = None,
+        reach: Any = None,
+    ) -> np.ndarray:
         """The standard deviation of each face's k-ring neighbourhood (issue #1376).
 
         The spread counterpart of :meth:`focal_mean`, with the same neighbourhood, exclusion
@@ -340,10 +353,15 @@ class _UgridFacades:
             rings=rings,
             nodata=var.nodata,
             active=active,
+            reach=reach,
         )
 
     def focal_apply(
-        self, func: Any, rings: int = 1, variable_name: str | None = None
+        self,
+        func: Any,
+        rings: int = 1,
+        variable_name: str | None = None,
+        reach: Any = None,
     ) -> np.ndarray:
         """Aggregate each face's k-ring neighbourhood with ``func`` (issue #1376).
 
@@ -376,6 +394,7 @@ class _UgridFacades:
             rings=rings,
             nodata=var.nodata,
             active=active,
+            reach=reach,
         )
 
     def _elevation_nodes(self, operation: str, variable_name: str | None) -> np.ndarray:

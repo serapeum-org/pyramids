@@ -92,6 +92,50 @@ def neighbourhood(mesh: Mesh2d, rings: int = 1) -> Any:
     return result
 
 
+def _resolve_reach(mesh: Mesh2d, rings: int, reach: Any) -> Any:
+    """The neighbourhood matrix to aggregate over, built or validated.
+
+    Validating matters because the three helpers failed differently on a bad ``reach``: two
+    raised numpy's ``matmul: dimension mismatch`` and :func:`focal_apply` returned a **wrong
+    answer**, silently truncating the matrix to the first ``n_face`` rows.
+
+    ``rings`` and ``reach`` are mutually exclusive rather than one silently winning: a
+    ``reach`` built for one ring with ``rings=3`` alongside it is a contradiction, and honouring
+    the matrix while ignoring the argument is the kind of thing a caller discovers much later.
+
+    Args:
+        mesh: The mesh the values belong to.
+        rings: Adjacency hops requested, or ``1`` (the default) when ``reach`` is supplied.
+        reach: A matrix from :func:`neighbourhood` to reuse, or ``None`` to build one.
+
+    Returns:
+        scipy.sparse.csr_matrix: The neighbourhood matrix, in CSR form.
+
+    Raises:
+        ValueError: ``reach`` is not ``(n_face, n_face)``, or a non-default ``rings`` was
+            passed alongside it.
+    """
+    if reach is None:
+        return neighbourhood(mesh, rings)
+    if rings != 1:
+        raise ValueError(
+            f"focal: rings={rings} was given together with a precomputed reach matrix, and "
+            f"the two can disagree. Pass rings only when building the matrix here, or build "
+            f"it yourself with neighbourhood(mesh, rings) and pass reach alone."
+        )
+    expected = (mesh.n_face, mesh.n_face)
+    shape = tuple(getattr(reach, "shape", ()))
+    if shape != expected:
+        raise ValueError(
+            f"focal: the reach matrix is {shape}, but this mesh has {mesh.n_face} faces so it "
+            f"must be {expected}. It was probably built from a different mesh."
+        )
+    # `focal_apply` reads `indices`/`indptr`, which only a CSR matrix exposes; the other two
+    # only multiply, so they accepted anything matmul-able. Converting here makes all three
+    # take the same thing.
+    return sparse.csr_matrix(reach)
+
+
 def _usable(
     values: np.ndarray, nodata: Any, active: np.ndarray | None, mesh: Mesh2d
 ) -> tuple[np.typing.NDArray, np.typing.NDArray]:
@@ -169,7 +213,9 @@ def focal_mean(
         nodata: Sentinel to exclude, or ``None``.
         active: Per-face activity mask whose ``False`` faces are excluded, or ``None``.
         reach: A matrix from :func:`neighbourhood` to reuse, or ``None`` to build one. Passing
-            it lets a sweep over many variables or steps pay for it once.
+            it lets a sweep over many variables or steps pay for it once. It must be
+            ``(n_face, n_face)``, and ``rings`` must be left at its default alongside it, since
+            the two can disagree.
 
     Returns:
         np.ndarray: Per-face mean of length ``n_face``. A face whose neighbourhood holds no
@@ -180,7 +226,7 @@ def focal_mean(
         TypeError: ``func`` returned something other than a scalar.
     """
     array, usable = _usable(values, nodata, active, mesh)
-    matrix = neighbourhood(mesh, rings) if reach is None else reach
+    matrix = _resolve_reach(mesh, rings, reach)
     count, total, _ = _sums(matrix, array, usable)
     with np.errstate(invalid="ignore", divide="ignore"):
         result = np.where(count > 0, total / np.where(count > 0, count, 1.0), np.nan)
@@ -208,7 +254,9 @@ def focal_std(
         nodata: Sentinel to exclude, or ``None``.
         active: Per-face activity mask whose ``False`` faces are excluded, or ``None``.
         reach: A matrix from :func:`neighbourhood` to reuse, or ``None`` to build one. Passing
-            it lets a sweep over many variables or steps pay for it once.
+            it lets a sweep over many variables or steps pay for it once. It must be
+            ``(n_face, n_face)``, and ``rings`` must be left at its default alongside it, since
+            the two can disagree.
 
     Returns:
         np.ndarray: Per-face standard deviation of length ``n_face``; ``NaN`` where the
@@ -218,7 +266,7 @@ def focal_std(
         ValueError: ``rings`` is less than 1, or the shapes do not line up.
     """
     array, usable = _usable(values, nodata, active, mesh)
-    matrix = neighbourhood(mesh, rings) if reach is None else reach
+    matrix = _resolve_reach(mesh, rings, reach)
     count, total, total_sq = _sums(matrix, array, usable)
     with np.errstate(invalid="ignore", divide="ignore"):
         safe = np.where(count > 0, count, 1.0)
@@ -256,7 +304,9 @@ def focal_apply(
         nodata: Sentinel to exclude, or ``None``.
         active: Per-face activity mask whose ``False`` faces are excluded, or ``None``.
         reach: A matrix from :func:`neighbourhood` to reuse, or ``None`` to build one. Passing
-            it lets a sweep over many variables or steps pay for it once.
+            it lets a sweep over many variables or steps pay for it once. It must be
+            ``(n_face, n_face)``, and ``rings`` must be left at its default alongside it, since
+            the two can disagree.
 
     Returns:
         np.ndarray: Per-face aggregate of length ``n_face``; ``NaN`` where the neighbourhood
@@ -267,7 +317,7 @@ def focal_apply(
         TypeError: ``func`` returned something other than a scalar.
     """
     array, usable = _usable(values, nodata, active, mesh)
-    matrix = neighbourhood(mesh, rings) if reach is None else reach
+    matrix = _resolve_reach(mesh, rings, reach)
     # The CSR structure is read directly rather than through `tolil().rows`, which would
     # materialise a Python list per face on top of the matrix it already has.
     indices, indptr = matrix.indices, matrix.indptr
