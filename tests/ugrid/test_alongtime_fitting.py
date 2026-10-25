@@ -574,3 +574,78 @@ class TestRaggedDatasetCannotBeWritten:
         path = tmp_path / "one_temporal.nc"
         ds.coarsen(2, variable_name="a").to_file(str(path))
         assert path.stat().st_size > 0, "a static variable must not count as ragged"
+
+
+class TestUnknownVariableMessageParity:
+    """Both halves of the API must say the same thing about the same typo (round 2 M1).
+
+    The round-1 guard's docstring claimed parity with the facade members, and only the
+    exception TYPE matched: thirteen facade members raised a bare `KeyError('nope')`, naming
+    neither the operation nor the available variables. This pins the wording across both
+    halves so a future member cannot quietly join the bare-KeyError group.
+    """
+
+    @staticmethod
+    def _single():
+        return UgridDataset.from_arrays(
+            node_x=_NODE_X,
+            node_y=_NODE_Y,
+            face_node_connectivity=_FACES,
+            data={"v": np.array([1.0, 2.0])},
+            data_locations={"v": "face"},
+        )
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda ds: ds.polyfit(1, variable_name="nope"),
+            lambda ds: ds.differentiate(variable_name="nope"),
+            lambda ds: ds.integrate(variable_name="nope"),
+            lambda ds: ds.coarsen(2, variable_name="nope"),
+            lambda ds: ds.rank(variable_name="nope"),
+            lambda ds: ds.convert_units("celsius", variable_name="nope"),
+            lambda ds: ds.slope(variable_name="nope"),
+            lambda ds: ds.aspect(variable_name="nope"),
+            lambda ds: ds.hillshade(variable_name="nope"),
+            lambda ds: ds.focal_mean(variable_name="nope"),
+            lambda ds: ds.focal_std(variable_name="nope"),
+            lambda ds: ds.focal_apply(np.median, variable_name="nope"),
+            lambda ds: ds.get_histogram(variable_name="nope"),
+            lambda ds: ds.cluster(1, 2, variable_name="nope"),
+            lambda ds: ds.footprint(variable_name="nope"),
+            lambda ds: ds.where(np.array([True, True]), variable_name="nope"),
+            lambda ds: ds.apply(np.abs, variable_name="nope"),
+            lambda ds: ds.to_image(variable_name="nope"),
+            lambda ds: ds.animate(variable_name="nope"),
+        ],
+        ids=[
+            "polyfit",
+            "differentiate",
+            "integrate",
+            "coarsen",
+            "rank",
+            "convert_units",
+            "slope",
+            "aspect",
+            "hillshade",
+            "focal_mean",
+            "focal_std",
+            "focal_apply",
+            "get_histogram",
+            "cluster",
+            "footprint",
+            "where",
+            "apply",
+            "to_image",
+            "animate",
+        ],
+    )
+    def test_every_member_names_the_operation_and_the_alternatives(self, call):
+        """Args:
+        call: The member invoked with a name the dataset does not have.
+        """
+        with pytest.raises(KeyError) as info:
+            call(self._single())
+        message = str(info.value)
+        assert "is not a data variable" in message, message
+        assert "['v']" in message, f"the available names are not listed: {message}"

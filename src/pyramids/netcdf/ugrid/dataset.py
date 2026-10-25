@@ -93,6 +93,7 @@ from pyramids.netcdf.ugrid.io import (
     write_volume_topology,
 )
 from pyramids.netcdf.ugrid.mesh import Mesh2d
+from pyramids.netcdf.ugrid.messages import unknown_variable_message
 from pyramids.netcdf.ugrid.models import (
     _KEEP_ACTIVE,
     ACTIVE_MASK_ATTR,
@@ -3986,8 +3987,13 @@ class UgridDataset(_UgridFacades):
 
         The members that sweep every variable skip the names that do not match, so an unknown
         name used to match nothing and return the dataset unchanged — a typo read as a
-        successful fit or conversion. The facade members raise for the same mistake, so this
-        keeps the two halves consistent.
+        successful fit or conversion.
+
+        The wording comes from :func:`unknown_variable_message`, which the facade mixin's
+        ``_facade_variable`` also uses, so both halves of the API say the same thing about the
+        same mistake. They previously agreed only on the exception *type*: thirteen facade
+        members raised a bare ``KeyError('nope')`` naming neither the operation nor the
+        available variables.
 
         Args:
             operation: The calling method's name, for the message.
@@ -3999,8 +4005,9 @@ class UgridDataset(_UgridFacades):
         if variable_name is None or variable_name in self._data_variables:
             return
         raise KeyError(
-            f"{operation}: {variable_name!r} is not a data variable of this dataset. "
-            f"Available: {sorted(self._data_variables)}."
+            unknown_variable_message(
+                operation, variable_name, list(self._data_variables)
+            )
         )
 
     def _alongtime_coord(self, operation: str) -> list:

@@ -30,6 +30,7 @@ from pyramids.netcdf.ugrid import interop_xarray as _interop
 from pyramids.netcdf.ugrid import regrid as _regrid
 from pyramids.netcdf.ugrid import terrain as _terrain
 from pyramids.netcdf.ugrid import vector_ops as _vector_ops
+from pyramids.netcdf.ugrid.messages import unknown_variable_message
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pyramids.netcdf.ugrid.models import MeshVariable
@@ -210,7 +211,7 @@ class _UgridFacades:
                 )
             variable_name = names[0]
         if variable_name not in names:
-            raise KeyError(variable_name)
+            raise KeyError(unknown_variable_message(operation, variable_name, names))
         var = self._data_variables[variable_name]  # type: ignore[attr-defined]
         if var.data is None:
             raise ValueError(
