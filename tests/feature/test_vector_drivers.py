@@ -496,6 +496,31 @@ class TestDispatch:
         with pytest.raises(DriverNotExistError, match="nope"):
             FeatureCollection.read_file("x.cityjson", driver="nope")
 
+    def test_driver_with_dask_backend_raises(self, registered):
+        """A driver-selected read is eager-only: ``backend='dask'`` with a claim raises, not downgrades.
+
+        Test scenario:
+            ``city.cityjson`` is claimed by the stub, and a plugin driver returns an eager frame, so
+            asking for the lazy backend must raise a clear error naming the driver rather than
+            silently returning an eager ``FeatureCollection``.
+        """
+        registered(GoodDriver)
+        with pytest.raises(ValueError, match="cityjson.*backend.*not supported"):
+            FeatureCollection.read_file("city.cityjson", backend="dask")
+
+    def test_bad_backend_is_rejected_on_the_driver_path(self, registered):
+        """An invalid ``backend=`` is validated even when a driver would claim the source.
+
+        Test scenario:
+            With a driver installed and explicitly named, a nonsense ``backend`` must still raise the
+            same "backend must be" error it raises on the OGR path, not be swallowed by the dispatch.
+        """
+        registered(GoodDriver)
+        with pytest.raises(ValueError, match="backend must be"):
+            FeatureCollection.read_file(
+                "city.cityjson", driver="cityjson", backend="nonsense"
+            )
+
     def test_can_open_claim_preempts_ogr(self, registered):
         """A registered driver whose can_open claims the source wins before OGR.
 
