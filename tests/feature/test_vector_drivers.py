@@ -698,3 +698,81 @@ class TestDispatch:
         assert built == {"nonclaim": 0, "claim": 1}, (
             "only the claiming driver should be constructed"
         )
+
+    def test_scheme_claimed_source_dispatches_end_to_end(self, registered):
+        """A driver matched by its declared *scheme* is dispatched through read_file, not just OGR.
+
+        Test scenario:
+            A driver declaring the ``cityjson`` scheme (no suffix) claims a ``cityjson://…`` source;
+            the scheme token matches the pre-filter, can_open confirms, and the stub frame returns —
+            exercising the scheme path through select_driver that the suffix tests do not.
+        """
+
+        class SchemeDriver(GoodDriver):
+            name = "cityjson-url"
+            suffixes = ()
+            schemes = ("cityjson",)
+
+            @classmethod
+            def can_open(cls, source):
+                return str(source).startswith("cityjson://")
+
+        registered(SchemeDriver)
+        fc = FeatureCollection.read_file("cityjson://host/city")
+        assert len(fc) == 1, "a scheme-claimed source should dispatch to the driver"
+
+
+class TestMalformedDeclaredTokens:
+    """select_driver tolerates a directly-injected driver with a malformed suffixes/schemes (S1).
+
+    Production drivers only enter via validated discovery, but the registry can be injected directly
+    (the tests do), so the scan's token read must never raise on a non-container or missing
+    suffixes/schemes — mirroring the raster hook's ``_declared_preempts`` robustness.
+    """
+
+    @pytest.mark.parametrize("bad", [True, 5, object(), ".cityjson", {".cityjson": 1}])
+    def test_a_non_container_suffixes_is_tolerated(self, registered, bad):
+        """A non-(tuple/list/set/frozenset) suffixes yields no tokens instead of raising.
+
+        Args:
+            bad: A malformed suffixes value injected onto a driver (a bare string must not be
+                treated as a one-tuple of characters either).
+        """
+
+        class Malformed(GoodDriver):
+            suffixes = bad
+
+        registered(Malformed)
+        assert select_driver("city.cityjson") is None, f"{bad!r} must not claim or raise"
+
+    def test_a_suffixes_whose_iter_raises_is_tolerated(self, registered):
+        """A suffixes object whose ``__iter__``/``__bool__`` raises is rejected before iteration."""
+
+        class Weird:
+            def __iter__(self):
+                raise ValueError("no iter")
+
+            def __bool__(self):
+                raise ValueError("no bool")
+
+        class Malformed(GoodDriver):
+            suffixes = Weird()
+
+        registered(Malformed)
+        assert select_driver("city.cityjson") is None, "a raising container must be tolerated"
+
+    def test_a_missing_suffixes_attribute_is_tolerated(self, registered):
+        """A driver missing ``suffixes`` entirely contributes only its schemes, without raising."""
+
+        class NoSuffixes:
+            name, long_name = "nosuf", "No Suffixes"
+            api_version = VECTOR_DRIVER_API_VERSION
+            schemes = ("cityjson",)
+            capabilities, extra = frozenset({"read"}), None
+
+            @classmethod
+            def can_open(cls, source):
+                return True
+
+        registered(NoSuffixes)
+        assert select_driver("roads.shp") is None, "a missing suffixes attr must be tolerated"

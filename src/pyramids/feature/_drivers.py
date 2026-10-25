@@ -643,8 +643,13 @@ def _source_tokens(source: Any) -> set[str]:
 def _declared_tokens(candidate: type[VectorDriver]) -> set[str]:
     """A driver's declared suffix/scheme tokens, lowercased; empty for a malformed declaration.
 
-    Never raises. It accepts only string members of ``suffixes`` / ``schemes`` so a driver injected
-    directly into the registry (as the tests do) with a junk member cannot crash the scan.
+    Never raises. Each of ``suffixes`` / ``schemes`` is read with a default, and a value that is not
+    a ``tuple`` / ``list`` / ``set`` / ``frozenset`` — a missing attribute, a bare string (which
+    would otherwise unpack into single characters), a non-iterable, or an object whose ``__iter__``
+    raises — contributes nothing instead of being iterated. Junk string-less members are then
+    filtered out. A validly-discovered driver always has good containers; this only hardens the scan
+    against a driver injected straight into the registry (as the tests do), mirroring the raster
+    hook's :func:`pyramids.dataset._drivers._declared_preempts`.
 
     Args:
         candidate: A registered driver class.
@@ -652,11 +657,13 @@ def _declared_tokens(candidate: type[VectorDriver]) -> set[str]:
     Returns:
         set[str]: The lowercased suffix and scheme tokens the driver declares.
     """
-    return {
-        token.lower()
-        for token in (*candidate.suffixes, *candidate.schemes)
-        if isinstance(token, str)
-    }
+    tokens: set[str] = set()
+    for attribute in ("suffixes", "schemes"):
+        declared = getattr(candidate, attribute, ())
+        if not isinstance(declared, (tuple, list, set, frozenset)):
+            continue
+        tokens |= {token.lower() for token in declared if isinstance(token, str)}
+    return tokens
 
 
 def select_driver(source: Any, driver: str | None = None) -> type[VectorDriver] | None:
