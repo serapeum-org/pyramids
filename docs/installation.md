@@ -144,7 +144,7 @@ If your distro has **glibc < 2.28**, use the conda-forge path instead.
 
 Every remaining gap waits on something upstream of pyramids; none of them
 can be closed from this repo alone. Free-threaded builds are tracked in
-[#683](https://github.com/serapeum-org/pyramids/issues/683).
+[#683](https://github.com/serapeum-org/pyramids-core/issues/683).
 Until a row clears, the workaround column applies. (Alpine / musl and
 Python 3.15 used to sit here; both now ship — see the matrix above.)
 
@@ -206,7 +206,7 @@ For contributing to pyramids-core, use pixi (which manages GDAL via
 conda-forge for development):
 
 ```console
-git clone https://github.com/Serapieum-of-alex/pyramids.git
+git clone https://github.com/serapeum-org/pyramids-core.git
 cd pyramids
 pixi install -e dev
 pixi run -e dev pip install -e .
@@ -233,7 +233,7 @@ does **not** include it — only the PyPI wheel does).
 # (see Platform-specific: no wheel available below)
 
 # 2. Then install pyramids-core from source
-git clone https://github.com/Serapieum-of-alex/pyramids.git
+git clone https://github.com/serapeum-org/pyramids-core.git
 cd pyramids
 pip install .
 ```
@@ -275,13 +275,13 @@ Use conda or pixi — installing GDAL natively on Windows is impractical.
 Latest `main`:
 
 ```console
-pip install "git+https://github.com/Serapieum-of-alex/pyramids.git"
+pip install "git+https://github.com/serapeum-org/pyramids-core.git"
 ```
 
 A specific tagged release:
 
 ```console
-pip install "git+https://github.com/Serapieum-of-alex/pyramids.git@<version>"
+pip install "git+https://github.com/serapeum-org/pyramids-core.git@<version>"
 ```
 
 Note: this installs from the sdist, not a wheel, so the same
@@ -305,7 +305,7 @@ The full license text for every bundled library ships inside the wheel
 under `pyramids/_licenses/<package>/` and stays bound to that wheel even
 when it's redistributed. A human-readable index of what's bundled and
 the SPDX identifier for each component lives in
-[`THIRD_PARTY_LICENSES.md`](https://github.com/Serapieum-of-alex/pyramids/blob/main/docs/about/THIRD_PARTY_LICENSES.md)
+[`THIRD_PARTY_LICENSES.md`](https://github.com/serapeum-org/pyramids-core/blob/main/docs/about/THIRD_PARTY_LICENSES.md)
 under `docs/about/`.
 
 If you redistribute a `pyramids-core` platform wheel — directly or as
@@ -326,9 +326,9 @@ stands on GDAL's shoulders — that project deserves the credit.
 
 ## Further reading
 
-- Documentation: <https://serapeum-org.github.io/pyramids/latest>
-- Source: <https://github.com/Serapieum-of-alex/pyramids>
+- Documentation: <https://serapeum-org.github.io/pyramids-core/latest>
+- Source: <https://github.com/serapeum-org/pyramids-core>
 - PyPI: <https://pypi.org/project/pyramids-core/>
 - conda-forge: <https://anaconda.org/conda-forge/pyramids>
-- Third-party licenses: <https://github.com/Serapieum-of-alex/pyramids/blob/main/docs/about/THIRD_PARTY_LICENSES.md>
+- Third-party licenses: <https://github.com/serapeum-org/pyramids-core/blob/main/docs/about/THIRD_PARTY_LICENSES.md>
 - GDAL upstream: <https://gdal.org>

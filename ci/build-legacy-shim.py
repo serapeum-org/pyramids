@@ -50,7 +50,7 @@ requires-python = ">= 3.11, <4"
 dependencies = ["pyramids-core=={version}"]
 
 [project.urls]
-homepage = "https://github.com/serapeum-org/pyramids"
+homepage = "https://github.com/serapeum-org/pyramids-core"
 
 [tool.setuptools]
 # No packages: pyramids-core owns the importable `pyramids` package. The shim is

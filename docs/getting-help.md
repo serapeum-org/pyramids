@@ -14,13 +14,13 @@ Stuck, hit a bug, or want a feature? Here is where to go.
 ## Ask a question
 
 - **GitHub Discussions** — usage questions, "how do I…", design/roadmap talk:
-  <https://github.com/serapeum-org/pyramids/discussions>
+  <https://github.com/serapeum-org/pyramids-core/discussions>
 - **Stack Overflow** / **GIS Stack Exchange** — tag your question `python` + `gdal` / `geospatial` so the wider
   community can find and answer it.
 
 ## Report a bug
 
-Open an issue: <https://github.com/serapeum-org/pyramids/issues>. A good report is a *fast-fixed* report — please
+Open an issue: <https://github.com/serapeum-org/pyramids-core/issues>. A good report is a *fast-fixed* report — please
 include:
 
 1. **A minimal, runnable reproduction** — the fewest lines that trigger it, ideally on data you can share (or one
