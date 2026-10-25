@@ -6002,7 +6002,9 @@ class UgridDataset(_UgridFacades):
         """
         if backend != "matplotlib":
             forwarded = forward_kwargs(variable_name=variable_name, interval=interval)
-            return render_via_backend(self, backend, animate=True, **forwarded, **kwargs)
+            return render_via_backend(
+                self, backend, animate=True, **forwarded, **kwargs
+            )
         var = self._facade_variable("animate", variable_name)
         if not var.has_time:
             raise ValueError(

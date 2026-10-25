@@ -55,7 +55,16 @@ _BACKEND_EXTRA = {"interactive": "interactive", "3d": "3d", "web": "web"}
 #: Plot parameters that only mean something on the cleopatra/matplotlib backend — the typed render
 #: groups and the raster-index overlays. Passing any to another backend is a caller ``ValueError``.
 MPL_ONLY_PLOT_PARAMS = frozenset(
-    {"color", "contour", "cells", "data_style", "classify", "points", "frame_label", "colorbar"}
+    {
+        "color",
+        "contour",
+        "cells",
+        "data_style",
+        "classify",
+        "points",
+        "frame_label",
+        "colorbar",
+    }
 )
 
 #: Discovered-backend registry, filled lazily by :func:`plot_backends`; reset by
@@ -181,7 +190,9 @@ def plot_backends() -> dict[str, Callable[..., Any]]:
     return dict(cached)
 
 
-def _quickmap_render(quickmap: Callable[..., Any], obj: Any, *, backend: str, **kwargs: Any) -> Any:
+def _quickmap_render(
+    quickmap: Callable[..., Any], obj: Any, *, backend: str, **kwargs: Any
+) -> Any:
     """Adapt ``digitalearth.quickmap`` to the registered-backend call shape.
 
     Args:

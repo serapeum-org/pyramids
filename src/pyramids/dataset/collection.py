@@ -28,6 +28,12 @@ from pyramids.base._errors import (
 )
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._locks import default_lock
+from pyramids.base._plot_backends import (
+    forward_kwargs,
+    is_colorbar_spec,
+    reject_mpl_only_params,
+    render_via_backend,
+)
 from pyramids.base._raster_meta import RasterMeta
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
@@ -37,12 +43,6 @@ from pyramids.base._utils import (
     import_zarr,
     lazy_extra_hint,
     resolve_resampling,
-)
-from pyramids.base._plot_backends import (
-    forward_kwargs,
-    is_colorbar_spec,
-    reject_mpl_only_params,
-    render_via_backend,
 )
 from pyramids.base.crs import crs_spec, epsg_from_user_input
 from pyramids.base.georeference import GeoReference
@@ -3686,7 +3686,11 @@ class DatasetCollection:
                 colorbar=None if is_colorbar_spec(colorbar) else colorbar,
                 animation_axis_values=animation_axis_values,
             )
-            return render_via_backend(self, backend, animate=True, **forwarded, **kwargs)
+            # A non-matplotlib backend returns its own object, not an ArrayGlyph; the annotation
+            # documents the default (matplotlib) contract.
+            return render_via_backend(  # type: ignore[no-any-return]
+                self, backend, animate=True, **forwarded, **kwargs
+            )
         # Unpack the grouped ``rgb_options`` exactly as ``Dataset.plot`` does, so both
         # facades share one RGB-parameter contract.
         rgb, surface_reflectance, cutoff, percentile = Dataset._unpack_rgb_options(

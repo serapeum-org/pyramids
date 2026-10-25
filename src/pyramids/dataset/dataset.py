@@ -38,6 +38,12 @@ from pyramids.base._errors import (
     CRSError,
     FileFormatNotSupportedError,
 )
+from pyramids.base._plot_backends import (
+    forward_kwargs,
+    is_colorbar_spec,
+    reject_mpl_only_params,
+    render_via_backend,
+)
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
     # Re-exported, not used here. The dtype catalogue was defined in this module's
@@ -75,12 +81,6 @@ from pyramids.dataset._drivers import (
     select_preempting_driver,
 )
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
-from pyramids.base._plot_backends import (
-    forward_kwargs,
-    is_colorbar_spec,
-    reject_mpl_only_params,
-    render_via_backend,
-)
 from pyramids.dataset._plot_helpers import nonnull_group_kwargs
 from pyramids.dataset._wcs import from_wcs as _from_wcs
 from pyramids.dataset._wms import from_wms as _from_wms
@@ -1390,7 +1390,9 @@ class Dataset(RasterBase):
                 basemap=basemap,
                 interval=interval,
             )
-            return render_via_backend(self, backend, animate=True, **forwarded, **kwargs)
+            return render_via_backend(
+                self, backend, animate=True, **forwarded, **kwargs
+            )
         return self.analysis.animate(
             bands=bands,
             animation_axis_values=animation_axis_values,

@@ -155,7 +155,9 @@ def test_entry_point_wins_over_digitalearth(
     """A registered entry point is preferred; digitalearth is never imported."""
 
     def _boom(name: str) -> Any:
-        raise AssertionError("digitalearth must not be imported when an entry point matches")
+        raise AssertionError(
+            "digitalearth must not be imported when an entry point matches"
+        )
 
     monkeypatch.setattr(_plot_backends, "extra_missing", lambda name: False)
     monkeypatch.setattr(_plot_backends, "import_module", _boom)
@@ -186,7 +188,12 @@ def test_unknown_backend_without_digitalearth(monkeypatch: pytest.MonkeyPatch) -
 
 @pytest.mark.parametrize(
     ("name", "extra"),
-    [("interactive", "interactive"), ("3d", "3d"), ("web", "web"), ("mystery", "interactive")],
+    [
+        ("interactive", "interactive"),
+        ("3d", "3d"),
+        ("web", "web"),
+        ("mystery", "interactive"),
+    ],
 )
 def test_install_hint_maps_backend_to_extra(
     name: str, extra: str, monkeypatch: pytest.MonkeyPatch
@@ -211,7 +218,12 @@ def test_is_colorbar_spec(value: Any, expected: bool) -> None:
 
 def test_forward_kwargs_drops_none() -> None:
     """``forward_kwargs`` keeps set values (including falsy non-``None``) and drops ``None``."""
-    assert forward_kwargs(a=1, b=None, c=0, d="x", e=False) == {"a": 1, "c": 0, "d": "x", "e": False}
+    assert forward_kwargs(a=1, b=None, c=0, d="x", e=False) == {
+        "a": 1,
+        "c": 0,
+        "d": "x",
+        "e": False,
+    }
 
 
 def test_reject_mpl_only_params_raises_for_set_values() -> None:
@@ -230,7 +242,9 @@ def test_reject_mpl_only_params_noop_when_all_none() -> None:
 
 def _single_band_dataset() -> Dataset:
     """A tiny in-memory single-band raster for the facade dispatch tests."""
-    return Dataset.from_array(np.arange(16, dtype=np.float32).reshape(4, 4), geo_ref=GEO)
+    return Dataset.from_array(
+        np.arange(16, dtype=np.float32).reshape(4, 4), geo_ref=GEO
+    )
 
 
 def test_dataset_plot_routes_to_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -247,7 +261,9 @@ def test_dataset_plot_routes_to_backend(monkeypatch: pytest.MonkeyPatch) -> None
     assert recorder.kwargs["cmap"] == "viridis"
 
 
-def test_dataset_plot_rejects_matplotlib_only_param(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dataset_plot_rejects_matplotlib_only_param(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A cleopatra-typed render group with a non-matplotlib backend raises before dispatch."""
     recorder = _Recorder()
     monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
@@ -257,7 +273,9 @@ def test_dataset_plot_rejects_matplotlib_only_param(monkeypatch: pytest.MonkeyPa
     assert recorder.backend is None  # never dispatched
 
 
-def test_dataset_animate_routes_with_animate_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dataset_animate_routes_with_animate_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """``Dataset.animate(backend=…)`` routes to the backend with ``animate=True``."""
     recorder = _Recorder()
     monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
