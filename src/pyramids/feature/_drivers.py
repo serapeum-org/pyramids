@@ -97,9 +97,11 @@ class VectorDriver(Protocol):
         long_name: Human-readable source name, shown by :func:`describe_drivers`.
         api_version: Must equal :data:`VECTOR_DRIVER_API_VERSION`.
         suffixes: Lowercase, dot-prefixed file suffixes this driver claims, e.g. ``(".cityjson",)``;
-            ``()`` for a driver matched only by scheme or by content.
+            ``()`` for a driver matched only by scheme. A driver must declare at least one suffix or
+            scheme (a driver with neither is skipped at discovery, since nothing could route to it);
+            content-sniffing happens inside :meth:`can_open` *after* a suffix/scheme match.
         schemes: Lowercase URL schemes this driver claims, without ``://``, e.g. ``("cityjson",)``;
-            ``()`` for a driver matched only by suffix or by content.
+            ``()`` for a driver matched only by suffix.
         capabilities: A subset of :data:`CAPABILITIES`; must contain ``"read"``.
         extra: The import name of an optional dependency the driver needs (e.g. ``"lxml"``), or
             ``None``. When set and that package is not importable, the driver is skipped at
