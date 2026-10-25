@@ -34,6 +34,7 @@ from pyramids.feature._drivers import (
     describe_drivers,
     drivers_for_scheme,
     drivers_for_suffix,
+    _source_tokens,
     resolve_driver,
     select_driver,
     vector_drivers,
@@ -462,6 +463,35 @@ class TestDiscovery:
                 "capabilities": ["read"],
             }
         ], "describe_drivers must return a serialisable summary"
+
+
+class TestSourceTokens:
+    """The ``_source_tokens`` suffix/scheme extraction that gates the scan's pre-filter."""
+
+    @pytest.mark.parametrize(
+        "source, expected",
+        [
+            ("city.cityjson", {".cityjson"}),
+            ("/data/city.CityJSON", {".cityjson"}),
+            ("https://host/city.cityjson", {".cityjson", "https"}),
+            ("s3://bucket/roads.gml", {".gml", "s3"}),
+            ("no-suffix-no-scheme", set()),
+            ("/data/.bashrc", set()),
+            ("foo.tar.gz", {".gz"}),
+            ("/data/dir/", set()),
+            ("https://host/path/x.json?token=abc", {".json", "https"}),
+            ("https://host/x.gml#frag", {".gml", "https"}),
+            (r"C:\data\city.cityjson", {".cityjson"}),
+        ],
+    )
+    def test_extracts_scheme_and_suffix(self, source, expected):
+        """Scheme (no ``://``) and the final dot-suffix are both pulled, lowercased.
+
+        Args:
+            source: The source string.
+            expected: The expected token set.
+        """
+        assert _source_tokens(source) == expected, f"{source!r} -> {expected}"
 
 
 class TestCacheColdness:
