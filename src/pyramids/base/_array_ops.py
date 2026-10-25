@@ -11,6 +11,8 @@ kernels that both sides of the class tree can import safely.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 
@@ -248,4 +250,175 @@ def array_identical(a: np.ndarray, b: np.ndarray) -> bool:
     result = a.shape == b.shape and a.dtype == b.dtype
     if result:
         result = bool(np.array_equal(a, b, equal_nan=True))
+    return result
+
+
+def where_values(
+    values: np.ndarray, cond: Any, other: Any = np.nan, nodata: Any = None
+) -> np.ndarray:
+    """Keep the cells ``cond`` selects and set the rest to ``other``.
+
+    The array half of the ``where`` capability. A cell is kept only when ``cond`` is true
+    **and** the cell actually holds a value: a ``nodata`` / NaN cell is never "selected",
+    because there is nothing there to keep, so it goes to ``other`` whatever ``cond`` says.
+    That keeps the result single-sentinel — one masking convention rather than ``other`` and a
+    surviving fill value side by side.
+
+    Args:
+        values: The data array.
+        cond: A boolean array broadcastable to ``values``, or anything numpy can treat as one.
+        other: What an unselected cell holds. Defaults to NaN, which forces a float result.
+        nodata: The declared no-data sentinel to treat as absent, or ``None``.
+
+    Returns:
+        np.ndarray: ``values`` where selected, ``other`` elsewhere. Float64 when ``other`` is
+        NaN, since an integer array cannot carry it.
+
+    Examples:
+        - Keep the cells above a threshold, masking the rest:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._array_ops import where_values
+            >>> values = np.array([1.0, 5.0, 9.0])
+            >>> where_values(values, values > 4).tolist()
+            [nan, 5.0, 9.0]
+
+            ```
+        - A no-data cell is never kept, even where the condition is true:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._array_ops import where_values
+            >>> where_values(np.array([-999.0, 5.0]), np.array([True, True]), nodata=-999.0).tolist()
+            [nan, 5.0]
+
+            ```
+
+    Raises:
+        ValueError: ``cond`` cannot be broadcast against ``values`` — a condition shaped for a
+            different variable entirely, rather than one axis of this one.
+
+    """
+    array = np.asarray(values)
+    mask = np.asarray(cond, dtype=bool)
+    if mask.shape != array.shape:
+        try:
+            # Broadcasting is what the docstring promises, and it is the natural thing to
+            # write for a temporal variable: a `(n_face,)` condition means "these faces, every
+            # step". Only a condition that cannot broadcast at all is an error.
+            mask = np.broadcast_to(mask, array.shape)
+        except ValueError as error:
+            raise ValueError(
+                f"where: the condition's shape {mask.shape} cannot be broadcast against the "
+                f"values' {array.shape}. Build the condition from this variable (for example "
+                f"`ds[name].data > 0`), or from one axis of it."
+            ) from error
+    keep = mask & ~nodata_mask(array, nodata)
+    if other is None or (isinstance(other, float) and np.isnan(other)):
+        result = array.astype("float64", copy=True)
+        fill: Any = np.nan
+    else:
+        result = array.copy()
+        if not _fits(other, result.dtype):
+            result = result.astype("float64", copy=False)
+        fill = other
+    result[~keep] = fill
+    return result
+
+
+def _fits(value: Any, dtype: np.dtype) -> bool:
+    """True when ``value`` can be stored in ``dtype`` without changing it.
+
+    Anything numpy cannot read as a value at all — a ragged nested list raises ``ValueError``,
+    an unreadable object ``TypeError`` — answers ``False`` rather than propagating: the
+    question asked is "does this fit", and the caller then fails on the assignment itself,
+    where numpy's own message names the real problem.
+
+    Args:
+        value: The candidate fill value.
+        dtype: The dtype it would be stored in.
+
+    Returns:
+        bool: True when the value can be stored in ``dtype`` unchanged; False when it cannot,
+        when it is an integer outside the dtype's range, or when numpy cannot read it as a
+        value at all.
+    """
+    result = False
+    if value is not None:
+        # `result_type(None, float64)` is float64, but assigning None stores NaN rather than
+        # the value itself, so None does not "fit" in the sense this function answers.
+        # NEP 50 makes a *numpy* scalar strong, so `result_type(np.int64(5), int32)` is
+        # int64 and a value that fits perfectly was reported as not fitting - which left the
+        # range check below unreachable for those. Unwrapping to the Python equivalent puts it
+        # back on the weak-promotion path the rest of this function reasons about.
+        candidate = value.item() if isinstance(value, np.generic) else value
+        try:
+            # Compare the VALUE, not its dtype. `np.asarray(0).dtype` is int64, which never
+            # casts safely into int32, so every Python int used to force a float64 promotion.
+            # NEP 50 weak promotion answers what actually happens: `result_type(0, int32)` is
+            # int32.
+            promoted: Any = np.result_type(candidate, dtype)
+            readable = True
+        except (TypeError, ValueError):
+            # A separate flag, not a `None` sentinel: `np.dtype("float64") == None` is True,
+            # because numpy reads None as the default dtype - so comparing against None would
+            # report that anything unreadable fits a float64 array.
+            promoted, readable = None, False
+        if readable and promoted == dtype:
+            if dtype.kind in "iu" and isinstance(candidate, (int, np.integer)):
+                # `result_type` reports the kind, not the range: it calls 2**40 an int32. Out
+                # of range the value still has to promote, or the assignment would raise
+                # OverflowError on a value float64 holds exactly.
+                info = np.iinfo(dtype)
+                result = bool(info.min <= int(candidate) <= info.max)
+            else:
+                result = True
+    return result
+
+
+def apply_values(values: np.ndarray, func: Any) -> np.ndarray:
+    """Apply ``func`` elementwise to ``values``, keeping the shape.
+
+    The array half of the ``apply`` capability. ``func`` is handed the whole array, so a numpy
+    ufunc runs vectorised rather than per element; anything that preserves the shape is
+    acceptable. A function that changes the shape is refused, because the result would no
+    longer line up with the mesh elements it is supposed to describe.
+
+    Args:
+        values: The data array.
+        func: A callable taking and returning an array of the same shape.
+
+    Returns:
+        np.ndarray: The transformed array.
+
+    Raises:
+        ValueError: ``func`` returned an array of a different shape.
+
+    Examples:
+        - Apply a numpy ufunc across the whole array:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._array_ops import apply_values
+            >>> apply_values(np.array([1.0, 4.0, 9.0]), np.sqrt).tolist()
+            [1.0, 2.0, 3.0]
+
+            ```
+        - A shape-changing function is refused rather than silently mis-aligning the mesh:
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.base._array_ops import apply_values
+            >>> apply_values(np.array([1.0, 2.0]), lambda a: a[:1])
+            Traceback (most recent call last):
+                ...
+            ValueError: apply: the function changed the array shape from (2,) to (1,); ...
+
+            ```
+    """
+    array = np.asarray(values)
+    result = np.asarray(func(array))
+    if result.shape != array.shape:
+        raise ValueError(
+            f"apply: the function changed the array shape from {array.shape} to "
+            f"{result.shape}; it must return one value per element so the result still "
+            f"lines up with the mesh."
+        )
     return result

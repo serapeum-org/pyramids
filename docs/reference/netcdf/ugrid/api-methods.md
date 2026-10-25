@@ -1,6 +1,6 @@
 # UgridDataset — Complete Method Reference
 
-`UgridDataset` exposes ~95 public methods and 19 properties. Many are
+`UgridDataset` exposes 142 public methods and 19 properties. Many are
 inherited from the `_UgridFacades` mixin and do not appear directly on
 the class definition, making them hard to discover via code search or
 LLM introspection. This page lists **every** public method and property
@@ -42,6 +42,8 @@ grouped by category.
 
 | Method | Source | Description |
 |--------|--------|-------------|
+| `open_mfdataset(paths, driver, mesh_name, sort)` | **(D)** | Open many files on one topology, stacked along time |
+| `to_dask_dataframe(variables, dropna, npartitions)` | **(D)** | The lazy sibling of `to_dataframe` |
 | `read_file(path, mesh_name, driver, lazy)` | **(D)** cls | Open a UGRID/2DM/Selafin/DFSU/XMDF file |
 | `from_arrays(node_x, node_y, fnc, ...)` | **(D)** cls | Create from numpy arrays |
 | `from_structured(dataset, band_names, ...)` | **(D)** cls | Build a mesh from a raster Dataset |
@@ -71,7 +73,6 @@ grouped by category.
 |--------|--------|-------------|
 | `set_crs(crs, epsg)` | **(D)** | Assign a CRS without reprojecting |
 | `to_crs(to_epsg)` | **(D)** | Reproject all node coordinates |
-| `to_epsg(epsg)` | **(D)** | Shorthand for `to_crs` with EPSG int |
 
 ---
 
@@ -118,6 +119,9 @@ grouped by category.
 | `round(decimals, variable_name)` | **(F)** | Round to N decimal places |
 | `astype(dtype, variable_name)` | **(F)** | Cast variable to a different dtype |
 | `isin(test_values, variable_name)` | **(F)** | Boolean mask for set membership |
+| `where(cond, other, variable_name)` | **(F)** | Keep the elements a condition selects, mask the rest |
+| `apply(func, variable_name)` | **(F)** | Apply a function elementwise, keeping the shape |
+| `convert_units(target, variable_name)` | **(D)** | Convert values to target units (shared affine table) |
 
 ---
 
@@ -134,6 +138,7 @@ grouped by category.
 
 | Method | Source | Description |
 |--------|--------|-------------|
+| `footprint(variable_name)` | **(F)** | Area actually covered by valid data (not the mesh outline) |
 | `domain_area()` | **(F)** | Total area of the mesh domain |
 | `count_domain_cells(variable_name)` | **(F)** | Number of active (non-masked) faces |
 
@@ -143,6 +148,9 @@ grouped by category.
 
 | Method | Source | Description |
 |--------|--------|-------------|
+| `slope(units, variable_name)` | **(F)** | Per-face slope of a mesh DEM, degrees or radians |
+| `aspect(variable_name)` | **(F)** | Per-face aspect, degrees clockwise from north |
+| `hillshade(azimuth, altitude, variable_name)` | **(F)** | Shaded relief in 0–255 |
 | `crop(mask, touch, bbox, variable_name)` | **(D)** | Crop to polygon or bbox |
 | `clip(mask, touch)` | **(D)** | Clip to polygon mask |
 | `subset_by_bounds(bbox, ...)` | **(D)** | Subset by bounding box |
@@ -158,6 +166,7 @@ grouped by category.
 
 | Method | Source | Description |
 |--------|--------|-------------|
+| `cluster(lower, upper, variable_name)` | **(F)** | Label connected faces whose values fall in a range |
 | `connected_components()` | **(F)** | Label connected face components |
 | `exterior_edges()` | **(F)** | Boundary edge indices |
 | `exterior_faces()` | **(F)** | Face indices touching the boundary |
@@ -201,6 +210,8 @@ grouped by category.
 | `plot(variable_name, ax, cmap, title, ...)` | **(D)** | Plot mesh data via cleopatra |
 | `plot_outline(ax, **kwargs)` | **(D)** | Plot mesh wireframe |
 | `plot_histogram(bins, variable_name, ...)` | **(F)** | Histogram of a variable's values |
+| `animate(variable_name, interval, **kwargs)` | **(D)** | Animate a temporal variable over its time axis |
+| `to_image(variable_name, cell_size, cmap, method)` | **(D)** | Rasterise and colour-map to a PIL image |
 
 ---
 
@@ -208,6 +219,10 @@ grouped by category.
 
 | Method | Source | Description |
 |--------|--------|-------------|
+| `get_histogram(bins, value_range, variable_name)` | **(F)** | Histogram counts and bin edges |
+| `focal_mean(rings, variable_name)` | **(F)** | Mean over each face's k-ring neighbourhood |
+| `focal_std(rings, variable_name)` | **(F)** | Standard deviation over the same neighbourhood |
+| `focal_apply(func, rings, variable_name)` | **(F)** | Arbitrary aggregation over the same neighbourhood |
 | `summary(variables, metrics, skipna, ddof)` | **(D)** | Per-variable summary table |
 | `weighted(variable_name, how, time_index, q)` | **(D)** | Area-weighted statistic |
 | `zonal_stats(zones, variable_name, stats, ...)` | **(D)** | Aggregate within polygon zones |
@@ -216,8 +231,43 @@ grouped by category.
 
 ## Temporal Operations
 
+!!! warning "Behaviour change: `time_values` now carries decoded dates"
+
+    For a file whose time variable declares CF `units` (`"<interval> since <origin>"`),
+    `time_values` and `to_dataframe()["time"]` return **decoded stamps** — `numpy.datetime64`
+    for the Gregorian calendar family, `cftime` objects for a model calendar such as
+    `360_day`. They previously returned positional integers for those files.
+
+    ```python
+    # before
+    ds.time_values            # [0, 1]
+    # after
+    ds.time_values            # [datetime64('2001-05-05T00:00:05'), ...]
+    ```
+
+    Code that treated the values as integers (`ds.time_values[0] + 1`, or comparing against
+    `0`) needs updating. A file carrying **no** CF time units is unaffected and still reports
+    positional indices, so the fallback behaviour is unchanged.
+
+    This lands as a behaviour change within the `0.x` line rather than as a major release:
+    returning positional indices for a file that states its stamps was the defect
+    [#1381](https://github.com/serapeum-org/pyramids/issues/1381) describes, so the decoded
+    values are the fix. The note is here because the element type nevertheless changes for
+    files that already carried CF units.
+
+
 | Method | Source | Description |
 |--------|--------|-------------|
+| `polyfit(deg, variable_name)` | **(D)** | Per-element polynomial fit along time (trend map) |
+| `curvefit(func, p0, variable_name)` | **(D)** | Per-element fit of an arbitrary model along time |
+| `differentiate(variable_name)` | **(D)** | Derivative along time, honouring the coordinate spacing |
+| `integrate(variable_name)` | **(D)** | Definite integral along time (consumes the axis) |
+| `cumulative_integrate(variable_name)` | **(D)** | Running integral along time (keeps the axis) |
+| `rank(variable_name, pct)` | **(D)** | Rank each element's values along time, ties averaged |
+| `coarsen(window, how, variable_name)` | **(D)** | Block-aggregate time by a count of steps |
+| `interp_like(other)` | **(D)** | Interpolate onto another dataset's time stamps |
+| `convert_calendar(calendar, align_on)` | **(D)** | Restamp the time axis onto another CF calendar |
+| `interp_calendar(target)` | **(D)** | Interpolate onto another dataset's stamps across calendars |
 | `sel_time(index)` | **(D)** | Select a single time step |
 | `sel_time_range(start, stop)` | **(D)** | Select a time range |
 | `reduce(how, skipna, q, groupby)` | **(D)** | Reduce time dimension |

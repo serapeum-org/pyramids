@@ -6551,6 +6551,108 @@ class Analysis(_Engine["Dataset"]):
             **kwargs,
         )
 
+    def animate(
+        self,
+        bands: list[int] | None = None,
+        animation_axis_values: Any = None,
+        exclude_value: Any | None = None,
+        basemap: bool | str | dict[str, Any] | Basemap | None = None,
+        interval: int = 200,
+        fig: Figure | None = None,
+        ax: Axes | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Animate the raster's bands as successive frames (issue #1380).
+
+        A multi-band raster is often a sequence — a time series written band per step, or a
+        stack of scenarios — and the only way to animate one was to build a
+        :class:`DatasetCollection` around it. This reads the ``(bands, rows, cols)`` array and
+        hands it to the shared :func:`render_array` animate path, the same one the collection
+        uses, so cleopatra still owns the frames.
+
+        Args:
+            bands: Which bands become frames, in this order. ``None`` (default) takes every
+                band.
+            animation_axis_values: Frame labels. ``None`` (default) labels each frame with its
+                band index.
+            exclude_value: An extra value to mask, beside the band's no-data.
+            basemap: Tile backdrop, as :meth:`plot` takes it.
+            interval: Milliseconds between frames. Defaults to 200.
+            fig: Existing figure to draw on.
+            ax: Existing axes to draw on.
+            **kwargs: Forwarded to cleopatra's animate path.
+
+        Returns:
+            cleopatra.glyphs.gridded.array_glyph.ArrayGlyph: The glyph, whose ``anim``
+            attribute is the :class:`matplotlib.animation.FuncAnimation` — save with
+            ``glyph.anim.save("out.gif")``. Note this differs from
+            :meth:`UgridDataset.animate`, which returns the ``FuncAnimation`` itself: the two
+            cleopatra glyph families return different objects and pyramids passes each through
+            rather than wrapping one to look like the other. **Keep a reference to it** —
+            matplotlib warns and stops an animation held only as a temporary.
+
+        Raises:
+            ValueError: The raster has a single band, so there would be one frame; ``bands``
+                names an index the raster does not have; or ``animation_axis_values`` is not
+                one label per frame.
+
+        See Also:
+            plot: A single band, statically.
+            DatasetCollection.animate: Many rasters as frames rather than many bands.
+        """
+        count = self._ds.band_count
+        selected = list(range(count)) if bands is None else list(bands)
+        if len(selected) < 2:
+            raise ValueError(
+                f"animate() needs at least two frames, but {len(selected)} band(s) were "
+                f"selected of the raster's {count}. Use plot() for a single band."
+            )
+        for index in selected:
+            if not 0 <= index < count:
+                raise ValueError(
+                    f"animate() got band {index}, which is out of range for a raster with "
+                    f"{count} band(s)."
+                )
+        labels = (
+            list(selected)
+            if animation_axis_values is None
+            else list(animation_axis_values)
+        )
+        if len(labels) != len(selected):
+            raise ValueError(
+                f"animate() got {len(labels)} frame label(s) for {len(selected)} frame(s); "
+                f"there must be one label per frame."
+            )
+        full = np.asarray(self._ds.read_array(band=None))
+        if full.ndim == 2:
+            # A single-band raster reads back 2-D, and `bands=[0, 0]` passes the frame-count
+            # check above by repeating that band - so this is reachable, not defensive.
+            full = full[np.newaxis, ...]
+        stack = full[selected, ...]
+        no_data_value = self._ds.no_data_value
+        # One sentinel masks the whole stack — the first selected band's — because the animate
+        # path takes a single `exclude_value` for every frame. That is right for the ordinary
+        # raster whose bands share a no-data value; a raster whose bands declare *different*
+        # sentinels would need per-frame masking, which cleopatra's animate mode does not take.
+        sentinel = no_data_value[selected[0]] if no_data_value else None
+        masked = [sentinel] if sentinel is not None else []
+        if exclude_value is not None:
+            masked.append(exclude_value)
+        return render_array(
+            RenderRequest(
+                arr=stack,
+                extent=self._ds.bbox,
+                exclude_value=masked or None,
+                mode=ModeSpec(mode="animate", animation_axis_values=labels),
+                ax=ax,
+                fig=fig,
+                basemap=basemap,
+                basemap_epsg=self._ds.epsg,
+            ),
+            interval=interval,
+            **kwargs,
+        )
+
     def _resolve_plot_array(
         self,
         band: int,

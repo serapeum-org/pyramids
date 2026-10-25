@@ -1,6 +1,6 @@
 # `NetCDF` — public API
 
-A one-line map of every public member the `NetCDF` class itself defines — 135 in all: 99 methods, 27 properties,
+A one-line map of every public member the `NetCDF` class itself defines — 136 in all: 100 methods, 27 properties,
 8 classmethods and 1 staticmethod, plus the four mapping dunders (`__getitem__`, `__contains__`, `__iter__`,
 `__len__`). `concat` and `merge` are counted among the methods: each is callable on the class
 (`NetCDF.concat([a, b], dim)`) and on a cube (`a.concat([b], dim)`, which joins the
@@ -213,6 +213,7 @@ A variable with no raster plane is the exception — see each member's docstring
 | Member          | What it does                                                                   |
 |-----------------|--------------------------------------------------------------------------------|
 | `combine()`     | Combines two rasters cell by cell, keeping the band dimensions. Variable only. |
+| `animate()`     | Animates a variable along a dimension — the named form of `plot(animate=)`.    |
 | `plot()`        | Plots a 2-D slice — `selectors`, `facet`, `axes`, `animate`, `chunks`, colour. |
 | `stats()`       | Per-band summary statistics. Variable only.                                    |
 | `summary()`     | Per-variable summary table over the whole cube — works on a container too.     |

@@ -308,16 +308,68 @@ def plot_histogram(
     require_cleopatra()
     from cleopatra.glyphs.stats.histogram_glyph import HistogramGlyph
 
+    valid = valid_samples(values, nodata)
+    glyph = HistogramGlyph(valid, ax=ax, **HistogramGlyph.filter_kwargs(kwargs))
+    result = glyph.histogram(bins=bins)
+    return result
+
+
+def valid_samples(values: np.ndarray, nodata: Any = None) -> np.ndarray:
+    """The flat array of values that are neither NaN nor the declared no-data sentinel.
+
+    Factored out of :func:`plot_histogram` so the numbers :func:`histogram` reports and the
+    bars :func:`plot_histogram` draws are derived from the **same** samples and cannot
+    disagree (issue #1375).
+
+    Args:
+        values: The data array, of any shape.
+        nodata: No-data sentinel to exclude, or ``None``.
+
+    Returns:
+        np.ndarray: The 1-D array of valid samples.
+
+    Raises:
+        ValueError: Nothing survives the masking, so there is no distribution to describe.
+    """
     flat = np.asarray(values).ravel()
     mask = np.ones(flat.shape, dtype=bool)
     if np.issubdtype(flat.dtype, np.floating):
         mask &= ~np.isnan(flat)
-    if nodata is not None:
-        if not (np.issubdtype(flat.dtype, np.floating) and np.isnan(nodata)):
-            mask &= flat != nodata
+    if nodata is not None and not (
+        np.issubdtype(flat.dtype, np.floating) and np.isnan(nodata)
+    ):
+        mask &= flat != nodata
     valid = flat[mask]
     if valid.size == 0:
         raise ValueError("No valid samples to histogram after masking nodata / NaN.")
-    glyph = HistogramGlyph(valid, ax=ax, **HistogramGlyph.filter_kwargs(kwargs))
-    result = glyph.histogram(bins=bins)
-    return result
+    return valid
+
+
+def histogram(
+    values: np.ndarray,
+    nodata: Any = None,
+    bins: int = 256,
+    value_range: tuple[float, float] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """The histogram of a variable's values as data, rather than as a picture.
+
+    The mesh counterpart of the raster ``get_histogram``. :func:`plot_histogram` could already
+    draw the distribution but gave no way to obtain it; both now mask through
+    :func:`valid_samples`, so the counts here describe exactly the samples the bars show.
+
+    Args:
+        values: The data array, of any shape.
+        nodata: No-data sentinel to exclude, or ``None``.
+        bins: Number of equal-width bins. Defaults to 256, as the raster version does.
+        value_range: ``(low, high)`` to bin within, or ``None`` to span the data.
+
+    Returns:
+        tuple: ``(counts, edges)`` -- the per-bin counts and the ``bins + 1`` bin edges, in the
+        variable's own units.
+
+    Raises:
+        ValueError: Nothing survives the no-data masking.
+    """
+    valid = valid_samples(values, nodata)
+    counts, edges = np.histogram(valid, bins=bins, range=value_range)
+    return counts, edges

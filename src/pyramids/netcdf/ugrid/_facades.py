@@ -21,12 +21,16 @@ import numpy as np
 import pandas as pd
 
 from pyramids.base import _array_ops
+from pyramids.base._array_ops import nodata_mask
 from pyramids.netcdf.ugrid import analysis as _analysis
 from pyramids.netcdf.ugrid import fill as _fill
+from pyramids.netcdf.ugrid import focal as _focal
 from pyramids.netcdf.ugrid import graph as _graph
 from pyramids.netcdf.ugrid import interop_xarray as _interop
 from pyramids.netcdf.ugrid import regrid as _regrid
+from pyramids.netcdf.ugrid import terrain as _terrain
 from pyramids.netcdf.ugrid import vector_ops as _vector_ops
+from pyramids.netcdf.ugrid.messages import unknown_variable_message
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pyramids.netcdf.ugrid.models import MeshVariable
@@ -207,7 +211,7 @@ class _UgridFacades:
                 )
             variable_name = names[0]
         if variable_name not in names:
-            raise KeyError(variable_name)
+            raise KeyError(unknown_variable_message(operation, variable_name, names))
         var = self._data_variables[variable_name]  # type: ignore[attr-defined]
         if var.data is None:
             raise ValueError(
@@ -215,12 +219,19 @@ class _UgridFacades:
             )
         return var
 
-    def _rewrap(self, var: MeshVariable, values: np.ndarray) -> Any:
+    def _rewrap(
+        self, var: MeshVariable, values: np.ndarray, *, keep_nodata: bool = True
+    ) -> Any:
         """A new dataset on the same mesh, with ``var`` replaced by ``values``.
 
         Args:
             var: The variable being replaced; everything but its data is carried over.
             values: The new data.
+            keep_nodata: Carry the source's sentinel onto the result when it is representable
+                in the result's dtype. ``False`` for a facade whose answer is a **different
+                quantity** from its input — a cluster label, say — where the source's sentinel
+                is representable but means nothing, and the result's own "absent" marker is
+                something else entirely.
 
         Returns:
             UgridDataset: A new dataset carrying ``values`` under ``var``'s name.
@@ -228,10 +239,11 @@ class _UgridFacades:
         new_vars = dict(self._data_variables)  # type: ignore[attr-defined]
         array = np.asarray(values)
         replacement = var.with_data(array)
-        if not _representable(replacement.nodata, array.dtype):
+        if not keep_nodata or not _representable(replacement.nodata, array.dtype):
             # The morphology facades answer a boolean mask. Carrying over a float sentinel
             # like -9999.0 declares a `_FillValue` no element of the result can equal, which
-            # `to_file` would then stamp on the variable.
+            # `to_file` would then stamp on the variable. `keep_nodata=False` covers the other
+            # case: a sentinel that IS representable but describes the input, not the answer.
             replacement.nodata = None
         new_vars[var.name] = replacement
         return self._rebuild(new_vars)  # type: ignore[attr-defined]
@@ -243,6 +255,367 @@ class _UgridFacades:
             numpy.ndarray: One component label per face.
         """
         return _graph.connected_components(self._mesh)  # type: ignore[attr-defined]
+
+    def _focal_inputs(
+        self, operation: str, variable_name: str | None
+    ) -> tuple[Any, np.ndarray, Any]:
+        """The variable, its values and its activity mask for a focal aggregation.
+
+        Args:
+            operation: The calling method's name, for messages.
+            variable_name: Variable to read, or ``None`` for the only one.
+
+        Returns:
+            tuple: ``(variable, values, active)``, where ``active`` is ``None`` when the
+            variable carries no activity mask.
+        """
+        var = self._facade_variable(operation, variable_name)
+        values = np.asarray(var.data)
+        active = None if var.active is None else np.asarray(var.active, dtype=bool)
+        return var, values, active
+
+    def focal_mean(
+        self,
+        rings: int = 1,
+        variable_name: str | None = None,
+        reach: Any = None,
+    ) -> np.ndarray:
+        """The mean of each face's k-ring neighbourhood, centre included (issue #1376).
+
+        The mesh counterpart of the raster ``focal_mean``. The raster version aggregates over a
+        ``(2*radius+1)`` **pixel window**, which has no meaning here — faces have neither a
+        row/column address nor a fixed neighbour count. This aggregates over the faces within
+        ``rings`` hops of the face adjacency instead, which is why the parameter is ``rings``
+        and not ``radius``.
+
+        Boundary faces aggregate over whatever neighbours they have: no padding, no fabricated
+        values. ``nodata`` faces are excluded, and so are inactive ones when the variable
+        carries an active mask — a dry neighbour should not drag a wet face's mean down.
+
+        Args:
+            rings: Adjacency hops the neighbourhood spans. Defaults to 1.
+            variable_name: Variable to act on (default: the only one).
+            reach: A neighbourhood matrix to reuse across calls, built with
+                ``pyramids.netcdf.ugrid.focal.neighbourhood(ds.mesh, rings)``. Without it each
+                call builds its own, so a sweep over many variables or steps rebuilds the same
+                sparse power every time. Leave ``rings`` at its default when passing it.
+
+        Returns:
+            numpy.ndarray: Per-face mean of length ``n_face``; ``NaN`` where the neighbourhood
+            holds no usable value.
+
+        Raises:
+            ValueError: ``rings`` is less than 1, or the variable is not one value per face.
+
+        See Also:
+            focal_std: Spread over the same neighbourhood.
+            focal_apply: An arbitrary aggregation over the same neighbourhood.
+        """
+        var, values, active = self._focal_inputs("focal_mean", variable_name)
+        return _focal.focal_mean(
+            self._mesh,  # type: ignore[attr-defined]
+            values,
+            rings=rings,
+            nodata=var.nodata,
+            active=active,
+            reach=reach,
+        )
+
+    def focal_std(
+        self,
+        rings: int = 1,
+        variable_name: str | None = None,
+        reach: Any = None,
+    ) -> np.ndarray:
+        """The standard deviation of each face's k-ring neighbourhood (issue #1376).
+
+        The spread counterpart of :meth:`focal_mean`, with the same neighbourhood, exclusion
+        and boundary conventions.
+
+        Args:
+            rings: Adjacency hops the neighbourhood spans. Defaults to 1.
+            variable_name: Variable to act on (default: the only one).
+            reach: A neighbourhood matrix to reuse across calls, built with
+                ``pyramids.netcdf.ugrid.focal.neighbourhood(ds.mesh, rings)``. Without it each
+                call builds its own, so a sweep over many variables or steps rebuilds the same
+                sparse power every time. Leave ``rings`` at its default when passing it.
+
+        Returns:
+            numpy.ndarray: Per-face population standard deviation; ``NaN`` where the
+            neighbourhood holds no usable value.
+
+        Raises:
+            ValueError: ``rings`` is less than 1, or the variable is not one value per face.
+
+        See Also:
+            focal_mean: The mean over the same neighbourhood.
+        """
+        var, values, active = self._focal_inputs("focal_std", variable_name)
+        return _focal.focal_std(
+            self._mesh,  # type: ignore[attr-defined]
+            values,
+            rings=rings,
+            nodata=var.nodata,
+            active=active,
+            reach=reach,
+        )
+
+    def focal_apply(
+        self,
+        func: Any,
+        rings: int = 1,
+        variable_name: str | None = None,
+        reach: Any = None,
+    ) -> np.ndarray:
+        """Aggregate each face's k-ring neighbourhood with ``func`` (issue #1376).
+
+        ``func`` receives the 1-D array of usable values in one neighbourhood and returns a
+        scalar, so ``np.ptp``, ``np.median`` or a lambda all work. Unlike :meth:`focal_mean`
+        and :meth:`focal_std` this cannot be expressed as a sparse product, so it visits each
+        face in turn — noticeably slower on a large mesh, which is the price of an arbitrary
+        aggregation.
+
+        Args:
+            func: Callable taking a 1-D array and returning a scalar.
+            rings: Adjacency hops the neighbourhood spans. Defaults to 1.
+            variable_name: Variable to act on (default: the only one).
+            reach: A neighbourhood matrix to reuse across calls, built with
+                ``pyramids.netcdf.ugrid.focal.neighbourhood(ds.mesh, rings)``. Without it each
+                call builds its own, so a sweep over many variables or steps rebuilds the same
+                sparse power every time. Leave ``rings`` at its default when passing it.
+
+        Returns:
+            numpy.ndarray: Per-face aggregate; ``NaN`` where the neighbourhood holds no usable
+            value, so ``func`` is never handed an empty array.
+
+        Raises:
+            ValueError: ``rings`` is less than 1, or the variable is not one value per face.
+
+        See Also:
+            focal_mean: The vectorised mean, when that is all you need.
+        """
+        var, values, active = self._focal_inputs("focal_apply", variable_name)
+        return _focal.focal_apply(
+            self._mesh,  # type: ignore[attr-defined]
+            values,
+            func,
+            rings=rings,
+            nodata=var.nodata,
+            active=active,
+            reach=reach,
+        )
+
+    def _elevation_nodes(self, operation: str, variable_name: str | None) -> np.ndarray:
+        """One elevation per node for the terrain derivatives (issue #1374).
+
+        The plane fit needs node elevations. A node-located variable supplies them directly; a
+        face-located one -- which is where a bed level usually lives (``mesh2d_flowelem_bl``) --
+        is averaged onto the nodes first, through the same helper the contouring path uses. An
+        edge-located variable has no meaningful route to the nodes and is refused.
+
+        Args:
+            operation: The calling method's name, for the message.
+            variable_name: The requested variable, or ``None`` for the only one.
+
+        Note:
+            A declared ``nodata`` is set to ``NaN`` here, so every derivative built on these
+            elevations reports ``NaN`` for the faces that touch the void rather than treating
+            the sentinel as a measurement.
+
+        Returns:
+            np.ndarray: One elevation per node, with voids as ``NaN``.
+
+        Raises:
+            ValueError: The variable is edge-located, or is temporal / layered rather than one
+                value per element.
+        """
+        var = self._facade_variable(operation, variable_name)
+        values = np.asarray(var.data, dtype="float64").copy()
+        mesh = self._mesh  # type: ignore[attr-defined]
+        if values.ndim != 1:
+            raise ValueError(
+                f"{operation}: expected one value per element -- a 1-D array, got shape "
+                f"{values.shape}. Select a single step or layer first, e.g. with isel()."
+            )
+        # A declared sentinel is a void, not an elevation. Setting it to NaN hands it to the
+        # plane fit's existing NaN propagation, so the faces touching it report NaN instead of
+        # a fabricated cliff -- which is the contract the raster kernels document ("a centred
+        # difference straddling a void has no defined derivative").
+        values[nodata_mask(values, var.nodata)] = np.nan
+        if var.location == "node":
+            return values
+        if var.location == "face":
+            return _analysis._face_values_to_nodes(mesh, values)
+        raise ValueError(
+            f"{operation}: needs a node- or face-located elevation, not "
+            f"{var.location!r}. An edge-located variable has no defined route to the nodes "
+            f"the plane fit is built from."
+        )
+
+    def slope(
+        self, units: str = "degrees", variable_name: str | None = None
+    ) -> np.ndarray:
+        """Per-face slope of a mesh DEM, in degrees (default) or radians (issue #1374).
+
+        An unstructured bed-level mesh is a DEM. The raster version reads a 3x3 pixel window,
+        which has no mesh equivalent; this fits a plane through each face's own node elevations
+        and reads the slope off that -- exact for a triangle, least-squares for a polygon.
+
+        Args:
+            units: ``"degrees"`` (default) or ``"radians"``.
+            variable_name: The elevation variable (default: the only one). A face-located one
+                is averaged onto the nodes first.
+
+        Returns:
+            numpy.ndarray: Per-face slope of length ``n_face``; ``NaN`` on a degenerate face,
+            and on any face touching a ``nodata`` elevation — a void has no defined gradient,
+            which is the contract the raster kernels state too.
+
+        Raises:
+            ValueError: ``units`` is invalid, the variable is edge-located, or it is not one
+                value per element.
+
+        See Also:
+            aspect: The direction the slope faces.
+            hillshade: Shaded relief from the same gradient.
+        """
+        return _terrain.slope(
+            self._mesh,  # type: ignore[attr-defined]
+            self._elevation_nodes("slope", variable_name),
+            units=units,
+        )
+
+    def aspect(self, variable_name: str | None = None) -> np.ndarray:
+        """Per-face aspect of a mesh DEM, in degrees clockwise from north (issue #1374).
+
+        Names the direction the slope **faces** (downhill), matching the raster convention: a
+        surface rising to the east faces west, 270 degrees.
+
+        Args:
+            variable_name: The elevation variable (default: the only one).
+
+        Returns:
+            numpy.ndarray: Per-face aspect in ``[0, 360)``; ``NaN`` on a degenerate face, and
+            on any face touching a ``nodata`` elevation.
+
+        Raises:
+            ValueError: The variable is edge-located, or is not one value per element.
+
+        See Also:
+            slope: The magnitude of the same gradient.
+        """
+        return _terrain.aspect(
+            self._mesh,  # type: ignore[attr-defined]
+            self._elevation_nodes("aspect", variable_name),
+        )
+
+    def hillshade(
+        self,
+        azimuth: float = 315.0,
+        altitude: float = 45.0,
+        variable_name: str | None = None,
+    ) -> np.ndarray:
+        """Per-face shaded relief of a mesh DEM, clipped to ``0..255`` (issue #1374).
+
+        Args:
+            azimuth: Sun azimuth in degrees (0 = north, 90 = east). Defaults to 315 (NW).
+            altitude: Sun altitude above the horizon in degrees. Defaults to 45.
+            variable_name: The elevation variable (default: the only one).
+
+        Returns:
+            numpy.ndarray: Per-face intensity in ``[0, 255]``; ``NaN`` on a degenerate face,
+            and on any face touching a ``nodata`` elevation. A
+            flat mesh saturates at ``sin(altitude) * 255``, as the raster version does.
+
+        Raises:
+            ValueError: The variable is edge-located, or is not one value per element.
+
+        See Also:
+            slope: The slope magnitude the shading is derived from.
+        """
+        return _terrain.hillshade(
+            self._mesh,  # type: ignore[attr-defined]
+            self._elevation_nodes("hillshade", variable_name),
+            azimuth=azimuth,
+            altitude=altitude,
+        )
+
+    def cluster(
+        self,
+        lower: float,
+        upper: float,
+        variable_name: str | None = None,
+    ) -> Any:
+        """Label connected groups of faces whose values fall in ``[lower, upper]`` (#1379).
+
+        The value-aware sibling of :meth:`connected_components`, and the mesh counterpart of
+        the raster ``cluster``. :meth:`connected_components` labels by **topology alone**, so
+        it cannot answer "which separate pools of flooded cells are there"; this restricts the
+        face adjacency to the faces inside the range before labelling.
+
+        Faces outside the range — and no-data faces, which cannot be inside one — are labelled
+        ``0``, so a label is truthy exactly when the face belongs to a cluster. Clusters are
+        numbered ``1..k``.
+
+        Args:
+            lower: Inclusive lower bound.
+            upper: Inclusive upper bound.
+            variable_name: Variable to act on (default: the only one).
+
+        Returns:
+            UgridDataset: A new dataset whose variable carries the per-face cluster labels.
+
+        Raises:
+            ValueError: The variable is not one value per face (select a step first).
+
+        See Also:
+            connected_components: Topology-only labelling, ignoring values.
+            footprint: The dissolved outline of the faces carrying valid values.
+        """
+        var = self._facade_variable("cluster", variable_name)
+        labels = _graph.value_clusters(
+            self._mesh,  # type: ignore[attr-defined]
+            np.asarray(var.data),
+            lower,
+            upper,
+            var.nodata,
+        )
+        return self._rewrap(var, labels, keep_nodata=False)
+
+    def footprint(self, variable_name: str | None = None) -> Any:
+        """The dissolved outline of the faces carrying valid values (#1379).
+
+        The mesh counterpart of the raster ``footprint`` — "the real coverage of the values".
+        Distinct from :meth:`bounding_polygon`, which dissolves **every** face and so describes
+        the mesh *domain* rather than where data exists, and from :meth:`polygonize`, which
+        returns one polygon per distinct value.
+
+        "Valid" means not ``nodata`` and not NaN. It deliberately does **not** consult the
+        per-timestep active mask: a dry element has a real value and is still covered by the
+        data, so excluding it would conflate "no data here" with "dry here", which is the
+        distinction issue #1331 exists to preserve. For the wet extent, mask first
+        (:meth:`masked_values` or :meth:`where`) and take the footprint of that.
+
+        Args:
+            variable_name: Variable to act on (default: the only one).
+
+        Returns:
+            shapely.Polygon | shapely.MultiPolygon: The dissolved coverage, empty when no face
+            carries a valid value. Carries no CRS — attach one if you need it.
+
+        Raises:
+            ValueError: The variable is not one value per face (select a step first).
+
+        See Also:
+            bounding_polygon: The whole mesh outline, data or not.
+            polygonize: One polygon per distinct value.
+        """
+        var = self._facade_variable("footprint", variable_name)
+        return _graph.valid_footprint(
+            self._mesh,  # type: ignore[attr-defined]
+            np.asarray(var.data),
+            var.nodata,
+        )
 
     def exterior_edges(self) -> np.ndarray:
         """The indices of the edges on the mesh boundary.
@@ -846,6 +1219,102 @@ class _UgridFacades:
         var = self._facade_variable("astype", variable_name)
         result = _array_ops.astype_values(np.asarray(var.data), dtype)
         return self._rewrap(var, result)
+
+    def where(
+        self,
+        cond: Any,
+        other: Any = np.nan,
+        variable_name: str | None = None,
+    ) -> Any:
+        """Keep the elements ``cond`` selects and mask the rest (issue #1375).
+
+        The mesh counterpart of the raster ``where``. A ``nodata`` / NaN element is never
+        selected — there is no value there to keep — so it goes to ``other`` whatever ``cond``
+        says, leaving the result with one masking convention rather than two.
+
+        The per-timestep active mask (:attr:`~pyramids.netcdf.ugrid.models.MeshVariable.active`)
+        is **not** applied here. Keeping "dry" distinct from "missing" is the whole point of
+        that field (issue #1331), so activity-aware masking is something a caller composes
+        explicitly: ``ds.where(ds.active_mask(name) & (values > 0))``.
+
+        Args:
+            cond: A boolean array broadcastable to the variable's values.
+            other: What an unselected element holds. Defaults to NaN.
+            variable_name: Variable to act on (default: the only one).
+
+        Returns:
+            UgridDataset: A new dataset with the unselected elements masked.
+
+        See Also:
+            clip_values: Clamp values to a range instead of masking outside it.
+            masked_values: Apply the active mask to the values, on demand.
+        """
+        var = self._facade_variable("where", variable_name)
+        result = _array_ops.where_values(np.asarray(var.data), cond, other, var.nodata)
+        # With a non-NaN `other`, every no-data element is overwritten by it, so the result no
+        # longer uses the source's sentinel to mark anything and declaring it would claim a
+        # marker that is now an ordinary value. With the default NaN fill the gaps stay
+        # missing, so the sentinel still describes them.
+        overwrites_gaps = other is not None and not (
+            isinstance(other, float) and np.isnan(other)
+        )
+        return self._rewrap(var, result, keep_nodata=not overwrites_gaps)
+
+    def apply(self, func: Any, variable_name: str | None = None) -> Any:
+        """Apply ``func`` to every element of a variable (issue #1375).
+
+        The mesh counterpart of the raster ``apply``. ``func`` receives the whole array, so a
+        numpy ufunc runs vectorised rather than once per element. The shape must survive, since
+        the result still has to line up with the mesh elements it describes.
+
+        Args:
+            func: A callable taking and returning an array of the same shape.
+            variable_name: Variable to act on (default: the only one).
+
+        Returns:
+            UgridDataset: A new dataset carrying the transformed values.
+
+        Raises:
+            ValueError: ``func`` changed the array shape.
+
+        See Also:
+            astype: Cast values to another dtype.
+            round: Round values to a number of decimal places.
+        """
+        var = self._facade_variable("apply", variable_name)
+        result = _array_ops.apply_values(np.asarray(var.data), func)
+        return self._rewrap(var, result)
+
+    def get_histogram(
+        self,
+        bins: int = 256,
+        value_range: tuple[float, float] | None = None,
+        variable_name: str | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """The variable's value distribution as data (issue #1375).
+
+        The mesh counterpart of the raster ``get_histogram``. :meth:`plot_histogram` could
+        already *draw* the distribution but gave no way to obtain it; both mask no-data through
+        the same helper, so these counts describe exactly the samples those bars show.
+
+        Args:
+            bins: Number of equal-width bins. Defaults to 256.
+            value_range: ``(low, high)`` to bin within, or ``None`` to span the data.
+            variable_name: Variable to act on (default: the only one).
+
+        Returns:
+            tuple: ``(counts, edges)`` -- per-bin counts and the ``bins + 1`` edges, in the
+            variable's own units.
+
+        Raises:
+            ValueError: Nothing survives the no-data masking, so there is no distribution.
+
+        See Also:
+            plot_histogram: The same distribution, drawn.
+            summary: Per-variable min / max / mean / std over the whole mesh.
+        """
+        var = self._facade_variable("get_histogram", variable_name)
+        return _analysis.histogram(np.asarray(var.data), var.nodata, bins, value_range)
 
     def isin(self, test_values: Any, variable_name: str | None = None) -> Any:
         """Boolean mask where variable values are in *test_values*.

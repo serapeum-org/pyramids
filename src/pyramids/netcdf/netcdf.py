@@ -5267,6 +5267,56 @@ class NetCDF(Dataset):
     # NetCDF intentionally exposes a richer, variable/selector-oriented plot
     # signature than the band-oriented Dataset/RasterBase one; the override
     # is deliberate and not Liskov-substitutable.
+    def animate(  # type: ignore[override]
+        self,
+        variable: str | None = None,
+        dim: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Animate a variable along one of its non-spatial dimensions (issue #1380).
+
+        The cube could already animate, but only through ``plot(animate=...)``, where the
+        capability is easy to miss. This is the same path under the name the other classes use
+        (:meth:`Dataset.animate`, :meth:`UgridDataset.animate`,
+        :meth:`DatasetCollection.animate`), so one name finds it everywhere.
+
+        The signature deliberately replaces the inherited raster one: a cube's frames come
+        from one of its own dimensions, not from band indices, which is why :meth:`plot`
+        overrides in the same way.
+
+        Args:
+            variable: Variable to animate. ``None`` (default) takes the only one.
+            dim: Band dimension to animate along. ``None`` (default) takes the variable's
+                primary band dimension.
+            **kwargs: Everything :meth:`plot` accepts on its animate path — ``selectors``,
+                ``colorbar``, ``color``, ``points``, ``basemap``, ``interval``, …
+
+        Returns:
+            cleopatra.glyphs.gridded.array_glyph.ArrayGlyph: The glyph, whose ``anim``
+            attribute is the :class:`matplotlib.animation.FuncAnimation` — save with
+            ``glyph.anim.save("out.gif")``. Note this differs from
+            :meth:`UgridDataset.animate`, which returns the ``FuncAnimation`` itself: the two
+            cleopatra glyph families return different objects and pyramids passes each through
+            rather than wrapping one to look like the other. **Keep a reference to it** —
+            matplotlib warns and stops an animation held only as a temporary.
+
+        Raises:
+            ValueError: No variable was given on a container, or ``variable`` is not one of
+                its variables.
+            KeyError: ``dim`` is not a band dimension of that variable.
+
+        Note:
+            The animate path is :meth:`plot`'s, so anything else that method rejects is
+            rejected here the same way and with the same message.
+
+        See Also:
+            plot: One frame, or the same animation via ``animate=``.
+            UgridDataset.animate: The unstructured counterpart.
+        """
+        return self.plot(
+            variable=variable, animate=dim if dim is not None else True, **kwargs
+        )
+
     def plot(  # type: ignore[override]
         self,
         variable: str | None = None,

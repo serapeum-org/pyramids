@@ -135,7 +135,16 @@ dev = [
     # does not, and `test-fast` deliberately does not either; neither is what the
     # floor is protecting.) So 3.6.1 is the first release this repo can actually
     # use, and the floor names it rather than the yanked one.
-    "pytest-xdist>=3.6.1"
+    "pytest-xdist>=3.6.1",
+    # Security floor on a transitive dependency, not a capability we use directly.
+    # pytest-xdist pulls in filelock, and CVE-2026-112913 affects filelock 3.20.4
+    # through 4.2.0: on Windows its SQLite-backed `ReadWriteLock` derives its
+    # `-wal` / `-journal` side files from the database path, so another local
+    # account that can create (but not delete) files in that directory can wedge
+    # every acquire with `disk I/O error`, or have SQLite replay a planted journal.
+    # Fixed in 4.2.1. The resolved environment was on 3.32.4 and the lock also
+    # carried 4.2.0, so both were vulnerable and `pip-audit` failed the PR.
+    "filelock>=4.2.1"
 ]
 docs = [
     "mkdocs >=1.5.3",
@@ -367,7 +376,7 @@ main = { cmd = "pytest -vvv --cov=src/pyramids -sv -m 'not plot and not interop'
 plot = { cmd = "pytest -vvv --cov=src/pyramids --cov-append -sv -m 'plot' --cov-report=xml", description = "Run plot test suite" }
 interop-tests = { cmd = "pytest -vvv --cov=src/pyramids --cov-append -sv -m 'interop' --cov-report=xml", description = "Run the NetCDF interop tests" }
 test-all = { cmd = "pytest -vvv --cov=src/pyramids -sv --cov-report=xml --cov-report=term-missing", description = "Run all testsuite" }
-notebooks = { cmd = "pytest --nbval --nbval-lax --verbose docs/examples --ignore-glob='docs/examples/**/dask-lazy-*.ipynb' --ignore-glob='docs/examples/dask/*.ipynb' --ignore-glob='docs/examples/**/lazy-*-complete.ipynb' --ignore-glob='docs/examples/**/stac-cloud-*.ipynb' --ignore-glob='docs/examples/zarr/*.ipynb'", description = "check notebooks (skips dask cookbooks/quickstarts, stac-cloud-* and zarr/* — all need extras envs or real endpoints)" }
+notebooks = { cmd = "pytest --nbval --nbval-lax --verbose docs/examples --ignore-glob='docs/examples/**/dask-lazy-*.ipynb' --ignore-glob='docs/examples/dask/*.ipynb' --ignore-glob='docs/examples/**/lazy-*-complete.ipynb' --ignore-glob='docs/examples/**/stac-cloud-*.ipynb' --ignore-glob='docs/examples/zarr/*.ipynb' --ignore-glob='docs/examples/dataset/wms-wmts-readers.ipynb'", description = "check notebooks (skips dask cookbooks/quickstarts, stac-cloud-*, zarr/* and wms-wmts-readers — all need extras envs or real endpoints)" }
 jupyter = { cmd = "jupyter lab --no-browser --IdentityProvider.token='' --ServerApp.password='' --port=8889", description = "launch JupyterLab to run the example notebooks — run with `-e dev` (only env with JupyterLab + all notebook deps)" }
 build-dist = { cmd = "python -m build", description = "Build sdist and wheel for PyPI" }
 publish-pypi = { cmd = "twine upload --non-interactive --repository pypi dist/*", depends-on = ["build-dist"], description = "Build and upload package to PyPI" }

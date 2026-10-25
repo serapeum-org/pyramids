@@ -34,6 +34,7 @@ from scipy.sparse import csgraph
 from scipy.spatial import Voronoi
 from shapely.ops import unary_union
 
+from pyramids.base._array_ops import nodata_mask
 from pyramids.netcdf.ugrid.connectivity import Connectivity
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 
@@ -863,6 +864,112 @@ def bounding_polygon(mesh: Mesh2d) -> Any:
         shapely.Polygon | shapely.MultiPolygon: The dissolved outline.
     """
     return unary_union(list(_face_polygons(mesh)))
+
+
+def value_clusters(
+    mesh: Mesh2d,
+    values: np.ndarray,
+    lower: float,
+    upper: float,
+    nodata: Any = None,
+) -> np.typing.NDArray:
+    """Label connected groups of faces whose values fall in ``[lower, upper]`` (issue #1379).
+
+    The value-aware sibling of :func:`connected_components`, and the mesh analogue of the
+    raster ``cluster`` ("group all the connected values between two bounds").
+    :func:`connected_components` labels by **topology alone** — every face joins a component
+    whatever it holds — so it cannot answer "which pools of flooded cells are there". This
+    restricts the face adjacency to the faces inside the range first, then labels what remains.
+
+    Faces outside the range (and no-data faces, which cannot be "in" a range) are excluded from
+    every cluster and labelled ``0``, so a label is truthy exactly when the face belongs to a
+    cluster. Clusters themselves are numbered ``1..k``.
+
+    Args:
+        mesh: The mesh to read.
+        values: Per-face values, length ``n_face``.
+        lower: Inclusive lower bound.
+        upper: Inclusive upper bound.
+        nodata: Sentinel to exclude, or ``None``.
+
+    Returns:
+        np.ndarray: Per-face label of length ``n_face``; ``0`` outside every cluster.
+
+    Raises:
+        ValueError: ``values`` is not one per face.
+    """
+    array = np.asarray(values)
+    if array.ndim != 1 or array.shape[0] != mesh.n_face:
+        raise ValueError(
+            f"cluster: expected one value per face -- a 1-D array of {mesh.n_face}, got shape "
+            f"{array.shape}. Select a single step first, e.g. with isel(time=...)."
+        )
+    flat = array
+    selected = (flat >= lower) & (flat <= upper) & ~nodata_mask(flat, nodata)
+    out = np.zeros(mesh.n_face, dtype=np.intp)
+    if not selected.any():
+        return out
+    adjacency = sparse.csr_matrix(sparse_adjacency(mesh, kind="face"))
+    # Keep only the edges joining two selected faces, so a cluster cannot leak across a face
+    # outside the range. Masking rows and columns by broadcasting avoids `sparse.diags`, whose
+    # int8 input would be cast to float64 with a FutureWarning.
+    picked = selected.astype(bool)
+    restricted = sparse.csr_matrix(
+        adjacency.multiply(picked[:, None]).multiply(picked[None, :])
+    )
+    # `multiply` leaves the masked-out edges in the sparsity structure as explicit zeros, and
+    # csgraph treats every *stored* entry as an edge — so without this the excluded faces still
+    # joined the clusters they were supposed to separate.
+    restricted.eliminate_zeros()
+    _, labels = csgraph.connected_components(restricted, directed=False)
+    # csgraph gives every isolated node its own component, so the unselected faces each carry a
+    # label too. Renumber the selected ones compactly from 1 and leave the rest at 0.
+    _, inverse = np.unique(labels[selected], return_inverse=True)
+    out[selected] = inverse + 1
+    return out
+
+
+def valid_footprint(mesh: Mesh2d, values: np.ndarray, nodata: Any = None) -> Any:
+    """The dissolved outline of the faces carrying valid values (issue #1379).
+
+    The mesh analogue of the raster ``footprint`` ("extract the real coverage of the values").
+    Distinct from :func:`bounding_polygon`, which dissolves **every** face and so describes the
+    mesh domain rather than where data exists; and from ``polygonize``, which dissolves faces of
+    equal value into one polygon per value.
+
+    "Valid" means not ``nodata`` and not NaN. It deliberately does **not** consult a variable's
+    active (wet/dry) mask: a dry element has a real value and is still covered by the data, so
+    excluding it would conflate "no data here" with "dry here" — the distinction issue #1331
+    exists to preserve.
+
+    Args:
+        mesh: The mesh to read.
+        values: Per-face values, length ``n_face``.
+        nodata: Sentinel to treat as absent, or ``None``.
+
+    Returns:
+        shapely.Polygon | shapely.MultiPolygon: The dissolved coverage, or an empty polygon when
+        no face carries a valid value. Carries no CRS — the caller attaches one.
+
+    Raises:
+        ValueError: ``values`` is not one per face.
+    """
+    array = np.asarray(values)
+    if array.ndim != 1 or array.shape[0] != mesh.n_face:
+        raise ValueError(
+            f"footprint: expected one value per face -- a 1-D array of {mesh.n_face}, got "
+            f"shape {array.shape}. Select a single step first, e.g. with isel(time=...)."
+        )
+    flat = array
+    valid = ~nodata_mask(flat, nodata)
+    polygons = [
+        polygon
+        for index, polygon in enumerate(_face_polygons(mesh))
+        if bool(valid[index])
+    ]
+    if not polygons:
+        return shapely.Polygon()
+    return unary_union(polygons)
 
 
 def proximity(mesh: Mesh2d, target_faces: np.ndarray) -> np.ndarray:

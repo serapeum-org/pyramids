@@ -3427,6 +3427,27 @@ class DatasetCollection:
                 f"collection's datasets have {self.base.band_count}."
             )
 
+    def animate(self, *args: Any, **kwargs: Any) -> ArrayGlyph:
+        """Animate the collection's rasters as successive frames (issue #1380).
+
+        :meth:`plot` on a collection **is** the animation — it renders the stack of band
+        slices as frames rather than a single picture. This is that method under the name the
+        other classes use (:meth:`Dataset.animate`, :meth:`NetCDF.animate`,
+        :meth:`UgridDataset.animate`), so the capability is discoverable by one name across
+        the four; the arguments and conventions are :meth:`plot`'s, documented there.
+
+        Args:
+            *args: Positional arguments forwarded to :meth:`plot`.
+            **kwargs: Keyword arguments forwarded to :meth:`plot`.
+
+        Returns:
+            cleopatra.glyphs.gridded.array_glyph.ArrayGlyph: Whatever :meth:`plot` returns.
+
+        See Also:
+            plot: The same rendering, and where the arguments are documented.
+        """
+        return self.plot(*args, **kwargs)
+
     def plot(
         self,
         band: int = 0,

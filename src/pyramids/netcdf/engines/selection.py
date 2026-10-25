@@ -22,7 +22,6 @@ import math
 import operator
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
 from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, cast
@@ -92,6 +91,16 @@ from pyramids.netcdf.engines._along_dim import (
     _TakeSteps,
 )
 from pyramids.netcdf.engines._weighted import _WEIGHTED_HOWS, _weighted_result
+
+# The calendar helpers moved to `netcdf/utils.py` so the ugrid side can share them. Only
+# the three this module actually references are imported: `_days_in_year` and
+# `_same_position_in_year` were kept bound for a hypothetical `selection.<name>` patch
+# written against the old layout, and nothing in `src` or `tests` references either.
+from pyramids.netcdf.utils import (
+    _CALENDAR_ALIGNMENTS,
+    _carried_to_calendar,
+    _decimal_years,
+)
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
@@ -7000,10 +7009,6 @@ def _interp_targets(target: Any, dim: str, caller: str = "interp") -> np.ndarray
     return values
 
 
-_CALENDAR_ALIGNMENTS = ("date", "year")
-"""How :meth:`Selection.convert_calendar` may carry a date across — see its `align_on`."""
-
-
 def _cf_time_units(nc: NetCDF, dim: str, *, caller: str) -> tuple[str, str]:
     """The CF `(units, calendar)` the time dimension `dim` declares.
 
@@ -7063,143 +7068,6 @@ def _decoded_instants(nc: NetCDF, dim: str, *, caller: str) -> tuple[Any, str, s
             f"{exc}"
         ) from exc
     return np.asarray(instants, dtype=object), units, calendar
-
-
-def _decimal_years(instants: Any) -> np.ndarray:
-    """`instants` as decimal years — the year plus the fraction of it elapsed.
-
-    The common scale `interp_calendar` interpolates on, because it means the same thing in every
-    calendar: a 360-day year and a 365-day year both run from `Y.0` to `Y+1.0`.
-
-    Args:
-        instants: Calendar-aware `cftime` objects.
-
-    Returns:
-        np.ndarray: The decimal years, float64.
-    """
-    years = np.empty(len(instants), dtype="float64")
-    for index, instant in enumerate(instants):
-        start = instant.replace(
-            month=1, day=1, hour=0, minute=0, second=0, microsecond=0
-        )
-        next_start = start.replace(year=start.year + 1)
-        length = (next_start - start).total_seconds()
-        years[index] = instant.year + (instant - start).total_seconds() / length
-    return years
-
-
-def _days_in_year(year: int, calendar: str) -> int:
-    """How many days `calendar` gives `year`.
-
-    Args:
-        year: The year.
-        calendar: The CF calendar.
-
-    Returns:
-        int: 360, 365 or 366 depending on the calendar and the year.
-    """
-    start = cftime.datetime(year, 1, 1, calendar=calendar)
-    return int((cftime.datetime(year + 1, 1, 1, calendar=calendar) - start).days)
-
-
-def _same_position_in_year(instant: Any, calendar: str) -> Any:
-    """`instant` moved to `calendar`, keeping its position in the year rather than its date.
-
-    What `align_on="year"` means, and it maps **whole days**: the new day of the year is
-    `round(days_in_target * day_of_year / days_in_source)`, which is the formula xarray's
-    `convert_calendar` uses, and the time of day is carried across verbatim. An earlier version
-    interpolated in seconds through a decimal year, which pushed a day-aligned `360_day` stamp
-    to `2001-12-30 23:40:00.000001` — arithmetically close and useless for the comparison the
-    mode exists to enable, since no daily label matches it.
-
-    Args:
-        instant: The source instant.
-        calendar: The target CF calendar.
-
-    Returns:
-        The instant on `calendar`, at the proportional day of the year.
-    """
-    source_length = _days_in_year(instant.year, instant.calendar)
-    target_length = _days_in_year(instant.year, calendar)
-    moved = int(round(target_length * instant.dayofyr / source_length))
-    # A defensive clamp, not a reachable branch for any CF calendar pair: `dayofyr` runs 1..n
-    # and the ratio of two CF year lengths (360 / 365 / 366) never rounds day 1 down to 0 nor
-    # day n past the target length. It stays because this is arithmetic on a ratio, and a
-    # calendar of a very different length would otherwise build an invalid date.
-    day = min(max(moved, 1), target_length)
-    start = cftime.datetime(
-        instant.year,
-        1,
-        1,
-        instant.hour,
-        instant.minute,
-        instant.second,
-        instant.microsecond,
-        calendar=calendar,
-    )
-    return start + timedelta(days=day - 1)
-
-
-def _carried_to_calendar(
-    instants: Any, calendar: str, align_on: str
-) -> tuple[list[Any], list[int]]:
-    """`instants` expressed in `calendar`, and which of them survived.
-
-    Args:
-        instants: The source instants.
-        calendar: The target CF calendar.
-        align_on: `"date"` keeps the calendar date and drops what the target has no day for;
-            `"year"` keeps the position in the year and drops nothing.
-
-    Returns:
-        tuple: `(carried, kept)` — the target-calendar instants and the source indices they came
-        from, so the caller can select the surviving steps.
-    """
-    carried: list[Any] = []
-    kept: list[int] = []
-    if align_on == "year":
-        seen: set[tuple] = set()
-        for index, instant in enumerate(instants):
-            moved = _same_position_in_year(instant, calendar)
-            # The mapping is not injective when the target year is shorter — 365 source days
-            # collapse onto 360 — and a repeated stamp is an axis `differentiate`, `integrate`,
-            # `polyfit`, `interp` and `sel` all refuse. xarray drops the collapsed days; so do
-            # we, which keeps the result strictly monotonic and therefore usable.
-            stamp = (
-                moved.year,
-                moved.month,
-                moved.day,
-                moved.hour,
-                moved.minute,
-                moved.second,
-                moved.microsecond,
-            )
-            if stamp in seen:
-                continue
-            seen.add(stamp)
-            carried.append(moved)
-            kept.append(index)
-        return carried, kept
-    for index, instant in enumerate(instants):
-        try:
-            carried.append(
-                cftime.datetime(
-                    instant.year,
-                    instant.month,
-                    instant.day,
-                    instant.hour,
-                    instant.minute,
-                    instant.second,
-                    instant.microsecond,
-                    calendar=calendar,
-                )
-            )
-        except ValueError:
-            # The documented drop: the target calendar has no such day (29 February on
-            # `noleap`, 31 December on `360_day`), so the step goes with it.
-            continue
-        kept.append(index)
-    return carried, kept
 
 
 def _gridded_band_coordinates(nc: NetCDF, dim: str) -> Any:

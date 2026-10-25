@@ -1327,6 +1327,60 @@ class Dataset(RasterBase):
 
     # The override is deliberate: it narrows the base's open **kwargs to cleopatra's
     # typed PlotKwargs. The fig/ax pair itself matches the RasterBase contract.
+    def animate(
+        self,
+        bands: list[int] | None = None,
+        animation_axis_values: Any = None,
+        exclude_value: Any | None = None,
+        basemap: bool | str | dict[str, Any] | Basemap | None = None,
+        interval: int = 200,
+        fig: Figure | None = None,
+        ax: Axes | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Animate the raster's bands as successive frames (issue #1380).
+
+        Facade for :meth:`pyramids.dataset.engines.analysis.Analysis.animate`, which documents
+        the arguments and the frame conventions.
+
+        Args:
+            bands: Which bands become frames, in order. ``None`` takes every band.
+            animation_axis_values: Frame labels. ``None`` labels by band index.
+            exclude_value: An extra value to mask, beside the band's no-data.
+            basemap: Tile backdrop, as :meth:`plot` takes it.
+            interval: Milliseconds between frames.
+            fig: Existing figure to draw on.
+            ax: Existing axes to draw on.
+            **kwargs: Forwarded to cleopatra's animate path.
+
+        Returns:
+            cleopatra.glyphs.gridded.array_glyph.ArrayGlyph: The glyph, whose ``anim``
+            attribute is the :class:`matplotlib.animation.FuncAnimation` — save with
+            ``glyph.anim.save("out.gif")``. Note this differs from
+            :meth:`UgridDataset.animate`, which returns the ``FuncAnimation`` itself: the two
+            cleopatra glyph families return different objects and pyramids passes each through
+            rather than wrapping one to look like the other. **Keep a reference to it** —
+            matplotlib warns and stops an animation held only as a temporary.
+
+        Raises:
+            ValueError: Fewer than two frames, an out-of-range band, or a label count that
+                does not match the frames.
+
+        See Also:
+            plot: One band, statically.
+            NetCDF.animate: Along a cube's own dimension rather than bands.
+        """
+        return self.analysis.animate(
+            bands=bands,
+            animation_axis_values=animation_axis_values,
+            exclude_value=exclude_value,
+            basemap=basemap,
+            interval=interval,
+            fig=fig,
+            ax=ax,
+            **kwargs,
+        )
+
     def plot(  # type: ignore[override]
         self,
         band: int | None = None,
