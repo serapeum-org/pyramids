@@ -7517,6 +7517,11 @@ def _netcdf_fallback_driver(
         The first driver claiming the NetCDF suffix whose ``can_open`` accepts the file, or
         ``None`` — an explicit ``driver``, a ``/vsi`` path, no NetCDF suffix, or none claims it —
         in which case the caller re-raises the original :class:`NoMeshTopologyError`.
+
+    Raises:
+        UnsupportedMeshFormatError: The claiming driver is ``needs_mesh``, so it carries
+            values but no topology and cannot open the file on its own. Built by
+            :func:`_needs_mesh_error`, whose advice depends on ``expected``.
     """
     if driver is not None:
         return None
