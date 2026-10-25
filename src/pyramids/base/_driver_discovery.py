@@ -1,19 +1,23 @@
 """Shared contract-validation and token helpers for pyramids' driver-discovery hooks.
 
-pyramids exposes parallel entry-point driver hooks — raster
-(:mod:`pyramids.dataset._drivers`), vector (:mod:`pyramids.feature._drivers`), and mesh
-(:mod:`pyramids.netcdf.ugrid._drivers`). They share the same contract *shape*: a driver is a class
-whose claims (``name`` / ``long_name`` / ``suffixes`` / ``schemes`` / ``capabilities`` /
+pyramids exposes parallel entry-point driver hooks that share the same contract *shape*: a driver is
+a class whose claims (``name`` / ``long_name`` / ``suffixes`` / ``schemes`` / ``capabilities`` /
 ``api_version`` / ``extra``) are read without constructing it, validated against the contract, and
-cached. This module holds the parts that are byte-identical across hooks — the optional-dependency
-probe, the suffix/scheme token shapes, the source/declared token extraction, and the whole
-validation decision — so each hook configures the few things that differ (its API version, reserved
-names, capability tokens, which capabilities promise a method, and whether it validates a
-``preempts`` attribute) instead of copying the logic.
+cached. This module holds the parts that are identical across hooks — the optional-dependency probe,
+the suffix/scheme token shapes, the source/declared token extraction, and the whole validation
+decision — so each hook configures the few things that differ (its API version, reserved names,
+capability tokens, which capabilities promise a method, and whether it validates a ``preempts``
+attribute) instead of copying the logic.
 
-Nothing here imports the rest of pyramids, so it is safe to import from any hook without a cycle. It
-raises nothing: validation reports a problem as a message string (the caller decides whether to warn
-or skip), and the token helpers answer with a set.
+Today the **raster** hook (:mod:`pyramids.dataset._drivers`) and the **vector** hook
+(:mod:`pyramids.feature._drivers`) call it. The **mesh** hook
+(:mod:`pyramids.netcdf.ugrid._drivers`) predates this module and still carries its own copy of the
+logic; migrating it onto this core is a candidate follow-up, not done here.
+
+Nothing here imports the rest of pyramids, so it is safe to import from any hook without a cycle.
+Its validation and token helpers do not raise: validation reports a problem as a message string (the
+caller decides whether to warn or skip), and the token helpers answer with a set — the one exception
+is the unavoidable ``str(source)`` in :func:`extract_tokens`, which assumes a path/URL/id source.
 """
 
 from __future__ import annotations
