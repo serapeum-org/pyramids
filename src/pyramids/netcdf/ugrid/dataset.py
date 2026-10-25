@@ -4392,45 +4392,22 @@ class UgridDataset(_UgridFacades):
             raise ValueError(f"coarsen: window must be at least 1, got {window}.")
         self._require_variable_name("coarsen", variable_name)
         self._alongtime_coord("coarsen")
+        sweeping = variable_name is None
         new_vars: dict[str, MeshVariable] = {}
         skipped: list[str] = []
-        binned = 0
         for name, var in self._data_variables.items():
-            if not var.has_time or (
-                variable_name is not None and name != variable_name
-            ):
+            if not var.has_time or (not sweeping and name != variable_name):
                 new_vars[name] = var
                 continue
-            axis = cast("int", var.time_index)
-            data = var.data
-            if data is None:
-                raise ValueError(f"Variable {name!r} has no loaded data to coarsen.")
-            coord = _variable_time_coord(var)
-            blocks = len(coord) // window
-            if blocks == 0:
-                if variable_name is None:
-                    # A sweep skips what it cannot bin, as `convert_units` skips the variables
-                    # with no units to convert from: one short variable should not lose the
-                    # whole call. Naming a variable explicitly is a request, so that raises.
-                    # Whether ANY variable was binned is checked after the loop - a sweep that
-                    # did nothing at all must not look like it succeeded.
-                    skipped.append(f"{name!r}({len(coord)})")
-                    new_vars[name] = var
-                    continue
-                raise ValueError(
-                    f"coarsen: {name!r} has {len(coord)} step(s), fewer than one window of "
-                    f"{window}; there would be nothing to report."
-                )
-            binned += 1
-            labels = [coord[index * window] for index in range(blocks)]
-            reduced = _timeseries.coarsen_axis(np.asarray(data), window, how, axis)
-            # The axis is re-binned, so a per-step mask no longer lines up with it.
-            moved = var.with_data(
-                reduced, active=None if var.active_has_time else _KEEP_ACTIVE
-            )
-            moved.attributes = {**var.attributes, "time_values": labels}
-            new_vars[name] = moved
-        if variable_name is None and binned == 0:
+            binned = _coarsened_variable(name, var, window, how, sweeping)
+            if binned is None:
+                skipped.append(f"{name!r}({var.n_time_steps})")
+                new_vars[name] = var
+                continue
+            new_vars[name] = binned
+        if sweeping and len(skipped) == len(
+            [v for v in self._data_variables.values() if v.has_time]
+        ):
             raise ValueError(
                 f"coarsen: no variable has as many as {window} step(s) "
                 f"({', '.join(skipped)}), so a window of {window} would report nothing at "
@@ -4449,10 +4426,12 @@ class UgridDataset(_UgridFacades):
             other: The dataset whose time coordinate supplies the target stamps. Must sit on
                 the same topology.
 
-        Two dated axes are put on a common **decimal-year** scale, which means the same thing
-        in every calendar, so this works across calendars as well as within one. The result
-        declares ``other``'s units and calendar, since those are the stamps it now carries; an
-        undated ``other`` leaves the result positional, with no CF metadata at all.
+        Note:
+            Two dated axes are put on a common **decimal-year** scale, which means the same
+            thing in every calendar, so this works across calendars as well as within one. The
+            result declares ``other``'s units and calendar, since those are the stamps it now
+            carries; an undated ``other`` leaves the result positional, with no CF metadata at
+            all.
 
         Returns:
             UgridDataset: A new dataset on ``other``'s time stamps, carrying ``other``'s time
@@ -6365,6 +6344,56 @@ def _apply_active_mask(
     return np.where(reshaped.reshape(target), masked, np.nan)
 
 
+def _coarsened_variable(
+    name: str, var: MeshVariable, window: int, how: str, sweeping: bool
+) -> MeshVariable | None:
+    """One variable block-aggregated along time, or ``None`` when it is too short.
+
+    Lifted out of :meth:`UgridDataset.coarsen` so that method reads as the loop it is: the
+    per-variable work is where the skip-or-raise decision and the re-binning live, and keeping
+    both inline took the method past the cognitive-complexity limit.
+
+    Args:
+        name: The variable's name, for messages.
+        var: The variable to bin.
+        window: Steps per block.
+        how: Reducer name, as :func:`pyramids.base._timeseries.coarsen_axis` takes it.
+        sweeping: True when every variable is being binned, which is what decides whether a
+            variable with fewer steps than one window is skipped or refused.
+
+    Returns:
+        MeshVariable | None: The binned variable, or ``None`` when it has fewer steps than one
+        window and the caller is sweeping — the caller then passes it through untouched.
+
+    Raises:
+        ValueError: The variable has no loaded data, or it is too short and was named
+            explicitly rather than swept.
+    """
+    data = var.data
+    if data is None:
+        raise ValueError(f"Variable {name!r} has no loaded data to coarsen.")
+    coord = _variable_time_coord(var)
+    blocks = len(coord) // window
+    if blocks == 0:
+        if sweeping:
+            # A sweep skips what it cannot bin, as `convert_units` skips the variables with no
+            # units to convert from: one short variable should not lose the whole call. The
+            # caller checks whether ANY variable was binned, since a sweep that did nothing
+            # must not look like it succeeded.
+            return None
+        raise ValueError(
+            f"coarsen: {name!r} has {len(coord)} step(s), fewer than one window of "
+            f"{window}; there would be nothing to report."
+        )
+    axis = cast("int", var.time_index)
+    labels = [coord[index * window] for index in range(blocks)]
+    reduced = _timeseries.coarsen_axis(np.asarray(data), window, how, axis)
+    # The axis is re-binned, so a per-step mask no longer lines up with it.
+    moved = var.with_data(reduced, active=None if var.active_has_time else _KEEP_ACTIVE)
+    moved.attributes = {**var.attributes, "time_values": labels}
+    return moved
+
+
 def _without_time_metadata(attributes: dict) -> dict:
     """``attributes`` with the time-coordinate keys removed.
 
@@ -6554,6 +6583,10 @@ def _fitted_dimensions(
             elif position == ndim - 1:
                 names.append(var.location)
             else:
+                # A middle axis of a layered variable is the layer axis, not an element one -
+                # naming it for the location would claim it holds faces. `dim{n}` says only
+                # "an axis", which is all that is known here, and matters because none of
+                # these names may look like a time axis (see the note above).
                 names.append(f"dim{position}")
     return tuple(names)
 

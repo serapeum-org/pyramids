@@ -91,16 +91,15 @@ from pyramids.netcdf.engines._along_dim import (
     _TakeSteps,
 )
 from pyramids.netcdf.engines._weighted import _WEIGHTED_HOWS, _weighted_result
-from pyramids.netcdf.utils import (  # noqa: F401  - re-exported after the move to
-    # utils, where the ugrid side can share them. `_CALENDAR_ALIGNMENTS`,
-    # `_carried_to_calendar` and `_decimal_years` are referenced in this module;
-    # `_days_in_year` and `_same_position_in_year` are not, and are kept bound only so a
-    # `selection.<name>` import or patch written against the old layout still resolves.
+
+# The calendar helpers moved to `netcdf/utils.py` so the ugrid side can share them. Only
+# the three this module actually references are imported: `_days_in_year` and
+# `_same_position_in_year` were kept bound for a hypothetical `selection.<name>` patch
+# written against the old layout, and nothing in `src` or `tests` references either.
+from pyramids.netcdf.utils import (
     _CALENDAR_ALIGNMENTS,
     _carried_to_calendar,
-    _days_in_year,
     _decimal_years,
-    _same_position_in_year,
 )
 
 if TYPE_CHECKING:

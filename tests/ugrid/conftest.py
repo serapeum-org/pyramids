@@ -6,10 +6,21 @@ test file paths used across multiple test modules.
 
 from __future__ import annotations
 
+import gc
 from pathlib import Path
 
 import numpy as np
 import pytest
+
+try:
+    # Imported once at module scope rather than inside the autouse fixture, which would run
+    # the import machinery after every test in this package.
+    from matplotlib import animation
+    from matplotlib import pyplot as plt
+except ImportError:  # pragma: no cover - matplotlib is a viz-extra dependency
+    animation = None
+    plt = None
+_MATPLOTLIB_IMPORT = plt is not None
 
 from pyramids.netcdf.ugrid.connectivity import Connectivity
 from pyramids.netcdf.ugrid.dataset import UgridDataset
@@ -217,17 +228,26 @@ def mixed_mesh():
 
 @pytest.fixture(autouse=True)
 def _close_figures():
-    """Close every matplotlib figure after each test in this package.
+    """Close every matplotlib figure, and drop every animation, after each test here.
 
-    The plot-marked tests build glyphs and animations, and matplotlib keeps every figure alive
-    until it is closed - which surfaced as `RuntimeWarning: More than 20 figures have been
-    opened` from cleopatra, and as an `Animation was deleted without rendering anything`
-    warning escaping into an unrelated test's summary.
+    The plot-marked tests build glyphs and animations, and matplotlib keeps both alive until
+    they are released - which surfaced as `RuntimeWarning: More than 20 figures have been
+    opened` from cleopatra, and as `Animation was deleted without rendering anything` landing
+    on whichever unrelated test happened to be running when the collector got to it.
+
+    `plt.close("all")` alone fixed only the first: a `FuncAnimation` is held by
+    `Animation._all_anims`, so it outlives its figure and warns on collection. Clearing that
+    list and collecting here means an animation a test discarded is accounted for inside that
+    test.
     """
     yield
-    try:
-        import matplotlib.pyplot as plt
-
-        plt.close("all")
-    except ImportError:  # pragma: no cover - matplotlib is a viz-extra dependency
-        pass
+    if plt is None:  # pragma: no cover - matplotlib is a viz-extra dependency
+        return
+    pending = getattr(animation.Animation, "_all_anims", None)
+    if pending:
+        # Only when a test actually built one. Clearing the registry and collecting is what
+        # stops the deletion warning landing on a later test, but doing it unconditionally
+        # after every test in the package took the suite from ~35s to ~300s.
+        pending.clear()
+        gc.collect()
+    plt.close("all")

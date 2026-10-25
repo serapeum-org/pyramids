@@ -6624,7 +6624,9 @@ class Analysis(_Engine["Dataset"]):
                 f"there must be one label per frame."
             )
         full = np.asarray(self._ds.read_array(band=None))
-        if full.ndim == 2:  # pragma: no cover - guarded by the frame-count check above
+        if full.ndim == 2:
+            # A single-band raster reads back 2-D, and `bands=[0, 0]` passes the frame-count
+            # check above by repeating that band - so this is reachable, not defensive.
             full = full[np.newaxis, ...]
         stack = full[selected, ...]
         no_data_value = self._ds.no_data_value

@@ -409,9 +409,10 @@ class _UgridFacades:
             operation: The calling method's name, for the message.
             variable_name: The requested variable, or ``None`` for the only one.
 
-        A declared ``nodata`` is set to ``NaN`` here, so every derivative built on these
-        elevations reports ``NaN`` for the faces that touch the void rather than treating the
-        sentinel as a measurement.
+        Note:
+            A declared ``nodata`` is set to ``NaN`` here, so every derivative built on these
+            elevations reports ``NaN`` for the faces that touch the void rather than treating
+            the sentinel as a measurement.
 
         Returns:
             np.ndarray: One elevation per node, with voids as ``NaN``.
