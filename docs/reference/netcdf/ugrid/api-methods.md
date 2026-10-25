@@ -249,6 +249,12 @@ grouped by category.
     `0`) needs updating. A file carrying **no** CF time units is unaffected and still reports
     positional indices, so the fallback behaviour is unchanged.
 
+    This lands as a behaviour change within the `0.x` line rather than as a major release:
+    returning positional indices for a file that states its stamps was the defect
+    [#1381](https://github.com/serapeum-org/pyramids/issues/1381) describes, so the decoded
+    values are the fix. The note is here because the element type nevertheless changes for
+    files that already carried CF units.
+
 
 | Method | Source | Description |
 |--------|--------|-------------|
