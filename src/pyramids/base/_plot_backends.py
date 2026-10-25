@@ -35,6 +35,7 @@ __all__ = [
     "MPL_ONLY_PLOT_PARAMS",
     "clear_plot_backend_cache",
     "forward_kwargs",
+    "is_colorbar_spec",
     "plot_backends",
     "reject_mpl_only_params",
     "render_via_backend",
@@ -293,6 +294,34 @@ def reject_mpl_only_params(backend: str, **named: Any) -> None:
             f"backend={backend!r} does not accept them. Set them on a matplotlib plot, or drop "
             f"them for this backend."
         )
+
+
+def is_colorbar_spec(colorbar: Any) -> bool:
+    """Whether a ``colorbar`` argument is a typed cleopatra ``ColorBar`` spec (matplotlib-only).
+
+    The shared plot ``colorbar`` parameter is ``bool | ColorBar | None``. A ``bool`` toggles the
+    bar on any backend and is forwarded; a ``ColorBar`` *instance* carries matplotlib styling and
+    is rejected on a non-matplotlib backend. ``ColorBar`` lives in cleopatra (the optional ``[viz]``
+    extra) and is imported only under ``TYPE_CHECKING`` in the facades, so it is detected by
+    exclusion — not ``None`` and not a ``bool`` — rather than with ``isinstance``.
+
+    Args:
+        colorbar: The facade's ``colorbar`` argument.
+
+    Returns:
+        ``True`` when ``colorbar`` is a styled ``ColorBar`` spec, ``False`` for ``None`` or a
+        plain ``bool``.
+
+    Examples:
+        - A bool or ``None`` is not a styled spec; anything else is:
+            ```python
+            >>> from pyramids.base._plot_backends import is_colorbar_spec
+            >>> is_colorbar_spec(None), is_colorbar_spec(True), is_colorbar_spec(object())
+            (False, False, True)
+
+            ```
+    """
+    return colorbar is not None and not isinstance(colorbar, bool)
 
 
 def forward_kwargs(**maybe: Any) -> dict[str, Any]:
