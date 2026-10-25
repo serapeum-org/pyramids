@@ -1,9 +1,9 @@
 """Unit tests for pyramids.netcdf.ugrid.network.Network1d.
 
 Covers construction from arrays, topology/geometry properties (node/edge
-counts, bounds, edge lengths and midpoints), the directed network sort
-(upstream/downstream traversal), topology subsetting, and the GeoDataFrame
-export (one LineString per edge).
+counts, bounds, edge lengths and midpoints), the network sort -- over stored
+edge directions and over an orientation derived from a named outlet --
+topology subsetting, and the GeoDataFrame export (one LineString per edge).
 """
 
 from __future__ import annotations
@@ -17,6 +17,14 @@ from pyramids.netcdf.ugrid.connectivity import Connectivity
 from pyramids.netcdf.ugrid.network import Network1d
 
 pytestmark = pytest.mark.core
+
+#: A straight 4-node chain. Acyclic and orientable, so its traversal order is a property of
+#: the topology rather than of the `directed` flag it happens to be built with.
+CHAIN = (
+    np.array([0.0, 1.0, 2.0, 3.0]),
+    np.array([0.0, 0.0, 0.0, 0.0]),
+    np.array([[0, 1], [1, 2], [2, 3]]),
+)
 
 
 @pytest.fixture
@@ -64,10 +72,32 @@ class TestConstruction:
         assert isinstance(enc, Connectivity)
         assert enc.data.shape == (3, 2)
 
-    def test_n_face_raises(self, y_network):
-        """A 1D network has no faces; n_face raises a clear error."""
-        with pytest.raises(AttributeError, match="no faces"):
+    def test_no_n_face_anywhere(self, y_network):
+        """A 1D network does not advertise `n_face` to any probe (issue #1352).
+
+        Test scenario:
+            The class used to carry an `n_face` property whose body only raised, which left
+            `dir()` and `hasattr(Network1d, "n_face")` advertising a member that could never
+            be read while `hasattr(net, "n_face")` denied it. With the property gone every
+            probe agrees, and the counts a network does have stay visible.
+        """
+        assert hasattr(y_network, "n_face") is False, (
+            "an instance must not advertise n_face"
+        )
+        assert hasattr(Network1d, "n_face") is False, (
+            "the class must not advertise n_face either -- a property would, because "
+            "class access never invokes its getter"
+        )
+        assert "n_face" not in dir(y_network), "n_face must not be listed by dir()"
+        assert "n_face" not in vars(Network1d), "no n_face descriptor on the class"
+        assert getattr(y_network, "n_face", "absent") == "absent"
+        with pytest.raises(AttributeError, match="no attribute 'n_face'"):
             _ = y_network.n_face
+
+    def test_the_node_and_edge_counts_are_advertised(self, y_network):
+        """The counts a network does have stay visible to the same probe."""
+        assert hasattr(y_network, "n_node") is True
+        assert hasattr(y_network, "n_edge") is True
 
 
 class TestGeometry:
@@ -125,13 +155,113 @@ class TestSort:
         assert pos[2] < pos[0]
         assert pos[2] < pos[1]
 
-    def test_sort_requires_directed(self):
-        """sort() on an undirected network raises."""
-        net = Network1d.from_arrays(
-            np.array([0.0, 1.0]), np.array([0.0, 0.0]), np.array([[0, 1]])
-        )
-        with pytest.raises(ValueError, match="directed"):
+    def test_sort_undirected_without_outlet_names_the_candidates(self):
+        """An undirected network with no outlet is refused, but actionably (issue #1353).
+
+        Test scenario:
+            The message used to offer only `directed=True`, which meant rebuilding the object
+            from the identical arrays. It now names the degree-1 nodes that are candidate
+            outlets, because a network stores no elevation and the choice is the caller's.
+        """
+        net = Network1d.from_arrays(*CHAIN)
+        with pytest.raises(ValueError) as caught:
             net.sort()
+        message = str(caught.value)
+        assert "undirected" in message
+        assert "sort(outlet=" in message, "the message must name the way through"
+        assert "Candidate outlets" in message
+        assert "0, 3" in message, (
+            f"both ends of the chain are degree-1 candidates, got {message!r}"
+        )
+
+    @pytest.mark.parametrize(
+        ("outlet", "expected"),
+        [(3, [0, 1, 2, 3]), (0, [3, 2, 1, 0])],
+        ids=["outlet-at-the-end", "outlet-at-the-start"],
+    )
+    def test_sort_undirected_orients_from_the_outlet(self, outlet, expected):
+        """Naming the outlet orients the edges and the sort proceeds (issue #1353)."""
+        net = Network1d.from_arrays(*CHAIN)
+        order = net.sort(outlet=outlet).tolist()
+        assert order == expected, (
+            f"every edge should run towards node {outlet}, giving {expected}, got {order}"
+        )
+
+    def test_sort_undirected_upstream_reverses_the_inferred_orientation(self):
+        """`upstream` reverses the derived edges, as it does the stored ones."""
+        net = Network1d.from_arrays(*CHAIN)
+        assert net.sort("upstream", outlet=3).tolist() == [3, 2, 1, 0]
+
+    def test_sort_undirected_matches_the_directed_answer(self):
+        """The inferred orientation gives the same order the directed network does.
+
+        Test scenario:
+            The whole objection in #1353 is that `directed` records how the edges were
+            labelled, not whether an order exists. Same nodes, same edges, one built
+            directed and one oriented from its outlet -- the answers must agree.
+        """
+        inferred = Network1d.from_arrays(*CHAIN).sort(outlet=3)
+        declared = Network1d.from_arrays(*CHAIN, directed=True).sort()
+        assert inferred.tolist() == declared.tolist()
+
+    def test_sort_outlet_refused_on_a_directed_network(self):
+        """A directed network already carries its orientation, so outlet= is refused."""
+        net = Network1d.from_arrays(*CHAIN, directed=True)
+        with pytest.raises(ValueError, match="already directed"):
+            net.sort(outlet=3)
+
+    @pytest.mark.parametrize("outlet", [-1, 4, 99], ids=["negative", "one-past", "far"])
+    def test_sort_outlet_must_be_a_node_index(self, outlet):
+        """An outlet outside the node range is refused by range, not by IndexError."""
+        net = Network1d.from_arrays(*CHAIN)
+        with pytest.raises(ValueError, match=r"outlet must be a node index"):
+            net.sort(outlet=outlet)
+
+    def test_sort_refuses_an_edge_with_no_defensible_direction(self):
+        """An odd cycle leaves one edge equidistant from the outlet, so it is refused.
+
+        Test scenario:
+            In a triangle, nodes 1 and 2 are both one hop from outlet 0, so nothing decides
+            which way the edge between them runs. That is the genuine ambiguity #1353 says
+            should still raise -- and the message names the edge and the distance.
+        """
+        triangle = Network1d.from_arrays(
+            np.array([0.0, 1.0, 0.5]),
+            np.array([0.0, 0.0, 1.0]),
+            np.array([[0, 1], [1, 2], [2, 0]]),
+        )
+        with pytest.raises(ValueError) as caught:
+            triangle.sort(outlet=0)
+        message = str(caught.value)
+        assert "nothing decides which way it runs" in message
+        assert "hop(s) from outlet 0" in message
+
+    def test_sort_orients_an_even_cycle(self):
+        """A diamond is orientable: every edge spans two different distances.
+
+        Test scenario:
+            The guard above must refuse only genuine ambiguity, not every cycle. Both arms of
+            a diamond run from the far node to the near one, so the orientation is defined and
+            the outlet comes last.
+        """
+        diamond = Network1d.from_arrays(
+            np.array([0.0, 1.0, 1.0, 2.0]),
+            np.array([0.0, 1.0, -1.0, 0.0]),
+            np.array([[0, 1], [0, 2], [1, 3], [2, 3]]),
+        )
+        order = diamond.sort(outlet=3).tolist()
+        assert order[0] == 0, f"the far node drains first, got {order}"
+        assert order[-1] == 3, f"the outlet is the sink, got {order}"
+
+    def test_sort_refuses_a_component_the_outlet_cannot_reach(self):
+        """An edge in another component has no distance to the outlet, so it is refused."""
+        split = Network1d.from_arrays(
+            np.array([0.0, 1.0, 5.0, 6.0]),
+            np.array([0.0, 0.0, 0.0, 0.0]),
+            np.array([[0, 1], [2, 3]]),
+        )
+        with pytest.raises(ValueError, match="cannot reach"):
+            split.sort(outlet=0)
 
     def test_sort_bad_direction(self, y_network):
         """An unknown direction raises."""
@@ -287,28 +417,3 @@ class TestPaddedAndIsolatedTopology:
         assert set(order.tolist()) == {0, 1, 2}, (
             f"the isolated node 2 must be in the ordering, got {order.tolist()}"
         )
-
-
-class TestNoFacesDuckTyping:
-    """What the `n_face` AttributeError means to code that probes for it."""
-
-    def test_hasattr_reports_no_n_face(self, y_network):
-        """`hasattr` answers False, which is how a caller can tell a network from a mesh.
-
-        Test scenario:
-            `n_face` is a property that always raises `AttributeError`, and `hasattr` swallows
-            exactly that exception -- so `hasattr(net, "n_face")` is False while
-            `net.n_face` raises with a readable message. Both halves matter: the raise explains
-            the mistake to a human, and the False lets a `hasattr` check route a network away
-            from face-based code instead of blowing up inside it.
-        """
-        assert hasattr(y_network, "n_face") is False, (
-            "a network must not advertise n_face to a hasattr probe"
-        )
-        with pytest.raises(AttributeError, match="no faces"):
-            _ = y_network.n_face
-
-    def test_the_node_and_edge_counts_are_advertised(self, y_network):
-        """The counts a network does have stay visible to the same probe."""
-        assert hasattr(y_network, "n_node") is True
-        assert hasattr(y_network, "n_edge") is True

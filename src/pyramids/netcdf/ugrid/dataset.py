@@ -5916,6 +5916,141 @@ class UgridDataset(_UgridFacades):
         )
         return result
 
+    def plot_vector_field(
+        self,
+        u: str,
+        v: str,
+        *,
+        kind: str = "quiver",
+        thin: int | None = None,
+        time_index: int = 0,
+        ax: Any = None,
+        title: str | None = None,
+        colorbar: bool | ColorBar | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Plot two mesh variables as a 2-component vector field (issue #1373).
+
+        The mesh counterpart of :meth:`pyramids.dataset.Dataset.plot_vector_field`, sharing
+        its ``kind`` / ``thin`` vocabulary so the two read the same. A hydrodynamic mesh
+        writes its velocity as two per-face variables -- D-Flow FM names them ``mesh2d_ucx``
+        and ``mesh2d_ucy`` -- and this draws them as arrows coloured by
+        ``hypot(u, v)``.
+
+        Both components must sit on the same location, and that location must be ``"face"``
+        or ``"node"``: those are what a vector can be anchored at (face centroids, or the
+        nodes themselves). An edge-located component such as D-Flow FM's ``mesh2d_u1`` is
+        refused rather than drawn in the wrong place -- resolve it to faces first.
+
+        A temporal component is reduced to one step, as :meth:`plot` does, except that the
+        step is selectable here through ``time_index`` rather than fixed at the first.
+
+        Args:
+            u: Name of the variable holding the first vector component.
+            v: Name of the variable holding the second vector component.
+            kind: ``"quiver"`` for arrows or ``"barbs"`` for wind barbs. Defaults to
+                ``"quiver"``.
+            thin: Draw every nth element, keeping a large mesh legible. ``None`` (the
+                default) draws every one.
+            time_index: Which step to draw for a temporal component. Defaults to ``0``.
+            ax: Existing matplotlib axes to draw on. Defaults to ``None``.
+            title: Plot title. Defaults to ``None``, which labels the plot ``"u / v"``.
+            colorbar: ``True``/``False``, or a :class:`ColorBar` spec. Defaults to ``None``,
+                which leaves cleopatra's default.
+            **kwargs: Forwarded to cleopatra's ``MeshGlyph.plot_vector_field``.
+
+        Returns:
+            tuple: ``(fig, ax, im)``, as the raster ``plot_vector_field`` returns.
+
+        Raises:
+            KeyError: Either name is not a variable of this dataset.
+            ValueError: A component has no loaded data; the two sit on different locations;
+                the shared location is not ``"face"`` or ``"node"``; the two have different
+                shapes; or ``time_index`` is outside a temporal component's time axis.
+
+        Examples:
+            - Draw a D-Flow FM velocity field, thinned so the arrows stay readable:
+
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> ds = UgridDataset.read_file("FlowFM_map.nc")       # doctest: +SKIP
+                >>> fig, ax, im = ds.plot_vector_field(                # doctest: +SKIP
+                ...     "mesh2d_ucx", "mesh2d_ucy", kind="quiver", thin=4
+                ... )
+        """
+        u_values, location = self._vector_component(u, "u", time_index)
+        v_values, v_location = self._vector_component(v, "v", time_index)
+        if location != v_location:
+            raise ValueError(
+                f"plot_vector_field: {u!r} is {location}-located and {v!r} is "
+                f"{v_location}-located; a vector needs both components at the same place."
+            )
+        if u_values.shape != v_values.shape:
+            raise ValueError(
+                f"plot_vector_field: {u!r} has shape {u_values.shape} and {v!r} has "
+                f"{v_values.shape}; the two components must match."
+            )
+        result = _ugrid_plot.plot_vector_field_data(
+            mesh=self._mesh,
+            u=u_values,
+            v=v_values,
+            location=location,
+            kind=kind,
+            thin=thin,
+            ax=ax,
+            title=f"{u} / {v}" if title is None else title,
+            colorbar=colorbar,
+            **kwargs,
+        )
+        return result
+
+    def _vector_component(
+        self, variable_name: str, role: str, time_index: int
+    ) -> tuple[np.ndarray, str]:
+        """Read one vector component down to a single per-element array.
+
+        Shared by both halves of :meth:`plot_vector_field` so ``u`` and ``v`` are validated
+        and reduced identically -- the asymmetry of checking one and trusting the other is
+        how a mismatched pair reaches the renderer and is drawn in the wrong place.
+
+        Args:
+            variable_name: The variable to read.
+            role: ``"u"`` or ``"v"``, naming the component in any error.
+            time_index: Step to take along a temporal component's own time axis.
+
+        Returns:
+            tuple: The per-element values, and the location they sit on.
+
+        Raises:
+            KeyError: No variable is named ``variable_name``.
+            ValueError: The variable has no loaded data, sits on a location a vector cannot
+                be anchored at, or ``time_index`` is outside its time axis.
+        """
+        var = self.get_data(variable_name)
+        data = var.data
+        if data is None:
+            raise ValueError(
+                f"plot_vector_field: {role} component {variable_name!r} has no loaded data "
+                f"to plot."
+            )
+        if var.location not in ("face", "node"):
+            raise ValueError(
+                f"plot_vector_field: {role} component {variable_name!r} is "
+                f"{var.location}-located, and a vector can only be anchored at a face "
+                f"centroid or a node. Supported locations: 'face', 'node'. Resolve an "
+                f"edge-located component to faces first."
+            )
+        values = np.asarray(data)
+        if var.has_time:
+            axis = cast("int", var.time_index)
+            steps = values.shape[axis]
+            if not -steps <= time_index < steps:
+                raise ValueError(
+                    f"plot_vector_field: time_index {time_index} is outside "
+                    f"{variable_name!r}, which has {steps} step(s)."
+                )
+            values = np.take(values, time_index, axis=axis)
+        return values, var.location
+
     def animate(
         self,
         variable_name: str | None = None,
@@ -7447,10 +7582,14 @@ def _read_through_driver(
         from pyramids.netcdf.ugrid.network import Network1d as _Network1d
 
         other = "Network1d" if isinstance(result, _Network1d) else "UgridDataset"
+        # Name the driver in the suggested call. Without it this message and the one
+        # `Network1d.read_file` raises pointed at each other, and a caller bounced between the
+        # two without either naming `driver=` as the way through.
         raise UnsupportedMeshFormatError(
             f"The {driver.name!r} driver read {str(path)!r} as a {produced}, not a "
             f"{expected.__name__}. A file whose topology dimension is 1 is a network, and a "
-            f"surface mesh is not: read it with {other}.read_file instead."
+            f"surface mesh is not: read it with "
+            f"{other}.read_file(path, driver={driver.name!r}) instead."
         )
     return result
 

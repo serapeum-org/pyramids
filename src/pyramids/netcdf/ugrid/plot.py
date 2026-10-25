@@ -176,6 +176,65 @@ def plot_mesh_data(
     return glyph
 
 
+def plot_vector_field_data(
+    mesh: Mesh2d,
+    u: Any,
+    v: Any,
+    location: str = "face",
+    kind: str = "quiver",
+    thin: int | None = None,
+    ax: Any = None,
+    title: str | None = None,
+    colorbar: bool | ColorBar | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Render a `(u, v)` vector field on a mesh through cleopatra.
+
+    The mesh counterpart of the raster `Dataset.plot_vector_field`: the components are
+    handed to `MeshGlyph.plot_vector_field`, which anchors face-located components at the
+    face centroids and node-located ones at the nodes, and colours the arrows by the vector
+    magnitude `hypot(u, v)`.
+
+    Args:
+        mesh: Mesh2d topology the components are defined on.
+        u: First vector component, one value per element of `location`.
+        v: Second vector component, the same shape as `u`.
+        location: `"face"` or `"node"` — where the components live. Defaults to `"face"`.
+        kind: `"quiver"` for arrows or `"barbs"` for wind barbs. Defaults to `"quiver"`.
+        thin: Draw every nth element, so a large mesh stays legible. `None` (the default)
+            draws all of them.
+        ax: Existing matplotlib axes to draw on. Defaults to `None` (a new figure).
+        title: Plot title. Defaults to `None`.
+        colorbar: `True`/`False`, or a `ColorBar` spec. `None` (the default) leaves
+            cleopatra's own default in place.
+        **kwargs: Forwarded to `MeshGlyph.plot_vector_field` (e.g. `scale`, `cmap`,
+            `compose`, and the typed `color` / `classify` groups).
+
+    Returns:
+        tuple: `(fig, ax, im)` as `MeshGlyph.plot_vector_field` returns it, matching the
+            raster method's contract.
+
+    Raises:
+        OptionalPackageDoesNotExist: If cleopatra is not installed.
+        ValueError: If a loose colour-bar kwarg the `ColorBar` spec replaces is passed.
+    """
+    glyph = _mesh_to_glyph(mesh)
+    _reject_replaced_cbar_kwargs(kwargs)
+    if colorbar is not None:
+        kwargs["colorbar"] = colorbar
+    result = glyph.plot_vector_field(
+        u,
+        v,
+        kind=kind,
+        thin=thin,
+        location=location,
+        ax=ax,
+        title=title,
+        **kwargs,
+    )
+    return result
+
+
 def animate_mesh_data(
     mesh: Mesh2d,
     data: Any,

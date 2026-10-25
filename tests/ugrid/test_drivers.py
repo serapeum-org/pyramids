@@ -1619,18 +1619,31 @@ class TestNetwork1dEntryPoint:
         )
 
     def test_network1d_read_file_on_a_netcdf_path_is_refused_clearly(
-        self, ugrid_convention_nc_path
+        self, ugrid_convention_nc_path, registered
     ):
         """There is no built-in 1D NetCDF reader, so say that rather than failing obscurely.
 
         pyramids' UGRID reader builds a `Mesh2d` whatever topology dimension a file declares,
-        so a 1D NetCDF has no native route.
+        so a 1D NetCDF has no native route. Since #1351 the fallback does consult a driver
+        claiming `.nc` first, so this is the case where none is installed.
 
         Test scenario:
-            A `.nc` path raises `UnsupportedMeshFormatError` naming `UgridDataset.read_file`.
+            With no driver registered, a `.nc` path raises `UnsupportedMeshFormatError` that
+            says nothing is installed and asks for a plugin. It must **not** point back at
+            `UgridDataset.read_file`: that call refuses a network by design, so the two
+            messages used to send the caller round in a loop (#1351).
         """
-        with pytest.raises(UnsupportedMeshFormatError, match="UgridDataset.read_file"):
+        registered()
+        with pytest.raises(UnsupportedMeshFormatError) as caught:
             Network1d.read_file(ugrid_convention_nc_path)
+        message = str(caught.value)
+        assert "as a 1D network" in message
+        assert "none installed" in message, (
+            f"the message should say no driver is installed, got:\n{message}"
+        )
+        assert "UgridDataset.read_file" not in message, (
+            f"the circular pointer must be gone (#1351), got:\n{message}"
+        )
 
 
 class TestMeshNamesContract:

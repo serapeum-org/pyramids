@@ -64,10 +64,12 @@ dependencies = [
 [project.optional-dependencies]
 # cleopatra's parameter-object plotting API (Animation / FacetLayout and the
 # ArrayGlyph.facet / animate call shape) is available from 0.38.0, but the floor is
-# pinned to the tested 0.39.0 release deliberately: an unbounded / too-loose floor is
+# pinned to the tested release deliberately: an unbounded / too-loose floor is
 # what let an untested cleopatra resolve and break pyramids' plotting in the first
 # place (the guarded import in dataset/_plot_helpers.py brands anything older).
-viz = ["cleopatra[tiles]>=0.43.0"]
+# 0.44.0 is the floor because `MeshGlyph.plot_vector_field` lands there, and
+# `UgridDataset.plot_vector_field` forwards straight to it.
+viz = ["cleopatra[tiles]>=0.44.0"]
 lazy = [
     "dask>=2024.1.0",
     "distributed>=2024.1.0",
