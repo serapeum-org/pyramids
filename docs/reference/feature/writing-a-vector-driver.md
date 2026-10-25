@@ -63,7 +63,9 @@ class CityJSONDriver:
 Declare **at least one** of `suffixes` / `schemes` — the scan's pre-filter routes a source to your
 `can_open` only when its suffix or scheme matches, so a driver with neither would never be consulted.
 Content-sniffing (telling CityJSON from GeoJSON for a shared `.json`) happens **inside** `can_open`,
-after the suffix match. Declare the `"read"` capability, and return a `GeoDataFrame` from `read` —
+after the suffix match. The example's own `endswith` check is belt-and-braces — dispatch has already
+matched the suffix before calling `can_open`, but keeping the check leaves `can_open` correct if it is
+ever called directly. Declare the `"read"` capability, and return a `GeoDataFrame` from `read` —
 `read_file` wraps it in a `FeatureCollection` and rejects any other type with a `TypeError` naming
 your driver.
 
@@ -98,7 +100,8 @@ runs **at most once per process**, and a bare install (no plugins) registers not
 One broken third-party package cannot stop a vector file from opening through OGR:
 
 - a driver whose `extra` dependency is not importable is skipped **silently** at discovery — its
-  module is loaded but the backend is never imported, and its `can_open` is never reached;
+  module is loaded, but because the backend import lives inside `read` (see above) the backend itself
+  is never imported, and its `can_open` is never reached;
 - a driver that raises on import, declares a future `api_version`, or collides on a `name` is skipped
   with a **warning**;
 - a `can_open` that raises during the scan is treated as "does not claim" and warned about, so the
