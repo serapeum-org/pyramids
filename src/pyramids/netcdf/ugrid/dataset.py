@@ -5945,6 +5945,17 @@ class UgridDataset(_UgridFacades):
         A temporal component is reduced to one step, as :meth:`plot` does, except that the
         step is selectable here through ``time_index`` rather than fixed at the first.
 
+        Two deliberate differences from :meth:`plot`, both inherited from matching the raster
+        :meth:`~pyramids.dataset.Dataset.plot_vector_field` instead:
+
+        - It returns matplotlib's ``(fig, ax, im)`` rather than the ``MeshGlyph``. The glyph
+          is built internally and not handed back, so a follow-up ``apply_style`` or a second
+          render onto the same glyph is not available here -- compose through ``ax=`` instead,
+          passing the axes from a previous render.
+        - There is no ``basemap=``. :meth:`plot` accepts one and validates the dataset's CRS
+          first; here a ``basemap=`` keyword falls through to cleopatra, which refuses it as
+          an unknown option.
+
         Args:
             u: Name of the variable holding the first vector component.
             v: Name of the variable holding the second vector component.
@@ -5952,7 +5963,8 @@ class UgridDataset(_UgridFacades):
                 ``"quiver"``.
             thin: Draw every nth element, keeping a large mesh legible. ``None`` (the
                 default) draws every one.
-            time_index: Which step to draw for a temporal component. Defaults to ``0``.
+            time_index: Which step to draw for a temporal component. Negative values
+                count from the end, as they do in numpy. Defaults to ``0``.
             ax: Existing matplotlib axes to draw on. Defaults to ``None``.
             title: Plot title. Defaults to ``None``, which labels the plot ``"u / v"``.
             colorbar: ``True``/``False``, or a :class:`ColorBar` spec. Defaults to ``None``,
@@ -5970,12 +5982,35 @@ class UgridDataset(_UgridFacades):
 
         Examples:
             - Draw a D-Flow FM velocity field, thinned so the arrows stay readable:
-
+                ```python
                 >>> from pyramids.netcdf.ugrid import UgridDataset
                 >>> ds = UgridDataset.read_file("FlowFM_map.nc")       # doctest: +SKIP
                 >>> fig, ax, im = ds.plot_vector_field(                # doctest: +SKIP
                 ...     "mesh2d_ucx", "mesh2d_ucy", kind="quiver", thin=4
                 ... )
+                >>> im.N                                               # doctest: +SKIP
+                4
+
+                ```
+            - Draw the last step of a temporal component as wind barbs:
+                ```python
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> ds = UgridDataset.read_file("FlowFM_map.nc")       # doctest: +SKIP
+                >>> fig, ax, im = ds.plot_vector_field(                # doctest: +SKIP
+                ...     "mesh2d_ucx", "mesh2d_ucy", kind="barbs", time_index=-1
+                ... )
+
+                ```
+            - Compose a vector field over an existing mesh plot by reusing its axes:
+                ```python
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> ds = UgridDataset.read_file("FlowFM_map.nc")       # doctest: +SKIP
+                >>> glyph = ds.plot("mesh2d_waterdepth")               # doctest: +SKIP
+                >>> fig, ax, im = ds.plot_vector_field(                # doctest: +SKIP
+                ...     "mesh2d_ucx", "mesh2d_ucy", ax=glyph.ax
+                ... )
+
+                ```
         """
         u_values, location = self._vector_component(u, "u", time_index)
         v_values, v_location = self._vector_component(v, "v", time_index)
