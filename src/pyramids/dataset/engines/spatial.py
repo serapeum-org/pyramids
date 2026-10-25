@@ -2899,7 +2899,7 @@ class Spatial(_Engine["Dataset"]):
                 ``touch=True``.
 
         References:
-            https://github.com/serapeum-org/pyramids/issues/74
+            https://github.com/serapeum-org/pyramids-core/issues/74
         """
         # `unpack=False`: the trim deletes whole rows and columns and writes the rest
         # back untouched, so it moves stored counts -- and the sentinel it matches them
