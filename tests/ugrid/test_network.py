@@ -639,3 +639,77 @@ class TestPaddedAndIsolatedTopology:
         assert set(order.tolist()) == {0, 1, 2}, (
             f"the isolated node 2 must be in the ordering, got {order.tolist()}"
         )
+
+
+class TestAmbiguousFillValue:
+    """A fill value inside the node range makes the edge table unreadable (round 2 H1)."""
+
+    @staticmethod
+    def _connectivity(fill_value):
+        """An edge table for a 4-node chain, padded with `fill_value`."""
+        return Connectivity(
+            data=np.array([[0, 1], [1, 2], [2, 3]], dtype=np.intp),
+            fill_value=fill_value,
+            cf_role="edge_node_connectivity",
+            original_start_index=0,
+        )
+
+    @pytest.mark.parametrize("fill_value", [0, 2, 3], ids=["first", "middle", "last"])
+    def test_a_fill_inside_the_node_range_is_refused(self, fill_value):
+        """Padding cannot be told from data when the fill is a legal index (H1).
+
+        Test scenario:
+            `_real_edges` masks any row containing the fill value. For `fill_value=2` the
+            rows `[1, 2]` and `[2, 3]` are real edges, yet they look exactly like padding --
+            so `sort()` dropped them and returned a silently wrong topological order,
+            `[0, 2, 3, 1]` instead of `[0, 1, 2, 3]`, with no exception. A wrong river
+            ordering is the worst failure this class has, because every routing step
+            downstream consumes it unchecked. The ambiguity is refused at construction
+            instead.
+        """
+        with pytest.raises(ValueError, match="fill value") as caught:
+            Network1d(
+                np.array([0.0, 1.0, 2.0, 3.0]),
+                np.array([0.0, 0.0, 0.0, 0.0]),
+                self._connectivity(fill_value),
+            )
+        message = str(caught.value)
+        assert str(fill_value) in message, f"the fill must be named, got: {message}"
+        assert "valid node index" in message, (
+            f"the message must say why the fill is the problem, got: {message}"
+        )
+        assert "negative fill value" in message, (
+            f"the message must name a fill that works, got: {message}"
+        )
+
+    @pytest.mark.parametrize(
+        "fill_value", [-1, -99, 4, 999], ids=["minus-one", "negative", "n", "far"]
+    )
+    def test_a_fill_outside_the_node_range_is_accepted(self, fill_value):
+        """A fill that cannot collide with a node index stays usable.
+
+        Test scenario:
+            `-1` is what both in-repo constructors write, and any value at or beyond
+            `n_node` is equally unambiguous. Neither may be refused, and the directed sort
+            must give the same answer for all of them.
+        """
+        net = Network1d(
+            np.array([0.0, 1.0, 2.0, 3.0]),
+            np.array([0.0, 0.0, 0.0, 0.0]),
+            self._connectivity(fill_value),
+            directed=True,
+        )
+        assert net.sort().tolist() == [0, 1, 2, 3], (
+            f"fill_value={fill_value} must not change the order"
+        )
+
+    def test_from_arrays_is_unaffected(self):
+        """`from_arrays` normalises the fill to -1, so it can never trip the guard."""
+        net = Network1d.from_arrays(
+            np.array([0.0, 1.0, 2.0, 3.0]),
+            np.array([0.0, 0.0, 0.0, 0.0]),
+            np.array([[0, 1], [1, 2], [2, 3]]),
+            directed=True,
+        )
+        assert net.edge_node_connectivity.fill_value == -1
+        assert net.sort().tolist() == [0, 1, 2, 3]

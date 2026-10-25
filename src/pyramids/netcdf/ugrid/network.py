@@ -110,6 +110,41 @@ def _no_network_driver_message(path: str | Path) -> str:
     return "\n".join(lines)
 
 
+def _reject_ambiguous_fill(connectivity: Connectivity, node_count: int) -> None:
+    """Refuse an edge table whose fill value is also a legal node index.
+
+    Every member that walks the edges steps over padding, and the test for padding is the
+    fill *value* (:attr:`Network1d._real_edges`). That test cannot work when the fill is
+    itself a node index: on a 4-node network with ``fill_value=2``, the rows ``[1, 2]`` and
+    ``[2, 3]`` are real edges and indistinguishable from padding, so they were dropped and
+    ``sort()`` returned a wrong topological order with no exception. A wrong ordering is the
+    worst failure this class has, because every routing step downstream consumes it unchecked.
+
+    Both in-repo constructors (:meth:`Network1d.from_arrays`,
+    :meth:`Connectivity.from_gdal_array`) write ``-1``, so this only ever fires for a
+    :class:`Connectivity` built directly -- which is exactly what a third-party mesh driver
+    does, and the reason :meth:`Network1d.read_file` exists.
+
+    Args:
+        connectivity: The edge-node connectivity about to be stored.
+        node_count: How many nodes the network has, from the coordinate arrays.
+
+    Raises:
+        ValueError: The fill value is in ``[0, node_count)``, so padding and data cannot be
+            told apart.
+    """
+    fill = getattr(connectivity, "fill_value", None)
+    if fill is None or not node_count:
+        return
+    if 0 <= int(fill) < node_count:
+        raise ValueError(
+            f"edge_node_connectivity.fill_value is {int(fill)}, which is also a valid node "
+            f"index on this {node_count}-node network, so a padded row cannot be told from "
+            f"a real edge. Use a negative fill value (-1 is what from_arrays and "
+            f"from_gdal_array write) or any value >= {node_count}."
+        )
+
+
 class Network1d:
     """1D network mesh topology (nodes + edges, no faces).
 
@@ -163,6 +198,7 @@ class Network1d:
         """
         self._node_x = np.asarray(node_x, dtype=np.float64)
         self._node_y = np.asarray(node_y, dtype=np.float64)
+        _reject_ambiguous_fill(edge_node_connectivity, self._node_x.size)
         self._edge_node_connectivity = edge_node_connectivity
         self._directed = bool(directed)
         self._crs = crs
