@@ -67,7 +67,7 @@ dependencies = [
 # untested cleopatra resolve and break pyramids' plotting in the first place.
 # 0.44.0 is that version because `MeshGlyph.plot_vector_field` lands there and
 # `UgridDataset.plot_vector_field` forwards straight to it; the parameter-object
-# API (Animation / FacetLayout / RgbBands) it also needs arrived back in 0.38.0.
+# API it also needs arrived earlier: RgbBands in 0.31, Animation / FacetLayout in 0.38.
 # Each capability is branded where it is used rather than by the floor alone --
 # `dataset/_plot_helpers.py` guards the parameter-object names and
 # `netcdf/ugrid/plot.py` guards `plot_vector_field` -- because a floor in metadata

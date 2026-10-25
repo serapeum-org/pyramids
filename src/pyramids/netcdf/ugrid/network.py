@@ -574,37 +574,47 @@ class Network1d:
         them can be guessed. The previous message offered only `directed=True`, which meant
         rebuilding the object from the identical arrays.
 
+        The census is a pure degree test, so a candidate is not guaranteed to work: in a
+        component holding an odd cycle every outlet is refused. The message says so, rather
+        than sending the caller round a second loop.
+
         Returns:
             A message naming the degree-1 candidate outlets and both ways forward.
         """
         edges, _positions = self._sortable_edges
+        header = "sort() needs an orientation, and this network is undirected.\n"
         if not edges.size:
             # Every node has degree zero, which the `else` branch below would announce as
             # "two or more edges" -- the opposite of the truth.
-            return (
-                "sort() needs an orientation, and this network is undirected.\n"
+            result = (
+                f"{header}"
                 "  It also has no edges, so there is no orientation to derive from any "
                 "outlet.\n"
                 "  Build the network with an edge table, or with directed=True."
             )
-        degree = np.bincount(edges.ravel(), minlength=self.n_node)
-        leaves = np.flatnonzero(degree == 1)
-        if leaves.size:
-            shown = ", ".join(str(int(index)) for index in leaves[:8])
-            more = ", ..." if leaves.size > 8 else ""
-            candidates = f"  Candidate outlets (degree-1 nodes): {shown}{more}\n"
         else:
-            candidates = (
-                "  No degree-1 node to suggest; every node has two or more edges.\n"
+            degree = np.bincount(edges.ravel(), minlength=self.n_node)
+            leaves = np.flatnonzero(degree == 1)
+            if leaves.size:
+                shown = ", ".join(str(int(index)) for index in leaves[:8])
+                more = ", ..." if leaves.size > 8 else ""
+                candidates = f"  Candidate outlets (degree-1 nodes): {shown}{more}\n"
+            else:
+                candidates = (
+                    "  No degree-1 node to suggest; every node has two or more edges.\n"
+                )
+            result = (
+                f"{header}"
+                f"{candidates}"
+                "  Either name the outlet -- sort(outlet=<node>) -- and the orientation is "
+                "derived from it,\n"
+                "  or construct Network1d(..., directed=True) with edges already running "
+                "upstream to downstream.\n"
+                "  A degree-1 node is only a candidate: one whose component holds an odd "
+                "cycle is refused\n"
+                "  anyway, because an edge equidistant from the outlet has no defensible "
+                "direction."
             )
-        result = (
-            "sort() needs an orientation, and this network is undirected.\n"
-            f"{candidates}"
-            "  Either name the outlet -- sort(outlet=<node>) -- and the orientation is "
-            "derived from it,\n"
-            "  or construct Network1d(..., directed=True) with edges already running "
-            "upstream to downstream."
-        )
         return result
 
     def _validated_outlet(self, outlet: int) -> int:
@@ -767,9 +777,10 @@ class Network1d:
             1D integer array of node indices in traversal order (length n_node).
 
         Raises:
-            ValueError: If ``direction`` is not ``"downstream"``/``"upstream"``; if
-                ``outlet`` is given for a directed network, is not an integer, is out of
-                range, or leaves an
+            ValueError: If a real edge names a node outside ``[0, n_node)`` -- checked on
+                both branches, directed or not; if ``direction`` is not
+                ``"downstream"``/``"upstream"``; if ``outlet`` is given for a directed
+                network, is not an integer, is out of range, or leaves an
                 edge unorientable (its two ends equidistant from ``outlet``, or its
                 component not reaching it); if the network is undirected and no ``outlet``
                 is given; or if the network contains a cycle (no valid topological order

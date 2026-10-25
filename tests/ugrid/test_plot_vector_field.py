@@ -419,6 +419,35 @@ class TestNoDataAndShape:
         )
         assert "ux" in message, f"the refusal must name the variable, got: {message}"
 
+    def test_a_non_numeric_component_is_not_misdiagnosed_as_a_rank_problem(self):
+        """A dtype the reducer cannot float must not be branded a rank problem (L1).
+
+        Test scenario:
+            The rebranding wrapper caught every `ValueError` the shared reducer could raise
+            and called it "not a single value per element". `_element_values` also funnels
+            `gaps_as_nan`, which refuses a non-float-convertible dtype -- so a 1-D,
+            per-element string component was diagnosed as having the wrong rank, which is
+            flatly untrue. The rank is now checked directly, so this error arrives as
+            itself.
+        """
+        text = MeshVariable(
+            name="ux",
+            location="face",
+            mesh_name="mesh2d",
+            shape=(2,),
+            _data=np.array(["a", "b"]),
+        )
+        dataset = _dataset(ux=text, uy=_variable("uy", [0.0, 1.0]))
+        with pytest.raises(ValueError) as caught:
+            dataset.plot_vector_field("ux", "uy")
+        message = str(caught.value)
+        assert "not a single value per element" not in message, (
+            f"a 1-D component does not have the wrong rank; got: {message}"
+        )
+        assert "convert string to float" in message, (
+            f"the real cause is the dtype, and it must survive; got: {message}"
+        )
+
 
 class TestCleopatraFloor:
     """The 0.44.0 floor the vector field needs is enforced, not just declared."""

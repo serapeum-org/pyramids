@@ -5976,7 +5976,11 @@ class UgridDataset(_UgridFacades):
 
         Raises:
             KeyError: Either name is not a variable of this dataset.
-            ValueError: A component has no loaded data; the two sit on different locations;
+            OptionalPackageDoesNotExist: cleopatra is not installed, or is older than the
+                0.44.0 that provides ``MeshGlyph.plot_vector_field``.
+            ValueError: A loose colour-bar keyword the :class:`ColorBar` spec replaces was
+                passed (``cbar_label``, ``ticks_spacing``, ...); a component has no loaded
+                data; the two sit on different locations;
                 the shared location is not ``"face"`` or ``"node"``; the two have different
                 shapes; or ``time_index`` is outside a temporal component's time axis.
 
@@ -5988,8 +5992,8 @@ class UgridDataset(_UgridFacades):
                 >>> fig, ax, im = ds.plot_vector_field(                # doctest: +SKIP
                 ...     "mesh2d_ucx", "mesh2d_ucy", kind="quiver", thin=4
                 ... )
-                >>> im.N                                               # doctest: +SKIP
-                4
+                >>> im.N < ds.n_face                                   # doctest: +SKIP
+                True
 
                 ```
             - Draw the last step of a temporal component as wind barbs:
@@ -6083,8 +6087,8 @@ class UgridDataset(_UgridFacades):
                 f"centroid or a node. Supported locations: 'face', 'node'. Resolve an "
                 f"edge-located component to faces first."
             )
+        shape = np.asarray(var.data).shape
         if var.has_time:
-            shape = np.asarray(var.data).shape
             axis = cast("int", var.time_index)
             if not -len(shape) <= axis < len(shape):
                 # `time_index` is derived from `dimensions` by name, so a variable declaring
@@ -6102,16 +6106,19 @@ class UgridDataset(_UgridFacades):
                     f"plot_vector_field: time_index {time_index} is outside "
                     f"{variable_name!r}, which has {steps} step(s)."
                 )
-        try:
-            _var, values = self._element_values(variable_name, time_index)
-        except ValueError as error:
-            # The only case left for the shared reducer to refuse is a variable that is not
-            # per-element after the collapse. Its message is written for the analysis
-            # members, so rebrand it rather than let a plotting caller read about them.
+        # The rank is checked here rather than by catching the shared reducer's
+        # ValueError: that reducer also funnels `gaps_as_nan`, which raises ValueError for a
+        # dtype it cannot make float, and branding *that* as "not a single value per
+        # element" was a confidently false diagnosis of a variable that is 1-D.
+        collapsed_rank = len(shape) - 1 if var.has_time else len(shape)
+        if collapsed_rank != 1:
             raise ValueError(
                 f"plot_vector_field: {role} component {variable_name!r} is not a single "
-                f"value per element, so it cannot be drawn as a vector field. {error}"
-            ) from error
+                f"value per element, so it cannot be drawn as a vector field: it has "
+                f"{collapsed_rank} axes once the time axis is collapsed. A layered or "
+                f"otherwise multi-dimensional variable has no single per-element vector."
+            )
+        _var, values = self._element_values(variable_name, time_index)
         return values, var.location
 
     def animate(
@@ -7617,12 +7624,13 @@ def _needs_mesh_error(
         An :class:`UnsupportedMeshFormatError` whose advice the caller can actually follow.
     """
     if expected != "UgridDataset":
-        return UnsupportedMeshFormatError(
+        result = UnsupportedMeshFormatError(
             f"{selected.long_name} files carry values but no mesh, so {target!r} cannot be "
             f"opened on its own -- and {expected} has no attach_data to combine them with a "
             f"topology. Read the mesh this file's values belong to with "
             f"UgridDataset.read_file, then attach them there."
         )
+        return result
     return UnsupportedMeshFormatError(
         f"{selected.long_name} files carry values but no mesh, so {target!r} cannot be "
         f"opened on its own. Read the mesh first, then attach these values to it:\n"
