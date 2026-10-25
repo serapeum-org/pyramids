@@ -59,6 +59,7 @@ from pyramids.base._ogc_api import (
 from pyramids.base._utils import extra_hint, import_pyarrow
 from pyramids.base.crs import _pyproj_crs_via_gdal, crs_from_user_input
 from pyramids.base.remote import _ARCHIVE_MARKER_RE, is_remote, to_fsspec_url
+from pyramids.feature._drivers import resolve_driver, select_driver, vector_drivers
 
 if TYPE_CHECKING:
     from pyramids.feature._lazy_collection import LazyFeatureCollection
@@ -795,6 +796,32 @@ def read_file_dask(
     return LazyFeatureCollection.from_dask_gdf(dask_gdf)
 
 
+def _read_via_vector_driver(
+    driver_class: Any, source: str, passthrough: dict[str, Any]
+) -> GeoDataFrame:
+    """Construct a vector driver, read ``source``, and validate it returned a GeoDataFrame.
+
+    Args:
+        driver_class: The registered `VectorDriver` class to dispatch into.
+        source: The source string passed to the driver's `read`.
+        passthrough: The compacted read filters (``layer``/``bbox``/``mask``/``rows``/``columns``/
+            ``where``) plus any engine kwargs, forwarded to the driver's `read` uninterpreted.
+
+    Returns:
+        The GeoDataFrame the driver read.
+
+    Raises:
+        TypeError: The driver's `read` returned something other than a GeoDataFrame.
+    """
+    result = driver_class().read(source, **passthrough)
+    if not isinstance(result, GeoDataFrame):
+        raise TypeError(
+            f"vector driver {driver_class.name!r} returned {type(result).__name__}, "
+            f"not a GeoDataFrame"
+        )
+    return result
+
+
 def read_file(
     fc_cls: type[FeatureCollection],
     path: str | Path,
@@ -805,6 +832,7 @@ def read_file(
     rows: slice | int | None = None,
     columns: list[str] | None = None,
     where: str | None = None,
+    driver: str | None = None,
     backend: str = "pandas",
     npartitions: int | None = None,
     chunksize: int | None = None,
@@ -824,6 +852,21 @@ def read_file(
         }
     )
     passthrough.update(kwargs)
+    # Let a registered third-party vector driver (the ``pyramids.vector_drivers`` entry-point
+    # group) claim the source before the built-in geopandas/pyogrio OGR path. Unlike the raster
+    # hook's GDAL-first order, a claiming vector driver pre-empts OGR: OGR would otherwise silently
+    # mis-read a look-alike (a CityJSON ``.json`` handed to its GeoJSON driver), so "try OGR then
+    # fall back" is unsafe here. A bare install registers nothing, so ``vector_drivers()`` is an
+    # empty cached mapping and the scan is skipped; an explicit ``driver=`` names one and bypasses
+    # the scan. A plugin driver returns an eager GeoDataFrame, so it is wrapped eagerly regardless
+    # of ``backend``.
+    selected = None
+    if driver is not None:
+        selected = resolve_driver(driver)
+    elif vector_drivers():
+        selected = select_driver(str(path))
+    if selected is not None:
+        return fc_cls(_read_via_vector_driver(selected, str(path), passthrough))
     if (
         backend == "pandas"
         and _is_remote_geojson(path)
