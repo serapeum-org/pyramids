@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import extra_hint, require_cleopatra
 from pyramids.basemap import basemap as _basemap_module
 from pyramids.dataset._plot_helpers import _reject_replaced_cbar_kwargs
@@ -215,7 +216,8 @@ def plot_vector_field_data(
             raster method's contract.
 
     Raises:
-        OptionalPackageDoesNotExist: If cleopatra is not installed.
+        OptionalPackageDoesNotExist: If cleopatra is not installed, or is older than the
+            0.44.0 that provides `MeshGlyph.plot_vector_field`.
         ValueError: If a loose colour-bar kwarg the `ColorBar` spec replaces is passed.
 
     Examples:
@@ -247,6 +249,17 @@ def plot_vector_field_data(
             ```
     """
     glyph = _mesh_to_glyph(mesh)
+    if not hasattr(glyph, "plot_vector_field"):
+        # `require_cleopatra` checks only that cleopatra imports, and the guarded import in
+        # `dataset/_plot_helpers.py` brands only the 0.38-era parameter-object names -- so a
+        # cleopatra that satisfies both can still lack this method, and the call died on a
+        # bare AttributeError naming neither the package nor the version that fixes it.
+        raise OptionalPackageDoesNotExist(
+            "Mesh vector fields need cleopatra >= 0.44.0, which is where "
+            "MeshGlyph.plot_vector_field lands; the installed cleopatra does not have it. "
+            "Upgrade with `pip install -U 'pyramids-core[viz]'` to satisfy the floor "
+            "pinned in pyproject.toml."
+        )
     _reject_replaced_cbar_kwargs(kwargs)
     if colorbar is not None:
         kwargs["colorbar"] = colorbar

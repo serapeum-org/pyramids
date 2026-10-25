@@ -389,3 +389,37 @@ class TestNoDataAndShape:
             f"the refusal must be branded by pyramids, got: {message}"
         )
         assert "ux" in message, f"the refusal must name the variable, got: {message}"
+
+
+class TestCleopatraFloor:
+    """The 0.44.0 floor the vector field needs is enforced, not just declared."""
+
+    def test_a_cleopatra_without_the_capability_is_branded(self, velocity, monkeypatch):
+        """A glyph with no `plot_vector_field` raises the branded upgrade hint (L1).
+
+        Test scenario:
+            `require_cleopatra` only checks that cleopatra is importable, and the guarded
+            import in `_plot_helpers` brands only the 0.38-era names -- so a cleopatra 0.43
+            satisfied every guard and the call died on a bare
+            `AttributeError: 'MeshGlyph' object has no attribute 'plot_vector_field'`.
+        """
+        from pyramids.base._errors import OptionalPackageDoesNotExist
+        from pyramids.netcdf.ugrid import plot as plot_module
+
+        class GlyphWithoutVectorField:
+            """Stands in for a cleopatra older than 0.44.0."""
+
+        monkeypatch.setattr(
+            plot_module,
+            "_mesh_to_glyph",
+            lambda mesh, **kwargs: GlyphWithoutVectorField(),
+        )
+        with pytest.raises(OptionalPackageDoesNotExist) as caught:
+            velocity.plot_vector_field("ucx", "ucy")
+        message = str(caught.value)
+        assert "0.44.0" in message, (
+            f"the message must name the floor that provides it, got: {message}"
+        )
+        assert "plot_vector_field" in message, (
+            f"the message must name the missing capability, got: {message}"
+        )

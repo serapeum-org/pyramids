@@ -62,13 +62,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# cleopatra's parameter-object plotting API (Animation / FacetLayout and the
-# ArrayGlyph.facet / animate call shape) is available from 0.38.0, but the floor is
-# pinned to the tested release deliberately: an unbounded / too-loose floor is
-# what let an untested cleopatra resolve and break pyramids' plotting in the first
-# place (the guarded import in dataset/_plot_helpers.py brands anything older).
-# 0.44.0 is the floor because `MeshGlyph.plot_vector_field` lands there, and
-# `UgridDataset.plot_vector_field` forwards straight to it.
+# The floor is the oldest cleopatra pyramids' plotting can actually use, not the
+# version CI happens to resolve: an unbounded / too-loose floor is what let an
+# untested cleopatra resolve and break pyramids' plotting in the first place.
+# 0.44.0 is that version because `MeshGlyph.plot_vector_field` lands there and
+# `UgridDataset.plot_vector_field` forwards straight to it; the parameter-object
+# API (Animation / FacetLayout / RgbBands) it also needs arrived back in 0.38.0.
+# Each capability is branded where it is used rather than by the floor alone --
+# `dataset/_plot_helpers.py` guards the parameter-object names and
+# `netcdf/ugrid/plot.py` guards `plot_vector_field` -- because a floor in metadata
+# does not stop an older cleopatra being present at run time. pixi.lock resolves
+# the newest compatible release (0.45.0 today), so CI tests at or above the floor,
+# never below it.
 viz = ["cleopatra[tiles]>=0.44.0"]
 lazy = [
     "dask>=2024.1.0",
