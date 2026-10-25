@@ -224,6 +224,7 @@ nav:
     - Feature:
       - Overview: reference/feature/index.md
       - Geometry helpers: reference/feature/geometry.md
+      - Writing a vector driver: reference/feature/writing-a-vector-driver.md
     - CRS helpers: reference/base/crs.md
     - Geodesy helpers: reference/base/geodesy.md
     - UTM helpers: reference/utm.md
