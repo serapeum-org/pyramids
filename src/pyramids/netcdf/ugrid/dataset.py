@@ -6012,22 +6012,31 @@ class UgridDataset(_UgridFacades):
         and reduced identically -- the asymmetry of checking one and trusting the other is
         how a mismatched pair reaches the renderer and is drawn in the wrong place.
 
+        The reduction itself is :meth:`_element_values`, the module's existing shared
+        reducer, rather than a second copy of it: that is what turns the variable's declared
+        no-data value into NaN (a fill reaching cleopatra as a real vector dominates the
+        colour scale and hides the real arrows) and what refuses a layered, non-per-element
+        variable by name. Only the checks the renderer needs on top -- the location, and the
+        step range -- live here.
+
         Args:
             variable_name: The variable to read.
             role: ``"u"`` or ``"v"``, naming the component in any error.
-            time_index: Step to take along a temporal component's own time axis.
+            time_index: Step to take along a temporal component's own time axis. Negative
+                indices count from the end, as elsewhere in numpy.
 
         Returns:
-            tuple: The per-element values, and the location they sit on.
+            tuple: The per-element values with gaps blanked to NaN, and the location they
+                sit on.
 
         Raises:
             KeyError: No variable is named ``variable_name``.
             ValueError: The variable has no loaded data, sits on a location a vector cannot
-                be anchored at, or ``time_index`` is outside its time axis.
+                be anchored at, is not per-element after the time collapse, or
+                ``time_index`` is outside its time axis.
         """
         var = self.get_data(variable_name)
-        data = var.data
-        if data is None:
+        if var.data is None:
             raise ValueError(
                 f"plot_vector_field: {role} component {variable_name!r} has no loaded data "
                 f"to plot."
@@ -6039,16 +6048,23 @@ class UgridDataset(_UgridFacades):
                 f"centroid or a node. Supported locations: 'face', 'node'. Resolve an "
                 f"edge-located component to faces first."
             )
-        values = np.asarray(data)
         if var.has_time:
-            axis = cast("int", var.time_index)
-            steps = values.shape[axis]
+            steps = np.asarray(var.data).shape[cast("int", var.time_index)]
             if not -steps <= time_index < steps:
                 raise ValueError(
                     f"plot_vector_field: time_index {time_index} is outside "
                     f"{variable_name!r}, which has {steps} step(s)."
                 )
-            values = np.take(values, time_index, axis=axis)
+        try:
+            _var, values = self._element_values(variable_name, time_index)
+        except ValueError as error:
+            # The only case left for the shared reducer to refuse is a variable that is not
+            # per-element after the collapse. Its message is written for the analysis
+            # members, so rebrand it rather than let a plotting caller read about them.
+            raise ValueError(
+                f"plot_vector_field: {role} component {variable_name!r} is not a single "
+                f"value per element, so it cannot be drawn as a vector field. {error}"
+            ) from error
         return values, var.location
 
     def animate(

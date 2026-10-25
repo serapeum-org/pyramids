@@ -287,3 +287,105 @@ class TestRefusals:
         )
         with pytest.raises(ValueError, match="the two components must match"):
             dataset.plot_vector_field("ucx", "ucy")
+
+
+class TestNoDataAndShape:
+    """Gaps and ranks the components are reduced through before they are drawn."""
+
+    def test_a_no_data_component_is_blanked_to_nan(self):
+        """A declared fill must not reach the renderer as a real vector (H2).
+
+        Test scenario:
+            A D-Flow FM map file writes its `_FillValue` into `mesh2d_ucx` / `mesh2d_ucy` for
+            dry cells, which is the feature's stated use case. Handing `-999` to cleopatra
+            made the colour scale run to 1413 while the real arrows were 1.4 units long, so
+            they were invisible and the colour bar meaningless.
+
+            Asserted on the magnitude array rather than on `im.U`: cleopatra fills a blanked
+            component back in for the arrow geometry, so `im.U` is not NaN -- what carries the
+            gap is the masked scalar array the colour mapping reads.
+        """
+        dry = MeshVariable(
+            name="ux",
+            location="face",
+            mesh_name="mesh2d",
+            shape=(2,),
+            _data=np.array([1.0, -999.0]),
+            nodata=-999.0,
+        )
+        wet = MeshVariable(
+            name="uy",
+            location="face",
+            mesh_name="mesh2d",
+            shape=(2,),
+            _data=np.array([1.0, -999.0]),
+            nodata=-999.0,
+        )
+        dataset = _dataset(ux=dry, uy=wet)
+        _fig, _ax, im = dataset.plot_vector_field("ux", "uy")
+        magnitudes = im.get_array()
+        assert magnitudes.mask[1], (
+            f"the dry face must be masked out of the colour mapping, got {magnitudes!r}"
+        )
+        assert not magnitudes.mask[0], (
+            f"the wet face must still be coloured, got {magnitudes!r}"
+        )
+        assert magnitudes[0] == pytest.approx(np.hypot(1.0, 1.0)), (
+            f"the wet face keeps its own magnitude, got {magnitudes[0]}"
+        )
+
+    def test_the_colour_scale_is_not_dominated_by_the_fill(self):
+        """With the fill blanked, the magnitude range reflects the real vectors only (H2)."""
+
+        def component(name, values):
+            return MeshVariable(
+                name=name,
+                location="face",
+                mesh_name="mesh2d",
+                shape=(2,),
+                _data=np.asarray(values, dtype="float64"),
+                nodata=-999.0,
+            )
+
+        dataset = _dataset(
+            ux=component("ux", [1.0, -999.0]), uy=component("uy", [1.0, -999.0])
+        )
+        _fig, _ax, im = dataset.plot_vector_field("ux", "uy")
+        low, high = im.get_clim()
+        assert high < 10.0, (
+            f"the fill magnitude (1412.8) must not set the upper limit, got {high}"
+        )
+
+    def test_a_layered_component_is_refused_by_pyramids(self):
+        """A non-temporal layered variable is named here, not left to cleopatra (L5).
+
+        Test scenario:
+            A `(n_layers, n_face)` variable reports `has_time` False, so no reduction happens
+            and a 2-D array reached the renderer, which answered `u and v must be 1D, got 2D
+            and 2D` -- naming neither the variable nor pyramids. The shape-equality check
+            passed it through because both components had the same wrong rank.
+        """
+        layered = MeshVariable(
+            name="ux",
+            location="face",
+            mesh_name="mesh2d",
+            shape=(3, 2),
+            _data=np.ones((3, 2)),
+            dimensions=["nLayers", "nFaces"],
+        )
+        other = MeshVariable(
+            name="uy",
+            location="face",
+            mesh_name="mesh2d",
+            shape=(3, 2),
+            _data=np.ones((3, 2)),
+            dimensions=["nLayers", "nFaces"],
+        )
+        dataset = _dataset(ux=layered, uy=other)
+        with pytest.raises(ValueError) as caught:
+            dataset.plot_vector_field("ux", "uy")
+        message = str(caught.value)
+        assert "plot_vector_field" in message, (
+            f"the refusal must be branded by pyramids, got: {message}"
+        )
+        assert "ux" in message, f"the refusal must name the variable, got: {message}"
