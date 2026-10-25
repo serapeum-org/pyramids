@@ -224,6 +224,29 @@ class TestNetcdfFallback:
             f"the name is echoed as spelled, got: {caught.value}"
         )
 
+    @pytest.mark.parametrize(
+        "driver",
+        [None, "ugrid", "net1d", "not_installed"],
+        ids=["detect", "reserved", "installed", "unknown"],
+    )
+    def test_a_missing_file_reports_as_missing_whatever_driver_is_named(
+        self, tmp_path, registered, driver
+    ):
+        """The existence check comes first on every route into `read_file`.
+
+        Test scenario:
+            `_resolve_read_driver` checks existence before it looks at a driver name, and
+            `read_file` documents `FileNotFoundError` for an absent path. The reserved-name
+            refusal added for M3 was placed ahead of that check, so `driver="ugrid"` on a
+            path that does not exist reported a format problem instead -- the one route of
+            four that disagreed.
+        """
+        registered(NetworkNetcdfDriver())
+        absent = tmp_path / "absent_net.nc"
+        kwargs = {} if driver is None else {"driver": driver}
+        with pytest.raises(FileNotFoundError):
+            Network1d.read_file(absent, **kwargs)
+
 
 class TestNoDriverMessage:
     """What `read_file` says when no installed driver claims the file (issue #1351)."""

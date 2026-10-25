@@ -40,6 +40,7 @@ from pyramids.netcdf.ugrid.connectivity import Connectivity
 from pyramids.netcdf.ugrid.dataset import (
     _netcdf_fallback_driver,
     _read_through_driver,
+    _require_existing_file,
     _resolve_read_driver,
 )
 
@@ -236,6 +237,11 @@ class Network1d:
 
                 ```
         """
+        # Before anything about drivers: a path that does not exist is a missing file,
+        # whatever reader was named. `_resolve_read_driver` runs this check first for the
+        # same reason, and the reserved-name refusal below would otherwise be the one route
+        # of four that answered a typo'd filename with a format error.
+        _require_existing_file(path)
         if driver is not None and driver.strip().lower() in RESERVED_NAMES:
             # The docstring has always said a reserved name is refused here. It was not:
             # `_named_read_driver` mapped it to the built-in reader, the fallback declined
