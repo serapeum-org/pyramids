@@ -409,6 +409,63 @@ class TestSort:
         with pytest.raises(ValueError, match=r"outside the node range"):
             net.sort()
 
+    def test_sort_passes_an_isolated_node_through_as_a_source(self):
+        """A node no edge names is admitted, in ascending order among the sources (M6).
+
+        Test scenario:
+            The docstring used to claim the outlet becomes "the only sink", which an isolated
+            node falsifies -- it has out-degree 0 too. Refusing the network would be the other
+            way to make the claim true, but the directed path already admits such nodes (see
+            `test_sort_keeps_an_isolated_node`), so both paths now agree and say so.
+        """
+        with_isolated = Network1d.from_arrays(
+            np.array([0.0, 1.0, 2.0, 9.0]),
+            np.array([0.0, 0.0, 0.0, 9.0]),
+            np.array([[0, 1], [1, 2]]),
+        )
+        order = with_isolated.sort(outlet=2).tolist()
+        assert set(order) == {0, 1, 2, 3}, (
+            f"every node must appear exactly once, got {order}"
+        )
+        assert order[-1] == 2, (
+            f"the outlet is still the last of the oriented chain: {order}"
+        )
+        assert order.index(3) < order.index(1), (
+            f"an isolated node ranks among the sources, got {order}"
+        )
+
+    def test_sort_on_an_edgeless_network_says_there_is_nothing_to_orient(self):
+        """An edgeless network gets its own message, not the all-degree-2 one (M8).
+
+        Test scenario:
+            With no edges, `np.bincount` yields all-zero degrees, so the "no degree-1 node"
+            branch fired and announced that every node has two or more edges -- the exact
+            opposite of the truth. Every node has zero.
+        """
+        edgeless = Network1d.from_arrays(
+            np.array([0.0, 1.0, 2.0]),
+            np.array([0.0, 0.0, 0.0]),
+            np.empty((0, 2), dtype=int),
+        )
+        with pytest.raises(ValueError) as caught:
+            edgeless.sort()
+        message = str(caught.value)
+        assert "no edges" in message, f"the edgeless case must say so, got:\n{message}"
+        assert "two or more edges" not in message, (
+            f"the all-degree-2 wording is the opposite of the truth here, got:\n{message}"
+        )
+
+    def test_sort_on_an_edgeless_network_returns_every_node(self):
+        """An edgeless network is the all-isolated case, so every node passes through (M8)."""
+        edgeless = Network1d.from_arrays(
+            np.array([0.0, 1.0, 2.0]),
+            np.array([0.0, 0.0, 0.0]),
+            np.empty((0, 2), dtype=int),
+        )
+        assert edgeless.sort(outlet=0).tolist() == [0, 1, 2], (
+            "with no edge to orient, the nodes come back in index order"
+        )
+
 
 class TestTopologySubset:
     """Edge subsetting with node renumbering."""

@@ -461,6 +461,15 @@ class Network1d:
             A message naming the degree-1 candidate outlets and both ways forward.
         """
         edges, _positions = self._sortable_edges
+        if not edges.size:
+            # Every node has degree zero, which the `else` branch below would announce as
+            # "two or more edges" -- the opposite of the truth.
+            return (
+                "sort() needs an orientation, and this network is undirected.\n"
+                "  It also has no edges, so there is no orientation to derive from any "
+                "outlet.\n"
+                "  Build the network with an edge table, or with directed=True."
+            )
         degree = np.bincount(edges.ravel(), minlength=self.n_node)
         leaves = np.flatnonzero(degree == 1)
         if leaves.size:
@@ -485,9 +494,10 @@ class Network1d:
         """Direct every edge towards ``outlet``, by hop distance over the undirected graph.
 
         A breadth-first sweep from ``outlet`` labels each node with its distance, and each
-        edge is then emitted from its farther end to its nearer one. That makes ``outlet`` the
-        only sink and the result acyclic by construction, so Kahn's algorithm downstream
-        applies unchanged.
+        edge is then emitted from its farther end to its nearer one. Every path therefore runs
+        towards ``outlet`` and the result is acyclic by construction, so Kahn's algorithm
+        downstream applies unchanged. A node in no edge is not visited and not refused: it
+        contributes no row here and reaches the order as a source.
 
         Padded rows are stepped over: :attr:`_sortable_edges` drops them and validates the
         rest, so the result holds one row per **real** edge rather than one per declared row.
@@ -568,9 +578,16 @@ class Network1d:
         An **undirected** network has no stored orientation, but a topological order is
         still a property of its topology rather than of the ``directed`` flag it was built
         with. Name the outlet and the orientation follows: every edge is directed from its
-        end farther from ``outlet`` towards its nearer end, which makes ``outlet`` the only
-        sink and the graph acyclic by construction. Rebuilding the object with
-        ``directed=True`` and the identical arrays is no longer the only way through.
+        end farther from ``outlet`` towards its nearer end, so ``outlet`` is the sink of
+        every chain that reaches it and the graph is acyclic by construction. Rebuilding the
+        object with ``directed=True`` and the identical arrays is no longer the only way
+        through.
+
+        A node that appears in no edge has nothing to orient, so it is passed through rather
+        than refused -- ranked among the sources, in ascending node order -- which is what the
+        directed path does with one too. It is therefore also a sink, so ``outlet`` is not the
+        *only* one. An edgeless network is the limit of that case: every node is isolated, and
+        ``sort(outlet=...)`` returns them all in index order.
 
         Args:
             direction: ``"downstream"`` (sources first) or ``"upstream"`` (sinks
