@@ -18,6 +18,7 @@ from importlib.metadata import EntryPoint
 import numpy as np
 import pytest
 
+from pyramids.base._driver_discovery import extract_tokens
 from pyramids.base._errors import DriverNotExistError
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, _drivers
@@ -25,7 +26,6 @@ from pyramids.dataset._drivers import (
     CAPABILITIES,
     ENTRY_POINT_GROUP,
     RASTER_DRIVER_API_VERSION,
-    _preempt_tokens,
     clear_driver_cache,
     describe_drivers,
     drivers_for_scheme,
@@ -38,6 +38,7 @@ from pyramids.dataset.driver_conformance import (
     assert_raster_driver_conforms,
     check_raster_driver,
 )
+from tests._driver_discovery_fixtures import make_publish_entry_points, make_register
 
 pytestmark = pytest.mark.core
 
@@ -84,51 +85,17 @@ def _clean_registry():
 
 @pytest.fixture
 def registered(monkeypatch):
-    """Inject driver classes directly into the registry cache.
-
-    Returns:
-        A callable taking driver classes and publishing them as the resolved registry.
-    """
-
-    def _register(*drivers):
-        monkeypatch.setattr(
-            _drivers, "_CACHE", {driver.name: driver for driver in drivers}
-        )
-        return drivers[0] if len(drivers) == 1 else drivers
-
-    return _register
+    """Inject driver classes directly into the registry cache (shared helper)."""
+    return make_register(monkeypatch, _drivers)
 
 
 @pytest.fixture
 def fake_entry_points(monkeypatch):
-    """Monkeypatch ``entry_points`` so real discovery runs over in-memory entry points.
-
-    Returns:
-        A callable taking ``(name, class)`` pairs, each published as a module attribute the
-        EntryPoint's ``value`` resolves to, so ``EntryPoint.load`` follows its normal path.
-    """
-    published: list[str] = []
-
-    def _publish(*pairs):
-        entries = []
-        for index, (name, factory) in enumerate(pairs):
-            attribute = f"_fake_raster_driver_{index}"
-            published.append(attribute)
-            setattr(_drivers, attribute, factory)
-            entries.append(
-                EntryPoint(
-                    name=name,
-                    value=f"pyramids.dataset._drivers:{attribute}",
-                    group=ENTRY_POINT_GROUP,
-                )
-            )
-
-        def _entry_points(*, group=None):
-            return tuple(entries) if group == ENTRY_POINT_GROUP else ()
-
-        monkeypatch.setattr(_drivers, "entry_points", _entry_points)
-
-    yield _publish
+    """Monkeypatch ``entry_points`` so real discovery runs over in-memory entry points."""
+    publish, published = make_publish_entry_points(
+        monkeypatch, _drivers, "_fake_raster_driver_"
+    )
+    yield publish
     for attribute in published:
         monkeypatch.delattr(_drivers, attribute, raising=False)
 
@@ -641,7 +608,7 @@ class _PreemptDriver(GoodDriver):
 
 
 class TestPreemptTokens:
-    """The ``_preempt_tokens`` suffix/scheme extraction that gates a ``preempts`` match."""
+    """The shared ``extract_tokens`` suffix/scheme extraction that gates a ``preempts`` match."""
 
     @pytest.mark.parametrize(
         "source, expected",
@@ -667,7 +634,7 @@ class TestPreemptTokens:
             source: The source string.
             expected: The expected token set.
         """
-        assert _preempt_tokens(source) == expected
+        assert extract_tokens(source) == expected
 
 
 def _real_geotiff(tmp_path) -> str:

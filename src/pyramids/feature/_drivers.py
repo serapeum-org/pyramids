@@ -44,9 +44,14 @@ from __future__ import annotations
 import threading
 import warnings
 from importlib.metadata import EntryPoint, entry_points
-from importlib.util import find_spec
 from typing import TYPE_CHECKING, Any, Protocol
 
+from pyramids.base._driver_discovery import (
+    declared_route_tokens,
+    extract_tokens,
+    extra_missing,
+    validate_driver,
+)
 from pyramids.base._errors import DriverNotExistError
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle, types only
@@ -193,170 +198,6 @@ _PUBLISH_LOCK = threading.Lock()
 _IN_PROGRESS = threading.local()
 
 
-def _extra_missing(extra: Any) -> bool:
-    """Return whether a driver's declared ``extra`` dependency is not importable.
-
-    Uses :func:`importlib.util.find_spec`, which locates a module without importing it, so probing
-    for an optional backend never imports it. A probe that itself raises (a missing parent package)
-    counts as missing.
-
-    Args:
-        extra: The driver's ``extra`` attribute — an import name, or ``None``.
-
-    Returns:
-        True when ``extra`` names a package that cannot be found.
-    """
-    if not extra or not isinstance(extra, str):
-        return False
-    try:
-        return find_spec(extra) is None
-    except (ImportError, ValueError):
-        return True
-
-
-def _validate(driver: Any) -> str | None:
-    """Check a driver *class* against the contract.
-
-    Args:
-        driver: The loaded driver class to check.
-
-    Returns:
-        A message naming the first problem found, or ``None`` when the driver is usable.
-    """
-    problem: str | None = None
-    required = (
-        "name",
-        "long_name",
-        "api_version",
-        "suffixes",
-        "schemes",
-        "capabilities",
-    )
-    missing = [attribute for attribute in required if not hasattr(driver, attribute)]
-    name = getattr(driver, "name", None)
-    raw_capabilities = getattr(driver, "capabilities", None)
-
-    if missing:
-        problem = f"missing attribute(s) {missing}"
-    elif not isinstance(name, str) or not name.strip():
-        problem = f"declares name {name!r}; a driver needs a non-blank string name"
-    elif name.strip().lower() in RESERVED_NAMES:
-        problem = (
-            f"declares the reserved name {name!r}; {sorted(RESERVED_NAMES)} identify pyramids' "
-            f"built-in OGR reader in listings and in `driver=`"
-        )
-    elif not isinstance(getattr(driver, "long_name", None), str):
-        problem = "declares a non-string long_name"
-    elif getattr(driver, "api_version", None) != VECTOR_DRIVER_API_VERSION:
-        problem = (
-            f"declares api_version {getattr(driver, 'api_version', None)!r}, but this pyramids "
-            f"speaks version {VECTOR_DRIVER_API_VERSION}"
-        )
-    elif not isinstance(raw_capabilities, (set, frozenset, tuple, list)):
-        problem = (
-            f"declares capabilities {raw_capabilities!r}; expected a set of tokens from "
-            f"{sorted(CAPABILITIES)}"
-        )
-    else:
-        problem = _validate_tokens(driver, set(raw_capabilities))
-    return problem
-
-
-def _validate_tokens(driver: Any, capabilities: set) -> str | None:
-    """Check the capability and suffix/scheme values, and the methods they promise.
-
-    Split from :func:`_validate` so each function stays within the project's complexity budget.
-
-    Args:
-        driver: The loaded driver class to check.
-        capabilities: Its capability tokens, already known to be a collection.
-
-    Returns:
-        A message naming the first problem found, or ``None`` when the driver is usable.
-    """
-    problem: str | None = None
-    unknown = sorted(token for token in capabilities if token not in CAPABILITIES)
-    raw_suffixes = getattr(driver, "suffixes", None)
-    raw_schemes = getattr(driver, "schemes", None)
-
-    if unknown:
-        problem = f"declares unknown capability token(s) {unknown}"
-    elif "read" not in capabilities:
-        problem = "does not declare the required 'read' capability"
-    elif not isinstance(raw_suffixes, (tuple, list, set, frozenset)):
-        problem = f"declares suffixes {raw_suffixes!r}; expected a tuple, e.g. ('.cityjson',)"
-    elif not isinstance(raw_schemes, (tuple, list, set, frozenset)):
-        problem = f"declares schemes {raw_schemes!r}; expected a tuple, e.g. ('cityjson',)"
-    elif not raw_suffixes and not raw_schemes:
-        problem = "declares neither suffixes nor schemes, so nothing would route to it"
-    else:
-        problem = _validate_claims(
-            driver, capabilities, tuple(raw_suffixes), tuple(raw_schemes)
-        )
-    return problem
-
-
-def _is_suffix_token(token: Any) -> bool:
-    """Whether ``token`` is a valid lowercase, dot-prefixed suffix, e.g. ``".cityjson"``."""
-    return (
-        isinstance(token, str)
-        and token.startswith(".")
-        and len(token) >= 2
-        and token == token.lower()
-    )
-
-
-def _is_scheme_token(token: Any) -> bool:
-    """Whether ``token`` is a valid lowercase URL scheme without ``://``, e.g. ``"cityjson"``."""
-    return (
-        isinstance(token, str)
-        and bool(token)
-        and not any(character.isspace() for character in token)
-        and token == token.lower()
-        and not token.startswith(".")
-        and "://" not in token
-    )
-
-
-def _validate_claims(
-    driver: Any, capabilities: set, suffixes: tuple, schemes: tuple
-) -> str | None:
-    """Check suffix/scheme shapes and that the declared methods exist.
-
-    Args:
-        driver: The loaded driver class.
-        capabilities: Its capability tokens.
-        suffixes: Its suffixes, already known to be a sequence.
-        schemes: Its schemes, already known to be a sequence.
-
-    Returns:
-        A message naming the first problem found, or ``None`` when the driver is usable.
-    """
-    problem: str | None = None
-    bad_suffix = [suffix for suffix in suffixes if not _is_suffix_token(suffix)]
-    bad_scheme = [scheme for scheme in schemes if not _is_scheme_token(scheme)]
-    expected = ["can_open", "read"]
-    absent = [
-        method for method in expected if not callable(getattr(driver, method, None))
-    ]
-
-    if bad_suffix:
-        problem = (
-            f"declares malformed suffix(es) {bad_suffix}; each must be a lowercase, dot-prefixed "
-            f"string, e.g. '.cityjson'"
-        )
-    elif bad_scheme:
-        problem = (
-            f"declares malformed scheme(s) {bad_scheme}; each must be a lowercase string without "
-            f"'://', e.g. 'cityjson'"
-        )
-    elif absent:
-        problem = (
-            f"does not implement {absent}, which its capabilities {sorted(capabilities)} promise"
-        )
-    return problem
-
-
 def _load(entry_point: EntryPoint) -> type[VectorDriver] | None:
     """Load one driver class, or warn and give up.
 
@@ -374,9 +215,15 @@ def _load(entry_point: EntryPoint) -> type[VectorDriver] | None:
     driver: type[VectorDriver] | None = None
     try:
         loaded = entry_point.load()
-        if _extra_missing(getattr(loaded, "extra", None)):
+        if extra_missing(getattr(loaded, "extra", None)):
             return None
-        problem = _validate(loaded)
+        problem = validate_driver(
+            loaded,
+            api_version=VECTOR_DRIVER_API_VERSION,
+            reserved_names=RESERVED_NAMES,
+            reserved_blurb="OGR reader",
+            capabilities=CAPABILITIES,
+        )
     except Exception as error:  # noqa: BLE001 - a plugin may fail in any way at all
         warnings.warn(
             f"Vector driver {entry_point.name!r} ({entry_point.value}) could not be loaded and "
@@ -601,73 +448,6 @@ def resolve_driver(name: str) -> type[VectorDriver]:
     return selected
 
 
-def _source_tokens(source: Any) -> set[str]:
-    """The URL scheme and file suffix of ``source``, lowercased, for the scan's pre-filter.
-
-    The scan keys off the **final path component's last suffix** and the **leading URL scheme**
-    only — not a VSI chain's inner scheme, not a compound suffix (``foo.tar.gz`` → ``.gz``). A
-    ``?query`` or ``#fragment`` is stripped first, a trailing slash is ignored, and a
-    leading-dot-only name (a dotfile like ``.bashrc``) has no suffix.
-
-    Args:
-        source: The source passed to :meth:`FeatureCollection.read_file`.
-
-    Returns:
-        The non-empty members of ``{scheme, suffix}`` — ``scheme`` without ``://`` (e.g. ``"https"``)
-        and ``suffix`` dot-prefixed (e.g. ``".cityjson"``), matching the ``suffixes`` / ``schemes``
-        spellings.
-
-    Examples:
-        - A URL contributes both its scheme and its suffix:
-            ```python
-            >>> from pyramids.feature._drivers import _source_tokens
-            >>> sorted(_source_tokens("https://host/city.cityjson"))
-            ['.cityjson', 'https']
-
-            ```
-        - A bare name with neither suffix nor scheme yields nothing:
-            ```python
-            >>> from pyramids.feature._drivers import _source_tokens
-            >>> _source_tokens("no-suffix-no-scheme")
-            set()
-
-            ```
-    """
-    text = str(source)
-    scheme = text.split("://", 1)[0].lower() if "://" in text else ""
-    path_part = text.split("://", 1)[-1].split("?", 1)[0].split("#", 1)[0]
-    name = path_part.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
-    head, dot, ext = name.rpartition(".")
-    suffix = f".{ext.lower()}" if dot and head and ext else ""
-    return {token for token in (scheme, suffix) if token}
-
-
-def _declared_tokens(candidate: type[VectorDriver]) -> set[str]:
-    """A driver's declared suffix/scheme tokens, lowercased; empty for a malformed declaration.
-
-    Never raises. Each of ``suffixes`` / ``schemes`` is read with a default, and a value that is not
-    a ``tuple`` / ``list`` / ``set`` / ``frozenset`` — a missing attribute, a bare string (which
-    would otherwise unpack into single characters), a non-iterable, or an object whose ``__iter__``
-    raises — contributes nothing instead of being iterated. Junk string-less members are then
-    filtered out. A validly-discovered driver always has good containers; this only hardens the scan
-    against a driver injected straight into the registry (as the tests do), mirroring the raster
-    hook's :func:`pyramids.dataset._drivers._declared_preempts`.
-
-    Args:
-        candidate: A registered driver class.
-
-    Returns:
-        set[str]: The lowercased suffix and scheme tokens the driver declares.
-    """
-    tokens: set[str] = set()
-    for attribute in ("suffixes", "schemes"):
-        declared = getattr(candidate, attribute, ())
-        if not isinstance(declared, (tuple, list, set, frozenset)):
-            continue
-        tokens |= {token.lower() for token in declared if isinstance(token, str)}
-    return tokens
-
-
 def select_driver(source: Any, driver: str | None = None) -> type[VectorDriver] | None:
     """Pick the driver class for a source, honouring an explicit ``driver=``.
 
@@ -719,12 +499,15 @@ def select_driver(source: Any, driver: str | None = None) -> type[VectorDriver] 
     installed = vector_drivers()
     if not installed:
         return None
-    tokens = _source_tokens(source)
+    tokens = extract_tokens(source)
     if not tokens:
         return None
     result: type[VectorDriver] | None = None
     for candidate in installed.values():
-        if not tokens & _declared_tokens(candidate):
+        declared = declared_route_tokens(
+            getattr(candidate, "suffixes", ()), getattr(candidate, "schemes", ())
+        )
+        if not tokens & declared:
             continue
         try:
             claims = bool(candidate.can_open(source))
