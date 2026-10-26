@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from pyproj import CRS
 
+from pyramids.base._errors import CRSError
 from pyramids.netcdf.ugrid.dataset import UgridDataset
 from pyramids.netcdf.ugrid.models import MeshVariable
 
@@ -209,3 +211,83 @@ class TestAMeshWithNoCrsAtAllKeepsItsWgs84Default:
 
         assert raster.epsg != 4326
         assert "Orthographic" in raster.crs
+
+
+@pytest.fixture
+def wgs84_mesh(triangle_mesh) -> UgridDataset:
+    """A mesh in EPSG:4326, to reproject *to* a variety of target CRS forms."""
+    dataset = UgridDataset(
+        mesh=triangle_mesh,
+        data_variables={
+            "h": MeshVariable(
+                name="h",
+                location="face",
+                mesh_name="mesh2d",
+                shape=(2,),
+                _data=np.array([1.0, 2.0]),
+            )
+        },
+        global_attributes={},
+        crs_wkt=CRS.from_epsg(4326).to_wkt(),
+    )
+    assert dataset.epsg == 4326, "fixture must start in EPSG:4326"
+    return dataset
+
+
+class TestToCrsTargetAcceptsAnyInput:
+    """`to_crs` target takes any CRS form, not only a bare EPSG integer (#1404)."""
+
+    def test_a_bare_int_target_still_reprojects(self, wgs84_mesh: UgridDataset):
+        """Backward compatibility: the historical `int` spelling is unchanged."""
+        assert wgs84_mesh.to_crs(3857).epsg == 3857
+
+    def test_an_authority_string_target_reprojects(self, wgs84_mesh: UgridDataset):
+        """`"EPSG:3857"` used to interpolate into the nonsense `EPSG:EPSG:3857`.
+
+        Test scenario:
+            The target was built as `crs_from_user_input(f"EPSG:{to_epsg}")`, so any
+            spelling that was not a bare integer was prefixed into a CRS the caller never
+            wrote. An authority string is the most common such spelling.
+        """
+        assert wgs84_mesh.to_crs("EPSG:3857").epsg == 3857
+
+    def test_a_proj4_target_reprojects(self, wgs84_mesh: UgridDataset):
+        """A PROJ4 string reaches the transformer instead of `EPSG:+proj=robin`."""
+        result = wgs84_mesh.to_crs("+proj=robin")
+
+        assert result.epsg is None, "Robinson has no EPSG code"
+        assert result.crs is not None and result.crs.is_projected
+
+    def test_a_wkt_target_reprojects(self, wgs84_mesh: UgridDataset):
+        """A WKT target used to become `EPSG:PROJCRS[...]`."""
+        result = wgs84_mesh.to_crs(CRS.from_epsg(3857).to_wkt())
+
+        assert result.epsg == 3857
+
+    def test_a_target_without_an_epsg_code_reprojects(self, wgs84_mesh: UgridDataset):
+        """A no-EPSG target exercises *both* call sites the bug touched (#1404).
+
+        Test scenario:
+            Fixing only the transformer leaves `sr_from_epsg(to_epsg)` building the result
+            WKT, which does `int(to_epsg)` and raises `ValueError` on `"ESRI:54030"`. A CRS
+            with no EPSG code is the one input that proves the second site was fixed too:
+            the result must keep a WKT and report `epsg is None`, not crash and not get
+            relabelled.
+        """
+        result = wgs84_mesh.to_crs("ESRI:54030")
+
+        assert result.epsg is None, "Robinson (ESRI:54030) has no EPSG code"
+        assert result.crs_wkt is not None, (
+            "the projected WKT must survive on the result"
+        )
+        assert "Robinson" in result.crs.name
+
+    def test_an_uninterpretable_target_is_refused_without_a_doubled_prefix(
+        self, wgs84_mesh: UgridDataset
+    ):
+        """A bad target names what the caller passed, not a prefixed `EPSG:` version."""
+        with pytest.raises(CRSError) as caught:
+            wgs84_mesh.to_crs("not a crs")
+
+        assert "EPSG:EPSG" not in str(caught.value)
+        assert "EPSG:not a crs" not in str(caught.value)
