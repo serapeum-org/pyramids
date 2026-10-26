@@ -27,6 +27,12 @@ from osgeo import gdal, osr
 from pyramids import _io
 from pyramids.base._axes import AXIS_NAMES
 from pyramids.base._file_manager import discard_path_handles
+from pyramids.base._plot_backends import (
+    forward_kwargs,
+    is_colorbar_spec,
+    reject_mpl_only_params,
+    render_via_backend,
+)
 from pyramids.base._reductions import gaps_as_nan
 from pyramids.base._summary import DEFAULT_METRICS, variable_summary
 from pyramids.base._utils import (
@@ -5321,6 +5327,7 @@ class NetCDF(Dataset):
         self,
         variable: str | None = None,
         *,
+        backend: str = "matplotlib",
         selectors: Selectors | None = None,
         facet: FacetSpec | None = None,
         axes: CoordinateSpec | None = None,
@@ -5371,6 +5378,16 @@ class NetCDF(Dataset):
                 Name of the variable to plot. Required on the root MDIM container;
                 must be ``None`` or equal to the pinned variable name on a subset.
                 Defaults to None.
+            backend (str, optional):
+                Renderer backend. ``"matplotlib"`` (default) draws through cleopatra. Any
+                other name (e.g. ``"interactive"`` / ``"3d"`` / ``"web"``) is routed to a
+                registered ``pyramids.plot_backends`` plugin — in practice ``digitalearth`` —
+                and returns that backend's own object. The params that only apply to the
+                matplotlib read/render path (``facet``, ``chunks`` and the ``color`` /
+                ``contour`` / ``cells`` / ``data_style`` / ``points`` / ``ColorBar`` render
+                groups) then raise a :class:`ValueError` if set, and ``fig`` / ``ax`` do not
+                apply. ``variable`` / ``selectors`` / ``axes`` / ``exclude_value`` and the
+                other data-selection arguments are forwarded. Requires the backend's package.
             selectors (Selectors, optional):
                 Dim-selector bag. See :class:`Selectors` for the field list. A
                 missing bag is treated as :class:`Selectors`\\ () (all fields
@@ -5822,6 +5839,30 @@ class NetCDF(Dataset):
 
               ```
         """
+        if backend != "matplotlib":
+            reject_mpl_only_params(
+                backend,
+                color=color,
+                contour=contour,
+                cells=cells,
+                data_style=data_style,
+                points=points,
+                facet=facet,
+                chunks=chunks,
+                colorbar=colorbar if is_colorbar_spec(colorbar) else None,
+            )
+            forwarded = forward_kwargs(
+                variable=variable,
+                selectors=selectors,
+                axes=axes,
+                exclude_value=exclude_value,
+                basemap=basemap,
+                colorbar=None if is_colorbar_spec(colorbar) else colorbar,
+                title=title,
+                kind=None if kind == "auto" else kind,
+                animate=animate,
+            )
+            return render_via_backend(self, backend, **forwarded, **kwargs)
         # ``colorbar``/``points`` and the typed render groups (``color`` / ``contour`` /
         # ``cells`` / ``data_style``) are hoisted to explicit params for parity with
         # ``Dataset.plot``. Spread the explicitly-set ones as their own ``**`` — kept in a

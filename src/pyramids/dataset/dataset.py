@@ -38,6 +38,12 @@ from pyramids.base._errors import (
     CRSError,
     FileFormatNotSupportedError,
 )
+from pyramids.base._plot_backends import (
+    forward_kwargs,
+    is_colorbar_spec,
+    reject_mpl_only_params,
+    render_via_backend,
+)
 from pyramids.base._utils import (
     DEFAULT_RESAMPLING,
     # Re-exported, not used here. The dtype catalogue was defined in this module's
@@ -1336,6 +1342,8 @@ class Dataset(RasterBase):
         interval: int = 200,
         fig: Figure | None = None,
         ax: Axes | None = None,
+        *,
+        backend: str = "matplotlib",
         **kwargs: Any,
     ) -> Any:
         """Animate the raster's bands as successive frames (issue #1380).
@@ -1351,6 +1359,10 @@ class Dataset(RasterBase):
             interval: Milliseconds between frames.
             fig: Existing figure to draw on.
             ax: Existing axes to draw on.
+            backend: Renderer backend. ``"matplotlib"`` (default) animates through cleopatra;
+                any other name routes to a ``pyramids.plot_backends`` plugin (in practice
+                ``digitalearth``) with ``animate=True`` and returns that backend's own object.
+                ``fig`` / ``ax`` do not apply off matplotlib. Requires the backend's package.
             **kwargs: Forwarded to cleopatra's animate path.
 
         Returns:
@@ -1370,6 +1382,19 @@ class Dataset(RasterBase):
             plot: One band, statically.
             NetCDF.animate: Along a cube's own dimension rather than bands.
         """
+        if backend != "matplotlib":
+            forwarded = forward_kwargs(
+                bands=bands,
+                animation_axis_values=animation_axis_values,
+                exclude_value=exclude_value,
+                basemap=basemap,
+                # interval defaults to 200 ms; forward it only when the user changed it, so a
+                # backend keeps its own default frame interval.
+                interval=None if interval == 200 else interval,
+            )
+            return render_via_backend(
+                self, backend, animate=True, **forwarded, **kwargs
+            )
         return self.analysis.animate(
             bands=bands,
             animation_axis_values=animation_axis_values,
@@ -1398,6 +1423,7 @@ class Dataset(RasterBase):
         data_style: DataStyle | None = None,
         rgb_options: dict | None = None,
         *,
+        backend: str = "matplotlib",
         fig: Figure | None = None,
         ax: Axes | None = None,
         **kwargs: Unpack[PlotKwargs],
@@ -1472,10 +1498,19 @@ class Dataset(RasterBase):
                 ``"surface_reflectance"`` (reflectance scale factor, e.g. ``10000`` for
                 Sentinel-2), ``"cutoff"`` (per-band clip values), ``"percentile"``
                 (percentile stretch). Default is ``None``.
+            backend (str, optional):
+                Renderer backend. ``"matplotlib"`` (default) draws through cleopatra and
+                returns an ``ArrayGlyph``. Any other name (e.g. ``"interactive"`` / ``"3d"`` /
+                ``"web"``) is routed to a registered ``pyramids.plot_backends`` plugin — in
+                practice ``digitalearth`` — and returns that backend's own object. The params
+                that only apply to the matplotlib read/render path (``overview`` /
+                ``overview_index`` and the ``color`` / ``contour`` / ``cells`` / ``data_style`` /
+                ``points`` / ``ColorBar`` render groups) then raise a :class:`ValueError` if set,
+                and ``fig`` / ``ax`` do not apply. Requires the backend's package installed.
             fig (matplotlib.figure.Figure, optional):
                 Draw into this figure instead of creating one. Pass it alongside ``ax``;
                 supplying ``fig`` on its own currently raises inside cleopatra
-                (serapeum-org/cleopatra#326). Default is ``None``.
+                (serapeum-org/cleopatra#326). Default is ``None``. Matplotlib backend only.
             ax (matplotlib.axes.Axes, optional):
                 Draw into these axes instead of creating them. This is what lets several
                 rasters share one figure — a ``plt.subplots`` grid of side-by-side panels —
@@ -1561,6 +1596,28 @@ class Dataset(RasterBase):
 
               ```
         """
+        if backend != "matplotlib":
+            reject_mpl_only_params(
+                backend,
+                color=color,
+                contour=contour,
+                cells=cells,
+                data_style=data_style,
+                points=points,
+                overview=overview or None,
+                overview_index=overview_index or None,
+                colorbar=colorbar if is_colorbar_spec(colorbar) else None,
+            )
+            forwarded = forward_kwargs(
+                band=band,
+                exclude_value=exclude_value,
+                rgb_options=rgb_options,
+                basemap=basemap,
+                colorbar=None if is_colorbar_spec(colorbar) else colorbar,
+                title=title,
+                kind=None if kind == "auto" else kind,
+            )
+            return render_via_backend(self, backend, **forwarded, **kwargs)
         rgb, surface_reflectance, cutoff, percentile = self._unpack_rgb_options(
             rgb_options
         )
