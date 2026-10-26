@@ -305,6 +305,14 @@ class TestToCrsTargetAcceptsAnyInput:
             "a coded string target must get the same full WKT as the bare int"
         )
 
+    def test_a_bare_numeric_string_target_reprojects(self, wgs84_mesh: UgridDataset):
+        """`"3857"` is advertised in the docstring; exercise it at the to_crs level (L2)."""
+        assert wgs84_mesh.to_crs("3857").epsg == 3857
+
+    def test_a_pyproj_crs_object_target_reprojects(self, wgs84_mesh: UgridDataset):
+        """A `pyproj.CRS` is advertised; exercise it at the to_crs level (L2)."""
+        assert wgs84_mesh.to_crs(CRS.from_epsg(3857)).epsg == 3857
+
     def test_an_uninterpretable_target_is_refused_without_a_doubled_prefix(
         self, wgs84_mesh: UgridDataset
     ):
