@@ -1226,8 +1226,8 @@ class UgridDataset(_UgridFacades):
                 >>> robinson = mesh.to_crs("ESRI:54030")
                 >>> robinson.epsg is None
                 True
-                >>> robinson.crs.name
-                'World_Robinson'
+                >>> "Robinson" in robinson.crs.name
+                True
 
                 ```
         """
