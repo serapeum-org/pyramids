@@ -2654,14 +2654,15 @@ class FeatureCollection(GeoDataFrame):
                 renders a single flat colour.
             basemap: ``True`` for OpenStreetMap, or a provider name string.
             engine: ``"geopandas"`` (default) or ``"cleopatra"``. Applies only to
-                ``backend="matplotlib"``; it is ignored for any other backend.
+                ``backend="matplotlib"``; a non-default ``engine`` with any other backend raises
+                a :class:`ValueError` rather than being silently ignored.
             backend (str, optional): Renderer backend. ``"matplotlib"`` (default) draws
                 through ``engine`` (geopandas or cleopatra). Any other name (e.g.
                 ``"interactive"`` / ``"3d"`` / ``"web"``) is routed to a registered
                 ``pyramids.plot_backends`` plugin — in practice ``digitalearth`` — and returns
-                that backend's own object. The matplotlib-only render groups (``color`` /
-                ``contour`` / ``classify`` / ``points`` and a ``ColorBar`` instance) then raise
-                a :class:`ValueError` if set. Requires the backend's package installed.
+                that backend's own object. The matplotlib-only params (a non-default ``engine``
+                and the ``color`` / ``contour`` / ``classify`` / ``points`` / ``ColorBar`` render
+                groups) then raise a :class:`ValueError` if set. Requires the backend's package.
             colorbar (bool or ColorBar, optional): Colour-bar spec, part of the
                 shared plot signature. On ``engine="geopandas"`` it toggles the
                 geopandas ``legend`` (a ``ColorBar`` object counts as "show"); on
@@ -2737,6 +2738,7 @@ class FeatureCollection(GeoDataFrame):
                 contour=contour,
                 classify=classify,
                 points=points,
+                engine=None if engine == "geopandas" else engine,
                 colorbar=colorbar if is_colorbar_spec(colorbar) else None,
             )
             forwarded = forward_kwargs(

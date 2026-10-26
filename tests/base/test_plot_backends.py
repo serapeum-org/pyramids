@@ -12,6 +12,7 @@ from __future__ import annotations
 import types
 from typing import Any
 
+import geopandas as gpd
 import numpy as np
 import pytest
 
@@ -28,6 +29,7 @@ from pyramids.base._plot_backends import (
 )
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
+from pyramids.feature import FeatureCollection
 from pyramids.netcdf import FacetSpec, NetCDF
 from tests._driver_discovery_fixtures import make_publish_entry_points
 
@@ -420,3 +422,42 @@ def test_netcdf_plot_rejects_chunks_on_backend(monkeypatch: pytest.MonkeyPatch) 
     with pytest.raises(ValueError, match="only apply to backend='matplotlib'"):
         netcdf.plot(variable="t2m", backend="web", chunks={"time": 1})
     assert recorder.backend is None
+
+
+def _feature_collection() -> FeatureCollection:
+    """A tiny two-point in-memory FeatureCollection for the facade dispatch tests."""
+    frame = gpd.GeoDataFrame(
+        {"v": [1.0, 2.0]}, geometry=gpd.points_from_xy([0.0, 1.0], [0.0, 1.0]), crs="EPSG:4326"
+    )
+    return FeatureCollection(frame)
+
+
+def test_feature_plot_routes_to_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``FeatureCollection.plot(backend=…)`` forwards the collection and the column/title."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    features = _feature_collection()
+    features.plot(column="v", backend="web", title="pts")
+    assert recorder.obj is features
+    assert recorder.backend == "web"
+    assert recorder.kwargs["column"] == "v"
+    assert recorder.kwargs["title"] == "pts"
+
+
+def test_feature_plot_rejects_non_default_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-default ``engine`` with a non-matplotlib backend raises rather than being ignored."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    features = _feature_collection()
+    with pytest.raises(ValueError, match="only apply to backend='matplotlib'"):
+        features.plot(column="v", backend="web", engine="cleopatra")
+    assert recorder.backend is None
+
+
+def test_feature_plot_default_engine_is_not_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default ``engine='geopandas'`` does not trip the guard on a backend call."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    features = _feature_collection()
+    features.plot(column="v", backend="web")
+    assert recorder.backend == "web"
