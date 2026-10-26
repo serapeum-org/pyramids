@@ -825,3 +825,12 @@ class TestConformanceKit:
 
         problems = check_vector_driver(Truthy)
         assert any("must return a bool" in problem for problem in problems), problems
+
+    def test_a_non_callable_can_open_is_reported_without_probing(self):
+        """A non-callable can_open is reported statically; the behavioural probe is skipped safely."""
+
+        class NoCanOpen(GoodDriver):
+            can_open = None
+
+        problems = check_vector_driver(NoCanOpen)
+        assert any("does not implement" in problem for problem in problems), problems
