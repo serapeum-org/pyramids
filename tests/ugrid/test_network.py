@@ -99,6 +99,22 @@ class TestConstruction:
             f"the message must still name the counts a network has, got: {caught.value}"
         )
 
+    def test_an_unrelated_missing_attribute_keeps_the_default_message(self, y_network):
+        """`__getattr__` special-cases `n_face` only; anything else reads as usual.
+
+        Test scenario:
+            Routing the `n_face` hint through `__getattr__` puts that method on the path of
+            *every* failed lookup, so it has to leave the other names alone rather than
+            answer for them.
+        """
+        with pytest.raises(AttributeError) as caught:
+            _ = y_network.no_such_member
+        message = str(caught.value)
+        assert "no_such_member" in message
+        assert "has no faces" not in message, (
+            f"only n_face gets the topology hint, got: {message}"
+        )
+
     def test_the_node_and_edge_counts_are_advertised(self, y_network):
         """The counts a network does have stay visible to the same probe."""
         assert hasattr(y_network, "n_node") is True

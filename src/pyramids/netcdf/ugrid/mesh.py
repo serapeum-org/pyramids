@@ -47,6 +47,40 @@ class Mesh2d:
         edge_y: np.ndarray | None = None,
         crs: Any = None,
     ):
+        """Initialise a 2D mesh from node coordinates and connectivity tables.
+
+        Args:
+            node_x: Node x-coordinates, shape (n_node,).
+            node_y: Node y-coordinates, shape (n_node,).
+            face_node_connectivity: Face-to-node connectivity; its row count is
+                :attr:`n_face`.
+            edge_node_connectivity: Edge-to-node connectivity; its row count is
+                :attr:`n_edge`. Optional in UGRID. Defaults to ``None``.
+            face_edge_connectivity: Face-to-edge connectivity. Defaults to ``None``.
+            face_face_connectivity: Face-to-face adjacency. Defaults to ``None``.
+            edge_face_connectivity: Edge-to-face adjacency. Defaults to ``None``.
+            face_x: Face-centre x-coordinates, if the file supplies them. Defaults to
+                ``None``.
+            face_y: Face-centre y-coordinates. Defaults to ``None``.
+            edge_x: Edge-centre x-coordinates. Defaults to ``None``.
+            edge_y: Edge-centre y-coordinates. Defaults to ``None``.
+            crs: Coordinate reference system (a ``pyproj.CRS``) or ``None``.
+
+        Raises:
+            TypeError: A connectivity table's ``fill_value`` is neither an integer nor
+                ``None``.
+            ValueError: A table's ``fill_value`` is also a valid index for that table
+                **and** occurs in it, so a padded row cannot be told from a real element.
+
+        Note:
+            Every connectivity table is normalised on the way in: a fill value outside the
+            range the table indexes is rewritten to ``-1`` (and so is any other negative),
+            so the attributes may not hand back the objects you passed. A fill already
+            ``-1`` is returned untouched, which is what the built-in readers produce. Each
+            table is checked against **its own** range -- ``face_node`` and ``edge_node``
+            against the node count, ``face_edge`` against the edge count, ``face_face`` and
+            ``edge_face`` against the face count.
+        """
         self._node_x = np.asarray(node_x, dtype=np.float64)
         self._node_y = np.asarray(node_y, dtype=np.float64)
         # Each table is normalised against the range *it* indexes, not blindly against the
