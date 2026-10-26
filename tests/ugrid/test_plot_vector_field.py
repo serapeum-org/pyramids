@@ -317,6 +317,30 @@ class TestRefusals:
         with pytest.raises(ValueError, match="the two components must match"):
             dataset.plot_vector_field("ucx", "ucy")
 
+    def test_missing_cleopatra_wins_over_a_colour_bar_typo(self, velocity, monkeypatch):
+        """With both problems present, the more actionable error must win (round 2 M4).
+
+        Test scenario:
+            Round 1 moved the loose-cbar rejection ahead of `_mesh_to_glyph` to save a glyph
+            construction on a typo. `require_cleopatra` lives inside `_mesh_to_glyph`, so
+            that made a caller with no usable cleopatra *and* a `cbar_label` typo hear about
+            the typo -- and it left this function ordering the two checks the opposite way
+            from its sibling `plot_mesh_data`.
+        """
+        from pyramids.base._errors import OptionalPackageDoesNotExist
+        from pyramids.netcdf.ugrid import plot as plot_module
+
+        class GlyphWithoutVectorField:
+            """Stands in for a cleopatra older than 0.44.0."""
+
+        monkeypatch.setattr(
+            plot_module,
+            "_mesh_to_glyph",
+            lambda mesh, **kwargs: GlyphWithoutVectorField(),
+        )
+        with pytest.raises(OptionalPackageDoesNotExist):
+            velocity.plot_vector_field("ucx", "ucy", cbar_label="x")
+
 
 class TestNoDataAndShape:
     """Gaps and ranks the components are reduced through before they are drawn."""
