@@ -5382,10 +5382,12 @@ class NetCDF(Dataset):
                 Renderer backend. ``"matplotlib"`` (default) draws through cleopatra. Any
                 other name (e.g. ``"interactive"`` / ``"3d"`` / ``"web"``) is routed to a
                 registered ``pyramids.plot_backends`` plugin — in practice ``digitalearth`` —
-                and returns that backend's own object. The matplotlib-only params (``facet``
-                and the ``color`` / ``contour`` / ``cells`` / ``data_style`` / ``points`` /
-                ``ColorBar`` render groups) then raise a :class:`ValueError` if set, and
-                ``fig`` / ``ax`` do not apply. Requires the backend's package installed.
+                and returns that backend's own object. The params that only apply to the
+                matplotlib read/render path (``facet``, ``chunks`` and the ``color`` /
+                ``contour`` / ``cells`` / ``data_style`` / ``points`` / ``ColorBar`` render
+                groups) then raise a :class:`ValueError` if set, and ``fig`` / ``ax`` do not
+                apply. ``variable`` / ``selectors`` / ``axes`` / ``exclude_value`` and the
+                other data-selection arguments are forwarded. Requires the backend's package.
             selectors (Selectors, optional):
                 Dim-selector bag. See :class:`Selectors` for the field list. A
                 missing bag is treated as :class:`Selectors`\\ () (all fields
@@ -5846,12 +5848,14 @@ class NetCDF(Dataset):
                 data_style=data_style,
                 points=points,
                 facet=facet,
+                chunks=chunks,
                 colorbar=colorbar if is_colorbar_spec(colorbar) else None,
             )
             forwarded = forward_kwargs(
                 variable=variable,
                 selectors=selectors,
                 axes=axes,
+                exclude_value=exclude_value,
                 basemap=basemap,
                 colorbar=None if is_colorbar_spec(colorbar) else colorbar,
                 title=title,

@@ -381,3 +381,22 @@ def test_netcdf_plot_rejects_facet_on_backend(monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(ValueError, match="only apply to backend='matplotlib'"):
         netcdf.plot(variable="t2m", backend="web", facet=FacetSpec(col="time"))
     assert recorder.backend is None  # never dispatched
+
+
+def test_netcdf_plot_forwards_exclude_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``exclude_value`` reaches the backend (parity with ``Dataset.plot``), not silently dropped."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    netcdf = _netcdf_container()
+    netcdf.plot(variable="t2m", backend="web", exclude_value=-9999)
+    assert recorder.kwargs["exclude_value"] == -9999
+
+
+def test_netcdf_plot_rejects_chunks_on_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``chunks`` is a matplotlib read directive, rejected rather than silently dropped."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    netcdf = _netcdf_container()
+    with pytest.raises(ValueError, match="only apply to backend='matplotlib'"):
+        netcdf.plot(variable="t2m", backend="web", chunks={"time": 1})
+    assert recorder.backend is None
