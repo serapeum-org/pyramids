@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import operator
 from collections import deque
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -164,7 +163,14 @@ def _normalised_connectivity(
         )
     data = np.asarray(connectivity.data)
     rewritten = np.where(data == fill, -1, data).astype(data.dtype, copy=False)
-    result = replace(connectivity, data=rewritten, fill_value=-1)
+    # Built explicitly rather than through `dataclasses.replace`, which is typed as
+    # returning `DataclassInstance` and so loses the concrete type at the boundary.
+    result = Connectivity(
+        data=rewritten,
+        fill_value=-1,
+        cf_role=connectivity.cf_role,
+        original_start_index=connectivity.original_start_index,
+    )
     return result
 
 
