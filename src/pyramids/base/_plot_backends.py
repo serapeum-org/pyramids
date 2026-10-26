@@ -26,6 +26,8 @@ from importlib import import_module
 from importlib.metadata import EntryPoint, entry_points
 from typing import Any
 
+import numpy as np
+
 from pyramids.base._driver_discovery import extra_missing
 from pyramids.base._errors import OptionalPackageDoesNotExist
 
@@ -359,14 +361,16 @@ def is_colorbar_spec(colorbar: Any) -> bool:
     bar on any backend and is forwarded; a ``ColorBar`` *instance* carries matplotlib styling and
     is rejected on a non-matplotlib backend. ``ColorBar`` lives in cleopatra (the optional ``[viz]``
     extra) and is imported only under ``TYPE_CHECKING`` in the facades, so it is detected by
-    exclusion — not ``None`` and not a ``bool`` — rather than with ``isinstance``.
+    exclusion — not ``None`` and not a Python or NumPy ``bool`` — rather than with ``isinstance``
+    against the unavailable class. ``numpy.bool_`` is checked explicitly because it is **not** a
+    Python ``bool`` subclass, so a NumPy boolean would otherwise be mistaken for a styled spec.
 
     Args:
         colorbar: The facade's ``colorbar`` argument.
 
     Returns:
         ``True`` when ``colorbar`` is a styled ``ColorBar`` spec, ``False`` for ``None`` or a
-        plain ``bool``.
+        plain Python / NumPy ``bool``.
 
     Examples:
         - A bool or ``None`` is not a styled spec; anything else is:
@@ -377,7 +381,7 @@ def is_colorbar_spec(colorbar: Any) -> bool:
 
             ```
     """
-    return colorbar is not None and not isinstance(colorbar, bool)
+    return colorbar is not None and not isinstance(colorbar, (bool, np.bool_))
 
 
 def forward_kwargs(**maybe: Any) -> dict[str, Any]:

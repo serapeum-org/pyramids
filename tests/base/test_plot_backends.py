@@ -269,10 +269,17 @@ def test_install_hint_maps_backend_to_extra(
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [(None, False), (True, False), (False, False), (object(), True)],
+    [
+        (None, False),
+        (True, False),
+        (False, False),
+        (np.True_, False),
+        (np.False_, False),
+        (object(), True),
+    ],
 )
 def test_is_colorbar_spec(value: Any, expected: bool) -> None:
-    """A ``ColorBar`` spec is anything that is neither ``None`` nor a ``bool``."""
+    """A ``ColorBar`` spec is anything that is neither ``None`` nor a Python/NumPy ``bool``."""
     assert is_colorbar_spec(value) is expected
 
 
