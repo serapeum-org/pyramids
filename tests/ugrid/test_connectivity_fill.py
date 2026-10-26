@@ -225,41 +225,55 @@ class TestDtypeAndFillType:
             Mesh2d(NODE_X, NODE_Y, table)
 
 
-class TestRangeIsDerivedWhenUnknown:
-    """`index_count == 0` must not license an unvalidated rewrite (round 1 H3)."""
+class TestRangeUnknown:
+    """An unknown range is refused, not guessed at (round 1 H3, round 2 M2)."""
 
     def test_a_face_edge_fill_is_refused_with_no_edge_table(self):
-        """With no companion table the range comes from the table itself (H3).
+        """With no companion table the range is unknown, so the fill is refused (M2).
 
         Test scenario:
             `edge_node_connectivity` is optional in UGRID while `face_edge_connectivity` is
-            present, so `edge_count == 0` is legal input. The old guard `if index_count and
-            0 <= fill < index_count` was dead code there -- `0 <= fill < 0` is unsatisfiable
-            -- and the rewrite then ran against a fill nothing had validated, turning
-            `[[0, 1], [1, 0]]` into `[[-1, 1], [1, -1]]` and destroying every reference to
-            edge 0 with no error.
+            present, so `edge_count == 0` is legal input. The first attempt derived a bound
+            from the table's own largest index, which is too small whenever the mesh has
+            more edges than this table references -- and the rewrite then discarded a legal
+            index silently. There is no honest answer, so it is refused.
         """
         face_edges = _conn([[0, 1], [1, 0]], 0, "face_edge_connectivity")
 
-        with pytest.raises(ValueError, match="valid edge index") as caught:
+        with pytest.raises(ValueError, match="nothing says how many") as caught:
             Mesh2d(NODE_X, NODE_Y, _faces(), None, face_edges)
 
         message = str(caught.value)
         assert "face_edge_connectivity" in message
-        assert "[0, 2)" in message, (
-            f"the range must be the one derived from the table, got: {message}"
+        assert "companion table" in message, (
+            f"the message must say what would make the range knowable, got: {message}"
         )
 
-    def test_an_out_of_range_fill_still_normalises_with_no_edge_table(self):
-        """The derived range must not refuse a legitimately out-of-range fill (H3)."""
-        face_edges = _conn([[0, 1], [1, 999]], 999, "face_edge_connectivity")
+    def test_even_a_large_fill_is_refused_when_the_range_is_unknown(self):
+        """Deriving a bound from the table was worse than refusing (round 2 M2).
+
+        Test scenario:
+            A `face_edge` table `[[0, 1, 6], [3, 4, 5]]` with `fill_value=6` derived a limit
+            of 6, passed the gate, and turned the face's reference to edge 6 into padding.
+            If the mesh has ten edges, edge 6 is real and that face has lost it, with no
+            error -- the same silent-wrong-topology class the gate exists to close.
+        """
+        face_edges = _conn([[0, 1, 6], [3, 4, 5]], 6, "face_edge_connectivity")
+
+        with pytest.raises(ValueError, match="nothing says how many"):
+            Mesh2d(NODE_X, NODE_Y, _faces(), None, face_edges)
+
+    def test_an_unused_fill_needs_no_range(self):
+        """A fill that never occurs is unambiguous, so the unknown range is irrelevant."""
+        face_edges = _conn([[0, 1], [1, 0]], 999, "face_edge_connectivity")
 
         mesh = Mesh2d(NODE_X, NODE_Y, _faces(), None, face_edges)
 
         stored = mesh.face_edge_connectivity
         assert stored is not None
+        assert stored.fill_value == -1
         np.testing.assert_array_equal(
-            np.asarray(stored.data), np.array([[0, 1], [1, -1]])
+            np.asarray(stored.data), np.array([[0, 1], [1, 0]])
         )
 
 
@@ -320,20 +334,44 @@ class TestOtherNegatives:
 class TestPassThroughInputs:
     """Inputs with no fill to normalise must survive untouched (round 1 regression guard)."""
 
-    def test_a_bare_array_connectivity_is_left_alone(self):
-        """`Network1d` accepts a raw ndarray, which has no `fill_value` at all.
+    def test_a_bare_array_is_wrapped_into_a_usable_connectivity(self):
+        """A raw ndarray becomes a real table, so every member works (round 2 H2).
 
         Test scenario:
-            The annotation says `Connectivity`, but `Network1d(edge_node_connectivity=
-            np.empty((0, 2)))` is what `tests/ugrid/test_graph_network_round2.py` passes, so
-            the attribute lookup has to tolerate its absence. Narrowing that away broke the
-            existing suite.
+            `Network1d(edge_node_connectivity=np.empty((0, 2)))` is what
+            `test_graph_network_round2.py` passes, so the input has to be accepted. Passing
+            it straight through was not enough: `n_edge`, `edge_lengths`, `edge_tree`,
+            `sort` and six more members all raised on the result, and `Mesh2d` rejected the
+            same input from inside `__init__`. Wrapping it makes the two constructors agree
+            and the object usable, which an identity assertion never checked.
         """
         from pyramids.netcdf.ugrid.network import Network1d
 
-        raw = np.empty((0, 2), dtype=np.intp)
-        net = Network1d(np.array([]), np.array([]), raw)
-        assert net.edge_node_connectivity is raw
+        raw = np.array([[0, 1], [1, 2]], dtype=np.intp)
+        net = Network1d(np.array([0.0, 1.0, 2.0]), np.array([0.0, 0.0, 0.0]), raw)
+
+        stored = net.edge_node_connectivity
+        assert isinstance(stored, Connectivity), f"got {type(stored).__name__}"
+        assert stored.fill_value == -1
+        assert stored.cf_role == "edge_node_connectivity"
+        assert net.n_edge == 2
+        assert net.real_edge_indices.tolist() == [0, 1]
+        assert net.edge_lengths.tolist() == [1.0, 1.0]
+        assert net.sort(outlet=2).tolist() == [0, 1, 2]
+
+    def test_mesh2d_accepts_a_bare_array_too(self):
+        """The two constructors must agree about a bare array (round 2 H2).
+
+        Test scenario:
+            `Mesh2d` used to raise `AttributeError: 'numpy.ndarray' object has no attribute
+            'n_elements'` from inside `__init__` for the input `Network1d` documented as
+            supported.
+        """
+        mesh = Mesh2d(NODE_X, NODE_Y, np.array([[0, 1, 2], [1, 3, 2]], dtype=np.intp))
+
+        assert isinstance(mesh.face_node_connectivity, Connectivity)
+        assert mesh.face_node_connectivity.fill_value == -1
+        assert mesh.n_face == 2
 
     def test_a_none_fill_is_left_alone(self):
         """`Connectivity(fill_value=None)` declares a table with no sentinels."""
@@ -410,4 +448,64 @@ class TestEveryTableIsCovered:
         assert stored is not None
         np.testing.assert_array_equal(
             np.asarray(stored.data), np.array([[0, 1], [1, -1]])
+        )
+
+
+class TestDtypeInvariantHolds:
+    """The signed-intp promise must hold on the identity arm too (round 2 M1)."""
+
+    @pytest.mark.parametrize(
+        "dtype", [np.uint8, np.uint16, np.float64], ids=["uint8", "uint16", "float64"]
+    )
+    def test_a_minus_one_fill_still_normalises_a_non_signed_dtype(self, dtype):
+        """`fill_value=-1` on an unsigned table is the dangerous case (M1).
+
+        Test scenario:
+            The early return for a -1 fill skipped the cast, so the caller's dtype survived.
+            No value in a `uint8` array can equal -1, so a table padded with 255 but
+            declaring the conventional -1 reached every consumer with its padding read as
+            node 255 -- the exact class of defect this gate exists to remove, arriving
+            through the arm that was meant to be the safe one.
+        """
+        table = Connectivity(
+            data=np.array([[0, 1], [1, 2]], dtype=dtype),
+            fill_value=-1,
+            cf_role="edge_node_connectivity",
+            original_start_index=0,
+        )
+        mesh = Mesh2d(NODE_X, NODE_Y, _faces(), table)
+
+        stored = mesh.edge_node_connectivity
+        assert stored is not None
+        assert np.issubdtype(np.asarray(stored.data).dtype, np.signedinteger), (
+            f"the promise is a signed dtype, got {np.asarray(stored.data).dtype}"
+        )
+
+    def test_an_already_clean_table_is_still_returned_unchanged(self):
+        """The identity arm must not have been narrowed out of existence (M1)."""
+        clean = _conn([[0, 1], [1, 2]], -1, "edge_node_connectivity")
+        mesh = Mesh2d(NODE_X, NODE_Y, _faces(), clean)
+        assert mesh.edge_node_connectivity is clean
+
+
+class TestSurvivingIndicesAreChecked:
+    """A table disagreeing with its coordinates is reported, not half-rewritten (M3)."""
+
+    def test_an_index_past_the_count_is_refused(self):
+        """Both spellings of a malformed table now report it (round 2 M3).
+
+        Test scenario:
+            The gate rewrote padding without checking what survived, so a `face_node` table
+            naming node 5 on a 4-node mesh was accepted whenever the fill happened to be
+            positive and out of range. With `fill_value=-1` the same file was refused
+            downstream, so the two spellings behaved completely differently.
+        """
+        beyond = _conn([[0, 1, 2], [1, 3, 5]], 999, "face_node_connectivity")
+
+        with pytest.raises(ValueError, match="outside .0, 4.") as caught:
+            Mesh2d(NODE_X, NODE_Y, beyond)
+
+        message = str(caught.value)
+        assert "disagree" in message, (
+            f"the message must name the disagreement, got: {message}"
         )

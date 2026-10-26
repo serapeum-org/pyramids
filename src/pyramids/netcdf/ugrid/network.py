@@ -306,31 +306,39 @@ class Network1d:
         return result
 
     def __getattr__(self, name: str) -> Any:
-        """Explain `n_face` rather than letting the default message carry the whole story.
+        """Explain `n_face`, and stay out of the way of every other failed lookup.
 
-        The property that used to raise here was removed because a member whose body only
-        raises still advertises itself to `dir()` and to `hasattr(Network1d, ...)`. Going
-        through `__getattr__` keeps the attribute genuinely absent -- it is only consulted
-        after normal lookup fails -- while restoring the hint the old message gave.
+        The property this replaced was removed because a member whose body only raises still
+        advertises itself to `dir()` and to `hasattr(Network1d, ...)`. Going through
+        `__getattr__` keeps the attribute genuinely absent -- it is consulted only after
+        normal lookup fails -- while restoring the hint the old message gave.
+
+        The catch is that CPython consults this hook whenever `__getattribute__` raises
+        `AttributeError`, **including** when a `@property`'s own body raises one. Answering
+        unconditionally therefore reported existing members as missing and erased the real
+        cause: an `AttributeError` inside `_real_edges` surfaced as "'Network1d' object has
+        no attribute 'edge_tree'", with no `__cause__` and a traceback ending here. So every
+        name but `n_face` is handed back to normal lookup, which re-raises the original --
+        `object.__getattribute__` does not re-enter this hook, so it cannot recurse, and a
+        name that genuinely does not exist gets the interpreter's own wording.
 
         Args:
             name: The attribute that normal lookup did not find.
 
         Returns:
-            Never returns; the signature is what the protocol requires.
+            Any: Whatever normal lookup yields on the retry, for a name the class defines.
 
         Raises:
-            AttributeError: Always. For `n_face` the message names `n_node` / `n_edge`;
-                for anything else it is the interpreter's own wording.
+            AttributeError: For `n_face`, with the message naming `n_node` / `n_edge`. For
+                any other name, whatever normal lookup raises -- the interpreter's own
+                "no attribute" error, or the error a property body raised.
         """
         if name == "n_face":
             raise AttributeError(
                 "Network1d is a 1D topology (nodes + edges) and has no faces; 'n_face' is "
                 "undefined. Use 'n_node' / 'n_edge'."
             )
-        raise AttributeError(
-            f"{type(self).__name__!r} object has no attribute {name!r}"
-        )
+        return object.__getattribute__(self, name)
 
     @property
     def node_x(self) -> np.typing.NDArray:

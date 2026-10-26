@@ -115,6 +115,46 @@ class TestConstruction:
             f"only n_face gets the topology hint, got: {message}"
         )
 
+    def test_a_property_raising_internally_is_not_reported_as_missing(self):
+        """`__getattr__` must not answer for a name the class defines (round 2 H1).
+
+        Test scenario:
+            CPython consults `__getattr__` whenever `__getattribute__` raises
+            `AttributeError`, including from inside a property body. Answering
+            unconditionally reported existing members as missing and erased the real cause:
+            an `AttributeError` raised inside the connectivity handling surfaced as
+            "'Network1d' object has no attribute 'edge_tree'", with no `__cause__` and a
+            traceback ending in `__getattr__`. Here a property is made to raise
+            `AttributeError` from its own body; the message must be that one, not a claim
+            that `bounds` does not exist.
+        """
+        net = Network1d.from_arrays(*CHAIN)
+
+        class Exploding:
+            """Stands in for a connectivity whose attribute access fails."""
+
+            @property
+            def data(self):
+                raise AttributeError("the inner failure that must survive")
+
+        object.__setattr__(net, "_edge_node_connectivity", Exploding())
+        with pytest.raises(AttributeError) as caught:
+            _ = net.n_edge
+
+        message = str(caught.value)
+        assert "Exploding" in message, (
+            f"the error must name the object that actually failed, got: {message}"
+        )
+        assert "n_edge" not in message, (
+            f"`n_edge` exists; reporting it as missing is the defect, got: {message}"
+        )
+
+    def test_a_genuinely_absent_name_keeps_the_interpreter_message(self):
+        """Handing back to normal lookup also gives the default wording for free."""
+        net = Network1d.from_arrays(*CHAIN)
+        with pytest.raises(AttributeError, match="no attribute 'definitely_not_here'"):
+            _ = net.definitely_not_here
+
     def test_the_node_and_edge_counts_are_advertised(self, y_network):
         """The counts a network does have stay visible to the same probe."""
         assert hasattr(y_network, "n_node") is True
