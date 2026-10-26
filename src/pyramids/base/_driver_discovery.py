@@ -24,11 +24,13 @@ driver is skipped with a warning rather than crashing discovery.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from importlib.util import find_spec
 from typing import Any
 
 __all__ = [
+    "assert_driver_conforms",
+    "check_driver",
     "declared_route_tokens",
     "extra_missing",
     "extract_tokens",
@@ -439,3 +441,111 @@ def declared_route_tokens(*values: Any) -> set[str]:
     for value in values:
         tokens |= lower_string_tokens(value)
     return tokens
+
+
+#: Hostile inputs ``can_open`` must survive without raising — an empty string, an unknown path, a
+#: non-string, and ``None`` all have to answer ``False`` (or at least a ``bool``), never raise.
+_CAN_OPEN_PROBES: tuple[Any, ...] = ("", "no-such-source-xyz", 123, None)
+
+
+def check_driver(driver: Any, *, validate: Callable[[Any], str | None]) -> list[str]:
+    """Return every way a driver class departs from a hook's contract.
+
+    The reusable core of each hook's conformance kit (raster, vector). The caller passes its hook's
+    static ``validate`` (which pins that hook's ``api_version``, reserved names and capability
+    tokens); this runs it first, then the behavioural probes static validation cannot see:
+    ``can_open`` is callable on the *class*, returns a ``bool``, and never raises on a hostile input;
+    and the driver builds with no arguments (as ``read_file`` dispatches it) and exposes a callable
+    ``read``.
+
+    Args:
+        driver: The driver class to check (the class itself, not an instance).
+        validate: The hook's static validator (e.g. ``pyramids.feature._drivers._validate``).
+
+    Returns:
+        A list of human-readable problems; empty when the driver conforms. The first entry, if any,
+        is the static-claims problem discovery itself would reject on.
+    """
+    problems: list[str] = []
+    static_problem = validate(driver)
+    if static_problem is not None:
+        problems.append(static_problem)
+    can_open = getattr(driver, "can_open", None)
+    if callable(can_open):
+        problems.extend(_check_can_open(can_open))
+    problems.extend(_check_constructible(driver))
+    return problems
+
+
+def _check_constructible(driver: Any) -> list[str]:
+    """Check the driver builds with no arguments and the instance has a callable ``read``.
+
+    ``read_file`` dispatches via ``driver_class()``, so a driver whose ``__init__`` needs an argument
+    conforms statically yet raises ``TypeError`` at read time; the kit catches that here.
+
+    Args:
+        driver: The driver class to construct.
+
+    Returns:
+        A list with at most one problem: not no-arg constructible, or no callable ``read``.
+    """
+    problems: list[str] = []
+    try:
+        instance = driver()
+    except Exception as error:  # noqa: BLE001 - a driver __init__ may fail in any way
+        problems.append(
+            f"cannot be constructed with no arguments: {error!r}; read_file dispatches via "
+            f"driver_class()"
+        )
+    else:
+        if not callable(getattr(instance, "read", None)):
+            problems.append("the constructed driver has no callable read()")
+    return problems
+
+
+def _check_can_open(can_open: Any) -> list[str]:
+    """Probe ``can_open`` with hostile inputs; it must return a ``bool`` and never raise.
+
+    Args:
+        can_open: The driver class's ``can_open`` classmethod.
+
+    Returns:
+        A list with at most one problem (the first probe that misbehaves).
+    """
+    problems: list[str] = []
+    for probe in _CAN_OPEN_PROBES:
+        try:
+            result = can_open(probe)
+        except Exception as error:  # noqa: BLE001 - the whole point is that it must not raise
+            problems.append(
+                f"can_open({probe!r}) raised {error!r}; can_open must never raise, it must "
+                f"answer False for anything it does not recognise"
+            )
+            break
+        if not isinstance(result, bool):
+            problems.append(
+                f"can_open({probe!r}) returned {result!r}; can_open must return a bool"
+            )
+            break
+    return problems
+
+
+def assert_driver_conforms(
+    driver: Any, *, validate: Callable[[Any], str | None], kind: str
+) -> None:
+    """Raise :class:`AssertionError` when a driver class violates its hook's contract.
+
+    Args:
+        driver: The driver class to check.
+        validate: The hook's static validator.
+        kind: The hook family, e.g. ``"raster"`` / ``"vector"``; names the group in the message.
+
+    Raises:
+        AssertionError: The driver departs from the contract; the message lists every problem.
+    """
+    problems = check_driver(driver, validate=validate)
+    if problems:
+        raise AssertionError(
+            f"{kind} driver does not conform to pyramids.{kind}_drivers:\n- "
+            + "\n- ".join(problems)
+        )

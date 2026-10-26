@@ -198,6 +198,28 @@ _PUBLISH_LOCK = threading.Lock()
 _IN_PROGRESS = threading.local()
 
 
+def _validate(driver: Any) -> str | None:
+    """Check a vector driver *class* against the contract; the conformance kit reuses this.
+
+    A thin wrapper over :func:`pyramids.base._driver_discovery.validate_driver` that pins the vector
+    hook's contract: its API version, reserved name, and capability tokens. The vector hook validates
+    no ``preempts`` and promises no capability-gated method, so both default off.
+
+    Args:
+        driver: The loaded driver class to check (never constructed).
+
+    Returns:
+        A message naming the first problem found, or ``None`` when the driver is usable.
+    """
+    return validate_driver(
+        driver,
+        api_version=VECTOR_DRIVER_API_VERSION,
+        reserved_names=RESERVED_NAMES,
+        reserved_blurb="OGR reader",
+        capabilities=CAPABILITIES,
+    )
+
+
 def _load(entry_point: EntryPoint) -> type[VectorDriver] | None:
     """Load one driver class, or warn and give up.
 
@@ -217,13 +239,7 @@ def _load(entry_point: EntryPoint) -> type[VectorDriver] | None:
         loaded = entry_point.load()
         if extra_missing(getattr(loaded, "extra", None)):
             return None
-        problem = validate_driver(
-            loaded,
-            api_version=VECTOR_DRIVER_API_VERSION,
-            reserved_names=RESERVED_NAMES,
-            reserved_blurb="OGR reader",
-            capabilities=CAPABILITIES,
-        )
+        problem = _validate(loaded)
     except Exception as error:  # noqa: BLE001 - a plugin may fail in any way at all
         warnings.warn(
             f"Vector driver {entry_point.name!r} ({entry_point.value}) could not be loaded and "

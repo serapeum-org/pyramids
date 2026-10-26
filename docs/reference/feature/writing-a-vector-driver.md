@@ -116,6 +116,24 @@ vector_drivers()        # {name: driver class}, discovered once and cached
 describe_drivers()      # [{name, long_name, suffixes, schemes, capabilities}, ...]
 ```
 
+## Conformance kit
+
+Run the reusable kit against your driver class in your own test suite — it needs no pytest and
+checks the same contract discovery enforces, plus the behavioural promises (that `can_open` is a
+classmethod, returns a `bool`, and never raises; and that the driver builds with no arguments and
+exposes a callable `read`):
+
+```python
+from pyramids.feature.driver_conformance import assert_vector_driver_conforms
+from your_package.drivers import CityJSONDriver
+
+def test_driver_conforms():
+    assert_vector_driver_conforms(CityJSONDriver)
+```
+
+`check_vector_driver(CityJSONDriver)` returns the list of problems instead of raising, if you prefer
+to assert on it yourself.
+
 ## Compatibility
 
 `api_version` is bumped only on a breaking change to the driver contract. A driver declaring a
