@@ -64,7 +64,9 @@ class Mesh2d:
             face_y: Face-centre y-coordinates. Defaults to ``None``.
             edge_x: Edge-centre x-coordinates. Defaults to ``None``.
             edge_y: Edge-centre y-coordinates. Defaults to ``None``.
-            crs: Coordinate reference system (a ``pyproj.CRS``) or ``None``.
+            crs: Coordinate reference system (a ``pyproj.CRS``) or ``None``. Not validated
+                here, unlike the :attr:`crs` setter, which refuses anything else -- so a
+                string accepted at construction is a string the geo-properties cannot use.
 
         Raises:
             TypeError: A connectivity table's ``fill_value`` is neither an integer nor
@@ -73,13 +75,18 @@ class Mesh2d:
                 **and** occurs in it, so a padded row cannot be told from a real element.
 
         Note:
-            Every connectivity table is normalised on the way in: a fill value outside the
-            range the table indexes is rewritten to ``-1`` (and so is any other negative),
-            so the attributes may not hand back the objects you passed. A fill already
-            ``-1`` is returned untouched, which is what the built-in readers produce. Each
-            table is checked against **its own** range -- ``face_node`` and ``edge_node``
+            Every connectivity table is normalised on the way in: any fill value other than
+            ``-1`` is rewritten to it (and so is any other negative), so the attributes may
+            not hand back the objects you passed -- a bare index array is wrapped into a
+            :class:`Connectivity` too. Only a fill that is *also a valid index for that
+            table and occurs in it* is refused instead. A signed table whose fill is already
+            ``-1`` is returned untouched, which is what the built-in readers produce.
+
+            Each table is checked against **its own** range: ``face_node`` and ``edge_node``
             against the node count, ``face_edge`` against the edge count, ``face_face`` and
-            ``edge_face`` against the face count.
+            ``edge_face`` against the face count. Those counts are row counts
+            (:attr:`Connectivity.n_elements`), so a 1-D table is read as one element per
+            entry rather than one element in total.
         """
         self._node_x = np.asarray(node_x, dtype=np.float64)
         self._node_y = np.asarray(node_y, dtype=np.float64)

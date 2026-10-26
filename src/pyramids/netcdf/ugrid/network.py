@@ -174,10 +174,13 @@ class Network1d:
                 table, so a padded row cannot be told from a real edge.
 
         Note:
-            The edge table is normalised on the way in: a fill value outside
-            ``[0, n_node)`` is rewritten to ``-1`` (and so is any other negative), so
-            :attr:`edge_node_connectivity` may not be the object you passed. A fill already
-            ``-1`` is returned untouched, which is what both built-in constructors produce.
+            The edge table is normalised on the way in: any fill value other than ``-1``
+            is rewritten to it (and so is any other negative), so
+            :attr:`edge_node_connectivity` may not be the object you passed -- a bare index
+            array is wrapped into a :class:`Connectivity` too. Only a fill that is *also a
+            valid node index and occurs in the table* is refused instead, because padding
+            and data cannot then be told apart. A signed table whose fill is already ``-1``
+            is returned untouched, which is what both built-in constructors produce.
         """
         self._node_x = np.asarray(node_x, dtype=np.float64)
         self._node_y = np.asarray(node_y, dtype=np.float64)

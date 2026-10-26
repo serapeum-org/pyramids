@@ -257,6 +257,15 @@ def _normalised_connectivity(
         ) from error
 
     original = np.asarray(getattr(connectivity, "data", connectivity))
+    signed = np.issubdtype(original.dtype, np.signedinteger)
+    if not wrapped and fill == -1 and signed:
+        # The path every in-repo reader takes, and `Mesh2d` takes it up to five times per
+        # construction. A signed table whose fill is already -1 needs the array walked once,
+        # to rule out a stray negative, rather than twice for comparisons whose answers are
+        # then thrown away.
+        if not bool((original < -1).any()):
+            return connectivity
+
     is_padding = original == fill
     occurs = bool(is_padding.any())
     if fill >= 0 and occurs:
@@ -278,35 +287,25 @@ def _normalised_connectivity(
             )
 
     negative = original < 0
-    signed = np.issubdtype(original.dtype, np.signedinteger)
-    clean = (
-        not wrapped
-        and fill == -1
-        and signed
-        and not bool((negative & ~is_padding).any())
+    # A signed dtype throughout: `-1` is unrepresentable in an unsigned one, so preserving
+    # the caller's dtype would raise or wrap the sentinel onto a real index.
+    rewritten = original.astype(np.intp, copy=True)
+    rewritten[is_padding | negative] = -1
+    if index_count:
+        beyond = rewritten >= index_count
+        if bool(beyond.any()):
+            # `argwhere` gives one position per axis, so this works for a 1-D table as well
+            # as the usual 2-D one.
+            position = tuple(int(value) for value in np.argwhere(beyond)[0])
+            raise ValueError(
+                f"{label} names {addresses} {int(rewritten[position])} at {position}, "
+                f"which is outside [0, {index_count}). The table and the {topology}'s own "
+                f"{addresses} count disagree."
+            )
+    result = Connectivity(
+        data=rewritten,
+        fill_value=-1,
+        cf_role=getattr(connectivity, "cf_role", label),
+        original_start_index=getattr(connectivity, "original_start_index", 0),
     )
-    if clean:
-        result = connectivity
-    else:
-        # A signed dtype throughout: `-1` is unrepresentable in an unsigned one, so
-        # preserving the caller's dtype would raise or wrap the sentinel onto a real index.
-        rewritten = original.astype(np.intp, copy=True)
-        rewritten[is_padding | negative] = -1
-        if index_count:
-            beyond = rewritten >= index_count
-            if bool(beyond.any()):
-                # `argwhere` gives one position per axis, so this works for a 1-D table as
-                # well as the usual 2-D one.
-                position = tuple(int(value) for value in np.argwhere(beyond)[0])
-                raise ValueError(
-                    f"{label} names {addresses} {int(rewritten[position])} at "
-                    f"{position}, which is outside [0, {index_count}). The table and the "
-                    f"{topology}'s own {addresses} count disagree."
-                )
-        result = Connectivity(
-            data=rewritten,
-            fill_value=-1,
-            cf_role=getattr(connectivity, "cf_role", label),
-            original_start_index=getattr(connectivity, "original_start_index", 0),
-        )
     return result

@@ -739,6 +739,12 @@ class TestAmbiguousFillValue:
         assert "valid node index" in message, (
             f"the message must say why the fill is the problem, got: {message}"
         )
+        assert "in this network" in message, (
+            f"a Network1d refusal must not call itself a mesh, got: {message}"
+        )
+        assert "mesh" not in message, (
+            f"the noun comes from the caller, so no 'mesh' here, got: {message}"
+        )
         assert "negative fill value" in message, (
             f"the message must name a fill that works, got: {message}"
         )

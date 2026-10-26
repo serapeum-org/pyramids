@@ -178,9 +178,6 @@ class TestDtypeAndFillType:
             65535 are the canonical fills for an unsigned table, and the UGRID guidance
             ("larger than the number of nodes") pushes writers towards such sentinels.
         """
-        table = _conn(
-            [[0, 1, 2], [1, 3, fill_value]], fill_value, "face_node_connectivity"
-        )
         table = Connectivity(
             data=np.array([[0, 1, 2], [1, 3, fill_value]], dtype=dtype),
             fill_value=fill_value,
