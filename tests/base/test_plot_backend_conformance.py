@@ -68,6 +68,28 @@ class TestConforms:
         monkeypatch.setattr(module.inspect, "signature", no_signature)
         assert check_plot_backend(_good) == []
 
+    def test_callable_instance_conforms(self) -> None:
+        """An instance whose ``__call__`` has the shape conforms (signature reads ``__call__``)."""
+
+        class Renderer:
+            def __call__(self, obj: Any, *, backend: str, **kwargs: Any) -> Any:
+                return obj, backend, kwargs
+
+        assert check_plot_backend(Renderer()) == []
+
+    def test_positional_only_obj_conforms(self) -> None:
+        """A positional-only ``obj`` conforms — the seam passes ``obj`` positionally."""
+
+        def render(obj: Any, /, *, backend: str, **kwargs: Any) -> Any:
+            return obj, backend
+
+        assert check_plot_backend(render) == []
+
+    def test_nested_partial_conforms(self) -> None:
+        """A doubly-wrapped ``partial`` still introspects to the right shape."""
+        inner = partial(_adapter, lambda obj, *, backend, **kw: obj)
+        assert check_plot_backend(partial(inner)) == []
+
 
 class TestDoesNotConform:
     """Objects the kit rejects, with a problem per reason."""
@@ -96,6 +118,23 @@ class TestDoesNotConform:
             return first, obj, backend
 
         assert check_plot_backend(needs_two) != []
+
+    def test_keyword_only_obj_is_rejected(self) -> None:
+        """A keyword-only ``obj`` cannot be filled — the seam passes ``obj`` positionally."""
+
+        def render(*, obj: Any, backend: str, **kwargs: Any) -> Any:
+            return obj, backend
+
+        assert check_plot_backend(render) != []
+
+    def test_callable_instance_without_var_kwargs_is_rejected(self) -> None:
+        """An instance whose ``__call__`` lacks ``**kwargs`` cannot take forwarded arguments."""
+
+        class Rigid:
+            def __call__(self, obj: Any, *, backend: str) -> Any:
+                return obj, backend
+
+        assert check_plot_backend(Rigid()) != []
 
     def test_assert_raises_with_reason(self) -> None:
         """``assert_plot_backend_conforms`` raises ``AssertionError`` naming the problem."""
