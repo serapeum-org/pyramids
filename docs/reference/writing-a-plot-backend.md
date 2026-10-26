@@ -4,8 +4,9 @@ pyramids draws through matplotlib (via [cleopatra](basemap.md)). A richer render
 map, a 3-D scene, a web map — is a **plot backend**: a separate distribution that registers a render
 callable into the `pyramids.plot_backends` entry-point group. `plot(backend="…")` then routes the
 object into that backend with no dependency coupling: pyramids declares no dependency on any
-renderer and imports nothing extra on a bare install (it imports a registered backend only when a
-call asks for it), so an install with no backends plots through matplotlib exactly as before.
+renderer and imports nothing extra on a bare install (the first non-matplotlib plot call runs
+discovery once, which loads every registered backend's entry point and caches the result), so an
+install with no backends plots through matplotlib exactly as before.
 
 It is the renderer sibling of the [raster driver hook](dataset/writing-a-raster-driver.md), with one
 difference of direction: a driver is a **source** (it reads a file into a pyramids object), while a
