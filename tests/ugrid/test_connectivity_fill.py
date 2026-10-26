@@ -484,6 +484,27 @@ class TestDtypeInvariantHolds:
         mesh = Mesh2d(NODE_X, NODE_Y, _faces(), clean)
         assert mesh.edge_node_connectivity is clean
 
+    def test_a_minus_one_table_with_a_stray_negative_is_still_rewritten(self):
+        """The fast path must not wave through a negative that is not the fill (M1, L5).
+
+        Test scenario:
+            The fast path returns the caller's object untouched for a signed table whose
+            fill is already -1, which is what every in-repo reader produces. It has to check
+            for a stray negative first: a -5 left in place addresses an element from the
+            wrong end exactly as silently as the fill does, and `nodes_per_element()` would
+            count it as real.
+        """
+        stray = _conn([[0, 1, 2], [1, 3, -5]], -1, "face_node_connectivity")
+
+        mesh = Mesh2d(NODE_X, NODE_Y, stray)
+
+        stored = mesh.face_node_connectivity
+        assert stored is not stray, "a stray negative must not take the fast path"
+        np.testing.assert_array_equal(
+            np.asarray(stored.data), np.array([[0, 1, 2], [1, 3, -1]])
+        )
+        assert stored.nodes_per_element().tolist() == [3, 2]
+
 
 class TestSurvivingIndicesAreChecked:
     """A table disagreeing with its coordinates is reported, not half-rewritten (M3)."""
