@@ -252,6 +252,34 @@ def resolve_plot_backend(name: str) -> Callable[..., Any]:
     Raises:
         OptionalPackageDoesNotExist: No backend named ``name`` is registered and digitalearth is not
             installed (or is too old).
+
+    Examples:
+        - Resolve a backend registered in the cache and call it:
+            ```python
+            >>> from pyramids.base import _plot_backends
+            >>> _plot_backends._CACHE = {"demo": lambda obj, *, backend, **kw: backend.upper()}
+            >>> render = _plot_backends.resolve_plot_backend("demo")
+            >>> render("anything", backend="demo")
+            'DEMO'
+            >>> _plot_backends.clear_plot_backend_cache()
+
+            ```
+        - An unknown backend with no renderer installed names the backend and the extra to install
+          (the fallback is forced off here so the example does not depend on the environment):
+            ```python
+            >>> from pyramids.base import _plot_backends
+            >>> _plot_backends._CACHE = {}
+            >>> _restore = _plot_backends.extra_missing
+            >>> _plot_backends.extra_missing = lambda name: True
+            >>> try:
+            ...     _plot_backends.resolve_plot_backend("web")
+            ... except Exception as exc:
+            ...     print(type(exc).__name__, "web" in str(exc), "digitalearth[web]" in str(exc))
+            OptionalPackageDoesNotExist True True
+            >>> _plot_backends.extra_missing = _restore
+            >>> _plot_backends.clear_plot_backend_cache()
+
+            ```
     """
     registered = plot_backends()
     backend = registered.get(name) or _digitalearth_backend()
@@ -277,6 +305,18 @@ def render_via_backend(obj: Any, backend: str, /, **forward: Any) -> Any:
     Returns:
         Whatever the backend returns — its native object (e.g. a digitalearth ``Scene3D`` /
         ``WebMap`` / interactive map).
+
+    Examples:
+        - Render through a backend registered in the cache; the backend receives ``obj``,
+          the ``backend`` name and the forwarded kwargs:
+            ```python
+            >>> from pyramids.base import _plot_backends
+            >>> _plot_backends._CACHE = {"demo": lambda obj, *, backend, **kw: (obj, backend, kw)}
+            >>> _plot_backends.render_via_backend("grid", "demo", title="DEM", basemap=True)
+            ('grid', 'demo', {'title': 'DEM', 'basemap': True})
+            >>> _plot_backends.clear_plot_backend_cache()
+
+            ```
     """
     render = resolve_plot_backend(backend)
     return render(obj, backend=backend, **forward)
@@ -297,6 +337,25 @@ def reject_mpl_only_params(backend: str, **named: Any) -> None:
 
     Raises:
         ValueError: Any named value is not ``None`` (so it was explicitly set).
+
+    Examples:
+        - All-``None`` candidates pass silently (nothing was set), returning ``None``:
+            ```python
+            >>> from pyramids.base._plot_backends import reject_mpl_only_params
+            >>> reject_mpl_only_params("web", color=None, contour=None) is None
+            True
+
+            ```
+        - A set matplotlib-only parameter names itself and the offending backend:
+            ```python
+            >>> from pyramids.base._plot_backends import reject_mpl_only_params
+            >>> try:
+            ...     reject_mpl_only_params("web", color="power-norm", contour=None)
+            ... except ValueError as exc:
+            ...     print("['color']" in str(exc), "backend='web'" in str(exc))
+            True True
+
+            ```
     """
     offending = sorted(name for name, value in named.items() if value is not None)
     if offending:
