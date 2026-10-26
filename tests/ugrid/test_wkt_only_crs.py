@@ -257,7 +257,8 @@ class TestToCrsTargetAcceptsAnyInput:
         result = wgs84_mesh.to_crs("+proj=robin")
 
         assert result.epsg is None, "Robinson has no EPSG code"
-        assert result.crs is not None and result.crs.is_projected
+        assert result.crs is not None, "the result must carry a CRS"
+        assert result.crs.is_projected, "Robinson is a projected CRS"
 
     def test_a_wkt_target_reprojects(self, wgs84_mesh: UgridDataset):
         """A WKT target used to become `EPSG:PROJCRS[...]`."""
