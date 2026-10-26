@@ -161,6 +161,7 @@ nav:
           - Georeferencing (GCPs & RPCs): tutorials/georeferencing.md
           - DatasetCollection basics: tutorials/datacube-basics.md
           - Dataset basics: examples/dataset/dataset.ipynb
+          - Plotting gallery: examples/dataset/plotting-gallery.ipynb
           - Spatial operations: examples/dataset/spatial-operation-methods.ipynb
           - Convert longitude: examples/dataset/convert-longitude.ipynb
           - DatasetCollection (guide): tutorials/dataset_collection.md
@@ -193,6 +194,7 @@ nav:
           - Basemap example: examples/basemap/basemap-example.ipynb
       - NetCDF:
           - Plotting NetCDF data: tutorials/netcdf-plotting.md
+          - Plotting gallery: examples/netcdf/plotting-gallery.ipynb
           - Editing dimensions & variables (rename, restamp, drop, update): examples/netcdf/editing-dimensions-and-variables.ipynb
           - Broadcasting & coordinate roles (broadcast_like, set_coords): examples/netcdf/broadcasting-and-coordinate-roles.ipynb
           - Calculus & calendars (differentiate, integrate, polyfit): examples/netcdf/calculus-and-calendars.ipynb
@@ -201,6 +203,7 @@ nav:
           - Dask — NetCDF (complete cookbook): examples/netcdf/lazy-netcdf-complete.ipynb
           - UGRID:
               - Mesh exploration: examples/netcdf/ugrid/ugrid-mesh-exploration.ipynb
+              - Plotting gallery: examples/netcdf/ugrid/plotting-gallery.ipynb
               - River channel: examples/netcdf/ugrid/ugrid-river-channel.ipynb
               - 3-D results (masks & ragged layers): examples/netcdf/ugrid/ugrid-3d-results.ipynb
               - Dask (mesh → raster bridge): examples/netcdf/ugrid/dask-lazy-ugrid.ipynb
