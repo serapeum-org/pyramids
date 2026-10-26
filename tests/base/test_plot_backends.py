@@ -133,7 +133,8 @@ def test_non_callable_entry_point_is_skipped(publish_backends: Any) -> None:
     """An entry point that loads a non-callable is skipped with a ``RuntimeWarning``."""
     publish_backends(("web", "not-callable"))
     with pytest.warns(RuntimeWarning, match="not callable"):
-        assert plot_backends() == {}
+        registry = plot_backends()
+    assert registry == {}
 
 
 def test_load_skips_entry_point_that_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -147,17 +148,17 @@ def test_load_skips_entry_point_that_raises(monkeypatch: pytest.MonkeyPatch) -> 
             raise RuntimeError("kaboom")
 
     with pytest.warns(RuntimeWarning, match="could not be loaded"):
-        assert _plot_backends._load(_Boom()) is None
+        loaded = _plot_backends._load(_Boom())
+    assert loaded is None
 
 
-def test_reentrant_discovery_returns_partial_mapping() -> None:
+def test_reentrant_discovery_returns_partial_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A thread inside discovery sees the backends resolved so far, not a second discovery."""
     partial = {"web": _Recorder()}
-    _plot_backends._IN_PROGRESS.resolved = partial
-    try:
-        result = plot_backends()
-    finally:
-        _plot_backends._IN_PROGRESS.resolved = None
+    monkeypatch.setattr(_plot_backends._IN_PROGRESS, "resolved", partial, raising=False)
+    result = plot_backends()
     assert result == partial
     assert (
         result is not partial
@@ -396,8 +397,9 @@ def test_netcdf_plot_rejects_facet_on_backend(monkeypatch: pytest.MonkeyPatch) -
     recorder = _Recorder()
     monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
     netcdf = _netcdf_container()
+    facet = FacetSpec(col="time")
     with pytest.raises(ValueError, match="only apply to backend='matplotlib'"):
-        netcdf.plot(variable="t2m", backend="web", facet=FacetSpec(col="time"))
+        netcdf.plot(variable="t2m", backend="web", facet=facet)
     assert recorder.backend is None  # never dispatched
 
 
