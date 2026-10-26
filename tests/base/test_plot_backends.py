@@ -562,11 +562,11 @@ def test_collection_plot_routes_with_animate_flag(
     recorder = _Recorder()
     monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
     collection = _single_dataset_collection()
-    collection.plot(backend="web", band=0, animation_axis_values=["t0"])
+    collection.plot(backend="web", band=1, animation_axis_values=["t0"])
     assert recorder.obj is collection
     assert recorder.backend == "web"
     assert recorder.kwargs["animate"] is True
-    assert recorder.kwargs["band"] == 0
+    assert recorder.kwargs["band"] == 1
     assert recorder.kwargs["animation_axis_values"] == ["t0"]
 
 
@@ -590,6 +590,22 @@ def test_collection_animate_forwards_backend(monkeypatch: pytest.MonkeyPatch) ->
     collection.animate(backend="web")
     assert recorder.backend == "web"
     assert recorder.kwargs["animate"] is True
+
+
+def test_backend_forward_drops_non_none_signature_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A facade's non-``None`` default (band=0, interval=200) is dropped, not forced on the backend."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    _single_dataset_collection().plot(backend="web")
+    assert "band" not in recorder.kwargs
+    recorder.backend = None
+    _single_band_dataset().animate(backend="web")
+    assert "interval" not in recorder.kwargs
+    recorder.backend = None
+    _ugrid_dataset().animate("depth", backend="web")
+    assert "interval" not in recorder.kwargs
 
 
 def test_facade_forwards_bool_colorbar_but_rejects_colorbar_instance(

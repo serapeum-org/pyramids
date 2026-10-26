@@ -1388,7 +1388,9 @@ class Dataset(RasterBase):
                 animation_axis_values=animation_axis_values,
                 exclude_value=exclude_value,
                 basemap=basemap,
-                interval=interval,
+                # interval defaults to 200 ms; forward it only when the user changed it, so a
+                # backend keeps its own default frame interval.
+                interval=None if interval == 200 else interval,
             )
             return render_via_backend(
                 self, backend, animate=True, **forwarded, **kwargs

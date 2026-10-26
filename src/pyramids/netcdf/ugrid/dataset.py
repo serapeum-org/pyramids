@@ -6003,7 +6003,12 @@ class UgridDataset(_UgridFacades):
                 ```
         """
         if backend != "matplotlib":
-            forwarded = forward_kwargs(variable_name=variable_name, interval=interval)
+            # interval defaults to 200 ms; forward it only when the user changed it, so a backend
+            # keeps its own default frame interval.
+            forwarded = forward_kwargs(
+                variable_name=variable_name,
+                interval=None if interval == 200 else interval,
+            )
             return render_via_backend(
                 self, backend, animate=True, **forwarded, **kwargs
             )

@@ -3679,7 +3679,9 @@ class DatasetCollection:
                 colorbar=colorbar if is_colorbar_spec(colorbar) else None,
             )
             forwarded = forward_kwargs(
-                band=band,
+                # band defaults to 0; forward it only when the user changed it, so a backend keeps
+                # its own default band rather than always being pinned to 0.
+                band=None if band == 0 else band,
                 exclude_value=exclude_value,
                 rgb_options=rgb_options,
                 basemap=basemap,

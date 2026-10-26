@@ -34,16 +34,16 @@ show*, with `None`-valued and default ones dropped:
 
 - **`Dataset.plot`** — `band`, `exclude_value`, `rgb_options`, `basemap`, a bool `colorbar`, `title`, a
   non-default `kind`.
-- **`Dataset.animate`** — `bands`, `animation_axis_values`, `exclude_value`, `basemap`, `interval`, and
-  `animate=True`.
+- **`Dataset.animate`** — `bands`, `animation_axis_values`, `exclude_value`, `basemap`, a non-default `interval`,
+  and `animate=True`.
 - **`NetCDF.plot`** — `variable`, `selectors`, `axes`, `exclude_value`, `basemap`, a bool `colorbar`, `title`, a
   non-default `kind`, `animate`.
 - **`FeatureCollection.plot`** — `column`, `basemap`, a bool `colorbar`, `title`, a non-default `kind`.
-- **`DatasetCollection.plot` / `.animate`** — `band`, `exclude_value`, `rgb_options`, `basemap`, a bool
-  `colorbar`, `animation_axis_values`, and `animate=True`.
+- **`DatasetCollection.plot` / `.animate`** — a non-default `band`, `exclude_value`, `rgb_options`, `basemap`, a
+  bool `colorbar`, `animation_axis_values`, and `animate=True`.
 - **`UgridDataset.plot`** — `variable_name`, a non-default `cmap`, `title`, `basemap`, a bool `colorbar`, a
   non-default `kind`.
-- **`UgridDataset.animate`** — `variable_name`, `interval`, and `animate=True`.
+- **`UgridDataset.animate`** — `variable_name`, a non-default `interval`, and `animate=True`.
 
 Any further keyword you pass is forwarded too. Arguments that only mean something on the matplotlib read/render
 path are instead **rejected** with a `ValueError`, so a silently-ignored argument is never mistaken for an applied
