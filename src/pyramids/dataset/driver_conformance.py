@@ -9,6 +9,9 @@ silently skipped at runtime), plus the behavioural promises that static validati
 an instance), returns a ``bool``, and never raises on a hostile input; and the driver builds with
 no arguments (as :meth:`Dataset.read_file` dispatches it) and exposes a callable ``read``.
 
+The checks themselves live in :mod:`pyramids.base._driver_discovery` and are shared with the vector
+conformance kit; this module binds them to the raster hook's static validator.
+
 Usage in a plugin's tests::
 
     from pyramids.dataset.driver_conformance import assert_raster_driver_conforms
@@ -22,13 +25,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from pyramids.base._driver_discovery import assert_driver_conforms, check_driver
 from pyramids.dataset._drivers import _validate
 
 __all__ = ["check_raster_driver", "assert_raster_driver_conforms"]
-
-#: Hostile inputs ``can_open`` must survive without raising — an empty string, an unknown path, a
-#: non-string, and ``None`` all have to answer ``False`` (or at least a ``bool``), never raise.
-_PROBES: tuple[Any, ...] = ("", "no-such-source-xyz", 123, None)
 
 
 def check_raster_driver(driver: Any) -> list[str]:
@@ -71,70 +71,7 @@ def check_raster_driver(driver: Any) -> list[str]:
 
             ```
     """
-    problems: list[str] = []
-    static_problem = _validate(driver)
-    if static_problem is not None:
-        problems.append(static_problem)
-
-    can_open = getattr(driver, "can_open", None)
-    if callable(can_open):
-        problems.extend(_check_can_open(can_open))
-    problems.extend(_check_constructible(driver))
-    return problems
-
-
-def _check_constructible(driver: Any) -> list[str]:
-    """Check the driver builds with no arguments and the instance has a callable ``read``.
-
-    `Dataset.read_file` dispatches via ``driver_class()``, so a driver whose ``__init__`` needs an
-    argument conforms statically yet raises ``TypeError`` at read time; the kit catches that here.
-
-    Args:
-        driver: The driver class to construct.
-
-    Returns:
-        A list with at most one problem: the class is not no-arg constructible, or its instance
-        has no callable ``read``.
-    """
-    problems: list[str] = []
-    try:
-        instance = driver()
-    except Exception as error:  # noqa: BLE001 - a driver __init__ may fail in any way
-        problems.append(
-            f"cannot be constructed with no arguments: {error!r}; Dataset.read_file dispatches "
-            f"via driver_class()"
-        )
-    else:
-        if not callable(getattr(instance, "read", None)):
-            problems.append("the constructed driver has no callable read()")
-    return problems
-
-
-def _check_can_open(can_open: Any) -> list[str]:
-    """Probe ``can_open`` with hostile inputs; it must return a ``bool`` and never raise.
-
-    Args:
-        can_open: The driver class's ``can_open`` classmethod.
-
-    Returns:
-        A list with at most one problem (the first probe that misbehaves).
-    """
-    problems: list[str] = []
-    for probe in _PROBES:
-        try:
-            result = can_open(probe)
-        except Exception as error:  # noqa: BLE001 - the whole point is that it must not raise
-            problems.append(
-                f"can_open({probe!r}) raised {error!r}; can_open must never raise, it must "
-                f"answer False for anything it does not recognise"
-            )
-            break
-        if not isinstance(result, bool):
-            problems.append(
-                f"can_open({probe!r}) returned {result!r}; can_open must return a bool"
-            )
-            break
-    return problems
+    return check_driver(driver, validate=_validate)
 
 
 def assert_raster_driver_conforms(driver: Any) -> None:
@@ -161,9 +98,4 @@ def assert_raster_driver_conforms(driver: Any) -> None:
 
             ```
     """
-    problems = check_raster_driver(driver)
-    if problems:
-        raise AssertionError(
-            "raster driver does not conform to pyramids.raster_drivers:\n- "
-            + "\n- ".join(problems)
-        )
+    assert_driver_conforms(driver, validate=_validate, kind="raster")

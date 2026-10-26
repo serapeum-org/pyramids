@@ -39,6 +39,10 @@ from pyramids.feature._drivers import (
     select_driver,
     vector_drivers,
 )
+from pyramids.feature.driver_conformance import (
+    assert_vector_driver_conforms,
+    check_vector_driver,
+)
 from tests._driver_discovery_fixtures import make_publish_entry_points, make_register
 
 pytestmark = pytest.mark.core
@@ -760,3 +764,64 @@ class TestMalformedDeclaredTokens:
         assert select_driver("roads.shp") is None, (
             "a missing suffixes attr must be tolerated"
         )
+
+
+class TestConformanceKit:
+    """The reusable conformance kit a downstream vector plugin runs against its driver."""
+
+    def test_a_conforming_driver_has_no_problems(self):
+        """A well-formed class passes both the static and behavioural checks."""
+        assert check_vector_driver(GoodDriver) == [], "GoodDriver should conform"
+        assert_vector_driver_conforms(GoodDriver)
+
+    def test_a_static_violation_is_reported_first(self):
+        """A contract violation surfaces as the first listed problem and raises on assert."""
+
+        class Bad(GoodDriver):
+            capabilities = frozenset()
+
+        assert "required 'read'" in check_vector_driver(Bad)[0], "static problem first"
+        with pytest.raises(AssertionError, match="does not conform"):
+            assert_vector_driver_conforms(Bad)
+
+    def test_a_can_open_that_raises_is_reported(self):
+        """can_open must never raise; a kit probe catches one that does."""
+
+        class Raises(GoodDriver):
+            @classmethod
+            def can_open(cls, source):
+                raise ValueError("no")
+
+        problems = check_vector_driver(Raises)
+        assert any("must never raise" in problem for problem in problems), problems
+
+    def test_a_driver_needing_constructor_args_is_reported(self):
+        """A driver read_file cannot build with no arguments is caught by the kit."""
+
+        class NeedsArg(GoodDriver):
+            def __init__(self, required):
+                self.required = required
+
+        problems = check_vector_driver(NeedsArg)
+        assert any("no arguments" in problem for problem in problems), problems
+
+    def test_an_instance_shadowing_read_with_a_non_callable_is_reported(self):
+        """A driver whose instance shadows read with a non-callable is caught."""
+
+        class ShadowsRead(GoodDriver):
+            def __init__(self):
+                self.read = "not callable"
+
+        problems = check_vector_driver(ShadowsRead)
+        assert any("no callable read" in problem for problem in problems), problems
+
+    def test_a_non_bool_can_open_is_reported(self):
+        """can_open must return a bool; a kit probe catches a truthy non-bool."""
+
+        class Truthy(GoodDriver):
+            @classmethod
+            def can_open(cls, source):
+                return "yes"
+
+        problems = check_vector_driver(Truthy)
+        assert any("must return a bool" in problem for problem in problems), problems
