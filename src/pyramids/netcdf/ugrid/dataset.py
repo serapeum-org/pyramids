@@ -1288,12 +1288,19 @@ class UgridDataset(_UgridFacades):
             edge_y=new_edge_y,
         )
 
-        # From the same target the transform used, via `sr_from_user_input` rather than
-        # `sr_from_epsg`: the latter is the second place the target had to be a bare integer
-        # (`ImportFromEPSG(int(to_epsg))`), so fixing only the transformer above would move
-        # the failure here. `ExportToWkt` keeps the stored WKT in the osr form the rest of
-        # the class already produces.
-        srs = sr_from_user_input(to_epsg)
+        # The stored WKT comes from the resolved target. When that target carries an EPSG
+        # code -- which now includes an "EPSG:3857" string or a WKT input, not only a bare
+        # integer -- `sr_from_epsg` gives GDAL's full authority WKT, byte-for-byte what this
+        # method produced before #1404 on every target that already worked (the child
+        # datum / spheroid / primem AUTHORITY nodes a WKT2->WKT1 round-trip would drop). A
+        # code-less CRS (Robinson, a PROJ4 string) has no EPSG to feed `sr_from_epsg`, so its
+        # WKT comes from the resolved CRS via `sr_from_user_input` -- the capability #1404
+        # adds, used only where there is no code to preserve.
+        target_epsg = target_crs.to_epsg()
+        if target_epsg is not None:
+            srs = sr_from_epsg(target_epsg)
+        else:
+            srs = sr_from_user_input(to_epsg)
         new_crs_wkt = srs.ExportToWkt()
 
         new_topo_info = None

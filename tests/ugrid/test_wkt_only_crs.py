@@ -14,6 +14,7 @@ import pytest
 from pyproj import CRS
 
 from pyramids.base._errors import CRSError
+from pyramids.base.crs import sr_from_epsg
 from pyramids.netcdf.ugrid.dataset import UgridDataset
 from pyramids.netcdf.ugrid.models import MeshVariable
 
@@ -281,6 +282,28 @@ class TestToCrsTargetAcceptsAnyInput:
             "the projected WKT must survive on the result"
         )
         assert "Robinson" in result.crs.name
+
+    def test_an_epsg_target_keeps_the_full_authority_wkt(
+        self, wgs84_mesh: UgridDataset
+    ):
+        """The stored WKT for a coded target is unchanged from before #1404 (L1).
+
+        Test scenario:
+            Unifying both call sites on `sr_from_user_input` would have round-tripped the
+            result WKT through WKT2 and dropped the child datum/spheroid/primem `AUTHORITY`
+            nodes -- a silent representation change on `to_crs(4326)`, a path that was never
+            broken. The stored WKT must stay byte-for-byte GDAL's authority WKT, and the new
+            string form must get the same rich WKT the bare int always did.
+        """
+        from_int = wgs84_mesh.to_crs(4326)
+        assert from_int.crs_wkt == sr_from_epsg(4326).ExportToWkt(), (
+            "the int path's stored WKT changed from the historical sr_from_epsg output"
+        )
+
+        from_string = wgs84_mesh.to_crs("EPSG:3857")
+        assert from_string.crs_wkt == sr_from_epsg(3857).ExportToWkt(), (
+            "a coded string target must get the same full WKT as the bare int"
+        )
 
     def test_an_uninterpretable_target_is_refused_without_a_doubled_prefix(
         self, wgs84_mesh: UgridDataset
