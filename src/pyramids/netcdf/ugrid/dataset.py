@@ -1194,6 +1194,42 @@ class UgridDataset(_UgridFacades):
             ValueError: The mesh declares neither an EPSG code nor a WKT, so there is no
                 source CRS to reproject from.
             pyramids.base._errors.CRSError: The target CRS cannot be interpreted.
+
+        Examples:
+            - Reproject to an authority string, which used to be rejected (#1404):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> mesh = UgridDataset.from_arrays(
+                ...     node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+                ...     node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+                ...     face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+                ... )
+                >>> mesh.set_crs(epsg=4326)
+                >>> mesh.to_crs("EPSG:3857").epsg
+                3857
+                >>> mesh.to_crs(3857).epsg
+                3857
+
+                ```
+            - Reproject to a CRS that has no EPSG code (Robinson); the result keeps its WKT
+                and reports `epsg` as `None`:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> mesh = UgridDataset.from_arrays(
+                ...     node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+                ...     node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+                ...     face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+                ... )
+                >>> mesh.set_crs(epsg=4326)
+                >>> robinson = mesh.to_crs("ESRI:54030")
+                >>> robinson.epsg is None
+                True
+                >>> robinson.crs.name
+                'World_Robinson'
+
+                ```
         """
         # The mesh may describe its CRS by WKT alone, with no EPSG code to
         # resolve; `crs_spec` returns whichever of the two is usable, so a
