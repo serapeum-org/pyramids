@@ -3454,6 +3454,69 @@ class DatasetCollection:
         """
         return self.plot(*args, **kwargs)
 
+    def _render_animation_backend(
+        self,
+        backend: str,
+        *,
+        band: int,
+        exclude_value: Any,
+        rgb_options: dict | None,
+        basemap: Any,
+        colorbar: Any,
+        points: Any,
+        color: Any,
+        contour: Any,
+        cells: Any,
+        data_style: Any,
+        frame_label: Any,
+        animation_axis_values: Any,
+        extra: Any,
+    ) -> Any:
+        """Render the collection animation through a non-matplotlib plot backend.
+
+        Hoisted out of :meth:`plot` so the facade stays within the cognitive-complexity budget.
+        Rejects the matplotlib-only render groups, forwards the backend-agnostic data-selection
+        arguments (dropping unset and default values), and dispatches with ``animate=True``.
+
+        Args:
+            backend: The non-matplotlib backend name (already known to be non-``"matplotlib"``).
+            band: The band to render; forwarded only when changed from its ``0`` default.
+            exclude_value: No-data value to mask, forwarded when set.
+            rgb_options: Grouped true-colour options, forwarded when set.
+            basemap: Reference-layer spec, forwarded when set.
+            colorbar: ``bool`` forwarded as-is; a ``ColorBar`` instance is rejected.
+            points: Raster-index point overlay — rejected (matplotlib-only).
+            color: Colour-scale spec — rejected (matplotlib-only).
+            contour: Contour spec — rejected (matplotlib-only).
+            cells: Per-cell annotation spec — rejected (matplotlib-only).
+            data_style: Relief/hillshade spec — rejected (matplotlib-only).
+            frame_label: Animation caption spec — rejected (matplotlib-only).
+            animation_axis_values: Per-frame labels, forwarded when set.
+            extra: The caller's remaining ``**kwargs``, forwarded verbatim.
+
+        Returns:
+            The backend's own object (e.g. a digitalearth web/3-D animation).
+        """
+        reject_mpl_only_params(
+            backend,
+            color=color,
+            contour=contour,
+            cells=cells,
+            data_style=data_style,
+            points=points,
+            frame_label=frame_label,
+            colorbar=colorbar if is_colorbar_spec(colorbar) else None,
+        )
+        forwarded = forward_kwargs(
+            band=None if band == 0 else band,
+            exclude_value=exclude_value,
+            rgb_options=rgb_options,
+            basemap=basemap,
+            colorbar=None if is_colorbar_spec(colorbar) else colorbar,
+            animation_axis_values=animation_axis_values,
+        )
+        return render_via_backend(self, backend, animate=True, **forwarded, **extra)
+
     def plot(
         self,
         band: int = 0,
@@ -3668,30 +3731,23 @@ class DatasetCollection:
                 "plot: cannot render an empty collection (time_length == 0)."
             )
         if backend != "matplotlib":
-            reject_mpl_only_params(
+            # A non-matplotlib backend returns its own object, not an ArrayGlyph; the annotation
+            # documents the default (matplotlib) contract.
+            return self._render_animation_backend(  # type: ignore[no-any-return]
                 backend,
+                band=band,
+                exclude_value=exclude_value,
+                rgb_options=rgb_options,
+                basemap=basemap,
+                colorbar=colorbar,
+                points=points,
                 color=color,
                 contour=contour,
                 cells=cells,
                 data_style=data_style,
-                points=points,
                 frame_label=frame_label,
-                colorbar=colorbar if is_colorbar_spec(colorbar) else None,
-            )
-            forwarded = forward_kwargs(
-                # band defaults to 0; forward it only when the user changed it, so a backend keeps
-                # its own default band rather than always being pinned to 0.
-                band=None if band == 0 else band,
-                exclude_value=exclude_value,
-                rgb_options=rgb_options,
-                basemap=basemap,
-                colorbar=None if is_colorbar_spec(colorbar) else colorbar,
                 animation_axis_values=animation_axis_values,
-            )
-            # A non-matplotlib backend returns its own object, not an ArrayGlyph; the annotation
-            # documents the default (matplotlib) contract.
-            return render_via_backend(  # type: ignore[no-any-return]
-                self, backend, animate=True, **forwarded, **kwargs
+                extra=kwargs,
             )
         # Unpack the grouped ``rgb_options`` exactly as ``Dataset.plot`` does, so both
         # facades share one RGB-parameter contract.
