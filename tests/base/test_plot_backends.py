@@ -340,6 +340,26 @@ def test_dataset_plot_rejects_matplotlib_only_param(
     assert recorder.backend is None  # never dispatched
 
 
+def test_dataset_plot_rejects_overview_on_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``overview`` is a matplotlib read directive, rejected rather than silently dropped."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    dataset = _single_band_dataset()
+    with pytest.raises(ValueError, match="only apply to backend='matplotlib'"):
+        dataset.plot(backend="web", overview=True, overview_index=2)
+    assert recorder.backend is None
+
+
+def test_dataset_plot_default_overview_is_not_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ``overview=False`` / ``overview_index=0`` defaults do not trip the guard."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    dataset = _single_band_dataset()
+    dataset.plot(backend="web", title="t")
+    assert recorder.backend == "web"
+    assert "overview" not in recorder.kwargs
+
+
 def test_dataset_animate_routes_with_animate_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

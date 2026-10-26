@@ -1500,9 +1500,10 @@ class Dataset(RasterBase):
                 Renderer backend. ``"matplotlib"`` (default) draws through cleopatra and
                 returns an ``ArrayGlyph``. Any other name (e.g. ``"interactive"`` / ``"3d"`` /
                 ``"web"``) is routed to a registered ``pyramids.plot_backends`` plugin — in
-                practice ``digitalearth`` — and returns that backend's own object. The
-                matplotlib-only params (``color`` / ``contour`` / ``cells`` / ``data_style`` /
-                ``points`` and a ``ColorBar`` instance) then raise a :class:`ValueError` if set,
+                practice ``digitalearth`` — and returns that backend's own object. The params
+                that only apply to the matplotlib read/render path (``overview`` /
+                ``overview_index`` and the ``color`` / ``contour`` / ``cells`` / ``data_style`` /
+                ``points`` / ``ColorBar`` render groups) then raise a :class:`ValueError` if set,
                 and ``fig`` / ``ax`` do not apply. Requires the backend's package installed.
             fig (matplotlib.figure.Figure, optional):
                 Draw into this figure instead of creating one. Pass it alongside ``ax``;
@@ -1601,6 +1602,8 @@ class Dataset(RasterBase):
                 cells=cells,
                 data_style=data_style,
                 points=points,
+                overview=overview or None,
+                overview_index=overview_index or None,
                 colorbar=colorbar if is_colorbar_spec(colorbar) else None,
             )
             forwarded = forward_kwargs(
