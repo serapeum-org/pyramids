@@ -74,10 +74,15 @@ A backend name is resolved to a render callable by, in order:
 3. otherwise a branded error naming the backend and the extra to install, e.g.
    `pip install 'digitalearth[3d]'`.
 
-So digitalearth serves every backend the moment it is installed, with no entry point required; a third party can
-also register a backend of its own, and a registered entry point wins over the digitalearth fallback.
+So digitalearth — the **reference plot backend** — serves every backend the moment it is installed, with no entry
+point required; a third party can also register a backend of its own, and a registered entry point always wins over
+the digitalearth fallback. The fallback is kept deliberately as a zero-config convenience: it costs nothing on a bare
+install (digitalearth is never imported — presence is probed with `find_spec` first) and lets any digitalearth
+version render before it registers an entry point of its own.
 
 ## Registering a backend
+
+A backend is a callable registered in the `pyramids.plot_backends` entry-point group:
 
 ```toml
 # your-package/pyproject.toml
@@ -85,21 +90,19 @@ also register a backend of its own, and a registered entry point wins over the d
 globe = "your_package.backends:render_globe"
 ```
 
-The entry point loads to a **callable** with this shape:
-
 ```python
-from typing import Any
-
-def render_globe(obj: Any, *, backend: str, **kwargs: Any) -> Any:
-    """Render a pyramids object and return the backend's own object.
-
-    `obj` is the Dataset / NetCDF / FeatureCollection / DatasetCollection / UgridDataset the user called
-    `plot` on; `backend` is the selected name (so one callable can serve several names); `kwargs` are the
-    backend-agnostic forwarded arguments plus the user's extras. Animation paths pass `animate=True`.
-    """
-    ...
+def render_globe(obj, *, backend, **kwargs):
+    ...  # render obj, return the backend's own object
 ```
 
-Keep the module import light — defer the heavy rendering backend (PyVista, Bokeh, …) to inside the callable, so
-discovery never imports it. A name registered twice keeps the first and warns; an entry point that fails to load,
-or loads a non-callable, is skipped with a warning rather than breaking `plot`.
+See **[Writing a plot backend](writing-a-plot-backend.md)** for the full contract — the render call shape, the
+forwarded vs rejected arguments, the dispatch order and failure handling. Validate your callable against that
+contract in your own tests with the conformance kit (no pytest required):
+
+```python
+from pyramids.base.plot_backend_conformance import assert_plot_backend_conforms
+from your_package.backends import render_globe
+
+def test_backend_conforms():
+    assert_plot_backend_conforms(render_globe)
+```
