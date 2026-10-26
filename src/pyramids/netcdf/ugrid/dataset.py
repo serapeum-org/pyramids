@@ -5916,6 +5916,221 @@ class UgridDataset(_UgridFacades):
         )
         return result
 
+    def plot_vector_field(
+        self,
+        u: str,
+        v: str,
+        *,
+        kind: str = "quiver",
+        thin: int | None = None,
+        time_index: int = 0,
+        ax: Any = None,
+        title: str | None = None,
+        colorbar: bool | ColorBar | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Plot two mesh variables as a 2-component vector field (issue #1373).
+
+        The mesh counterpart of :meth:`pyramids.dataset.Dataset.plot_vector_field`, sharing
+        its ``kind`` / ``thin`` vocabulary so the two read the same. A hydrodynamic mesh
+        writes its velocity as two per-face variables -- D-Flow FM names them ``mesh2d_ucx``
+        and ``mesh2d_ucy`` -- and this draws them as arrows coloured by
+        ``hypot(u, v)``.
+
+        Both components must sit on the same location, and that location must be ``"face"``
+        or ``"node"``: those are what a vector can be anchored at (face centroids, or the
+        nodes themselves). An edge-located component such as D-Flow FM's ``mesh2d_u1`` is
+        refused rather than drawn in the wrong place -- resolve it to faces first.
+
+        A temporal component is reduced to one step, as :meth:`plot` does, except that the
+        step is selectable here through ``time_index`` rather than fixed at the first.
+
+        Two deliberate differences from :meth:`plot`, both inherited from matching the raster
+        :meth:`~pyramids.dataset.Dataset.plot_vector_field` instead:
+
+        - It returns matplotlib's ``(fig, ax, im)`` rather than the ``MeshGlyph``. The glyph
+          is built internally and not handed back, so a follow-up ``apply_style`` or a second
+          render onto the same glyph is not available here -- compose through ``ax=`` instead,
+          passing the axes from a previous render.
+        - There is no ``basemap=``. :meth:`plot` accepts one and validates the dataset's CRS
+          first; here a ``basemap=`` keyword falls through to cleopatra, which refuses it as
+          an unknown option.
+        - ``kind="streamplot"`` is not available. The raster method documents it alongside
+          ``quiver`` and ``barbs``; streamlines need a structured grid, so cleopatra refuses
+          it with ``kind='streamplot' is not supported on an unstructured mesh``. The shared
+          vocabulary is therefore ``quiver`` and ``barbs`` only.
+
+        Args:
+            u: Name of the variable holding the first vector component.
+            v: Name of the variable holding the second vector component.
+            kind: ``"quiver"`` for arrows or ``"barbs"`` for wind barbs. Defaults to
+                ``"quiver"``.
+            thin: Draw every nth element, keeping a large mesh legible. ``None`` (the
+                default) draws every one.
+            time_index: Which step to draw for a temporal component. Negative values
+                count from the end, as they do in numpy. Defaults to ``0``.
+            ax: Existing matplotlib axes to draw on. Defaults to ``None``.
+            title: Plot title. Defaults to ``None``, which labels the plot ``"u / v"``.
+            colorbar: ``True``/``False``, or a :class:`ColorBar` spec. Defaults to ``None``,
+                which leaves cleopatra's default.
+            **kwargs: Forwarded to cleopatra's ``MeshGlyph.plot_vector_field``.
+
+        Returns:
+            tuple: ``(fig, ax, im)``, as the raster ``plot_vector_field`` returns.
+
+        Raises:
+            KeyError: Either name is not a variable of this dataset.
+            OptionalPackageDoesNotExist: cleopatra is not installed, or is older than the
+                0.44.0 that provides ``MeshGlyph.plot_vector_field``.
+            ValueError: A loose colour-bar keyword the :class:`ColorBar` spec replaces was
+                passed (``cbar_label``, ``ticks_spacing``, ...); ``kind``, ``location`` or
+                ``thin`` is not one cleopatra accepts, ``kind="streamplot"`` among them --
+                the glyph validates all three, so that message is cleopatra's; a component
+                has no loaded data; the two sit on different locations;
+                the shared location is not ``"face"`` or ``"node"``; the two have different
+                shapes; or ``time_index`` is outside a temporal component's time axis.
+
+        Examples:
+            - Draw a D-Flow FM velocity field, thinned so the arrows stay readable:
+                ```python
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> ds = UgridDataset.read_file("FlowFM_map.nc")       # doctest: +SKIP
+                >>> fig, ax, im = ds.plot_vector_field(                # doctest: +SKIP
+                ...     "mesh2d_ucx", "mesh2d_ucy", kind="quiver", thin=4
+                ... )
+                >>> im.N < ds.n_face                                   # doctest: +SKIP
+                True
+
+                ```
+            - Draw the last step of a temporal component as wind barbs:
+                ```python
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> ds = UgridDataset.read_file("FlowFM_map.nc")       # doctest: +SKIP
+                >>> fig, ax, im = ds.plot_vector_field(                # doctest: +SKIP
+                ...     "mesh2d_ucx", "mesh2d_ucy", kind="barbs", time_index=-1
+                ... )
+
+                ```
+            - Compose a vector field over an existing mesh plot by reusing its axes:
+                ```python
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> ds = UgridDataset.read_file("FlowFM_map.nc")       # doctest: +SKIP
+                >>> glyph = ds.plot("mesh2d_waterdepth")               # doctest: +SKIP
+                >>> fig, ax, im = ds.plot_vector_field(                # doctest: +SKIP
+                ...     "mesh2d_ucx", "mesh2d_ucy", ax=glyph.ax
+                ... )
+
+                ```
+        """
+        u_values, location = self._vector_component(u, "u", time_index)
+        v_values, v_location = self._vector_component(v, "v", time_index)
+        if location != v_location:
+            raise ValueError(
+                f"plot_vector_field: {u!r} is {location}-located and {v!r} is "
+                f"{v_location}-located; a vector needs both components at the same place."
+            )
+        if u_values.shape != v_values.shape:
+            raise ValueError(
+                f"plot_vector_field: {u!r} has shape {u_values.shape} and {v!r} has "
+                f"{v_values.shape}; the two components must match."
+            )
+        result = _ugrid_plot.plot_vector_field_data(
+            mesh=self._mesh,
+            u=u_values,
+            v=v_values,
+            location=location,
+            kind=kind,
+            thin=thin,
+            ax=ax,
+            title=f"{u} / {v}" if title is None else title,
+            colorbar=colorbar,
+            **kwargs,
+        )
+        return result
+
+    def _vector_component(
+        self, variable_name: str, role: str, time_index: int
+    ) -> tuple[np.ndarray, str]:
+        """Read one vector component down to a single per-element array.
+
+        Shared by both halves of :meth:`plot_vector_field` so ``u`` and ``v`` are validated
+        and reduced identically -- the asymmetry of checking one and trusting the other is
+        how a mismatched pair reaches the renderer and is drawn in the wrong place.
+
+        The reduction itself is :meth:`_element_values`, the module's existing shared
+        reducer, rather than a second copy of it: that is what turns the variable's declared
+        no-data value into NaN (a fill reaching cleopatra as a real vector dominates the
+        colour scale and hides the real arrows) and what refuses a layered, non-per-element
+        variable by name. Only the checks the renderer needs on top -- the location, and the
+        step range -- live here.
+
+        Args:
+            variable_name: The variable to read.
+            role: ``"u"`` or ``"v"``, naming the component in any error.
+            time_index: Step to take along a temporal component's own time axis. Negative
+                indices count from the end, as elsewhere in numpy.
+
+        Returns:
+            tuple: The per-element values with gaps blanked to NaN, and the location they
+                sit on.
+
+        Raises:
+            KeyError: No variable is named ``variable_name``.
+            ValueError: The variable has no loaded data, sits on a location a vector cannot
+                be anchored at, is not per-element after the time collapse, or
+                ``time_index`` is outside its time axis.
+        """
+        var = self.get_data(variable_name)
+        if var.data is None:
+            raise ValueError(
+                f"plot_vector_field: {role} component {variable_name!r} has no loaded data "
+                f"to plot."
+            )
+        if var.location not in ("face", "node"):
+            raise ValueError(
+                f"plot_vector_field: {role} component {variable_name!r} is "
+                f"{var.location}-located, and a vector can only be anchored at a face "
+                f"centroid or a node. Supported locations: 'face', 'node'. Resolve an "
+                f"edge-located component to faces first."
+            )
+        shape = np.asarray(var.data).shape
+        if var.has_time:
+            axis = cast("int", var.time_index)
+            if not -len(shape) <= axis < len(shape):
+                # `time_index` is derived from `dimensions` by name, so a variable declaring
+                # more axes than its data has yields an axis past the array's rank. Indexing
+                # `shape` with it raised a bare IndexError out of the very pre-check that
+                # exists to report this case well.
+                raise ValueError(
+                    f"plot_vector_field: {role} component {variable_name!r} declares a time "
+                    f"axis at position {axis} but its data has {len(shape)} axis/axes "
+                    f"{shape}; the variable's dimensions and its array disagree."
+                )
+            steps = shape[axis]
+            if not -steps <= time_index < steps:
+                raise ValueError(
+                    f"plot_vector_field: time_index {time_index} is outside "
+                    f"{variable_name!r}, which has {steps} step(s)."
+                )
+        # The rank is checked here rather than by catching the shared reducer's
+        # ValueError: that reducer also funnels `gaps_as_nan`, which raises ValueError for a
+        # dtype it cannot make float, and branding *that* as "not a single value per
+        # element" was a confidently false diagnosis of a variable that is 1-D.
+        collapsed_rank = len(shape) - 1 if var.has_time else len(shape)
+        if collapsed_rank != 1:
+            raise ValueError(
+                f"plot_vector_field: {role} component {variable_name!r} is not a single "
+                f"value per element, so it cannot be drawn as a vector field: it has "
+                f"{collapsed_rank} axes once the time axis is collapsed. A layered or "
+                f"otherwise multi-dimensional variable has no single per-element vector."
+            )
+        # `_element_values` resolves the name a second time rather than taking `var`. Left
+        # as is: `get_data` is a mapping lookup, so the two calls cannot see different
+        # objects, and threading `var` through would change the signature of a reducer five
+        # other members share.
+        _var, values = self._element_values(variable_name, time_index)
+        return values, var.location
+
     def animate(
         self,
         variable_name: str | None = None,
@@ -7301,7 +7516,9 @@ def _detected_read_driver(target: str) -> tuple[MeshDriver | None, bool]:
     return result
 
 
-def _netcdf_fallback_driver(path: str | Path, driver: str | None) -> MeshDriver | None:
+def _netcdf_fallback_driver(
+    path: str | Path, driver: str | None, expected: str = "UgridDataset"
+) -> MeshDriver | None:
     """Find a driver for a NetCDF-suffixed file the built-in reader could not read.
 
     Consulted **only** after :meth:`UgridDataset._read_ugrid_netcdf` raises
@@ -7320,11 +7537,20 @@ def _netcdf_fallback_driver(path: str | Path, driver: str | None) -> MeshDriver 
         path: The file the built-in reader rejected.
         driver: The name the caller passed to the entry point, or ``None`` to detect. A
             non-``None`` value means the caller chose the reader explicitly, so no fallback.
+        expected: The class the calling entry point returns, forwarded to
+            :func:`_needs_mesh_error` so a ``Network1d`` caller is not sent to an
+            ``attach_data`` that only :class:`UgridDataset` has. Defaults to
+            ``"UgridDataset"``.
 
     Returns:
         The first driver claiming the NetCDF suffix whose ``can_open`` accepts the file, or
         ``None`` — an explicit ``driver``, a ``/vsi`` path, no NetCDF suffix, or none claims it —
         in which case the caller re-raises the original :class:`NoMeshTopologyError`.
+
+    Raises:
+        UnsupportedMeshFormatError: The claiming driver is ``needs_mesh``, so it carries
+            values but no topology and cannot open the file on its own. Built by
+            :func:`_needs_mesh_error`, whose advice depends on ``expected``.
     """
     if driver is not None:
         return None
@@ -7337,13 +7563,13 @@ def _netcdf_fallback_driver(path: str | Path, driver: str | None) -> MeshDriver 
     selected = _first_claiming_driver(suffix, target)
     if selected is not None and "needs_mesh" in selected.capabilities:
         # Mirror the detection path: a results-only driver cannot open a file on its own, so
-        # refuse it with the attach_data guidance rather than calling its read.
-        raise _needs_mesh_error(selected, target)
+        # refuse it with guidance the calling entry point can actually follow.
+        raise _needs_mesh_error(selected, target, expected)
     return selected
 
 
 def _resolve_read_driver(
-    path: str | Path, driver: str | None
+    path: str | Path, driver: str | None, expected: str = "UgridDataset"
 ) -> tuple[MeshDriver | None, bool]:
     """Decide which reader opens a file.
 
@@ -7355,6 +7581,12 @@ def _resolve_read_driver(
     Args:
         path: The file to read.
         driver: An explicitly requested driver name, or ``None`` to detect.
+        expected: The class the calling entry point returns, forwarded to
+            :func:`_needs_mesh_error`. Defaults to ``"UgridDataset"``. A
+            :class:`Network1d` caller reaches this function for every non-NetCDF suffix,
+            which is the route the ``needs_mesh`` formats actually use -- an SMS ``.dat``,
+            an XMDF or an XDMF -- so without it the advice named an ``attach_data`` that
+            :class:`Network1d` does not have.
 
     Returns:
         ``(driver, native)``. ``driver`` is the driver to use, or ``None`` for the built-in
@@ -7376,25 +7608,39 @@ def _resolve_read_driver(
         selected, native = _detected_read_driver(target)
 
     if selected is not None and "needs_mesh" in selected.capabilities:
-        raise _needs_mesh_error(selected, target)
+        raise _needs_mesh_error(selected, target, expected)
     return selected, native
 
 
-def _needs_mesh_error(selected: MeshDriver, target: str) -> UnsupportedMeshFormatError:
+def _needs_mesh_error(
+    selected: MeshDriver, target: str, expected: str = "UgridDataset"
+) -> UnsupportedMeshFormatError:
     """Build the error for a results-only driver asked to read a file on its own.
 
-    A ``needs_mesh`` driver carries values but no topology, so it cannot open a file by itself.
-    Shared by :func:`_resolve_read_driver` (the detection path) and :func:`_netcdf_fallback_driver`
-    (the NetCDF fallback) so both refuse it with the same actionable message rather than letting
-    the driver's own ``read`` raise whatever it likes.
+    A ``needs_mesh`` driver carries values but no topology, so it cannot open a file by
+    itself. Shared by :func:`_resolve_read_driver` (the detection path) and
+    :func:`_netcdf_fallback_driver` (the NetCDF fallback) so both refuse it with the same
+    actionable message rather than letting the driver's own ``read`` raise whatever it likes.
 
     Args:
         selected: The driver, named in the message.
         target: The path the caller gave, shown in the suggested ``attach_data`` call.
+        expected: The class the caller asked for. ``"UgridDataset"`` (the default) gets the
+            ``attach_data`` recipe; a :class:`Network1d` caller cannot be given it, because
+            ``Network1d`` has no ``attach_data``, so it is told that instead of being sent to
+            a method that does not exist.
 
     Returns:
-        An :class:`UnsupportedMeshFormatError` directing the caller to read a mesh then attach.
+        An :class:`UnsupportedMeshFormatError` whose advice the caller can actually follow.
     """
+    if expected != "UgridDataset":
+        result = UnsupportedMeshFormatError(
+            f"{selected.long_name} files carry values but no mesh, so {target!r} cannot be "
+            f"opened on its own -- and {expected} has no attach_data to combine them with a "
+            f"topology. Read the mesh this file's values belong to with "
+            f"UgridDataset.read_file, then attach them there."
+        )
+        return result
     return UnsupportedMeshFormatError(
         f"{selected.long_name} files carry values but no mesh, so {target!r} cannot be "
         f"opened on its own. Read the mesh first, then attach these values to it:\n"
@@ -7447,10 +7693,14 @@ def _read_through_driver(
         from pyramids.netcdf.ugrid.network import Network1d as _Network1d
 
         other = "Network1d" if isinstance(result, _Network1d) else "UgridDataset"
+        # Name the driver in the suggested call. Without it this message and the one
+        # `Network1d.read_file` raises pointed at each other, and a caller bounced between the
+        # two without either naming `driver=` as the way through.
         raise UnsupportedMeshFormatError(
             f"The {driver.name!r} driver read {str(path)!r} as a {produced}, not a "
             f"{expected.__name__}. A file whose topology dimension is 1 is a network, and a "
-            f"surface mesh is not: read it with {other}.read_file instead."
+            f"surface mesh is not: read it with "
+            f"{other}.read_file(path, driver={driver.name!r}) instead."
         )
     return result
 

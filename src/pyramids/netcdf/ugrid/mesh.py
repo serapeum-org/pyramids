@@ -13,7 +13,10 @@ import numpy as np
 from osgeo import gdal
 from pyproj import CRS as PyProjCRS
 
-from pyramids.netcdf.ugrid.connectivity import Connectivity
+from pyramids.netcdf.ugrid.connectivity import (
+    Connectivity,
+    _normalised_connectivity,
+)
 from pyramids.netcdf.ugrid.models import MeshTopologyInfo
 
 
@@ -44,13 +47,90 @@ class Mesh2d:
         edge_y: np.ndarray | None = None,
         crs: Any = None,
     ):
+        """Initialise a 2D mesh from node coordinates and connectivity tables.
+
+        Args:
+            node_x: Node x-coordinates, shape (n_node,).
+            node_y: Node y-coordinates, shape (n_node,).
+            face_node_connectivity: Face-to-node connectivity; its row count is
+                :attr:`n_face`.
+            edge_node_connectivity: Edge-to-node connectivity; its row count is
+                :attr:`n_edge`. Optional in UGRID. Defaults to ``None``.
+            face_edge_connectivity: Face-to-edge connectivity. Defaults to ``None``.
+            face_face_connectivity: Face-to-face adjacency. Defaults to ``None``.
+            edge_face_connectivity: Edge-to-face adjacency. Defaults to ``None``.
+            face_x: Face-centre x-coordinates, if the file supplies them. Defaults to
+                ``None``.
+            face_y: Face-centre y-coordinates. Defaults to ``None``.
+            edge_x: Edge-centre x-coordinates. Defaults to ``None``.
+            edge_y: Edge-centre y-coordinates. Defaults to ``None``.
+            crs: Coordinate reference system (a ``pyproj.CRS``) or ``None``. Not validated
+                here, unlike the :attr:`crs` setter, which refuses anything else -- so a
+                string accepted at construction is a string the geo-properties cannot use.
+
+        Raises:
+            TypeError: A connectivity table's ``fill_value`` is neither an integer nor
+                ``None``.
+            ValueError: A table's ``fill_value`` is also a valid index for that table
+                **and** occurs in it, so a padded row cannot be told from a real element.
+
+        Note:
+            Every connectivity table is normalised on the way in: any fill value other than
+            ``-1`` is rewritten to it (and so is any other negative), so the attributes may
+            not hand back the objects you passed -- a bare index array is wrapped into a
+            :class:`Connectivity` too. Only a fill that is *also a valid index for that
+            table and occurs in it* is refused instead. A signed table whose fill is already
+            ``-1`` is returned untouched, which is what the built-in readers produce.
+
+            Each table is checked against **its own** range: ``face_node`` and ``edge_node``
+            against the node count, ``face_edge`` against the edge count, ``face_face`` and
+            ``edge_face`` against the face count. Those counts are row counts
+            (:attr:`Connectivity.n_elements`), so a 1-D table is read as one element per
+            entry rather than one element in total.
+        """
         self._node_x = np.asarray(node_x, dtype=np.float64)
         self._node_y = np.asarray(node_y, dtype=np.float64)
-        self._face_node_connectivity = face_node_connectivity
-        self._edge_node_connectivity = edge_node_connectivity
-        self._face_edge_connectivity = face_edge_connectivity
-        self._face_face_connectivity = face_face_connectivity
-        self._edge_face_connectivity = edge_face_connectivity
+        # Each table is normalised against the range *it* indexes, not blindly against the
+        # node count: a face_edge table indexes edges and a face_face table indexes faces.
+        # The order matters because n_face and n_edge are the row counts of the first two.
+        node_count = self._node_x.size
+        self._face_node_connectivity = _normalised_connectivity(
+            face_node_connectivity, node_count, "face_node_connectivity", "node"
+        )
+        self._edge_node_connectivity = (
+            None
+            if edge_node_connectivity is None
+            else _normalised_connectivity(
+                edge_node_connectivity, node_count, "edge_node_connectivity", "node"
+            )
+        )
+        face_count = self._face_node_connectivity.n_elements
+        edge_count = (
+            0
+            if self._edge_node_connectivity is None
+            else self._edge_node_connectivity.n_elements
+        )
+        self._face_edge_connectivity = (
+            None
+            if face_edge_connectivity is None
+            else _normalised_connectivity(
+                face_edge_connectivity, edge_count, "face_edge_connectivity", "edge"
+            )
+        )
+        self._face_face_connectivity = (
+            None
+            if face_face_connectivity is None
+            else _normalised_connectivity(
+                face_face_connectivity, face_count, "face_face_connectivity", "face"
+            )
+        )
+        self._edge_face_connectivity = (
+            None
+            if edge_face_connectivity is None
+            else _normalised_connectivity(
+                edge_face_connectivity, face_count, "edge_face_connectivity", "face"
+            )
+        )
         self._face_x = face_x
         self._face_y = face_y
         self._edge_x = edge_x

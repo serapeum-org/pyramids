@@ -1002,7 +1002,9 @@ def render_array(request: RenderRequest, **kwargs: Any) -> ArrayGlyph:
 
     # This module's plotting needs cleopatra's parameter-object API: ``RgbBands``
     # (0.31, serapeum-org/cleopatra#291) plus ``Animation`` / ``FacetLayout`` (0.38),
-    # matching the ``cleopatra[tiles]>=0.39`` floor in pyproject.toml.
+    # matching the ``cleopatra[tiles]`` floor in pyproject.toml. These particular names
+    # have been present since cleopatra 0.38.0, which is a fact about its history rather
+    # than about the current floor, so it cannot go stale the way the pinned version did.
     # ``require_cleopatra`` only checks that cleopatra is present, so a stale cleopatra
     # that predates any of these names would otherwise raise a bare
     # ``ImportError: cannot import name 'Animation'``. Import them together — guarding

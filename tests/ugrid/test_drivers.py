@@ -1619,18 +1619,37 @@ class TestNetwork1dEntryPoint:
         )
 
     def test_network1d_read_file_on_a_netcdf_path_is_refused_clearly(
-        self, ugrid_convention_nc_path
+        self, ugrid_convention_nc_path, registered
     ):
         """There is no built-in 1D NetCDF reader, so say that rather than failing obscurely.
 
         pyramids' UGRID reader builds a `Mesh2d` whatever topology dimension a file declares,
-        so a 1D NetCDF has no native route.
+        so a 1D NetCDF has no native route. Since #1351 the fallback does consult a driver
+        claiming `.nc` first, so this is the case where none is installed.
 
         Test scenario:
-            A `.nc` path raises `UnsupportedMeshFormatError` naming `UgridDataset.read_file`.
+            With no driver registered, a `.nc` path raises `UnsupportedMeshFormatError`
+            that says nothing claims the suffix and asks for a plugin. It also points at
+            `UgridDataset.read_file` -- but as the answer to "this might be a surface mesh",
+            not as a bare redirect. The loop #1351 reported is broken by
+            `_read_through_driver` naming `driver=`, not by deleting the pointer, and
+            deleting it left the most likely mistake with no correct advice at all.
         """
-        with pytest.raises(UnsupportedMeshFormatError, match="UgridDataset.read_file"):
+        registered()
+        with pytest.raises(UnsupportedMeshFormatError) as caught:
             Network1d.read_file(ugrid_convention_nc_path)
+        message = str(caught.value)
+        assert "as a 1D network" in message
+        assert "none installed" in message, (
+            f"the message should say no driver is installed, got:\n{message}"
+        )
+        assert "surface mesh" in message, (
+            f"a .nc is most likely a surface mesh handed to the wrong entry point, so the "
+            f"message must point at UgridDataset.read_file for that case; got:\n{message}"
+        )
+        assert "driver=" not in message, (
+            f"with no driver claiming the suffix there is none to suggest; got:\n{message}"
+        )
 
 
 class TestMeshNamesContract:

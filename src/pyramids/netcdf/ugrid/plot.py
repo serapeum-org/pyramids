@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import extra_hint, require_cleopatra
 from pyramids.basemap import basemap as _basemap_module
 from pyramids.dataset._plot_helpers import _reject_replaced_cbar_kwargs
@@ -174,6 +175,112 @@ def plot_mesh_data(
         **plot_kwargs,
     )
     return glyph
+
+
+def plot_vector_field_data(
+    mesh: Mesh2d,
+    u: Any,
+    v: Any,
+    location: str = "face",
+    kind: str = "quiver",
+    thin: int | None = None,
+    ax: Any = None,
+    title: str | None = None,
+    colorbar: bool | ColorBar | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Render a `(u, v)` vector field on a mesh through cleopatra.
+
+    The mesh counterpart of the raster `Dataset.plot_vector_field`: the components are
+    handed to `MeshGlyph.plot_vector_field`, which anchors face-located components at the
+    face centroids and node-located ones at the nodes, and colours the arrows by the vector
+    magnitude `hypot(u, v)`.
+
+    Args:
+        mesh: Mesh2d topology the components are defined on.
+        u: First vector component, one value per element of `location`.
+        v: Second vector component, the same shape as `u`.
+        location: `"face"` or `"node"` — where the components live. Defaults to `"face"`.
+        kind: `"quiver"` for arrows or `"barbs"` for wind barbs. Defaults to `"quiver"`.
+        thin: Draw every nth element, so a large mesh stays legible. `None` (the default)
+            draws all of them.
+        ax: Existing matplotlib axes to draw on. Defaults to `None` (a new figure).
+        title: Plot title. Defaults to `None`.
+        colorbar: `True`/`False`, or a `ColorBar` spec. `None` (the default) leaves
+            cleopatra's own default in place.
+        **kwargs: Forwarded to `MeshGlyph.plot_vector_field` (e.g. `scale`, `cmap`,
+            `compose`, and the typed `color` / `classify` groups).
+
+    Returns:
+        tuple: `(fig, ax, im)` as `MeshGlyph.plot_vector_field` returns it, matching the
+            raster method's contract.
+
+    Raises:
+        OptionalPackageDoesNotExist: If cleopatra is not installed, or is older than the
+            0.44.0 that provides `MeshGlyph.plot_vector_field`.
+        ValueError: If a loose colour-bar kwarg the `ColorBar` spec replaces is passed, or if
+            `kind`, `location` or `thin` is not one cleopatra accepts -- `kind="streamplot"`
+            is refused on an unstructured mesh. The glyph validates all three, so that
+            message is cleopatra's rather than pyramids'.
+
+    Examples:
+        - Draw a face-located velocity field and read back the arrow count:
+            ```python
+            >>> from pyramids.netcdf.ugrid.plot import plot_vector_field_data
+            >>> fig, ax, im = plot_vector_field_data(   # doctest: +SKIP
+            ...     mesh, u_values, v_values
+            ... )
+            >>> im.N                                    # doctest: +SKIP
+            2
+
+            ```
+        - Thin a large mesh and draw wind barbs instead of arrows:
+            ```python
+            >>> from pyramids.netcdf.ugrid.plot import plot_vector_field_data
+            >>> fig, ax, im = plot_vector_field_data(   # doctest: +SKIP
+            ...     mesh, u_values, v_values, kind="barbs", thin=4
+            ... )
+
+            ```
+        - Anchor node-located components at the nodes rather than the face centroids:
+            ```python
+            >>> from pyramids.netcdf.ugrid.plot import plot_vector_field_data
+            >>> fig, ax, im = plot_vector_field_data(   # doctest: +SKIP
+            ...     mesh, u_nodes, v_nodes, location="node", title="Surface current"
+            ... )
+
+            ```
+    """
+    glyph = _mesh_to_glyph(mesh)
+    if not hasattr(glyph, "plot_vector_field"):
+        # `require_cleopatra` checks only that cleopatra imports, and the guarded import in
+        # `dataset/_plot_helpers.py` brands only the 0.38-era parameter-object names -- so a
+        # cleopatra that satisfies both can still lack this method, and the call died on a
+        # bare AttributeError naming neither the package nor the version that fixes it.
+        raise OptionalPackageDoesNotExist(
+            "Mesh vector fields need cleopatra >= 0.44.0, which is where "
+            "MeshGlyph.plot_vector_field lands; the installed cleopatra does not have it. "
+            "Upgrade with `pip install -U 'pyramids-core[viz]'` to satisfy the floor "
+            "pinned in pyproject.toml."
+        )
+    # After `_mesh_to_glyph`, which is where `require_cleopatra` lives, and matching the
+    # sibling `plot_mesh_data`. Moving it earlier to save a glyph construction on a typo
+    # made the *less* actionable error win when both problems were present: a caller with
+    # no cleopatra and a `cbar_label` typo was told about the typo.
+    _reject_replaced_cbar_kwargs(kwargs)
+    if colorbar is not None:
+        kwargs["colorbar"] = colorbar
+    result = glyph.plot_vector_field(
+        u,
+        v,
+        kind=kind,
+        thin=thin,
+        location=location,
+        ax=ax,
+        title=title,
+        **kwargs,
+    )
+    return result
 
 
 def animate_mesh_data(

@@ -7,18 +7,17 @@ sibling of :class:`pyramids.netcdf.ugrid.mesh.Mesh2d` — it holds pure numpy
 arrays and a :class:`~pyramids.netcdf.ugrid.connectivity.Connectivity`
 wrapper, with no reference to GDAL objects and no dependency on ``Mesh2d``.
 
-**In-memory only.** There is no reader or writer for 1-D networks yet, so a network has to
-be built from arrays. Not because the topology parser rejects them -- it has no
-``topology_dimension`` filter at all, and reads a file declaring ``1`` without complaint,
-recording the dimension as given. The limitation is that the reader has only one mesh type to
-build: :class:`UgridDataset` carries a :class:`~pyramids.netcdf.ugrid.mesh.Mesh2d`, and
-nothing maps a declared 1-D topology onto a :class:`Network1d`. A genuinely 1-D file -- edges
-and no faces -- therefore comes back as a face-less ``Mesh2d``. Reading and writing
-``topology_dimension == 1`` files as networks is a separate piece of work.
+**Reads come from a driver, not from pyramids' own parser.** :meth:`Network1d.read_file`
+dispatches to a registered ``pyramids.mesh_drivers`` plugin. There is no built-in route,
+because the built-in reader has only one mesh type to build: :class:`UgridDataset` carries a
+:class:`~pyramids.netcdf.ugrid.mesh.Mesh2d`, and nothing maps a declared 1-D topology onto a
+:class:`Network1d`, so a genuinely 1-D file read that way comes back as a face-less
+``Mesh2d``. Writing a network is still unimplemented.
 """
 
 from __future__ import annotations
 
+import operator
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -30,27 +29,116 @@ from pyproj import CRS as PyProjCRS
 from scipy.spatial import cKDTree
 from shapely.geometry import LineString
 
-from pyramids.netcdf.ugrid._drivers import UnsupportedMeshFormatError
-from pyramids.netcdf.ugrid.connectivity import Connectivity
-from pyramids.netcdf.ugrid.dataset import _read_through_driver, _resolve_read_driver
+from pyramids.netcdf.ugrid._drivers import (
+    NETCDF_SUFFIXES,
+    RESERVED_NAMES,
+    UnsupportedMeshFormatError,
+    drivers_for_suffix,
+    mesh_drivers,
+)
+from pyramids.netcdf.ugrid.connectivity import (
+    Connectivity,
+    _normalised_connectivity,
+)
+from pyramids.netcdf.ugrid.dataset import (
+    _netcdf_fallback_driver,
+    _read_through_driver,
+    _require_existing_file,
+    _resolve_read_driver,
+)
+
+#: Distance marker for a node a breadth-first sweep from the outlet never reached. Shared by
+#: `_hop_distances` and `_oriented_towards`, which have to agree on it.
+_UNREACHED = -1
+
+
+def _no_network_driver_message(path: str | Path) -> str:
+    """Build the error text for a file no installed driver reads as a 1D network.
+
+    Three things had to be right here, and the first two versions each got one of them
+    wrong. The original sent the caller to :meth:`UgridDataset.read_file`, which refuses a
+    network by design and sent them straight back -- a loop. Removing that pointer
+    overcorrected: handing a perfectly good surface mesh to the 1D entry point is the most
+    likely mistake, and the only imperative line then told the caller to install a plugin
+    for a format pyramids already reads. And suggesting `driver=` from the installed names
+    sorted alphabetically named a driver with no relation to the file -- possibly a
+    ``needs_mesh`` results-only reader, which :func:`_resolve_read_driver` refuses outright,
+    so following the advice could not work.
+
+    So the suggestion is drawn only from the drivers that claim this suffix and can open a
+    file on their own, the surface-mesh pointer appears only for a NetCDF suffix where that
+    confusion is possible, and "install a plugin" is reserved for a suffix no installed
+    reader claims at all.
+
+    Args:
+        path: The file that could not be read, named in the message.
+
+    Returns:
+        A message whose every imperative line is followable for this particular file.
+    """
+    suffix = Path(path).suffix.lower()
+    # A `needs_mesh` driver carries values but no topology, so naming it would hit
+    # `_resolve_read_driver`'s attach_data refusal -- one dead end traded for another.
+    claiming = sorted(
+        driver.name
+        for driver in drivers_for_suffix(suffix)
+        if "needs_mesh" not in driver.capabilities
+    )
+    # The path is interpolated bare rather than through `!r`: on Windows the repr doubles
+    # every separator, which is noisy in a message this long.
+    lines = [f"No installed driver reads {path} as a 1D network."]
+    if claiming:
+        lines.append(f"  Drivers claiming {suffix!r}: {', '.join(claiming)}")
+        lines.append(
+            f"  None recognised this file. Force one with "
+            f"read_file(path, driver='{claiming[0]}') if you know it is the right reader."
+        )
+    else:
+        installed = ", ".join(sorted(mesh_drivers())) or "none installed"
+        # "claims" would be false when a `needs_mesh` driver claims the suffix but cannot
+        # open a file by itself, which is exactly the case filtered out above.
+        lines.append(
+            f"  No installed driver opens {suffix!r} on its own. Installed: {installed}"
+        )
+        lines.append("  Install a mesh driver plugin that reads this format.")
+    if suffix in NETCDF_SUFFIXES:
+        lines.append(
+            "  If this file holds a surface mesh rather than a 1D network, read it with "
+            "UgridDataset.read_file."
+        )
+    lines.append(
+        "  The built-in UGRID reader is not a route to a network: it builds a 2D mesh "
+        "whatever topology dimension a file declares."
+    )
+    return "\n".join(lines)
 
 
 class Network1d:
     """1D network mesh topology (nodes + edges, no faces).
 
+    The element is the edge, so there are no centroids, no areas, and **no** ``n_face`` --
+    use :attr:`n_node` and :attr:`n_edge`. The attribute is genuinely absent rather than
+    present-and-raising: a property whose body only raised left ``dir()`` and
+    ``hasattr(Network1d, "n_face")`` advertising a member that could never be read, while
+    ``hasattr(net, "n_face")`` denied it. Use ``isinstance(obj, Network1d)`` or
+    ``topology_dimension`` to tell a network from a surface mesh.
+
     Holds node coordinates and an edge-node connectivity table describing a
     1D network such as a river tree or a 1D hydraulic model. Provides derived
     geometric properties (edge lengths, edge midpoints, bounds), nearest-neighbour
-    KD-trees on nodes and edge midpoints, and a topological network sort for
-    upstream/downstream ordering of a directed network.
+    KD-trees on nodes and edge midpoints, and :meth:`sort` for upstream/downstream
+    ordering -- over the stored edge directions when the network is directed, and over an
+    orientation derived from a named outlet when it is not.
 
     This class does NOT inherit from Dataset or RasterBase and is independent
-    of :class:`Mesh2d`. The core element is the **edge**; there are no faces,
-    centroids, or areas.
+    of :class:`Mesh2d`.
 
-    Built from arrays, not read from a file: there is no 1-D reader or writer yet, and
-    :class:`UgridDataset` holds a :class:`Mesh2d`, so a network does not travel through
-    `read_file` / `to_file`.
+    Read with :meth:`read_file`, which dispatches to a registered
+    ``pyramids.mesh_drivers`` plugin -- including for a `.nc` network such as a D-Flow FM
+    `_net.nc` file. There is no built-in route, because the UGRID topology parser builds a
+    :class:`Mesh2d` whatever ``topology_dimension`` a file declares, so a network always
+    comes from a plugin. Writing a network is still unimplemented, so it does not travel
+    through ``to_file``.
 
     Attributes:
         _node_x: Node x-coordinates (n_node,), float64.
@@ -78,10 +166,31 @@ class Network1d:
             directed: When True, each edge's node order (from-node then to-node)
                 encodes flow direction and the network sort uses it. Defaults to False.
             crs: Optional coordinate reference system (a ``pyproj.CRS`` or None).
+
+        Raises:
+            TypeError: ``edge_node_connectivity.fill_value`` is neither an integer nor
+                ``None``.
+            ValueError: its ``fill_value`` is also a valid node index **and** occurs in the
+                table, so a padded row cannot be told from a real edge.
+
+        Note:
+            The edge table is normalised on the way in: any fill value other than ``-1``
+            is rewritten to it (and so is any other negative), so
+            :attr:`edge_node_connectivity` may not be the object you passed -- a bare index
+            array is wrapped into a :class:`Connectivity` too. Only a fill that is *also a
+            valid node index and occurs in the table* is refused instead, because padding
+            and data cannot then be told apart. A signed table whose fill is already ``-1``
+            is returned untouched, which is what both built-in constructors produce.
         """
         self._node_x = np.asarray(node_x, dtype=np.float64)
         self._node_y = np.asarray(node_y, dtype=np.float64)
-        self._edge_node_connectivity = edge_node_connectivity
+        self._edge_node_connectivity = _normalised_connectivity(
+            edge_node_connectivity,
+            self._node_x.size,
+            "edge_node_connectivity",
+            "node",
+            "network",
+        )
         self._directed = bool(directed)
         self._crs = crs
         self._cached_node_tree: cKDTree | None = None
@@ -125,18 +234,114 @@ class Network1d:
         Raises:
             FileNotFoundError: The file does not exist.
             DriverNotExistError: ``driver`` names a driver that is not installed.
-            UnsupportedMeshFormatError: No installed driver reads the file, or the driver
-                returned a surface mesh rather than a network.
+            IsADirectoryError: ``path`` is a directory no installed driver claims.
+            UnsupportedMeshFormatError: No installed driver reads the file; the named
+                driver is the built-in reader, which cannot build a network; the driver that
+                claims the file carries values but no topology (so it cannot open one on its
+                own); or the driver returned a surface mesh rather than a network.
+
+        Examples:
+            - Read a D-Flow FM 1D network, letting detection find the driver:
+                ```python
+                >>> from pyramids.netcdf.ugrid.network import Network1d
+                >>> net = Network1d.read_file("FlowFM_net.nc")      # doctest: +SKIP
+                >>> net.n_node, net.n_edge                          # doctest: +SKIP
+                (86, 91)
+
+                ```
+            - Name the driver to bypass detection, which is worth doing when two installed
+              plugins claim the same suffix:
+                ```python
+                >>> from pyramids.netcdf.ugrid.network import Network1d
+                >>> net = Network1d.read_file(
+                ...     "FlowFM_net.nc", driver="deltares1d"
+                ... )                                               # doctest: +SKIP
+                >>> net.bounds                                      # doctest: +SKIP
+                (4.0, 51.0, 5.0, 52.0)
+
+                ```
+            - Pick one topology out of a file declaring several:
+                ```python
+                >>> from pyramids.netcdf.ugrid.network import Network1d
+                >>> net = Network1d.read_file(
+                ...     "FlowFM_net.nc", mesh_name="network1d"
+                ... )                                               # doctest: +SKIP
+
+                ```
         """
-        selected, _native = _resolve_read_driver(path, driver)
-        if selected is None:
+        # Before anything about drivers: a path that does not exist is a missing file,
+        # whatever reader was named. `_resolve_read_driver` runs this check first for the
+        # same reason, and the reserved-name refusal below would otherwise be the one route
+        # of four that answered a typo'd filename with a format error.
+        _require_existing_file(path)
+        if driver is not None and driver.strip().lower() in RESERVED_NAMES:
+            # The docstring has always said a reserved name is refused here. It was not:
+            # `_named_read_driver` mapped it to the built-in reader, the fallback declined
+            # because a driver was named, and the generic message then reported "no
+            # installed driver ... none installed" -- false, since `ugrid` is installed as
+            # the built-in reader, and unhelpful to a caller who had just named it.
             raise UnsupportedMeshFormatError(
-                f"No installed driver reads {str(path)!r} as a 1D network. pyramids' built-in "
-                f"UGRID reader builds a 2D mesh whatever topology dimension a file declares, "
-                f"so read it with UgridDataset.read_file, or install a driver for this format."
+                f"{driver!r} is a reserved name for pyramids' own built-in reading, not "
+                f"a plugin, and it cannot produce a Network1d: the built-in UGRID reader "
+                f"builds a 2D mesh whatever topology dimension a file declares. Read "
+                f"{path} with UgridDataset.read_file to get that mesh, or name a plugin "
+                f"driver that reads this file as a 1D network."
             )
+        selected, _native = _resolve_read_driver(path, driver, "Network1d")
+        if selected is None:
+            # A NetCDF suffix short-circuits ahead of driver discovery inside
+            # `_detected_read_driver`, so a `.nc` network never reached the driver able to read
+            # it. `UgridDataset.read_file` recovers by consulting the fallback once its own read
+            # has raised NoMeshTopologyError; a network has no built-in read to fail first --
+            # pyramids' UGRID reader builds a Mesh2d whatever dimension a file declares -- so
+            # the fallback runs here, at resolution time, instead.
+            selected = _netcdf_fallback_driver(path, driver, "Network1d")
+        if selected is None:
+            if Path(path).is_dir():
+                # `_require_existing_file` lets a directory through on purpose -- Esri TIN
+                # is one -- and leaves it to the fallback read to report. `UgridDataset`
+                # has a GDAL fallback that does; a network has none, so an unclaimed
+                # directory reached the no-driver message, whose one imperative line
+                # ("install a plugin") cannot fix having passed a directory.
+                raise IsADirectoryError(f"Not a mesh file: {path} is a directory.")
+            raise UnsupportedMeshFormatError(_no_network_driver_message(path))
         result = _read_through_driver(selected, path, mesh_name, cls, lazy)
         return result
+
+    def __getattr__(self, name: str) -> Any:
+        """Explain `n_face`, and stay out of the way of every other failed lookup.
+
+        The property this replaced was removed because a member whose body only raises still
+        advertises itself to `dir()` and to `hasattr(Network1d, ...)`. Going through
+        `__getattr__` keeps the attribute genuinely absent -- it is consulted only after
+        normal lookup fails -- while restoring the hint the old message gave.
+
+        The catch is that CPython consults this hook whenever `__getattribute__` raises
+        `AttributeError`, **including** when a `@property`'s own body raises one. Answering
+        unconditionally therefore reported existing members as missing and erased the real
+        cause: an `AttributeError` inside `_real_edges` surfaced as "'Network1d' object has
+        no attribute 'edge_tree'", with no `__cause__` and a traceback ending here. So every
+        name but `n_face` is handed back to normal lookup, which re-raises the original --
+        `object.__getattribute__` does not re-enter this hook, so it cannot recurse, and a
+        name that genuinely does not exist gets the interpreter's own wording.
+
+        Args:
+            name: The attribute that normal lookup did not find.
+
+        Returns:
+            Any: Whatever normal lookup yields on the retry, for a name the class defines.
+
+        Raises:
+            AttributeError: For `n_face`, with the message naming `n_node` / `n_edge`. For
+                any other name, whatever normal lookup raises -- the interpreter's own
+                "no attribute" error, or the error a property body raised.
+        """
+        if name == "n_face":
+            raise AttributeError(
+                "Network1d is a 1D topology (nodes + edges) and has no faces; 'n_face' is "
+                "undefined. Use 'n_node' / 'n_edge'."
+            )
+        return object.__getattribute__(self, name)
 
     @property
     def node_x(self) -> np.typing.NDArray:
@@ -172,18 +377,6 @@ class Network1d:
     def n_edge(self) -> int:
         """Number of edges in the network."""
         return self._edge_node_connectivity.n_elements
-
-    @property
-    def n_face(self) -> int:
-        """A 1D network has no faces; accessing this raises.
-
-        Raises:
-            AttributeError: Always — a 1D network has only nodes and edges.
-        """
-        raise AttributeError(
-            "Network1d is a 1D topology (nodes + edges) and has no faces; "
-            "'n_face' is undefined. Use 'n_node' / 'n_edge'."
-        )
 
     @property
     def bounds(self) -> tuple[float, float, float, float]:
@@ -365,8 +558,213 @@ class Network1d:
         end = np.array([self._node_x[nodes[1]], self._node_y[nodes[1]]])
         return start, end
 
-    def sort(self, direction: str = "downstream") -> np.typing.NDArray:
-        """Topologically order the nodes of a directed network.
+    @property
+    def _sortable_edges(self) -> tuple[np.typing.NDArray, np.typing.NDArray]:
+        """The edge rows a traversal may use, with their positions in the full table.
+
+        Every traversal member needs the same two things from the edge table, and reading it
+        raw gave each of them a different wrong answer. A padded row holds the fill value, so
+        `np.bincount` refused it as a negative and the adjacency build resolved it to the last
+        node; an index past the node count overflowed the adjacency list as `IndexError`. The
+        mask lives in :attr:`_real_edges` and the position map in :attr:`real_edge_indices` --
+        this pairs them and adds the upper-bound check neither does, so a message reports the
+        file's own row number rather than a compacted one.
+
+        Returns:
+            tuple: The `(n_real, 2)` node pairs, and their positions in the declared table.
+
+        Raises:
+            ValueError: A real edge names a node index that is not in `[0, n_node)`.
+        """
+        positions = self.real_edge_indices
+        edges = self._edge_nodes[self._real_edges]
+        node_count = self.n_node
+        if edges.size:
+            beyond = np.argwhere(edges >= node_count)
+            if beyond.size:
+                row, column = (int(value) for value in beyond[0])
+                raise ValueError(
+                    f"edge {int(positions[row])} names node {int(edges[row, column])}, which "
+                    f"is outside the node range [0, {node_count - 1}]. The edge table and the "
+                    f"node coordinates disagree about how many nodes this network has."
+                )
+        return edges, positions
+
+    def _missing_outlet_message(self) -> str:
+        """Build the error text for an undirected network asked to sort with no outlet.
+
+        Naming the candidates matters because the choice is genuinely the caller's: a network
+        stores no elevation, so every leaf of a tree is an equally valid outlet and none of
+        them can be guessed. The previous message offered only `directed=True`, which meant
+        rebuilding the object from the identical arrays.
+
+        The census is a pure degree test, so a candidate is not guaranteed to work: in a
+        component holding an odd cycle every outlet is refused. The message says so, rather
+        than sending the caller round a second loop.
+
+        Returns:
+            A message naming the degree-1 candidate outlets and both ways forward.
+        """
+        edges, _positions = self._sortable_edges
+        header = "sort() needs an orientation, and this network is undirected.\n"
+        if not edges.size:
+            # Every node has degree zero, which the `else` branch below would announce as
+            # "two or more edges" -- the opposite of the truth.
+            result = (
+                f"{header}"
+                "  It also has no edges, so there is no orientation to derive from any "
+                "outlet.\n"
+                "  Build the network with an edge table, or with directed=True."
+            )
+        else:
+            degree = np.bincount(edges.ravel(), minlength=self.n_node)
+            leaves = np.flatnonzero(degree == 1)
+            if leaves.size:
+                shown = ", ".join(str(int(index)) for index in leaves[:8])
+                more = ", ..." if leaves.size > 8 else ""
+                candidates = f"  Candidate outlets (degree-1 nodes): {shown}{more}\n"
+            else:
+                candidates = (
+                    "  No degree-1 node to suggest; every node has two or more edges.\n"
+                )
+            result = (
+                f"{header}"
+                f"{candidates}"
+                "  Either name the outlet -- sort(outlet=<node>) -- and the orientation is "
+                "derived from it,\n"
+                "  or construct Network1d(..., directed=True) with edges already running "
+                "upstream to downstream.\n"
+                "  A degree-1 node is only a candidate: one whose component holds an odd "
+                "cycle is refused\n"
+                "  anyway, because an edge equidistant from the outlet has no defensible "
+                "direction."
+            )
+        return result
+
+    def _validated_outlet(self, outlet: int) -> int:
+        """Return ``outlet`` as a node index, or refuse it.
+
+        `int(outlet)` alone accepted ``True`` (orienting towards node 1) and ``2.9``
+        (towards node 2), each returning a plausible order for a node the caller never
+        named. ``bool`` is excluded explicitly because it subclasses ``int`` and
+        :func:`operator.index` admits it.
+
+        Args:
+            outlet: The value the caller passed as the outlet.
+
+        Returns:
+            int: The index, narrowed through :func:`operator.index`.
+
+        Raises:
+            ValueError: ``outlet`` is not integral, or not in ``[0, n_node)``.
+        """
+        if isinstance(outlet, bool) or not hasattr(outlet, "__index__"):
+            raise ValueError(
+                f"outlet must be an integer node index, got {outlet!r} "
+                f"({type(outlet).__name__})."
+            )
+        index = operator.index(outlet)
+        node_count = self.n_node
+        if not 0 <= index < node_count:
+            raise ValueError(
+                f"outlet must be a node index in [0, {node_count - 1}], got {outlet!r}."
+            )
+        return index
+
+    def _hop_distances(
+        self, outlet: int, edges: np.typing.NDArray
+    ) -> np.typing.NDArray:
+        """Hop distance from ``outlet`` to every node, over the undirected edges.
+
+        Breadth-first, so the distance is the shortest number of edges. A node the sweep
+        never reaches keeps ``_UNREACHED``; the caller decides what that means, which differs
+        for a node in no edge (passed through) and an edge in another component (refused).
+
+        Args:
+            outlet: The node to measure from, already validated.
+            edges: The ``(n_real_edge, 2)`` node pairs to walk, already validated.
+
+        Returns:
+            np.ndarray: One distance per node, ``_UNREACHED`` where the sweep did not reach.
+        """
+        node_count = self.n_node
+        neighbours: list[list[int]] = [[] for _ in range(node_count)]
+        for first, second in edges:
+            neighbours[int(first)].append(int(second))
+            neighbours[int(second)].append(int(first))
+
+        distance = np.full(node_count, _UNREACHED, dtype=np.intp)
+        distance[outlet] = 0
+        queue: deque[int] = deque([outlet])
+        while queue:
+            node = queue.popleft()
+            for neighbour in neighbours[node]:
+                if distance[neighbour] == _UNREACHED:
+                    distance[neighbour] = distance[node] + 1
+                    queue.append(neighbour)
+        return distance
+
+    def _oriented_towards(self, outlet: int) -> np.typing.NDArray:
+        """Direct every edge towards ``outlet``, by hop distance over the undirected graph.
+
+        A breadth-first sweep from ``outlet`` labels each node with its distance, and each
+        edge is then emitted from its farther end to its nearer one. Every path therefore runs
+        towards ``outlet`` and the result is acyclic by construction, so Kahn's algorithm
+        downstream applies unchanged. A node in no edge is not visited and not refused: it
+        contributes no row here and reaches the order as a source.
+
+        Padded rows are stepped over: :attr:`_sortable_edges` drops them and validates the
+        rest, so the result holds one row per **real** edge rather than one per declared row.
+        A traversal does not index the table positionally, so the compaction is invisible to
+        it, and an error still names the row's position in the declared table.
+
+        Args:
+            outlet: Index of the node every edge should drain towards.
+
+        Returns:
+            An ``(n_real_edge, 2)`` array of ``(from_node, to_node)`` pairs.
+
+        Raises:
+            ValueError: If ``outlet`` is not an integer, or not a node index, if a real
+                edge names a node outside
+                the node range, if an edge's two ends are the same distance from ``outlet``
+                (nothing decides which way it runs), or if an edge sits in a component
+                ``outlet`` cannot reach.
+        """
+        outlet = self._validated_outlet(outlet)
+        edges, positions = self._sortable_edges
+        distance = self._hop_distances(outlet, edges)
+        unreached = _UNREACHED
+        oriented = np.empty_like(edges)
+        for row, (first, second) in enumerate(edges):
+            position = int(positions[row])
+            # `first`/`second` are the table's two columns and carry no meaning yet; the
+            # edge becomes `source -> target` only once their distances are compared.
+            left, right = int(first), int(second)
+            if distance[left] == unreached or distance[right] == unreached:
+                raise ValueError(
+                    f"edge {position} joins nodes {left} and {right}, which node {outlet} "
+                    f"cannot reach; orient one component at a time, or subset the network "
+                    f"with topology_subset() first."
+                )
+            if distance[left] == distance[right]:
+                raise ValueError(
+                    f"edge {position} joins nodes {left} and {right}, both "
+                    f"{int(distance[left])} hop(s) from outlet {outlet}, so nothing decides "
+                    f"which way it runs. Build the network with directed=True to state the "
+                    f"orientation."
+                )
+            # The farther end drains into the nearer one, so it is the source.
+            source, target = (
+                (left, right) if distance[left] > distance[right] else (right, left)
+            )
+            oriented[row] = (source, target)
+        return oriented
+
+    def sort(
+        self, direction: str = "downstream", outlet: int | None = None
+    ) -> np.typing.NDArray:
+        """Topologically order the nodes of a network.
 
         Uses Kahn's algorithm on the directed edges (each edge runs from its
         first node to its second). For ``"downstream"`` the result starts at the
@@ -378,28 +776,109 @@ class Network1d:
         edges -- puts the downstream node first. On a chain 0->1->2->3 that is
         ``[0, 1, 2, 3]`` and ``[3, 2, 1, 0]`` respectively.
 
+        An **undirected** network has no stored orientation, but a topological order is
+        still a property of its topology rather than of the ``directed`` flag it was built
+        with. Name the outlet and the orientation follows: every edge is directed from its
+        end farther from ``outlet`` towards its nearer end, so ``outlet`` is the sink of
+        every chain that reaches it and the graph is acyclic by construction. Rebuilding the
+        object with ``directed=True`` and the identical arrays is no longer the only way
+        through.
+
+        A node that appears in no edge has nothing to orient, so it is passed through rather
+        than refused -- ranked among the sources, in ascending node order -- which is what the
+        directed path does with one too. It is therefore also a sink, so ``outlet`` is not the
+        *only* one. An edgeless network is the limit of that case: every node is isolated, and
+        ``sort(outlet=...)`` returns them all in index order.
+
         Args:
             direction: ``"downstream"`` (sources first) or ``"upstream"`` (sinks
                 first). Defaults to ``"downstream"``.
+            outlet: Index of the node every edge drains towards, used to orient an
+                undirected network. Required for one, and refused for a directed network,
+                which already carries its own orientation. Defaults to ``None``.
 
         Returns:
             1D integer array of node indices in traversal order (length n_node).
 
         Raises:
-            ValueError: If ``direction`` is not ``"downstream"``/``"upstream"``, if
-                the network is not directed, or if the network contains a cycle
-                (no valid topological order exists).
+            ValueError: If a real edge names a node outside ``[0, n_node)`` -- checked on
+                both branches, directed or not; if ``direction`` is not
+                ``"downstream"``/``"upstream"``; if ``outlet`` is given for a directed
+                network, is not an integer, is out of range, or leaves an
+                edge unorientable (its two ends equidistant from ``outlet``, or its
+                component not reaching it); if the network is undirected and no ``outlet``
+                is given; or if the network contains a cycle (no valid topological order
+                exists).
+
+        Examples:
+            - A directed chain sorts from its headwater to its outlet:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid.network import Network1d
+                >>> chain = Network1d.from_arrays(
+                ...     np.array([0.0, 1.0, 2.0, 3.0]),
+                ...     np.array([0.0, 0.0, 0.0, 0.0]),
+                ...     np.array([[0, 1], [1, 2], [2, 3]]),
+                ...     directed=True,
+                ... )
+                >>> chain.sort().tolist()
+                [0, 1, 2, 3]
+                >>> chain.sort("upstream").tolist()
+                [3, 2, 1, 0]
+
+                ```
+            - The same topology undirected: name the outlet and the orientation follows,
+              giving the answer the directed network gives:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid.network import Network1d
+                >>> plain = Network1d.from_arrays(
+                ...     np.array([0.0, 1.0, 2.0, 3.0]),
+                ...     np.array([0.0, 0.0, 0.0, 0.0]),
+                ...     np.array([[0, 1], [1, 2], [2, 3]]),
+                ... )
+                >>> plain.directed
+                False
+                >>> plain.sort(outlet=3).tolist()
+                [0, 1, 2, 3]
+                >>> plain.sort(outlet=0).tolist()
+                [3, 2, 1, 0]
+
+                ```
+            - With no outlet the network cannot be oriented, and the error names the
+              degree-1 nodes that are candidates:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid.network import Network1d
+                >>> plain = Network1d.from_arrays(
+                ...     np.array([0.0, 1.0, 2.0]),
+                ...     np.array([0.0, 0.0, 0.0]),
+                ...     np.array([[0, 1], [1, 2]]),
+                ... )
+                >>> try:
+                ...     plain.sort()
+                ... except ValueError as error:
+                ...     print(str(error).splitlines()[1])
+                  Candidate outlets (degree-1 nodes): 0, 2
+
+                ```
         """
         if direction not in ("downstream", "upstream"):
             raise ValueError(
                 f"direction must be 'downstream' or 'upstream', got {direction!r}."
             )
-        if not self._directed:
-            raise ValueError(
-                "sort() needs a directed network; construct Network1d(..., directed=True) "
-                "with edges oriented from upstream to downstream."
-            )
-        edges = self._edge_nodes
+        if self._directed:
+            if outlet is not None:
+                raise ValueError(
+                    "outlet= orients an undirected network and this one is already directed; "
+                    "its edges carry the orientation. Drop outlet=, or rebuild with "
+                    "directed=False to orient from the outlet instead."
+                )
+            edges, _positions = self._sortable_edges
+        elif outlet is None:
+            raise ValueError(self._missing_outlet_message())
+        else:
+            edges = self._oriented_towards(outlet)
         if direction == "upstream":
             edges = edges[:, ::-1]
 

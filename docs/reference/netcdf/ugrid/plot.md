@@ -24,6 +24,12 @@ flowchart LR
         show_source: true
         heading_level: 3
 
+::: pyramids.netcdf.ugrid.plot.plot_vector_field_data
+    options:
+        show_root_heading: true
+        show_source: true
+        heading_level: 3
+
 ::: pyramids.netcdf.ugrid.plot.plot_mesh_outline
     options:
         show_root_heading: true

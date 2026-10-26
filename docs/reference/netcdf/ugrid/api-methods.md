@@ -1,6 +1,6 @@
 # UgridDataset — Complete Method Reference
 
-`UgridDataset` exposes 142 public methods and 19 properties. Many are
+`UgridDataset` exposes 143 public methods and 19 properties. Many are
 inherited from the `_UgridFacades` mixin and do not appear directly on
 the class definition, making them hard to discover via code search or
 LLM introspection. This page lists **every** public method and property
@@ -210,6 +210,7 @@ grouped by category.
 | `plot(variable_name, ax, cmap, title, ...)` | **(D)** | Plot mesh data via cleopatra |
 | `plot_outline(ax, **kwargs)` | **(D)** | Plot mesh wireframe |
 | `plot_histogram(bins, variable_name, ...)` | **(F)** | Histogram of a variable's values |
+| `plot_vector_field(u, v, kind, thin, ...)` | **(D)** | Quiver / barbs field from two components |
 | `animate(variable_name, interval, **kwargs)` | **(D)** | Animate a temporal variable over its time axis |
 | `to_image(variable_name, cell_size, cmap, method)` | **(D)** | Rasterise and colour-map to a PIL image |
 
