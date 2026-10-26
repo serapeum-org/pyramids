@@ -28,12 +28,26 @@ The `backend=` keyword is available on `Dataset.plot` / `Dataset.animate`, `NetC
 
 ### What carries over, and what does not
 
-On a non-matplotlib backend the facade forwards only the **backend-agnostic** arguments — the data selector
-(`band` / `variable` / `column` / `variable_name`), `basemap`, a boolean `colorbar`, `title`, a non-default `kind`,
-and any extra keywords you pass — and lets the backend accept or refuse each by name.
+On a non-matplotlib backend the facade forwards the **data-selection** arguments and lets the backend accept or
+refuse each by name. The forwarded set is per facade — the data selector plus the arguments that describe *what to
+show*, with `None`-valued and default ones dropped:
 
-The matplotlib-only styling is **rejected** with a `ValueError` so a silently-ignored style is never mistaken for an
-applied one. These are the typed cleopatra render groups and the raster-index overlays:
+- **`Dataset.plot`** — `band`, `exclude_value`, `rgb_options`, `basemap`, a bool `colorbar`, `title`, a
+  non-default `kind`.
+- **`Dataset.animate`** — `bands`, `animation_axis_values`, `exclude_value`, `basemap`, `interval`, and
+  `animate=True`.
+- **`NetCDF.plot`** — `variable`, `selectors`, `axes`, `exclude_value`, `basemap`, a bool `colorbar`, `title`, a
+  non-default `kind`, `animate`.
+- **`FeatureCollection.plot`** — `column`, `basemap`, a bool `colorbar`, `title`, a non-default `kind`.
+- **`DatasetCollection.plot` / `.animate`** — `band`, `exclude_value`, `rgb_options`, `basemap`, a bool
+  `colorbar`, `animation_axis_values`, and `animate=True`.
+- **`UgridDataset.plot`** — `variable_name`, a non-default `cmap`, `title`, `basemap`, a bool `colorbar`, a
+  non-default `kind`.
+- **`UgridDataset.animate`** — `variable_name`, `interval`, and `animate=True`.
+
+Any further keyword you pass is forwarded too. Arguments that only mean something on the matplotlib read/render
+path are instead **rejected** with a `ValueError`, so a silently-ignored argument is never mistaken for an applied
+one. These are the typed cleopatra render groups and raster-index overlays:
 
 | Parameter | Type | Why it is matplotlib-only |
 |---|---|---|
@@ -46,8 +60,9 @@ applied one. These are the typed cleopatra render groups and the raster-index ov
 | `frame_label` | `FrameLabel` | cleopatra animation frame caption styling |
 | `colorbar` | `ColorBar` instance | matplotlib colour-bar styling (a plain `bool` is fine) |
 
-`fig` / `ax` apply to matplotlib only, and `FeatureCollection.plot`'s `engine=` (`"geopandas"` / `"cleopatra"`)
-applies to `backend="matplotlib"` only; both are ignored off matplotlib.
+plus the per-facade read/render directives that pyramids cannot apply once it hands the object to a backend:
+`Dataset.plot`'s `overview` / `overview_index`, `NetCDF.plot`'s `facet` / `chunks`, and a non-default `engine`
+(`"cleopatra"`) on `FeatureCollection.plot`. `fig` / `ax` apply to matplotlib only.
 
 ## Resolution order
 
