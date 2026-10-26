@@ -40,7 +40,7 @@ from shapely.geometry import LineString, box
 
 from pyramids.base import _timeseries
 from pyramids.base._array_ops import array_equals, array_identical
-from pyramids.base._errors import AlignmentError, DriverNotExistError
+from pyramids.base._errors import AlignmentError, CRSError, DriverNotExistError
 from pyramids.base._plot_backends import (
     forward_kwargs,
     is_colorbar_spec,
@@ -67,8 +67,9 @@ from pyramids.base._utils import import_dask, require_optional
 from pyramids.base.crs import (
     crs_from_user_input,
     crs_spec,
+    epsg_from_user_input,
     sr_from_epsg,
-    sr_from_user_input,
+    sr_from_wkt,
 )
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
@@ -1288,19 +1289,23 @@ class UgridDataset(_UgridFacades):
             edge_y=new_edge_y,
         )
 
-        # The stored WKT comes from the resolved target. When that target carries an EPSG
-        # code -- which now includes an "EPSG:3857" string or a WKT input, not only a bare
-        # integer -- `sr_from_epsg` gives GDAL's full authority WKT, byte-for-byte what this
-        # method produced before #1404 on every target that already worked (the child
-        # datum / spheroid / primem AUTHORITY nodes a WKT2->WKT1 round-trip would drop). A
-        # code-less CRS (Robinson, a PROJ4 string) has no EPSG to feed `sr_from_epsg`, so its
-        # WKT comes from the resolved CRS via `sr_from_user_input` -- the capability #1404
-        # adds, used only where there is no code to preserve.
-        target_epsg = target_crs.to_epsg()
-        if target_epsg is not None:
-            srs = sr_from_epsg(target_epsg)
+        # The stored WKT comes from the resolved target. When the target carries an EPSG
+        # code, `sr_from_epsg` gives GDAL's authority WKT -- byte-for-byte what this method
+        # produced before #1404 for every coded target (keeping the child datum / spheroid /
+        # primem AUTHORITY nodes a WKT2->WKT1 round-trip drops, and, for a code only GDAL's
+        # PROJ database carries (#943), the sole place that code survives at all). The code
+        # is recovered with `epsg_from_user_input`, not `target_crs.to_epsg()`: pyproj's own
+        # `to_epsg()` returns None for those GDAL-only codes, and `epsg_from_user_input`
+        # verifies the candidate against the parsed definition (`IsSame`), so a near-match or
+        # a relabelled authority is refused rather than silently stored. A genuinely
+        # code-less CRS (Robinson, a PROJ4 string) raises `CRSError` there; its WKT comes
+        # from the already-resolved `target_crs`, not a second resolution of the input.
+        try:
+            target_epsg = epsg_from_user_input(to_epsg)
+        except CRSError:
+            srs = sr_from_wkt(target_crs.to_wkt())
         else:
-            srs = sr_from_user_input(to_epsg)
+            srs = sr_from_epsg(target_epsg)
         new_crs_wkt = srs.ExportToWkt()
 
         new_topo_info = None

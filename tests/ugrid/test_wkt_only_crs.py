@@ -313,6 +313,29 @@ class TestToCrsTargetAcceptsAnyInput:
         """A `pyproj.CRS` is advertised; exercise it at the to_crs level (L2)."""
         assert wgs84_mesh.to_crs(CRS.from_epsg(3857)).epsg == 3857
 
+    def test_a_gdal_only_epsg_code_keeps_its_authority_in_the_wkt(
+        self, wgs84_mesh: UgridDataset
+    ):
+        """A code only GDAL's PROJ database knows must survive in the stored WKT (R2 H1).
+
+        Test scenario:
+            EPSG:10857 is one of the ~187 codes pyproj's `to_epsg()` returns `None` for while
+            GDAL resolves it (the issue-#943 class). Deriving the stored WKT from
+            `target_crs.to_epsg()` therefore sent it down the code-less branch, dropping the
+            `AUTHORITY["EPSG","10857"]` node -- and for a GDAL-only code that WKT node is the
+            only place the code lives at all. Routing through `epsg_from_user_input` recovers
+            it, so the stored WKT is byte-for-byte what `sr_from_epsg(10857)` (the pre-#1404
+            behaviour) produced.
+        """
+        result = wgs84_mesh.to_crs(10857)
+
+        assert result.crs_wkt == sr_from_epsg(10857).ExportToWkt(), (
+            "a GDAL-only EPSG code must keep the authority WKT sr_from_epsg produces"
+        )
+        assert '"10857"' in result.crs_wkt, (
+            "the GDAL-only code must survive in the stored WKT"
+        )
+
     def test_an_uninterpretable_target_is_refused_without_a_doubled_prefix(
         self, wgs84_mesh: UgridDataset
     ):
