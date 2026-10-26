@@ -210,6 +210,22 @@ def test_entry_point_wins_over_digitalearth(
     assert resolve_plot_backend("3d") is recorder
 
 
+def test_resolve_prefers_registered_even_when_falsy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A registered backend wins over the fallback even if the callable is falsy (``__bool__``)."""
+
+    class _FalsyBackend:
+        def __bool__(self) -> bool:
+            return False
+
+        def __call__(self, obj: Any, *, backend: str, **kwargs: Any) -> str:
+            return "falsy-rendered"
+
+    falsy = _FalsyBackend()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": falsy})
+    monkeypatch.setattr(_plot_backends, "extra_missing", lambda name: True)
+    assert resolve_plot_backend("web") is falsy
+
+
 def test_too_old_digitalearth_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """A digitalearth without ``quickmap`` raises the branded upgrade hint."""
     _present_digitalearth(monkeypatch, types.SimpleNamespace())

@@ -282,7 +282,7 @@ def resolve_plot_backend(name: str) -> Callable[..., Any]:
             ```
     """
     registered = plot_backends()
-    backend = registered.get(name) or _digitalearth_backend()
+    backend = registered[name] if name in registered else _digitalearth_backend()
     if backend is None:
         extra = _BACKEND_EXTRA.get(name, "interactive")
         available = sorted(registered) or "none"
