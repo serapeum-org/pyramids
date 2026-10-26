@@ -147,8 +147,9 @@ def test_load_skips_entry_point_that_raises(monkeypatch: pytest.MonkeyPatch) -> 
         def load(self) -> Any:
             raise RuntimeError("kaboom")
 
+    boom = _Boom()
     with pytest.warns(RuntimeWarning, match="could not be loaded"):
-        loaded = _plot_backends._load(_Boom())
+        loaded = _plot_backends._load(boom)
     assert loaded is None
 
 
