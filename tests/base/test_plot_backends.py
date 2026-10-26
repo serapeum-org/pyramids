@@ -217,7 +217,9 @@ def test_entry_point_wins_over_digitalearth(
     assert resolve_plot_backend("3d") is recorder
 
 
-def test_resolve_prefers_registered_even_when_falsy(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_prefers_registered_even_when_falsy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A registered backend wins over the fallback even if the callable is falsy (``__bool__``)."""
 
     class _FalsyBackend:
@@ -347,7 +349,9 @@ def test_dataset_plot_rejects_matplotlib_only_param(
     assert recorder.backend is None  # never dispatched
 
 
-def test_dataset_plot_rejects_overview_on_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dataset_plot_rejects_overview_on_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """``overview`` is a matplotlib read directive, rejected rather than silently dropped."""
     recorder = _Recorder()
     monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
@@ -357,7 +361,9 @@ def test_dataset_plot_rejects_overview_on_backend(monkeypatch: pytest.MonkeyPatc
     assert recorder.backend is None
 
 
-def test_dataset_plot_default_overview_is_not_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dataset_plot_default_overview_is_not_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The ``overview=False`` / ``overview_index=0`` defaults do not trip the guard."""
     recorder = _Recorder()
     monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
@@ -432,7 +438,9 @@ def test_netcdf_plot_rejects_chunks_on_backend(monkeypatch: pytest.MonkeyPatch) 
 def _feature_collection() -> FeatureCollection:
     """A tiny two-point in-memory FeatureCollection for the facade dispatch tests."""
     frame = gpd.GeoDataFrame(
-        {"v": [1.0, 2.0]}, geometry=gpd.points_from_xy([0.0, 1.0], [0.0, 1.0]), crs="EPSG:4326"
+        {"v": [1.0, 2.0]},
+        geometry=gpd.points_from_xy([0.0, 1.0], [0.0, 1.0]),
+        crs="EPSG:4326",
     )
     return FeatureCollection(frame)
 
@@ -449,7 +457,9 @@ def test_feature_plot_routes_to_backend(monkeypatch: pytest.MonkeyPatch) -> None
     assert recorder.kwargs["title"] == "pts"
 
 
-def test_feature_plot_rejects_non_default_engine(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_feature_plot_rejects_non_default_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A non-default ``engine`` with a non-matplotlib backend raises rather than being ignored."""
     recorder = _Recorder()
     monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
@@ -459,7 +469,9 @@ def test_feature_plot_rejects_non_default_engine(monkeypatch: pytest.MonkeyPatch
     assert recorder.backend is None
 
 
-def test_feature_plot_default_engine_is_not_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_feature_plot_default_engine_is_not_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The default ``engine='geopandas'`` does not trip the guard on a backend call."""
     recorder = _Recorder()
     monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
@@ -481,12 +493,18 @@ def _ugrid_dataset() -> UgridDataset:
         ),
     )
     var = MeshVariable(
-        name="depth", location="face", mesh_name="mesh2d", shape=(2,), _data=np.array([10.0, 20.0])
+        name="depth",
+        location="face",
+        mesh_name="mesh2d",
+        shape=(2,),
+        _data=np.array([10.0, 20.0]),
     )
     return UgridDataset(mesh=mesh, data_variables={"depth": var}, global_attributes={})
 
 
-def test_ugrid_plot_drops_default_cmap_on_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ugrid_plot_drops_default_cmap_on_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The ``cmap='viridis'`` default is not forwarded, so the backend keeps its own default."""
     recorder = _Recorder()
     monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
@@ -496,10 +514,94 @@ def test_ugrid_plot_drops_default_cmap_on_backend(monkeypatch: pytest.MonkeyPatc
     assert "cmap" not in recorder.kwargs
 
 
-def test_ugrid_plot_forwards_explicit_cmap_on_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ugrid_plot_forwards_explicit_cmap_on_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A user-set ``cmap`` is forwarded to the backend."""
     recorder = _Recorder()
     monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
     mesh = _ugrid_dataset()
     mesh.plot("depth", backend="web", cmap="jet")
     assert recorder.kwargs["cmap"] == "jet"
+
+
+def test_ugrid_plot_rejects_render_group_on_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cleopatra render group on a non-matplotlib mesh backend raises before dispatch."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    mesh = _ugrid_dataset()
+    with pytest.raises(ValueError, match="only apply to backend='matplotlib'"):
+        mesh.plot("depth", backend="web", contour=object())
+    assert recorder.backend is None
+
+
+def test_ugrid_animate_routes_with_animate_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``UgridDataset.animate(backend=…)`` routes to the backend with ``animate=True``."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    mesh = _ugrid_dataset()
+    mesh.animate("depth", backend="web", interval=150)
+    assert recorder.backend == "web"
+    assert recorder.kwargs["animate"] is True
+    assert recorder.kwargs["interval"] == 150
+
+
+def _single_dataset_collection() -> DatasetCollection:
+    """A one-frame DatasetCollection whose single band can be dispatched to a backend."""
+    return DatasetCollection(_single_band_dataset(), time_length=1)
+
+
+def test_collection_plot_routes_with_animate_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``DatasetCollection.plot(backend=…)`` routes with ``animate=True`` and forwards band/labels."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    collection = _single_dataset_collection()
+    collection.plot(backend="web", band=0, animation_axis_values=["t0"])
+    assert recorder.obj is collection
+    assert recorder.backend == "web"
+    assert recorder.kwargs["animate"] is True
+    assert recorder.kwargs["band"] == 0
+    assert recorder.kwargs["animation_axis_values"] == ["t0"]
+
+
+def test_collection_plot_rejects_frame_label_on_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``frame_label`` (a cleopatra animation caption style) is rejected off matplotlib."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    collection = _single_dataset_collection()
+    with pytest.raises(ValueError, match="only apply to backend='matplotlib'"):
+        collection.plot(backend="web", frame_label=object())
+    assert recorder.backend is None
+
+
+def test_collection_animate_forwards_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``DatasetCollection.animate`` forwards ``backend=`` through to ``plot``."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    collection = _single_dataset_collection()
+    collection.animate(backend="web")
+    assert recorder.backend == "web"
+    assert recorder.kwargs["animate"] is True
+
+
+def test_facade_forwards_bool_colorbar_but_rejects_colorbar_instance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bool ``colorbar`` is forwarded through a facade; a styled ``ColorBar`` instance is rejected."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    dataset = _single_band_dataset()
+    dataset.plot(backend="web", colorbar=True)
+    assert recorder.kwargs["colorbar"] is True
+    recorder.backend = None
+    with pytest.raises(ValueError, match="only apply to backend='matplotlib'"):
+        dataset.plot(backend="web", colorbar=object())
+    assert recorder.backend is None
