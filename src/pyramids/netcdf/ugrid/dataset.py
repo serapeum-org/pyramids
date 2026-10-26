@@ -5955,6 +5955,10 @@ class UgridDataset(_UgridFacades):
         - There is no ``basemap=``. :meth:`plot` accepts one and validates the dataset's CRS
           first; here a ``basemap=`` keyword falls through to cleopatra, which refuses it as
           an unknown option.
+        - ``kind="streamplot"`` is not available. The raster method documents it alongside
+          ``quiver`` and ``barbs``; streamlines need a structured grid, so cleopatra refuses
+          it with ``kind='streamplot' is not supported on an unstructured mesh``. The shared
+          vocabulary is therefore ``quiver`` and ``barbs`` only.
 
         Args:
             u: Name of the variable holding the first vector component.
@@ -5979,8 +5983,10 @@ class UgridDataset(_UgridFacades):
             OptionalPackageDoesNotExist: cleopatra is not installed, or is older than the
                 0.44.0 that provides ``MeshGlyph.plot_vector_field``.
             ValueError: A loose colour-bar keyword the :class:`ColorBar` spec replaces was
-                passed (``cbar_label``, ``ticks_spacing``, ...); a component has no loaded
-                data; the two sit on different locations;
+                passed (``cbar_label``, ``ticks_spacing``, ...); ``kind``, ``location`` or
+                ``thin`` is not one cleopatra accepts, ``kind="streamplot"`` among them --
+                the glyph validates all three, so that message is cleopatra's; a component
+                has no loaded data; the two sit on different locations;
                 the shared location is not ``"face"`` or ``"node"``; the two have different
                 shapes; or ``time_index`` is outside a temporal component's time axis.
 
@@ -6118,6 +6124,10 @@ class UgridDataset(_UgridFacades):
                 f"{collapsed_rank} axes once the time axis is collapsed. A layered or "
                 f"otherwise multi-dimensional variable has no single per-element vector."
             )
+        # `_element_values` resolves the name a second time rather than taking `var`. Left
+        # as is: `get_data` is a mapping lookup, so the two calls cannot see different
+        # objects, and threading `var` through would change the signature of a reducer five
+        # other members share.
         _var, values = self._element_values(variable_name, time_index)
         return values, var.location
 

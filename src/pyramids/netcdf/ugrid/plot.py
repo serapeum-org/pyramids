@@ -218,7 +218,10 @@ def plot_vector_field_data(
     Raises:
         OptionalPackageDoesNotExist: If cleopatra is not installed, or is older than the
             0.44.0 that provides `MeshGlyph.plot_vector_field`.
-        ValueError: If a loose colour-bar kwarg the `ColorBar` spec replaces is passed.
+        ValueError: If a loose colour-bar kwarg the `ColorBar` spec replaces is passed, or if
+            `kind`, `location` or `thin` is not one cleopatra accepts -- `kind="streamplot"`
+            is refused on an unstructured mesh. The glyph validates all three, so that
+            message is cleopatra's rather than pyramids'.
 
     Examples:
         - Draw a face-located velocity field and read back the arrow count:
@@ -248,6 +251,9 @@ def plot_vector_field_data(
 
             ```
     """
+    # Rejected before the glyph is built: the check needs no mesh, and building one first
+    # made a caller's typo pay for a MeshGlyph construction before being told about it.
+    _reject_replaced_cbar_kwargs(kwargs)
     glyph = _mesh_to_glyph(mesh)
     if not hasattr(glyph, "plot_vector_field"):
         # `require_cleopatra` checks only that cleopatra imports, and the guarded import in
@@ -260,7 +266,6 @@ def plot_vector_field_data(
             "Upgrade with `pip install -U 'pyramids-core[viz]'` to satisfy the floor "
             "pinned in pyproject.toml."
         )
-    _reject_replaced_cbar_kwargs(kwargs)
     if colorbar is not None:
         kwargs["colorbar"] = colorbar
     result = glyph.plot_vector_field(

@@ -345,3 +345,69 @@ class TestPassThroughInputs:
         )
         mesh = Mesh2d(NODE_X, NODE_Y, _faces(), no_fill)
         assert mesh.edge_node_connectivity is no_fill
+
+
+class TestEveryTableIsCovered:
+    """The two tables the first pass left unexercised (round 1 M5)."""
+
+    def test_an_edge_node_fill_is_checked_against_the_node_count(self):
+        """`edge_node_connectivity` addresses nodes, like `face_node` (M5).
+
+        Test scenario:
+            This is the test that would catch an `index_count` / `addresses` swap between
+            the two node-addressed tables, which nothing else covers: both are checked
+            against the node count, so a mix-up is invisible until one of them is wrong.
+        """
+        edges = _conn([[0, 1], [1, 2], [2, 2]], 2, "edge_node_connectivity")
+
+        with pytest.raises(ValueError, match="valid node index") as caught:
+            Mesh2d(NODE_X, NODE_Y, _faces(), edges)
+
+        message = str(caught.value)
+        assert "edge_node_connectivity" in message
+        assert "[0, 4)" in message, (
+            f"the node range, not another table's; got: {message}"
+        )
+
+    def test_an_edge_node_out_of_range_fill_normalises(self):
+        """The accepting arm for `edge_node_connectivity` (M5)."""
+        edges = _conn([[0, 1], [1, 2], [999, 999]], 999, "edge_node_connectivity")
+
+        mesh = Mesh2d(NODE_X, NODE_Y, _faces(), edges)
+
+        stored = mesh.edge_node_connectivity
+        assert stored is not None
+        np.testing.assert_array_equal(
+            np.asarray(stored.data), np.array([[0, 1], [1, 2], [-1, -1]])
+        )
+
+    def test_an_edge_face_fill_is_checked_against_the_face_count(self):
+        """`edge_face_connectivity` addresses faces, from the other direction (M5).
+
+        Test scenario:
+            The only table checked against the face count that is not itself face-indexed by
+            row, so it is the one place a face/edge count mix-up shows up asymmetrically.
+            Two faces, so a fill of 1 is in range.
+        """
+        edges = _conn([[0, 1], [1, 2]], -1, "edge_node_connectivity")
+        edge_faces = _conn([[0, 1], [1, 1]], 1, "edge_face_connectivity")
+
+        with pytest.raises(ValueError, match="valid face index") as caught:
+            Mesh2d(NODE_X, NODE_Y, _faces(), edges, None, None, edge_faces)
+
+        message = str(caught.value)
+        assert "edge_face_connectivity" in message
+        assert "[0, 2)" in message, f"the face range; got: {message}"
+
+    def test_an_edge_face_out_of_range_fill_normalises(self):
+        """The accepting arm for `edge_face_connectivity` (M5)."""
+        edges = _conn([[0, 1], [1, 2]], -1, "edge_node_connectivity")
+        edge_faces = _conn([[0, 1], [1, 99]], 99, "edge_face_connectivity")
+
+        mesh = Mesh2d(NODE_X, NODE_Y, _faces(), edges, None, None, edge_faces)
+
+        stored = mesh.edge_face_connectivity
+        assert stored is not None
+        np.testing.assert_array_equal(
+            np.asarray(stored.data), np.array([[0, 1], [1, -1]])
+        )
