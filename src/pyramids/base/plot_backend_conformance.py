@@ -31,10 +31,6 @@ from typing import Any
 
 __all__ = ["check_plot_backend", "assert_plot_backend_conforms"]
 
-#: A kwarg name no real forwarded argument uses, so binding it probes whether the callable accepts
-#: the open ``**kwargs`` the seam forwards through.
-_PROBE_KWARG = "_pyramids_conformance_probe"
-
 
 def check_plot_backend(backend: Any) -> list[str]:
     """Return every way a plot-backend callable departs from the contract.
@@ -63,37 +59,48 @@ def check_plot_backend(backend: Any) -> list[str]:
             ['object is not callable; the pyramids.plot_backends entry point must load a callable']
 
             ```
-        - A callable that cannot take the render call shape is reported:
+        - A callable without ``**kwargs`` cannot receive the forwarded arguments, and is reported:
             ```python
-            >>> def too_rigid(obj, backend):  # no **kwargs: cannot receive forwarded arguments
+            >>> def too_rigid(obj, *, backend):  # no **kwargs
             ...     ...
             >>> problems = check_plot_backend(too_rigid)
             >>> len(problems)
             1
-            >>> problems[0].startswith("callable does not accept the render call shape")
+            >>> "**kwargs" in problems[0]
             True
 
             ```
     """
-    if not callable(backend):
-        return [
-            "object is not callable; the pyramids.plot_backends entry point must load a callable"
-        ]
-    try:
-        signature = inspect.signature(backend)
-    except (TypeError, ValueError):
-        # A builtin or C callable with no introspectable signature; being callable is all discovery
-        # can enforce, so accept it rather than report a false problem.
-        return []
     problems: list[str] = []
-    try:
-        signature.bind(
-            "conformance-object", backend="matplotlib", **{_PROBE_KWARG: None}
-        )
-    except TypeError as error:
+    if not callable(backend):
         problems.append(
-            f"callable does not accept the render call shape fn(obj, *, backend, **kwargs): {error}"
+            "object is not callable; the pyramids.plot_backends entry point must load a callable"
         )
+    else:
+        try:
+            signature: inspect.Signature | None = inspect.signature(backend)
+        except (TypeError, ValueError):
+            # A builtin or C callable with no introspectable signature; being callable is all
+            # discovery can enforce, so accept it rather than report a false problem.
+            signature = None
+        if signature is not None:
+            try:
+                signature.bind("conformance-object", backend="matplotlib")
+            except TypeError as error:
+                problems.append(
+                    "callable does not accept the render call shape "
+                    f"fn(obj, *, backend, **kwargs): {error}"
+                )
+            else:
+                has_var_keyword = any(
+                    parameter.kind is inspect.Parameter.VAR_KEYWORD
+                    for parameter in signature.parameters.values()
+                )
+                if not has_var_keyword:
+                    problems.append(
+                        "callable has no **kwargs, so it cannot receive the facade's forwarded "
+                        "arguments"
+                    )
     return problems
 
 

@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from pyramids.base import plot_backend_conformance as module
 from pyramids.base.plot_backend_conformance import (
     assert_plot_backend_conforms,
     check_plot_backend,
@@ -60,7 +61,6 @@ class TestConforms:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A callable whose signature cannot be introspected is accepted on being callable alone."""
-        import pyramids.base.plot_backend_conformance as module
 
         def no_signature(_: Any) -> Any:
             raise ValueError("no signature found")
@@ -109,7 +109,7 @@ class TestDoesNotConform:
 
         problems = check_plot_backend(too_rigid)
         assert len(problems) == 1
-        assert "render call shape" in problems[0]
+        assert "**kwargs" in problems[0]
 
     def test_extra_required_positional_is_rejected(self) -> None:
         """A second required positional cannot be filled by ``fn(obj, backend=…)``."""
@@ -117,7 +117,9 @@ class TestDoesNotConform:
         def needs_two(first: Any, obj: Any, *, backend: str, **kwargs: Any) -> Any:
             return first, obj, backend
 
-        assert check_plot_backend(needs_two) != []
+        problems = check_plot_backend(needs_two)
+        assert len(problems) == 1
+        assert "render call shape" in problems[0]
 
     def test_keyword_only_obj_is_rejected(self) -> None:
         """A keyword-only ``obj`` cannot be filled — the seam passes ``obj`` positionally."""
@@ -125,7 +127,9 @@ class TestDoesNotConform:
         def render(*, obj: Any, backend: str, **kwargs: Any) -> Any:
             return obj, backend
 
-        assert check_plot_backend(render) != []
+        problems = check_plot_backend(render)
+        assert len(problems) == 1
+        assert "render call shape" in problems[0]
 
     def test_callable_instance_without_var_kwargs_is_rejected(self) -> None:
         """An instance whose ``__call__`` lacks ``**kwargs`` cannot take forwarded arguments."""
@@ -134,7 +138,26 @@ class TestDoesNotConform:
             def __call__(self, obj: Any, *, backend: str) -> Any:
                 return obj, backend
 
-        assert check_plot_backend(Rigid()) != []
+        problems = check_plot_backend(Rigid())
+        assert len(problems) == 1
+        assert "**kwargs" in problems[0]
+
+    def test_param_named_like_probe_without_var_kwargs_is_rejected(self) -> None:
+        """A param coinciding with the old sentinel name but no ``**kwargs`` is still rejected.
+
+        The seam forwards real keys (`title`, `basemap`, …); a callable that binds one sentinel key
+        but has no `**kwargs` would `TypeError` on any of them, so the kit must not be fooled by the
+        parameter name.
+        """
+
+        def collides(
+            obj: Any, *, backend: str, _pyramids_conformance_probe: Any = None
+        ) -> Any:
+            return obj, backend
+
+        problems = check_plot_backend(collides)
+        assert len(problems) == 1
+        assert "**kwargs" in problems[0]
 
     def test_assert_raises_with_reason(self) -> None:
         """``assert_plot_backend_conforms`` raises ``AssertionError`` naming the problem."""
