@@ -1,6 +1,16 @@
 ﻿# Change log
 
 
+## 0.72.0 (2026-10-26)
+
+### Feat
+
+- **ugrid**: add a mesh vector field, fix Network1d read/sort/n_face, normalise connectivity fills (#1395)
+- **feature**: add a conformance kit for pyramids.vector_drivers plugins (#1399)
+- **feature**: add pyramids.vector_drivers plugin hook for third-party vector readers (#1392)
+- **ugrid**: add CF time decoding, terrain, focal stats and along-time analysis (#1382)
+- **ugrid**: add 17 GIS-parity methods to UgridDataset (#1356)
+
 ## 0.71.0 (2026-10-20)
 
 ### Feat
