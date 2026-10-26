@@ -155,3 +155,193 @@ class TestOtherTablesUseTheirOwnRange:
         np.testing.assert_allclose(
             np.asarray(exotic.face_centroids), np.asarray(plain.face_centroids)
         )
+
+
+class TestDtypeAndFillType:
+    """The dtype and the type of the declared fill (round 1 H1, H2, L3)."""
+
+    @pytest.mark.parametrize(
+        ("dtype", "fill_value"),
+        [(np.uint8, 255), (np.uint16, 65535), (np.int8, 127), (np.uint32, 4294967295)],
+        ids=["uint8", "uint16", "int8", "uint32"],
+    )
+    def test_an_unsigned_table_normalises_instead_of_overflowing(
+        self, dtype, fill_value
+    ):
+        """`-1` has no representation in an unsigned dtype, so the result is signed (H1).
+
+        Test scenario:
+            Writing the sentinel into the caller's dtype raised
+            `OverflowError: Python integer -1 out of bounds for uint8` before the padding
+            could be marked; narrowing back afterwards would have been worse, wrapping -1
+            onto 255 so `fill_value` claimed -1 while the padding still read 255. 255 and
+            65535 are the canonical fills for an unsigned table, and the UGRID guidance
+            ("larger than the number of nodes") pushes writers towards such sentinels.
+        """
+        table = _conn(
+            [[0, 1, 2], [1, 3, fill_value]], fill_value, "face_node_connectivity"
+        )
+        table = Connectivity(
+            data=np.array([[0, 1, 2], [1, 3, fill_value]], dtype=dtype),
+            fill_value=fill_value,
+            cf_role="face_node_connectivity",
+            original_start_index=0,
+        )
+
+        mesh = Mesh2d(NODE_X, NODE_Y, table)
+
+        stored = mesh.face_node_connectivity
+        assert stored.fill_value == -1
+        assert np.issubdtype(np.asarray(stored.data).dtype, np.signedinteger), (
+            f"the result must be signed, got {np.asarray(stored.data).dtype}"
+        )
+        np.testing.assert_array_equal(
+            np.asarray(stored.data), np.array([[0, 1, 2], [1, 3, -1]])
+        )
+
+    @pytest.mark.parametrize(
+        "fill_value",
+        [999999.5, 2.5, -1.5, float("nan"), "999999", True],
+        ids=["fractional", "small-fraction", "negative-fraction", "nan", "str", "bool"],
+    )
+    def test_a_non_integer_fill_is_refused(self, fill_value):
+        """A fill that is not an integer cannot be compared against the table (H2, L3).
+
+        Test scenario:
+            `int(999999.5)` compared against a value that is not in the data, so the padding
+            survived while `fill_value` was set to -1 -- the ambiguity this gate removes,
+            recreated silently with the audit trail erased. `int(2.5)` also misreported the
+            caller's value as "2", and `-1.5` slipped through the `== -1` early return
+            entirely. `bool` is refused because `True` is not a node index even though it
+            indexes like one.
+        """
+        table = Connectivity(
+            data=np.array([[0, 1, 2], [1, 3, 3]], dtype=np.float64),
+            fill_value=fill_value,
+            cf_role="face_node_connectivity",
+            original_start_index=0,
+        )
+        with pytest.raises(TypeError, match="must be an integer or None"):
+            Mesh2d(NODE_X, NODE_Y, table)
+
+
+class TestRangeIsDerivedWhenUnknown:
+    """`index_count == 0` must not license an unvalidated rewrite (round 1 H3)."""
+
+    def test_a_face_edge_fill_is_refused_with_no_edge_table(self):
+        """With no companion table the range comes from the table itself (H3).
+
+        Test scenario:
+            `edge_node_connectivity` is optional in UGRID while `face_edge_connectivity` is
+            present, so `edge_count == 0` is legal input. The old guard `if index_count and
+            0 <= fill < index_count` was dead code there -- `0 <= fill < 0` is unsatisfiable
+            -- and the rewrite then ran against a fill nothing had validated, turning
+            `[[0, 1], [1, 0]]` into `[[-1, 1], [1, -1]]` and destroying every reference to
+            edge 0 with no error.
+        """
+        face_edges = _conn([[0, 1], [1, 0]], 0, "face_edge_connectivity")
+
+        with pytest.raises(ValueError, match="valid edge index") as caught:
+            Mesh2d(NODE_X, NODE_Y, _faces(), None, face_edges)
+
+        message = str(caught.value)
+        assert "face_edge_connectivity" in message
+        assert "[0, 2)" in message, (
+            f"the range must be the one derived from the table, got: {message}"
+        )
+
+    def test_an_out_of_range_fill_still_normalises_with_no_edge_table(self):
+        """The derived range must not refuse a legitimately out-of-range fill (H3)."""
+        face_edges = _conn([[0, 1], [1, 999]], 999, "face_edge_connectivity")
+
+        mesh = Mesh2d(NODE_X, NODE_Y, _faces(), None, face_edges)
+
+        stored = mesh.face_edge_connectivity
+        assert stored is not None
+        np.testing.assert_array_equal(
+            np.asarray(stored.data), np.array([[0, 1], [1, -1]])
+        )
+
+
+class TestRefusalKeysOnOccurrence:
+    """An in-range fill that never appears is not ambiguous (round 1 M1)."""
+
+    def test_an_unused_in_range_fill_is_accepted(self):
+        """A table with no padding is readable whatever its declared fill says (M1).
+
+        Test scenario:
+            The UGRID examples declare `_FillValue = 999999` on every connectivity
+            unconditionally, padded or not. Refusing on the declared value alone meant a
+            mesh with a million nodes could not be constructed at all over a sentinel it
+            never uses. A fully-triangular table with `fill_value=2` has no ambiguity.
+        """
+        dense = _conn([[0, 1, 3], [1, 3, 0]], 2, "face_node_connectivity")
+
+        mesh = Mesh2d(NODE_X, NODE_Y, dense)
+
+        stored = mesh.face_node_connectivity
+        assert stored.fill_value == -1, "the declared fill is still normalised away"
+        np.testing.assert_array_equal(
+            np.asarray(stored.data), np.array([[0, 1, 3], [1, 3, 0]])
+        )
+
+    def test_an_in_range_fill_that_does_occur_is_still_refused(self):
+        """The refusal must not have been weakened into never firing (M1)."""
+        padded = _conn([[0, 1, 2], [1, 3, 2]], 2, "face_node_connectivity")
+        with pytest.raises(ValueError, match="valid node index"):
+            Mesh2d(NODE_X, NODE_Y, padded)
+
+
+class TestOtherNegatives:
+    """A stray negative addresses a node from the wrong end (round 1 M2)."""
+
+    def test_a_negative_that_is_not_the_fill_becomes_padding(self):
+        """Every negative is normalised, not just the declared fill (M2).
+
+        Test scenario:
+            `Network1d._real_edges` already excludes all negatives, with a comment naming the
+            hazard: a negative index addresses a node from the wrong end just as silently as
+            the conventional fill. `Mesh2d` kept them, so `get_element(1)` returned
+            `[1, 3, -5]` and `nodes_per_element()` counted -5 as a real node.
+        """
+        mixed = _conn(
+            [[0, 1, 2], [1, 3, -5], [0, 3, 999]], 999, "face_node_connectivity"
+        )
+
+        mesh = Mesh2d(NODE_X, NODE_Y, mixed)
+
+        np.testing.assert_array_equal(
+            np.asarray(mesh.face_node_connectivity.data),
+            np.array([[0, 1, 2], [1, 3, -1], [0, 3, -1]]),
+        )
+        assert mesh.face_node_connectivity.nodes_per_element().tolist() == [3, 2, 2]
+
+
+class TestPassThroughInputs:
+    """Inputs with no fill to normalise must survive untouched (round 1 regression guard)."""
+
+    def test_a_bare_array_connectivity_is_left_alone(self):
+        """`Network1d` accepts a raw ndarray, which has no `fill_value` at all.
+
+        Test scenario:
+            The annotation says `Connectivity`, but `Network1d(edge_node_connectivity=
+            np.empty((0, 2)))` is what `tests/ugrid/test_graph_network_round2.py` passes, so
+            the attribute lookup has to tolerate its absence. Narrowing that away broke the
+            existing suite.
+        """
+        from pyramids.netcdf.ugrid.network import Network1d
+
+        raw = np.empty((0, 2), dtype=np.intp)
+        net = Network1d(np.array([]), np.array([]), raw)
+        assert net.edge_node_connectivity is raw
+
+    def test_a_none_fill_is_left_alone(self):
+        """`Connectivity(fill_value=None)` declares a table with no sentinels."""
+        no_fill = Connectivity(
+            data=np.array([[0, 1], [1, 2]], dtype=np.intp),
+            fill_value=None,
+            cf_role="edge_node_connectivity",
+            original_start_index=0,
+        )
+        mesh = Mesh2d(NODE_X, NODE_Y, _faces(), no_fill)
+        assert mesh.edge_node_connectivity is no_fill

@@ -7,6 +7,7 @@ for mixed-element meshes.
 
 from __future__ import annotations
 
+import operator
 from dataclasses import dataclass
 from typing import cast
 
@@ -149,67 +150,120 @@ class Connectivity:
 def normalised_connectivity(
     connectivity: Connectivity, index_count: int, label: str, addresses: str = "node"
 ) -> Connectivity:
-    """Return a table whose padding is marked with ``-1``, or refuse an ambiguous one.
+    """Return a table whose padding is marked with ``-1``, or refuse an unreadable one.
 
     Every member that walks a connectivity table decides "is this row padding?" by comparing
     against the stored fill value -- a number pyramids does not control, because it is
-    whatever the file or the driver declared. Two cases follow, and they need different
-    answers.
+    whatever the file or the driver declared. This is the single gate that turns that into
+    something the rest of the package can rely on: afterwards, padding is ``-1`` and nothing
+    else is negative.
 
-    A fill **outside** ``[0, index_count)`` is unambiguous, so it is rewritten to ``-1`` here
-    and nothing downstream ever sees anything else. It has to be normalisation rather than a
-    restriction, because the UGRID conventions prescribe no particular value -- for
-    volume-node connectivity the fill need only be "larger than the number of nodes in the
-    mesh" -- and the spec's own examples use ``999999`` and ``-999``. Both comparable
-    libraries do the same: xugrid normalises to ``-1`` ("This ensures we can always index")
-    and uxarray to ``np.iinfo(np.intp).min``.
+    What it does, and why each step is needed:
 
-    A fill **inside** ``[0, index_count)`` is also a legal index, so a padded row and a real
-    element are indistinguishable and there is no correct reading to normalise to. On a
-    4-node mesh with ``fill_value=2`` the rows ``[1, 2]`` and ``[2, 3]`` are real elements
-    that look exactly like padding, so they were dropped silently -- for an edge table that
-    meant ``sort()`` returning a wrong topological order with no exception. That is refused.
+    - **The result is always a signed index dtype** (:data:`numpy.intp`), matching what
+      :meth:`Connectivity.from_gdal_array` already produces and what every consumer assumes.
+      Preserving an unsigned dtype cannot work: ``-1`` has no representation in it, so
+      writing the sentinel either raises or wraps to the fill's own value.
+    - **A non-integral fill is refused** rather than narrowed. Truncating ``999999.5`` to
+      ``999999`` compares against a value that is not in the table, so the padding survives
+      while ``fill_value`` claims ``-1`` -- the exact ambiguity this function removes,
+      recreated silently and with the audit trail erased.
+    - **The refusal keys on whether the fill occurs**, not merely on its value. The UGRID
+      examples declare ``_FillValue = 999999`` unconditionally, padded or not, so a mesh with
+      a million nodes would otherwise fail to load over a sentinel it never uses.
+    - **Padding and every other negative become** ``-1``. A stray negative addresses a node
+      from the wrong end exactly as silently as the conventional fill does, which is why
+      :attr:`Network1d._real_edges` already excludes all of them rather than just the fill.
+
+    An ambiguous table is refused: when the fill is a legal index *and* present, a padded row
+    and a real element are indistinguishable and there is no correct reading to normalise to.
+    On a 4-node mesh with ``fill_value=2``, the rows ``[1, 2]`` and ``[2, 3]`` are real
+    elements that look exactly like padding -- dropping them silently is how an edge table
+    produced a wrong topological order with no exception.
 
     ``index_count`` is the size of the range **this** table indexes, which is not always the
     node count: a ``face_edge_connectivity`` indexes edges and a ``face_face_connectivity``
-    indexes faces, so each table is checked against its own range.
+    indexes faces. It is ``0`` when the companion table is absent (``edge_node_connectivity``
+    is optional in UGRID while ``face_edge_connectivity`` is present), and the range is then
+    taken from the table's own largest non-fill index rather than treated as unlimited --
+    otherwise an unvalidatable fill would still be rewritten.
 
     Args:
         connectivity: The connectivity table the caller supplied.
-        index_count: The number of elements this table's indices address.
+        index_count: The number of elements this table's indices address, or ``0`` when that
+            is not known from a companion table.
         label: The attribute name, used in the error so the caller knows which table.
-        addresses: What the indices point at -- ``"node"``, ``"edge"`` or ``"face"`` -- so
-            the refusal says "a valid node index" rather than something generic. Defaults to
-            ``"node"``.
+        addresses: What the indices point at -- ``"node"``, ``"edge"`` or ``"face"`` -- so the
+            refusal names the right thing. Defaults to ``"node"``.
 
     Returns:
-        Connectivity: The same object when its fill is already ``-1`` (the case every in-repo
-            constructor produces, so no existing read pays for this), otherwise a copy whose
-            padding is marked with ``-1``.
+        Connectivity: The same object when there is nothing to do -- no ``fill_value``
+            attribute at all (a bare array), a ``None`` fill, or a ``-1`` fill with no other
+            negative to rewrite, which is what every in-repo reader produces. Otherwise a new
+            table with ``fill_value=-1``, a :data:`numpy.intp` ``data`` array, and the
+            caller's array left untouched.
 
     Raises:
-        ValueError: The fill value is in ``[0, index_count)``, so padding and data cannot be
-            told apart.
+        TypeError: ``fill_value`` is neither an integer nor ``None`` (a float, a string,
+            ``nan``).
+        ValueError: The fill value is a legal index for this table *and* occurs in it, so
+            padding and data cannot be told apart.
     """
-    fill = getattr(connectivity, "fill_value", None)
-    if fill is None or int(fill) == -1:
+    declared = getattr(connectivity, "fill_value", None)
+    if declared is None:
+        # Two real inputs have no fill to normalise, and both are reached by the suite:
+        # `Network1d(edge_node_connectivity=np.empty((0, 2)))` passes a bare ndarray, and a
+        # `Connectivity(fill_value=None)` declares "this table has no sentinels". The
+        # duck-typing is deliberate rather than sloppy -- the annotation understates what
+        # callers actually pass -- so neither can be narrowed away.
         return connectivity
-    fill = int(fill)
-    if index_count and 0 <= fill < index_count:
-        raise ValueError(
-            f"{label}.fill_value is {fill}, which is also a valid {addresses} index on "
-            f"this {index_count}-{addresses} mesh, so a padded row cannot be told from a "
-            f"real element. Use a negative fill value (-1 is what the built-in readers "
-            f"write) or any value >= {index_count}."
+    if isinstance(declared, bool):
+        # `bool` subclasses `int`, so `operator.index(True)` is 1 and the fill would be read
+        # as node 1. `Network1d._validated_outlet` rejects it for the same reason.
+        raise TypeError(
+            f"{label}.fill_value must be an integer or None, got {declared!r} (bool). A "
+            f"boolean is not an index, even though it behaves like one."
         )
-    data = np.asarray(connectivity.data)
-    rewritten = np.where(data == fill, -1, data).astype(data.dtype, copy=False)
-    # Built explicitly rather than through `dataclasses.replace`, which is typed as
-    # returning `DataclassInstance` and so loses the concrete type at the boundary.
-    result = Connectivity(
-        data=rewritten,
-        fill_value=-1,
-        cf_role=connectivity.cf_role,
-        original_start_index=connectivity.original_start_index,
-    )
+    try:
+        fill = operator.index(declared)
+    except TypeError as error:
+        raise TypeError(
+            f"{label}.fill_value must be an integer or None, got {declared!r} "
+            f"({type(declared).__name__}). A non-integral fill cannot be compared against "
+            f"the index table."
+        ) from error
+
+    original = np.asarray(connectivity.data)
+    is_padding = original == fill
+    negative = original < 0
+    if fill >= 0 and bool(is_padding.any()):
+        # The range this table's indices may legally take. When the companion table is
+        # absent (`index_count == 0`) the largest real index in this table is the best
+        # available bound -- better than rewriting against a fill nothing could validate.
+        limit = index_count
+        if not limit:
+            real = original[~is_padding]
+            limit = int(real.max()) + 1 if real.size else 0
+        if fill < limit:
+            raise ValueError(
+                f"{label}.fill_value is {fill}, which is also a valid {addresses} index "
+                f"here (the table's indices run over [0, {limit})), and it occurs in the "
+                f"table -- so a padded slot cannot be told from a real {addresses}. Use a "
+                f"negative fill value (-1 is what the built-in readers write) or any value "
+                f"of at least {limit}."
+            )
+
+    if fill == -1 and not bool((negative & ~is_padding).any()):
+        result = connectivity
+    else:
+        # A signed dtype throughout: `-1` is unrepresentable in an unsigned one, so
+        # preserving the caller's dtype would raise or wrap the sentinel onto a real index.
+        rewritten = original.astype(np.intp, copy=True)
+        rewritten[is_padding | negative] = -1
+        result = Connectivity(
+            data=rewritten,
+            fill_value=-1,
+            cf_role=connectivity.cf_role,
+            original_start_index=connectivity.original_start_index,
+        )
     return result
