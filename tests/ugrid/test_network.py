@@ -713,3 +713,79 @@ class TestAmbiguousFillValue:
         )
         assert net.edge_node_connectivity.fill_value == -1
         assert net.sort().tolist() == [0, 1, 2, 3]
+
+    @pytest.mark.parametrize(
+        "fill_value",
+        [-99, 4, 999, 999999],
+        ids=["negative", "n", "far", "ugrid-example"],
+    )
+    def test_an_out_of_range_fill_is_normalised_to_minus_one(self, fill_value):
+        """An unambiguous fill is remapped on the way in, not carried (#1400).
+
+        Test scenario:
+            Every member that walks the table tests rows against the stored fill, so the
+            answer depended on a number pyramids did not control. xugrid and uxarray avoid
+            that by never carrying a foreign fill -- xugrid normalises to -1 ("This ensures
+            we can always index"), uxarray to `np.iinfo(np.intp).min`. The UGRID spec
+            prescribes no value and its own examples use `999999` and `-999`, so an
+            out-of-range fill is legitimate input that has to be accepted and normalised.
+        """
+        padded = Connectivity(
+            data=np.array([[0, 1], [1, 2], [fill_value, fill_value]], dtype=np.intp),
+            fill_value=fill_value,
+            cf_role="edge_node_connectivity",
+            original_start_index=0,
+        )
+        net = Network1d(
+            np.array([0.0, 1.0, 2.0, 3.0]), np.array([0.0, 0.0, 0.0, 0.0]), padded
+        )
+
+        assert net.edge_node_connectivity.fill_value == -1, (
+            f"the stored fill must be normalised, got "
+            f"{net.edge_node_connectivity.fill_value}"
+        )
+        stored = np.asarray(net.edge_node_connectivity.data)
+        assert fill_value not in stored.tolist() or fill_value == -1, (
+            f"no occurrence of the original fill may survive in the table, got {stored}"
+        )
+        np.testing.assert_array_equal(stored[2], np.array([-1, -1]))
+        assert net.real_edge_indices.tolist() == [0, 1], (
+            "the padded row must still read as padding after normalisation"
+        )
+
+    def test_normalisation_leaves_the_real_indices_alone(self):
+        """Only the fill is rewritten; genuine node indices are untouched (#1400)."""
+        padded = Connectivity(
+            data=np.array([[0, 1], [1, 2], [999999, 999999]], dtype=np.intp),
+            fill_value=999999,
+            cf_role="edge_node_connectivity",
+            original_start_index=0,
+        )
+        net = Network1d(
+            np.array([0.0, 1.0, 2.0, 3.0]), np.array([0.0, 0.0, 0.0, 0.0]), padded
+        )
+        np.testing.assert_array_equal(
+            np.asarray(net.edge_node_connectivity.data)[:2],
+            np.array([[0, 1], [1, 2]]),
+        )
+        assert net.sort(outlet=2).tolist()[-1] == 2, "the network must still sort"
+
+    def test_a_minus_one_fill_is_left_exactly_as_it_is(self):
+        """The common case is not rewritten, so nothing in-repo changes (#1400).
+
+        Test scenario:
+            Both in-repo constructors already write -1. Normalisation must be a no-op for
+            them -- same object, same array -- so no existing read pays for it.
+        """
+        original = Connectivity(
+            data=np.array([[0, 1], [1, 2], [-1, -1]], dtype=np.intp),
+            fill_value=-1,
+            cf_role="edge_node_connectivity",
+            original_start_index=0,
+        )
+        net = Network1d(
+            np.array([0.0, 1.0, 2.0, 3.0]), np.array([0.0, 0.0, 0.0, 0.0]), original
+        )
+        assert net.edge_node_connectivity is original, (
+            "a -1 fill needs no normalisation, so the Connectivity must pass through"
+        )
