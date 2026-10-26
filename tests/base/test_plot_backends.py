@@ -29,8 +29,13 @@ from pyramids.base._plot_backends import (
 )
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
+from pyramids.dataset.collection import DatasetCollection
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import FacetSpec, NetCDF
+from pyramids.netcdf.ugrid.connectivity import Connectivity
+from pyramids.netcdf.ugrid.dataset import UgridDataset
+from pyramids.netcdf.ugrid.mesh import Mesh2d
+from pyramids.netcdf.ugrid.models import MeshVariable
 from tests._driver_discovery_fixtures import make_publish_entry_points
 
 pytestmark = pytest.mark.core
@@ -461,3 +466,40 @@ def test_feature_plot_default_engine_is_not_rejected(monkeypatch: pytest.MonkeyP
     features = _feature_collection()
     features.plot(column="v", backend="web")
     assert recorder.backend == "web"
+
+
+def _ugrid_dataset() -> UgridDataset:
+    """A tiny in-memory 2-face triangular UgridDataset for the facade dispatch tests."""
+    mesh = Mesh2d(
+        node_x=np.array([0.0, 1.0, 0.5, 1.5]),
+        node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+        face_node_connectivity=Connectivity(
+            data=np.array([[0, 1, 2], [1, 3, 2]], dtype=np.intp),
+            fill_value=-1,
+            cf_role="face_node_connectivity",
+            original_start_index=0,
+        ),
+    )
+    var = MeshVariable(
+        name="depth", location="face", mesh_name="mesh2d", shape=(2,), _data=np.array([10.0, 20.0])
+    )
+    return UgridDataset(mesh=mesh, data_variables={"depth": var}, global_attributes={})
+
+
+def test_ugrid_plot_drops_default_cmap_on_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ``cmap='viridis'`` default is not forwarded, so the backend keeps its own default."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    mesh = _ugrid_dataset()
+    mesh.plot("depth", backend="web")
+    assert recorder.backend == "web"
+    assert "cmap" not in recorder.kwargs
+
+
+def test_ugrid_plot_forwards_explicit_cmap_on_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A user-set ``cmap`` is forwarded to the backend."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    mesh = _ugrid_dataset()
+    mesh.plot("depth", backend="web", cmap="jet")
+    assert recorder.kwargs["cmap"] == "jet"

@@ -5907,7 +5907,9 @@ class UgridDataset(_UgridFacades):
             )
             forwarded = forward_kwargs(
                 variable_name=variable_name,
-                cmap=cmap,
+                # Forward cmap only when the user changed it from the matplotlib default, so a
+                # non-matplotlib backend keeps its own default colormap rather than pyramids'.
+                cmap=None if cmap == "viridis" else cmap,
                 title=title,
                 basemap=basemap,
                 colorbar=None if is_colorbar_spec(colorbar) else colorbar,
