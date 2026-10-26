@@ -36,7 +36,10 @@ from pyramids.netcdf.ugrid._drivers import (
     drivers_for_suffix,
     mesh_drivers,
 )
-from pyramids.netcdf.ugrid.connectivity import Connectivity
+from pyramids.netcdf.ugrid.connectivity import (
+    Connectivity,
+    normalised_connectivity,
+)
 from pyramids.netcdf.ugrid.dataset import (
     _netcdf_fallback_driver,
     _read_through_driver,
@@ -110,70 +113,6 @@ def _no_network_driver_message(path: str | Path) -> str:
     return "\n".join(lines)
 
 
-def _normalised_connectivity(
-    connectivity: Connectivity, node_count: int
-) -> Connectivity:
-    """Return an edge table whose padding is marked with ``-1``, or refuse an ambiguous one.
-
-    Every member that walks the edges tests a row against the stored fill value
-    (:attr:`Network1d._real_edges`), so the answer depended on a number pyramids does not
-    control: the one the file or the driver declared. Two things follow, and they need
-    different answers.
-
-    A fill **outside** ``[0, node_count)`` is unambiguous, so it is rewritten to ``-1`` here
-    and nothing downstream ever sees anything else. That is what the comparable libraries do
-    -- xugrid normalises to ``-1`` ("This ensures we can always index") and uxarray to
-    ``np.iinfo(np.intp).min`` -- and it has to be *normalisation* rather than a restriction,
-    because the UGRID conventions prescribe no particular value and their own examples use
-    ``999999`` and ``-999``.
-
-    A fill **inside** ``[0, node_count)`` is a different matter: it is also a legal node
-    index, so a padded row and a real edge are indistinguishable and there is no correct
-    reading to normalise to. On a 4-node network with ``fill_value=2`` the rows ``[1, 2]``
-    and ``[2, 3]`` are real edges that look exactly like padding, so they were dropped and
-    ``sort()`` returned a wrong topological order with no exception -- the worst failure this
-    class has, because every routing step downstream consumes it unchecked. That is refused.
-
-    See :issue:`1400` for extending the same treatment to :class:`Mesh2d`, whose
-    ``face_node_connectivity`` has the same exposure over a much larger surface.
-
-    Args:
-        connectivity: The edge-node connectivity the caller supplied.
-        node_count: How many nodes the network has, from the coordinate arrays.
-
-    Returns:
-        Connectivity: The same object when its fill is already ``-1`` (the case both in-repo
-            constructors produce, so no existing read pays for this), otherwise a copy whose
-            padding is marked with ``-1``.
-
-    Raises:
-        ValueError: The fill value is in ``[0, node_count)``, so padding and data cannot be
-            told apart.
-    """
-    fill = getattr(connectivity, "fill_value", None)
-    if fill is None or int(fill) == -1:
-        return connectivity
-    fill = int(fill)
-    if node_count and 0 <= fill < node_count:
-        raise ValueError(
-            f"edge_node_connectivity.fill_value is {fill}, which is also a valid node "
-            f"index on this {node_count}-node network, so a padded row cannot be told from "
-            f"a real edge. Use a negative fill value (-1 is what from_arrays and "
-            f"from_gdal_array write) or any value >= {node_count}."
-        )
-    data = np.asarray(connectivity.data)
-    rewritten = np.where(data == fill, -1, data).astype(data.dtype, copy=False)
-    # Built explicitly rather than through `dataclasses.replace`, which is typed as
-    # returning `DataclassInstance` and so loses the concrete type at the boundary.
-    result = Connectivity(
-        data=rewritten,
-        fill_value=-1,
-        cf_role=connectivity.cf_role,
-        original_start_index=connectivity.original_start_index,
-    )
-    return result
-
-
 class Network1d:
     """1D network mesh topology (nodes + edges, no faces).
 
@@ -230,8 +169,8 @@ class Network1d:
         """
         self._node_x = np.asarray(node_x, dtype=np.float64)
         self._node_y = np.asarray(node_y, dtype=np.float64)
-        self._edge_node_connectivity = _normalised_connectivity(
-            edge_node_connectivity, self._node_x.size
+        self._edge_node_connectivity = normalised_connectivity(
+            edge_node_connectivity, self._node_x.size, "edge_node_connectivity", "node"
         )
         self._directed = bool(directed)
         self._crs = crs

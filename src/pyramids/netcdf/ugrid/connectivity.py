@@ -144,3 +144,72 @@ class Connectivity:
         """
         result = np.ma.MaskedArray(self.data, mask=(self.data == self.fill_value))
         return result
+
+
+def normalised_connectivity(
+    connectivity: Connectivity, index_count: int, label: str, addresses: str = "node"
+) -> Connectivity:
+    """Return a table whose padding is marked with ``-1``, or refuse an ambiguous one.
+
+    Every member that walks a connectivity table decides "is this row padding?" by comparing
+    against the stored fill value -- a number pyramids does not control, because it is
+    whatever the file or the driver declared. Two cases follow, and they need different
+    answers.
+
+    A fill **outside** ``[0, index_count)`` is unambiguous, so it is rewritten to ``-1`` here
+    and nothing downstream ever sees anything else. It has to be normalisation rather than a
+    restriction, because the UGRID conventions prescribe no particular value -- for
+    volume-node connectivity the fill need only be "larger than the number of nodes in the
+    mesh" -- and the spec's own examples use ``999999`` and ``-999``. Both comparable
+    libraries do the same: xugrid normalises to ``-1`` ("This ensures we can always index")
+    and uxarray to ``np.iinfo(np.intp).min``.
+
+    A fill **inside** ``[0, index_count)`` is also a legal index, so a padded row and a real
+    element are indistinguishable and there is no correct reading to normalise to. On a
+    4-node mesh with ``fill_value=2`` the rows ``[1, 2]`` and ``[2, 3]`` are real elements
+    that look exactly like padding, so they were dropped silently -- for an edge table that
+    meant ``sort()`` returning a wrong topological order with no exception. That is refused.
+
+    ``index_count`` is the size of the range **this** table indexes, which is not always the
+    node count: a ``face_edge_connectivity`` indexes edges and a ``face_face_connectivity``
+    indexes faces, so each table is checked against its own range.
+
+    Args:
+        connectivity: The connectivity table the caller supplied.
+        index_count: The number of elements this table's indices address.
+        label: The attribute name, used in the error so the caller knows which table.
+        addresses: What the indices point at -- ``"node"``, ``"edge"`` or ``"face"`` -- so
+            the refusal says "a valid node index" rather than something generic. Defaults to
+            ``"node"``.
+
+    Returns:
+        Connectivity: The same object when its fill is already ``-1`` (the case every in-repo
+            constructor produces, so no existing read pays for this), otherwise a copy whose
+            padding is marked with ``-1``.
+
+    Raises:
+        ValueError: The fill value is in ``[0, index_count)``, so padding and data cannot be
+            told apart.
+    """
+    fill = getattr(connectivity, "fill_value", None)
+    if fill is None or int(fill) == -1:
+        return connectivity
+    fill = int(fill)
+    if index_count and 0 <= fill < index_count:
+        raise ValueError(
+            f"{label}.fill_value is {fill}, which is also a valid {addresses} index on "
+            f"this {index_count}-{addresses} mesh, so a padded row cannot be told from a "
+            f"real element. Use a negative fill value (-1 is what the built-in readers "
+            f"write) or any value >= {index_count}."
+        )
+    data = np.asarray(connectivity.data)
+    rewritten = np.where(data == fill, -1, data).astype(data.dtype, copy=False)
+    # Built explicitly rather than through `dataclasses.replace`, which is typed as
+    # returning `DataclassInstance` and so loses the concrete type at the boundary.
+    result = Connectivity(
+        data=rewritten,
+        fill_value=-1,
+        cf_role=connectivity.cf_role,
+        original_start_index=connectivity.original_start_index,
+    )
+    return result

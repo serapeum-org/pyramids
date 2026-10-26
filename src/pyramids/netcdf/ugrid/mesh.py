@@ -13,7 +13,10 @@ import numpy as np
 from osgeo import gdal
 from pyproj import CRS as PyProjCRS
 
-from pyramids.netcdf.ugrid.connectivity import Connectivity
+from pyramids.netcdf.ugrid.connectivity import (
+    Connectivity,
+    normalised_connectivity,
+)
 from pyramids.netcdf.ugrid.models import MeshTopologyInfo
 
 
@@ -46,11 +49,47 @@ class Mesh2d:
     ):
         self._node_x = np.asarray(node_x, dtype=np.float64)
         self._node_y = np.asarray(node_y, dtype=np.float64)
-        self._face_node_connectivity = face_node_connectivity
-        self._edge_node_connectivity = edge_node_connectivity
-        self._face_edge_connectivity = face_edge_connectivity
-        self._face_face_connectivity = face_face_connectivity
-        self._edge_face_connectivity = edge_face_connectivity
+        # Each table is normalised against the range *it* indexes, not blindly against the
+        # node count: a face_edge table indexes edges and a face_face table indexes faces.
+        # The order matters because n_face and n_edge are the row counts of the first two.
+        node_count = self._node_x.size
+        self._face_node_connectivity = normalised_connectivity(
+            face_node_connectivity, node_count, "face_node_connectivity", "node"
+        )
+        self._edge_node_connectivity = (
+            None
+            if edge_node_connectivity is None
+            else normalised_connectivity(
+                edge_node_connectivity, node_count, "edge_node_connectivity", "node"
+            )
+        )
+        face_count = self._face_node_connectivity.n_elements
+        edge_count = (
+            0
+            if self._edge_node_connectivity is None
+            else self._edge_node_connectivity.n_elements
+        )
+        self._face_edge_connectivity = (
+            None
+            if face_edge_connectivity is None
+            else normalised_connectivity(
+                face_edge_connectivity, edge_count, "face_edge_connectivity", "edge"
+            )
+        )
+        self._face_face_connectivity = (
+            None
+            if face_face_connectivity is None
+            else normalised_connectivity(
+                face_face_connectivity, face_count, "face_face_connectivity", "face"
+            )
+        )
+        self._edge_face_connectivity = (
+            None
+            if edge_face_connectivity is None
+            else normalised_connectivity(
+                edge_face_connectivity, face_count, "edge_face_connectivity", "face"
+            )
+        )
         self._face_x = face_x
         self._face_y = face_y
         self._edge_x = edge_x
