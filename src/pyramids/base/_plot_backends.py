@@ -68,10 +68,12 @@ def clear_plot_backend_cache() -> None:
     """Reset the discovered-backend cache.
 
     Discovery runs once and caches; tests that publish in-memory entry points call this between
-    cases so the next lookup re-discovers.
+    cases so the next lookup re-discovers. The reset takes :data:`_PUBLISH_LOCK`, matching the
+    double-checked publish in :func:`plot_backends` and the driver template's ``clear_driver_cache``.
     """
     global _CACHE  # noqa: PLW0603 - a module-level cache is the point
-    _CACHE = None
+    with _PUBLISH_LOCK:
+        _CACHE = None
 
 
 def _load(entry_point: EntryPoint) -> Callable[..., Any] | None:
