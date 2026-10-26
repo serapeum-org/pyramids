@@ -95,9 +95,6 @@ def _present_digitalearth(monkeypatch: pytest.MonkeyPatch, module: Any) -> None:
     monkeypatch.setattr(_plot_backends, "import_module", lambda name: module)
 
 
-# --------------------------------------------------------------------------- discovery + cache
-
-
 def test_bare_install_registers_no_backend() -> None:
     """A bare install's entry-point group is empty, so the registry is empty."""
     assert plot_backends() == {}
@@ -182,9 +179,6 @@ def test_cache_double_check_prefers_value_set_during_discovery(
     assert plot_backends() == existing
 
 
-# --------------------------------------------------------------------------- digitalearth fallback
-
-
 def test_fallback_to_digitalearth_quickmap(monkeypatch: pytest.MonkeyPatch) -> None:
     """With no entry point but digitalearth present, the resolver adapts ``quickmap``."""
     seen: dict[str, Any] = {}
@@ -242,9 +236,6 @@ def test_too_old_digitalearth_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         resolve_plot_backend("3d")
 
 
-# --------------------------------------------------------------------------- not-installed error
-
-
 def test_unknown_backend_without_digitalearth(monkeypatch: pytest.MonkeyPatch) -> None:
     """No entry point and no digitalearth raises a hint naming the backend and the extra."""
     _absent_digitalearth(monkeypatch)
@@ -271,9 +262,6 @@ def test_install_hint_maps_backend_to_extra(
     _absent_digitalearth(monkeypatch)
     with pytest.raises(OptionalPackageDoesNotExist, match=rf"digitalearth\[{extra}\]"):
         resolve_plot_backend(name)
-
-
-# --------------------------------------------------------------------------- small helpers
 
 
 @pytest.mark.parametrize(
@@ -311,9 +299,6 @@ def test_reject_mpl_only_params_raises_for_set_values() -> None:
 def test_reject_mpl_only_params_noop_when_all_none() -> None:
     """All-``None`` candidates pass the guard silently."""
     assert reject_mpl_only_params("web", color=None, points=None, cells=None) is None
-
-
-# --------------------------------------------------------------------------- facade dispatch
 
 
 def _single_band_dataset() -> Dataset:
