@@ -32,7 +32,6 @@ from pyramids.base._errors import OptionalPackageDoesNotExist
 __all__ = [
     "DEFAULT_BACKEND",
     "ENTRY_POINT_GROUP",
-    "MPL_ONLY_PLOT_PARAMS",
     "clear_plot_backend_cache",
     "forward_kwargs",
     "is_colorbar_spec",
@@ -51,21 +50,6 @@ DEFAULT_BACKEND = "matplotlib"
 
 #: digitalearth optional-dependency extra that serves each non-matplotlib backend (for the hint).
 _BACKEND_EXTRA = {"interactive": "interactive", "3d": "3d", "web": "web"}
-
-#: Plot parameters that only mean something on the cleopatra/matplotlib backend — the typed render
-#: groups and the raster-index overlays. Passing any to another backend is a caller ``ValueError``.
-MPL_ONLY_PLOT_PARAMS = frozenset(
-    {
-        "color",
-        "contour",
-        "cells",
-        "data_style",
-        "classify",
-        "points",
-        "frame_label",
-        "colorbar",
-    }
-)
 
 #: Discovered-backend registry, filled lazily by :func:`plot_backends`; reset by
 #: :func:`clear_plot_backend_cache` for tests.
