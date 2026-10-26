@@ -15,7 +15,7 @@ from pyproj import CRS as PyProjCRS
 
 from pyramids.netcdf.ugrid.connectivity import (
     Connectivity,
-    normalised_connectivity,
+    _normalised_connectivity,
 )
 from pyramids.netcdf.ugrid.models import MeshTopologyInfo
 
@@ -53,13 +53,13 @@ class Mesh2d:
         # node count: a face_edge table indexes edges and a face_face table indexes faces.
         # The order matters because n_face and n_edge are the row counts of the first two.
         node_count = self._node_x.size
-        self._face_node_connectivity = normalised_connectivity(
+        self._face_node_connectivity = _normalised_connectivity(
             face_node_connectivity, node_count, "face_node_connectivity", "node"
         )
         self._edge_node_connectivity = (
             None
             if edge_node_connectivity is None
-            else normalised_connectivity(
+            else _normalised_connectivity(
                 edge_node_connectivity, node_count, "edge_node_connectivity", "node"
             )
         )
@@ -72,21 +72,21 @@ class Mesh2d:
         self._face_edge_connectivity = (
             None
             if face_edge_connectivity is None
-            else normalised_connectivity(
+            else _normalised_connectivity(
                 face_edge_connectivity, edge_count, "face_edge_connectivity", "edge"
             )
         )
         self._face_face_connectivity = (
             None
             if face_face_connectivity is None
-            else normalised_connectivity(
+            else _normalised_connectivity(
                 face_face_connectivity, face_count, "face_face_connectivity", "face"
             )
         )
         self._edge_face_connectivity = (
             None
             if edge_face_connectivity is None
-            else normalised_connectivity(
+            else _normalised_connectivity(
                 edge_face_connectivity, face_count, "edge_face_connectivity", "face"
             )
         )

@@ -38,7 +38,7 @@ from pyramids.netcdf.ugrid._drivers import (
 )
 from pyramids.netcdf.ugrid.connectivity import (
     Connectivity,
-    normalised_connectivity,
+    _normalised_connectivity,
 )
 from pyramids.netcdf.ugrid.dataset import (
     _netcdf_fallback_driver,
@@ -166,11 +166,27 @@ class Network1d:
             directed: When True, each edge's node order (from-node then to-node)
                 encodes flow direction and the network sort uses it. Defaults to False.
             crs: Optional coordinate reference system (a ``pyproj.CRS`` or None).
+
+        Raises:
+            TypeError: ``edge_node_connectivity.fill_value`` is neither an integer nor
+                ``None``.
+            ValueError: its ``fill_value`` is also a valid node index **and** occurs in the
+                table, so a padded row cannot be told from a real edge.
+
+        Note:
+            The edge table is normalised on the way in: a fill value outside
+            ``[0, n_node)`` is rewritten to ``-1`` (and so is any other negative), so
+            :attr:`edge_node_connectivity` may not be the object you passed. A fill already
+            ``-1`` is returned untouched, which is what both built-in constructors produce.
         """
         self._node_x = np.asarray(node_x, dtype=np.float64)
         self._node_y = np.asarray(node_y, dtype=np.float64)
-        self._edge_node_connectivity = normalised_connectivity(
-            edge_node_connectivity, self._node_x.size, "edge_node_connectivity", "node"
+        self._edge_node_connectivity = _normalised_connectivity(
+            edge_node_connectivity,
+            self._node_x.size,
+            "edge_node_connectivity",
+            "node",
+            "network",
         )
         self._directed = bool(directed)
         self._crs = crs
@@ -262,10 +278,11 @@ class Network1d:
             # installed driver ... none installed" -- false, since `ugrid` is installed as
             # the built-in reader, and unhelpful to a caller who had just named it.
             raise UnsupportedMeshFormatError(
-                f"{driver!r} is pyramids' built-in UGRID reader, which cannot produce a "
-                f"Network1d: it builds a 2D mesh whatever topology dimension a file "
-                f"declares. Read {path} with UgridDataset.read_file to get that mesh, or "
-                f"name a plugin driver that reads this file as a 1D network."
+                f"{driver!r} is a reserved name for pyramids' own built-in reading, not "
+                f"a plugin, and it cannot produce a Network1d: the built-in UGRID reader "
+                f"builds a 2D mesh whatever topology dimension a file declares. Read "
+                f"{path} with UgridDataset.read_file to get that mesh, or name a plugin "
+                f"driver that reads this file as a 1D network."
             )
         selected, _native = _resolve_read_driver(path, driver, "Network1d")
         if selected is None:
@@ -287,6 +304,33 @@ class Network1d:
             raise UnsupportedMeshFormatError(_no_network_driver_message(path))
         result = _read_through_driver(selected, path, mesh_name, cls, lazy)
         return result
+
+    def __getattr__(self, name: str) -> Any:
+        """Explain `n_face` rather than letting the default message carry the whole story.
+
+        The property that used to raise here was removed because a member whose body only
+        raises still advertises itself to `dir()` and to `hasattr(Network1d, ...)`. Going
+        through `__getattr__` keeps the attribute genuinely absent -- it is only consulted
+        after normal lookup fails -- while restoring the hint the old message gave.
+
+        Args:
+            name: The attribute that normal lookup did not find.
+
+        Returns:
+            Never returns; the signature is what the protocol requires.
+
+        Raises:
+            AttributeError: Always. For `n_face` the message names `n_node` / `n_edge`;
+                for anything else it is the interpreter's own wording.
+        """
+        if name == "n_face":
+            raise AttributeError(
+                "Network1d is a 1D topology (nodes + edges) and has no faces; 'n_face' is "
+                "undefined. Use 'n_node' / 'n_edge'."
+            )
+        raise AttributeError(
+            f"{type(self).__name__!r} object has no attribute {name!r}"
+        )
 
     @property
     def node_x(self) -> np.typing.NDArray:

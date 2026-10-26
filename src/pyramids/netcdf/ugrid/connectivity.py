@@ -147,8 +147,12 @@ class Connectivity:
         return result
 
 
-def normalised_connectivity(
-    connectivity: Connectivity, index_count: int, label: str, addresses: str = "node"
+def _normalised_connectivity(
+    connectivity: Connectivity,
+    index_count: int,
+    label: str,
+    addresses: str = "node",
+    topology: str = "mesh",
 ) -> Connectivity:
     """Return a table whose padding is marked with ``-1``, or refuse an unreadable one.
 
@@ -163,7 +167,11 @@ def normalised_connectivity(
     - **The result is always a signed index dtype** (:data:`numpy.intp`), matching what
       :meth:`Connectivity.from_gdal_array` already produces and what every consumer assumes.
       Preserving an unsigned dtype cannot work: ``-1`` has no representation in it, so
-      writing the sentinel either raises or wraps to the fill's own value.
+      writing the sentinel either raises or wraps to the fill's own value. xugrid gives the
+      same rule its full reason -- "Internally we always use a fill value of -1. This ensures
+      we can always index with the fill value as well, since any array will have at least
+      size 1." -- i.e. ``-1`` is chosen because it is a *usable* index, not merely a reserved
+      one.
     - **A non-integral fill is refused** rather than narrowed. Truncating ``999999.5`` to
       ``999999`` compares against a value that is not in the table, so the padding survives
       while ``fill_value`` claims ``-1`` -- the exact ambiguity this function removes,
@@ -195,13 +203,19 @@ def normalised_connectivity(
         label: The attribute name, used in the error so the caller knows which table.
         addresses: What the indices point at -- ``"node"``, ``"edge"`` or ``"face"`` -- so the
             refusal names the right thing. Defaults to ``"node"``.
+        topology: What the table belongs to, ``"mesh"`` or ``"network"``, so a
+            :class:`Network1d` refusal does not call itself a mesh. Defaults to ``"mesh"``.
 
     Returns:
         Connectivity: The same object when there is nothing to do -- no ``fill_value``
             attribute at all (a bare array), a ``None`` fill, or a ``-1`` fill with no other
-            negative to rewrite, which is what every in-repo reader produces. Otherwise a new
-            table with ``fill_value=-1``, a :data:`numpy.intp` ``data`` array, and the
-            caller's array left untouched.
+            negative to rewrite, which is what every in-repo reader produces.
+
+            Otherwise a **new** table with ``fill_value=-1`` and a :data:`numpy.intp`
+            ``data`` array. The caller's object and its array are left exactly as they were,
+            never updated in place, so a caller holding its own reference still sees the fill
+            it declared while the mesh holds the normalised copy. Read the table back off the
+            mesh rather than from the object you passed in.
 
     Raises:
         TypeError: ``fill_value`` is neither an integer nor ``None`` (a float, a string,
@@ -247,10 +261,10 @@ def normalised_connectivity(
         if fill < limit:
             raise ValueError(
                 f"{label}.fill_value is {fill}, which is also a valid {addresses} index "
-                f"here (the table's indices run over [0, {limit})), and it occurs in the "
-                f"table -- so a padded slot cannot be told from a real {addresses}. Use a "
-                f"negative fill value (-1 is what the built-in readers write) or any value "
-                f"of at least {limit}."
+                f"in this {topology} (the table's indices run over [0, {limit})), and it "
+                f"occurs in the table -- so a padded slot cannot be told from a real "
+                f"{addresses}. Use a negative fill value (-1 is what the built-in readers "
+                f"write) or any value of at least {limit}."
             )
 
     if fill == -1 and not bool((negative & ~is_padding).any()):

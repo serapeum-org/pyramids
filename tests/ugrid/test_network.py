@@ -91,8 +91,13 @@ class TestConstruction:
         assert "n_face" not in dir(y_network), "n_face must not be listed by dir()"
         assert "n_face" not in vars(Network1d), "no n_face descriptor on the class"
         assert getattr(y_network, "n_face", "absent") == "absent"
-        with pytest.raises(AttributeError, match="no attribute 'n_face'"):
+        # The hint lives in `__getattr__`, which Python consults only after normal lookup
+        # fails -- so the attribute stays absent to every probe while the guidance survives.
+        with pytest.raises(AttributeError, match="has no faces") as caught:
             _ = y_network.n_face
+        assert "n_node" in str(caught.value), (
+            f"the message must still name the counts a network has, got: {caught.value}"
+        )
 
     def test_the_node_and_edge_counts_are_advertised(self, y_network):
         """The counts a network does have stay visible to the same probe."""
