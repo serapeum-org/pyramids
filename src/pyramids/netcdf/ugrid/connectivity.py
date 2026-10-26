@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import operator
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 from osgeo import gdal
@@ -227,7 +227,7 @@ def _normalised_connectivity(
             non-negative and occurs while the range is unknown; or a surviving index falls
             outside ``[0, index_count)``.
     """
-    declared = getattr(connectivity, "fill_value", _MISSING)
+    declared: Any = getattr(connectivity, "fill_value", _MISSING)
     if declared is _MISSING:
         # A bare index array. `Network1d` has always accepted one, and `topology_subset`
         # still defends against it, but every member that reads the table needs a
