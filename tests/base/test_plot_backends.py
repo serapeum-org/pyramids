@@ -28,6 +28,7 @@ from pyramids.base._plot_backends import (
 )
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
+from pyramids.netcdf import FacetSpec, NetCDF
 from tests._driver_discovery_fixtures import make_publish_entry_points
 
 pytestmark = pytest.mark.core
@@ -129,6 +130,49 @@ def test_non_callable_entry_point_is_skipped(publish_backends: Any) -> None:
     publish_backends(("web", "not-callable"))
     with pytest.warns(RuntimeWarning, match="not callable"):
         assert plot_backends() == {}
+
+
+def test_load_skips_entry_point_that_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An entry point whose ``load()`` raises is skipped with a ``RuntimeWarning``, not propagated."""
+
+    class _Boom:
+        name = "boom"
+        value = "your_pkg:boom"
+
+        def load(self) -> Any:
+            raise RuntimeError("kaboom")
+
+    with pytest.warns(RuntimeWarning, match="could not be loaded"):
+        assert _plot_backends._load(_Boom()) is None
+
+
+def test_reentrant_discovery_returns_partial_mapping() -> None:
+    """A thread inside discovery sees the backends resolved so far, not a second discovery."""
+    partial = {"web": _Recorder()}
+    _plot_backends._IN_PROGRESS.resolved = partial
+    try:
+        result = plot_backends()
+    finally:
+        _plot_backends._IN_PROGRESS.resolved = None
+    assert result == partial
+    assert (
+        result is not partial
+    )  # a copy, so a caller cannot mutate the in-progress mapping
+
+
+def test_cache_double_check_prefers_value_set_during_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the cache is filled while discovery runs, the published value wins over the fresh scan."""
+    existing = {"web": _Recorder()}
+
+    def _fake_discover() -> dict[str, Any]:
+        _plot_backends._CACHE = existing
+        return {"other": _Recorder()}
+
+    monkeypatch.setattr(_plot_backends, "_CACHE", None)
+    monkeypatch.setattr(_plot_backends, "_discover", _fake_discover)
+    assert plot_backends() == existing
 
 
 # --------------------------------------------------------------------------- digitalearth fallback
@@ -284,3 +328,33 @@ def test_dataset_animate_routes_with_animate_flag(
     assert recorder.backend == "web"
     assert recorder.kwargs["animate"] is True
     assert recorder.kwargs["interval"] == 120
+
+
+def _netcdf_container() -> NetCDF:
+    """A tiny in-memory single-variable NetCDF container for the facade dispatch tests."""
+    return NetCDF.from_array(
+        np.arange(16, dtype=np.float32).reshape(4, 4), geo_ref=GEO, variable_name="t2m"
+    )
+
+
+def test_netcdf_plot_routes_to_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``NetCDF.plot(backend=…)`` forwards the container, the variable and the agnostic kwargs."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    netcdf = _netcdf_container()
+    netcdf.plot(variable="t2m", backend="web", title="t", basemap=True)
+    assert recorder.obj is netcdf
+    assert recorder.backend == "web"
+    assert recorder.kwargs["variable"] == "t2m"
+    assert recorder.kwargs["title"] == "t"
+    assert recorder.kwargs["basemap"] is True
+
+
+def test_netcdf_plot_rejects_facet_on_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A matplotlib-only ``facet`` with a non-matplotlib backend raises before dispatch."""
+    recorder = _Recorder()
+    monkeypatch.setattr(_plot_backends, "_CACHE", {"web": recorder})
+    netcdf = _netcdf_container()
+    with pytest.raises(ValueError, match="only apply to backend='matplotlib'"):
+        netcdf.plot(variable="t2m", backend="web", facet=FacetSpec(col="time"))
+    assert recorder.backend is None  # never dispatched
