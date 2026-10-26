@@ -152,6 +152,78 @@ class Connectivity:
 _MISSING = object()
 
 
+def _narrowed_fill(declared: Any, label: str) -> int:
+    """Return a declared fill value as an ``int``, or refuse it.
+
+    Split out of :func:`_normalised_connectivity` to keep that function under the cognitive
+    complexity the project's static analysis allows; the three rejections belong together
+    anyway, since each is a way of being "not an index".
+
+    Args:
+        declared: Whatever the table carried as its ``fill_value``.
+        label: The attribute name, for the error message.
+
+    Returns:
+        int: The fill, narrowed through :func:`operator.index`.
+
+    Raises:
+        TypeError: ``declared`` is a bool (which indexes but is not an index), or anything
+            :func:`operator.index` refuses -- a float, a string, ``nan``.
+    """
+    if isinstance(declared, (bool, np.bool_)):
+        # `bool` subclasses `int` and `np.bool_` has `__index__`, so either would be read as
+        # element 0 or 1. `Network1d._validated_outlet` rejects them for the same reason.
+        raise TypeError(
+            f"{label}.fill_value must be an integer or None, got {declared!r} "
+            f"({type(declared).__name__}). A boolean is not an index, even though it "
+            f"behaves like one."
+        )
+    try:
+        result = operator.index(declared)
+    except TypeError as error:
+        raise TypeError(
+            f"{label}.fill_value must be an integer or None, got {declared!r} "
+            f"({type(declared).__name__}). A non-integral fill cannot be compared against "
+            f"the index table."
+        ) from error
+    return result
+
+
+def _refuse_ambiguous_fill(
+    fill: int, index_count: int, label: str, addresses: str, topology: str
+) -> None:
+    """Refuse a fill that cannot be told from a real index.
+
+    Called only when the fill is non-negative *and* occurs in the table, which is when the
+    two readings become indistinguishable.
+
+    Args:
+        fill: The narrowed fill value, known to occur in the table.
+        index_count: The size of the range the table indexes, or ``0`` when unknown.
+        label: The attribute name, for the error message.
+        addresses: ``"node"``, ``"edge"`` or ``"face"``.
+        topology: ``"mesh"`` or ``"network"``.
+
+    Raises:
+        ValueError: The range is unknown, or the fill falls inside it.
+    """
+    if not index_count:
+        raise ValueError(
+            f"{label}.fill_value is {fill} and occurs in the table, but nothing says how "
+            f"many {addresses}s this {topology} has, so it cannot be told from a real "
+            f"{addresses} index. Supply the companion table that defines the {addresses} "
+            f"count, or use a negative fill value (-1 is what the built-in readers write)."
+        )
+    if fill < index_count:
+        raise ValueError(
+            f"{label}.fill_value is {fill}, which is also a valid {addresses} index in this "
+            f"{topology} (the table's indices run over [0, {index_count})), and it occurs "
+            f"in the table -- so a padded slot cannot be told from a real {addresses}. Use "
+            f"a negative fill value (-1 is what the built-in readers write) or any value of "
+            f"at least {index_count}."
+        )
+
+
 def _normalised_connectivity(
     connectivity: Connectivity,
     index_count: int,
@@ -239,22 +311,7 @@ def _normalised_connectivity(
     if declared is None:
         # `Connectivity(fill_value=None)` declares a table with no sentinels at all.
         return connectivity
-    if isinstance(declared, (bool, np.bool_)):
-        # `bool` subclasses `int` and `np.bool_` has `__index__`, so either would be read as
-        # element 0 or 1. `Network1d._validated_outlet` rejects them for the same reason.
-        raise TypeError(
-            f"{label}.fill_value must be an integer or None, got {declared!r} "
-            f"({type(declared).__name__}). A boolean is not an index, even though it "
-            f"behaves like one."
-        )
-    try:
-        fill = operator.index(declared)
-    except TypeError as error:
-        raise TypeError(
-            f"{label}.fill_value must be an integer or None, got {declared!r} "
-            f"({type(declared).__name__}). A non-integral fill cannot be compared against "
-            f"the index table."
-        ) from error
+    fill = _narrowed_fill(declared, label)
 
     original = np.asarray(getattr(connectivity, "data", connectivity))
     signed = np.issubdtype(original.dtype, np.signedinteger)
@@ -267,24 +324,8 @@ def _normalised_connectivity(
             return connectivity
 
     is_padding = original == fill
-    occurs = bool(is_padding.any())
-    if fill >= 0 and occurs:
-        if not index_count:
-            raise ValueError(
-                f"{label}.fill_value is {fill} and occurs in the table, but nothing says "
-                f"how many {addresses}s this {topology} has, so it cannot be told from a "
-                f"real {addresses} index. Supply the companion table that defines the "
-                f"{addresses} count, or use a negative fill value (-1 is what the built-in "
-                f"readers write)."
-            )
-        if fill < index_count:
-            raise ValueError(
-                f"{label}.fill_value is {fill}, which is also a valid {addresses} index "
-                f"in this {topology} (the table's indices run over [0, {index_count})), and "
-                f"it occurs in the table -- so a padded slot cannot be told from a real "
-                f"{addresses}. Use a negative fill value (-1 is what the built-in readers "
-                f"write) or any value of at least {index_count}."
-            )
+    if fill >= 0 and bool(is_padding.any()):
+        _refuse_ambiguous_fill(fill, index_count, label, addresses, topology)
 
     negative = original < 0
     # A signed dtype throughout: `-1` is unrepresentable in an unsigned one, so preserving

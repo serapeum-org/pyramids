@@ -92,8 +92,10 @@ class TestOtherTablesUseTheirOwnRange:
         edges = _conn([[0, 1], [1, 2], [2, 0], [1, 3]], -1, "edge_node_connectivity")
         face_edges = _conn([[0, 1, 2], [3, 1, -1]], 3, "face_edge_connectivity")
 
+        arguments = (_faces(), edges, face_edges)
+
         with pytest.raises(ValueError, match="valid edge index") as caught:
-            Mesh2d(NODE_X, NODE_Y, _faces(), edges, face_edges)
+            Mesh2d(NODE_X, NODE_Y, *arguments)
 
         assert "face_edge_connectivity" in str(caught.value)
 
@@ -121,8 +123,10 @@ class TestOtherTablesUseTheirOwnRange:
         """`face_face_connectivity` indexes faces, so the message says "face"."""
         face_faces = _conn([[1, -1], [0, -1]], 1, "face_face_connectivity")
 
+        arguments = (_faces(), None, None, face_faces)
+
         with pytest.raises(ValueError, match="valid face index") as caught:
-            Mesh2d(NODE_X, NODE_Y, _faces(), None, None, face_faces)
+            Mesh2d(NODE_X, NODE_Y, *arguments)
 
         assert "face_face_connectivity" in str(caught.value)
 
@@ -237,8 +241,10 @@ class TestRangeUnknown:
         """
         face_edges = _conn([[0, 1], [1, 0]], 0, "face_edge_connectivity")
 
+        arguments = (_faces(), None, face_edges)
+
         with pytest.raises(ValueError, match="nothing says how many") as caught:
-            Mesh2d(NODE_X, NODE_Y, _faces(), None, face_edges)
+            Mesh2d(NODE_X, NODE_Y, *arguments)
 
         message = str(caught.value)
         assert "face_edge_connectivity" in message
@@ -257,8 +263,10 @@ class TestRangeUnknown:
         """
         face_edges = _conn([[0, 1, 6], [3, 4, 5]], 6, "face_edge_connectivity")
 
+        arguments = (_faces(), None, face_edges)
+
         with pytest.raises(ValueError, match="nothing says how many"):
-            Mesh2d(NODE_X, NODE_Y, _faces(), None, face_edges)
+            Mesh2d(NODE_X, NODE_Y, *arguments)
 
     def test_an_unused_fill_needs_no_range(self):
         """A fill that never occurs is unambiguous, so the unknown range is irrelevant."""
@@ -395,8 +403,10 @@ class TestEveryTableIsCovered:
         """
         edges = _conn([[0, 1], [1, 2], [2, 2]], 2, "edge_node_connectivity")
 
+        arguments = (_faces(), edges)
+
         with pytest.raises(ValueError, match="valid node index") as caught:
-            Mesh2d(NODE_X, NODE_Y, _faces(), edges)
+            Mesh2d(NODE_X, NODE_Y, *arguments)
 
         message = str(caught.value)
         assert "edge_node_connectivity" in message
@@ -427,8 +437,10 @@ class TestEveryTableIsCovered:
         edges = _conn([[0, 1], [1, 2]], -1, "edge_node_connectivity")
         edge_faces = _conn([[0, 1], [1, 1]], 1, "edge_face_connectivity")
 
+        arguments = (_faces(), edges, None, None, edge_faces)
+
         with pytest.raises(ValueError, match="valid face index") as caught:
-            Mesh2d(NODE_X, NODE_Y, _faces(), edges, None, None, edge_faces)
+            Mesh2d(NODE_X, NODE_Y, *arguments)
 
         message = str(caught.value)
         assert "edge_face_connectivity" in message
