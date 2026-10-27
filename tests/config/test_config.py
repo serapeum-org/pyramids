@@ -234,6 +234,45 @@ class TestExportGdalLibraryEnv:
 class TestProbeWindowsPlugins:
     """Direct tests for the Windows site-packages probe (#1325)."""
 
+    @staticmethod
+    def _make_full_library(root: Path) -> Path:
+        """Create a root carrying a full ``Library/lib/gdalplugins`` + ``bin`` tree.
+
+        Args:
+            root: Directory to create the tree under.
+
+        Returns:
+            Path: The ``lib/gdalplugins`` directory inside the new tree.
+        """
+        plugins = root / "Library" / "lib" / "gdalplugins"
+        plugins.mkdir(parents=True)
+        (root / "Library" / "bin").mkdir(parents=True)
+        return plugins
+
+    def test_last_of_two_matching_roots_wins(self, tmp_path, monkeypatch):
+        """With two matching roots, the second (last) one's plugins dir wins.
+
+        Test scenario:
+            Both site-packages roots carry a full ``Library/lib/gdalplugins`` tree. The probe
+            must return the SECOND root's plugins dir and leave ``GDAL_DRIVER_PATH`` pointing at
+            it — so a first-wins or return-on-first-match regression is caught (the single-root
+            test cannot distinguish first-wins from last-wins).
+        """
+        first = tmp_path / "first"
+        second = tmp_path / "second"
+        self._make_full_library(first)
+        second_plugins = self._make_full_library(second)
+        cfg = Config()
+        monkeypatch.setattr(os, "environ", {"PATH": ""})
+        monkeypatch.setattr("site.getsitepackages", lambda: [str(first), str(second)])
+        result = cfg._probe_windows_plugins()
+        assert result == second_plugins, (
+            f"expected the second (last) root's plugins dir, got {result}"
+        )
+        assert os.environ["GDAL_DRIVER_PATH"] == str(second_plugins), (
+            f"GDAL_DRIVER_PATH did not follow last-wins: {os.environ.get('GDAL_DRIVER_PATH')}"
+        )
+
     def test_last_matching_library_wins_and_empty_roots_are_skipped(
         self, tmp_path, monkeypatch
     ):
