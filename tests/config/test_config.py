@@ -225,3 +225,47 @@ class TestExportGdalLibraryEnv:
         assert os.environ["PATH"].split(os.pathsep).count(bin_str) == 1, (
             f"bin duplicated on PATH: {os.environ['PATH']!r}"
         )
+
+
+class TestProbeWindowsPlugins:
+    """Direct tests for the Windows site-packages probe (#1325)."""
+
+    def test_last_matching_library_wins_and_empty_roots_are_skipped(
+        self, tmp_path, monkeypatch
+    ):
+        """Probing several site-packages picks the last with a Library tree; empty ones skip.
+
+        Test scenario:
+            Two site-packages roots are probed: the first has no ``Library`` (the exporter
+            returns None, so the per-root check is falsy and the loop continues), the second
+            carries a full ``Library`` tree. The probe returns the second root's gdalplugins
+            dir, exercising both arms of the per-root check and the last-match-wins loop.
+        """
+        empty_root = tmp_path / "a"
+        empty_root.mkdir()
+        full_root = tmp_path / "b"
+        plugins = full_root / "Library" / "lib" / "gdalplugins"
+        plugins.mkdir(parents=True)
+        (full_root / "Library" / "bin").mkdir(parents=True)
+        cfg = Config()
+        monkeypatch.setattr(os, "environ", {"PATH": ""})
+        monkeypatch.setattr(
+            "site.getsitepackages", lambda: [str(empty_root), str(full_root)]
+        )
+        result = cfg._probe_windows_plugins()
+        assert result == plugins, f"expected the last root's plugins dir, got {result}"
+
+    def test_no_library_anywhere_returns_none(self, tmp_path, monkeypatch):
+        """When no probed root has a Library tree, the probe returns None.
+
+        Test scenario:
+            Every site-packages root is empty, so the exporter returns None for each and the
+            probe reports no plugins dir found.
+        """
+        root = tmp_path / "empty"
+        root.mkdir()
+        cfg = Config()
+        monkeypatch.setattr(os, "environ", {"PATH": ""})
+        monkeypatch.setattr("site.getsitepackages", lambda: [str(root)])
+        result = cfg._probe_windows_plugins()
+        assert result is None, f"expected None when no Library is found, got {result}"
