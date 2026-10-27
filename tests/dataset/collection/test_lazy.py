@@ -305,15 +305,21 @@ class TestDuplicatePathSharedLock:
 
 
 class TestErrors:
-    def test_no_files_raises(self):
-        arr = np.zeros((4, 5), dtype=np.float32)
+    def test_no_files_stacks_in_memory_cube(self):
+        """#1349: .data stacks a datasets=-backed (in-memory) collection.
+
+        It used to raise ``RuntimeError`` ("file-backed"); it now returns the
+        lazy (T, B, R, C) cube built from the resident per-timestep arrays.
+        """
+        arr = np.full((4, 5), 7.0, dtype=np.float32)
         src = Dataset.from_array(
             arr,
             geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
         )
         collection = DatasetCollection(src, time_length=1)
-        with pytest.raises(RuntimeError, match="file-backed"):
-            _ = collection.data
+        cube = collection.data
+        assert cube.shape == (1, 1, 4, 5)
+        np.testing.assert_allclose(np.asarray(cube.compute())[0, 0], arr)
 
     def test_import_error_without_dask(self, three_files, monkeypatch):
         import builtins

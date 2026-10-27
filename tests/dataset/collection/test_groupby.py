@@ -207,13 +207,19 @@ class TestGroupbyErrors:
         with pytest.raises(ValueError, match="length"):
             collection.groupby(["A", "B"])
 
-    def test_groupby_without_files_chain_raises(self):
-        arr = np.zeros((3, 4), dtype=np.float32)
+    def test_groupby_without_files_reduces_in_memory(self):
+        """#1349: grouped reductions work on a datasets=-backed collection.
+
+        The chain used to raise ``RuntimeError`` ("file-backed"); it now reduces
+        the resident in-memory stack per label.
+        """
+        arr = np.full((3, 4), 7.0, dtype=np.float32)
         src = Dataset.from_array(
             arr,
             geo_ref=GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326),
         )
         collection = DatasetCollection(src, time_length=1)
         grouped = collection.groupby(["A"])
-        with pytest.raises(RuntimeError, match="file-backed"):
-            grouped.mean()
+        out = grouped.mean()
+        assert set(out) == {"A"}
+        np.testing.assert_allclose(np.asarray(out["A"])[0], arr)

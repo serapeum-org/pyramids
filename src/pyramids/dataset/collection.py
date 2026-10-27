@@ -1682,9 +1682,10 @@ class DatasetCollection:
             type for the caller).
 
         Raises:
-            RuntimeError: The collection has no ``files`` list (a legacy in-memory
-                cube). The ``data`` property, which also accepts a Zarr-backed cube,
-                keeps its own broader guard.
+            RuntimeError: The collection has no ``files`` list. This guards the
+                ``to_zarr`` / ``to_kerchunk`` export methods that still need
+                files; :attr:`data` itself no longer uses it — since #1349 it
+                also stacks an in-memory (``datasets=``-backed) collection.
         """
         if self._files is None or len(self._files) == 0:
             raise RuntimeError(
@@ -1743,7 +1744,13 @@ class DatasetCollection:
         (`mean`, `sum`, the grouped ones) answer in the same units as a read. The
         array is `float64` when any timestep is packed. The no-data sentinel is not
         masked here -- on a packed timestep it is transformed like every other cell. A
-        Zarr-backed cube is returned as the store holds it.
+        Zarr-backed cube is returned as the store holds it. An in-memory collection
+        (built with `datasets=`, or the legacy `DatasetCollection(src, time_length=N)`
+        replicate-base form) is supported too (#1349): its resident per-timestep arrays
+        are stacked directly over the time axis (see :meth:`_in_memory_cube`), so
+        `reduce_time` and the grouped reducers work without a file or Zarr store. The
+        `to_zarr` / `to_kerchunk` export methods still require a file-backed collection
+        (`to_cog_stack` does not — it iterates the per-timestep datasets).
 
         Returns:
             dask.array.Array: The lazy `(T, B, R, C)` cube.
@@ -1751,8 +1758,8 @@ class DatasetCollection:
         Raises:
             ImportError: If the optional `dask` extra is not
                 installed.
-            RuntimeError: If the collection was constructed without a
-                `files` list (the in-memory `from_dataset` path).
+            RuntimeError: If the collection has no timesteps to stack (an empty
+                in-memory collection).
 
         Examples:
             - A packed stack is lazy and physical, so a reduction over it agrees with
@@ -1784,13 +1791,24 @@ class DatasetCollection:
                 [[1.5, 3.0], [4.5, 6.0]]
 
                 ```
+            - An in-memory (`datasets=`-backed) collection stacks its resident
+              scenes over time — no files or Zarr store needed (#1349):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+                >>> geo = GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+                >>> scenes = [
+                ...     Dataset.from_array(np.full((2, 2), float(v)), geo_ref=geo)
+                ...     for v in (1, 2, 3)
+                ... ]
+                >>> col = DatasetCollection(scenes[0], time_length=3, datasets=scenes)
+                >>> col.data.shape
+                (3, 1, 2, 2)
+                >>> col.data[:, 0, 0, 0].compute().tolist()
+                [1.0, 2.0, 3.0]
+
+                ```
         """
-        if self._zarr_store is None and (self._files is None or len(self._files) == 0):
-            raise RuntimeError(
-                "DatasetCollection.data requires a file-backed collection. "
-                "Use DatasetCollection.from_files(...) or "
-                "DatasetCollection.from_zarr(...) to construct one."
-            )
         try:
             import dask.array as da
         except ImportError as exc:
@@ -1803,9 +1821,12 @@ class DatasetCollection:
             # Zarr-backed cube (from_zarr): read the 4-D (T, B, R, C) array
             # lazily straight from the store — no per-file stacking.
             return da.from_zarr(self._zarr_store, component="data")
-        # The guard above already proved self._files is non-empty when
-        # self._zarr_store is None.
-        assert self._files is not None
+        if self._files is None or len(self._files) == 0:
+            # In-memory collection (#1349): no store and no file list -- a
+            # datasets=-backed collection, or the legacy replicate-base
+            # DatasetCollection(src, time_length=N). The per-timestep Datasets
+            # are resident, so stack their physical arrays over time.
+            return self._in_memory_cube(da)
         meta = self._meta
         # ARC-45: build each timestep as a spatially-tiled dask array (windowed reads
         # via _read_chunk) and stack along time, so a reduction tiles spatially and a
@@ -1827,6 +1848,59 @@ class DatasetCollection:
             )
             for path in self._files
         ]
+        return da.stack(per_step, axis=0)
+
+    def _in_memory_cube(self, da: Any) -> Any:
+        """Stack the resident per-timestep datasets into the `(T, B, R, C)` cube.
+
+        The in-memory path for :attr:`data` (#1349): a collection built with
+        in-memory per-timestep `Dataset`s (`datasets=`, or the legacy
+        replicate-base `DatasetCollection(src, time_length=N)`) — rather than
+        `from_files` / `from_zarr`. Each scene's physical array
+        (:meth:`Dataset.read_array`, unpacked, like the file-backed path) is read
+        **eagerly** and wrapped as one whole-scene chunk, then stacked over the
+        time axis; only the stack is lazy. So `reduce_time` and the grouped
+        reducers run on the resident stack with no on-disk round-trip for
+        genuinely in-memory scenes — a scene that is itself a file-backed
+        `Dataset` handle passed via `datasets=` is read from disk here.
+
+        Args:
+            da: The imported `dask.array` module (resolved by :attr:`data`).
+
+        Returns:
+            dask.array.Array: The lazy `(T, B, R, C)` cube over the resident
+            datasets, band axis always present even for a single-band stack. Each
+            scene keeps its own physical dtype; a mixed-dtype stack takes the
+            dtype NumPy/dask promote the scenes to (as the file-backed path does).
+
+        Raises:
+            RuntimeError: The collection has no timesteps to stack.
+            AlignmentError: A timestep's array shape does not match the
+                collection template `(band_count, rows, cols)` — the
+                `datasets=` scenes are not co-registered.
+        """
+        datasets = self.datasets
+        if not datasets:
+            raise RuntimeError(
+                "DatasetCollection.data requires at least one timestep; this "
+                "collection holds no datasets."
+            )
+        expected = tuple(self._meta.shape)
+        per_step = []
+        for index, ds in enumerate(datasets):
+            arr = np.asarray(ds.read_array())
+            if arr.ndim == 2:
+                # A single-band read drops the band axis; restore it rather than
+                # blind-reshaping, so a transposed scene cannot be silently
+                # reinterpreted into the template shape.
+                arr = arr[np.newaxis, ...]
+            if arr.shape != expected:
+                raise AlignmentError(
+                    f"DatasetCollection.data: timestep {index} has shape "
+                    f"{arr.shape}, expected {expected} to match the collection "
+                    f"template; the datasets= scenes must be co-registered."
+                )
+            per_step.append(da.from_array(arr, chunks=expected))
         return da.stack(per_step, axis=0)
 
     @property

@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pyramids.base._errors import AlignmentError
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._reduce_ops import resolve_dask_op
@@ -506,3 +507,211 @@ class TestReduceTimeNoData:
         assert got[0, 0] != pytest.approx(20.0), "sentinel was wrongly skipped"
         assert got[0, 1] == pytest.approx(-9999.0), "all-sentinel pixel stays -9999"
         assert got[1, 0] == pytest.approx(4.0), "a NaN gap IS the skipped gap"
+
+
+class TestReduceTimeInMemory:
+    """#1349: reduce_time / .data work on a datasets=-backed (in-memory) collection."""
+
+    @pytest.fixture
+    def in_memory_scenes(self):
+        """Four in-memory 3x3 single-band scenes with constant values 0, 1, 2, 3."""
+        geo = GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326)
+        return [
+            Dataset.from_array(
+                np.full((3, 3), float(i), dtype="float32"),
+                no_data_value=_NODATA,
+                geo_ref=geo,
+            )
+            for i in range(4)
+        ]
+
+    def _in_memory(self, scenes, times):
+        return DatasetCollection(
+            scenes[0], time_length=4, datasets=scenes, time=list(times)
+        )
+
+    @requires_dask
+    def test_in_memory_reduce_does_not_raise(self, in_memory_scenes, daily_times):
+        """The exact issue #1349 scenario: a datasets=-backed reduce used to raise."""
+        col = self._in_memory(in_memory_scenes, daily_times)
+        windows = col.reduce_time(daily_times, freq="1MS", op="median")
+        assert len(windows) == 1, "the four January days collapse to one window"
+        assert float(windows[0][1].read_array()[0, 0]) == pytest.approx(1.5), (
+            "median of 0,1,2,3 is 1.5"
+        )
+
+    @requires_dask
+    def test_in_memory_data_is_the_time_cube(self, in_memory_scenes):
+        """.data stacks the resident scenes into the lazy (T, B, R, C) cube."""
+        col = self._in_memory(in_memory_scenes, pd.date_range("2022-01-01", periods=4))
+        cube = col.data
+        assert cube.shape == (4, 1, 3, 3)
+        assert np.asarray(cube[:, 0, 0, 0].compute()).tolist() == [0.0, 1.0, 2.0, 3.0]
+
+    @requires_dask
+    @pytest.mark.parametrize(
+        "op, kw",
+        [
+            ("mean", {}),
+            ("median", {}),
+            ("percentile", {"q": 75}),
+            ("mode", {}),
+            ("trend", {}),
+            ("sens_slope", {}),
+        ],
+    )
+    def test_in_memory_matches_file_backed(
+        self, in_memory_scenes, daily_files, daily_times, op, kw
+    ):
+        """Every op gives the same window as the equivalent file-backed collection."""
+        mem = self._in_memory(in_memory_scenes, daily_times)
+        disk = DatasetCollection.from_files(daily_files)
+        want = disk.reduce_time(daily_times, freq="1MS", op=op, **kw)[0][1].read_array()
+        got = mem.reduce_time(daily_times, freq="1MS", op=op, **kw)[0][1].read_array()
+        np.testing.assert_allclose(
+            np.asarray(got, dtype=float), np.asarray(want, dtype=float), equal_nan=True
+        )
+
+    @requires_dask
+    def test_in_memory_multi_band_keeps_band_axis(self):
+        """A multi-band in-memory stack yields a (T, B, R, C) cube, band axis kept."""
+        geo = GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326)
+        scenes = [
+            Dataset.from_array(np.ones((2, 3, 3), dtype="float32") * v, geo_ref=geo)
+            for v in (1.0, 3.0)
+        ]
+        times = pd.date_range("2022-01-01", periods=2, freq="1D")
+        col = DatasetCollection(
+            scenes[0], time_length=2, datasets=scenes, time=list(times)
+        )
+        assert col.data.shape == (2, 2, 3, 3), "band axis must be preserved"
+        mean = col.reduce_time(times, freq="1MS", op="mean")[0][1].read_array()
+        np.testing.assert_allclose(np.asarray(mean), np.full((2, 3, 3), 2.0))
+
+    @requires_dask
+    def test_empty_in_memory_collection_raises(self):
+        """An in-memory collection with no timesteps raises a clear RuntimeError."""
+        geo = GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326)
+        src = Dataset.from_array(np.zeros((3, 3), dtype="float32"), geo_ref=geo)
+        col = DatasetCollection(src, time_length=0, datasets=[])
+        with pytest.raises(RuntimeError, match="no datasets"):
+            _ = col.data
+
+    @requires_dask
+    def test_mismatched_scene_shape_raises(self):
+        """A non-co-registered scene raises AlignmentError at .data, not a silent transpose.
+
+        A 3x2 scene against a 2x3 template has the same element count; the old
+        blind reshape silently transposed it into the cube. .data must reject it.
+        """
+        geo = GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326)
+        base = Dataset.from_array(np.zeros((2, 3), dtype="float32"), geo_ref=geo)
+        bad = Dataset.from_array(
+            np.arange(6, dtype="float32").reshape(3, 2), geo_ref=geo
+        )
+        col = DatasetCollection(
+            base,
+            time_length=2,
+            datasets=[base, bad],
+            time=list(pd.date_range("2022-01-01", periods=2)),
+        )
+        with pytest.raises(AlignmentError, match="shape"):
+            _ = col.data
+
+    @requires_dask
+    def test_in_memory_matches_file_backed_with_nodata(self, tmp_path):
+        """A -9999 sentinel cell reduces identically in-memory and file-backed.
+
+        Pins the no-data parity: the sentinel is live data on both paths (the
+        cube never masks it), so a future read_array default change that masked
+        it in one path only would diverge the two and fail here.
+        """
+        geo = GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326)
+        arrs = [np.full((3, 3), float(i), dtype="float32") for i in range(3)]
+        arrs[0][0, 0] = -9999.0
+        times = pd.date_range("2022-01-01", periods=3, freq="1D")
+        scenes = [
+            Dataset.from_array(a, no_data_value=-9999.0, geo_ref=geo) for a in arrs
+        ]
+        paths = []
+        for i, a in enumerate(arrs):
+            p = str(tmp_path / f"n{i}.tif")
+            Dataset.from_array(a, no_data_value=-9999.0, geo_ref=geo).to_file(p)
+            paths.append(p)
+        mem = DatasetCollection(
+            scenes[0], time_length=3, datasets=scenes, time=list(times)
+        )
+        disk = DatasetCollection.from_files(paths)
+        want = disk.reduce_time(times, freq="1MS", op="mean")[0][1].read_array()
+        got = mem.reduce_time(times, freq="1MS", op="mean")[0][1].read_array()
+        np.testing.assert_allclose(
+            np.asarray(got, dtype=float), np.asarray(want, dtype=float), equal_nan=True
+        )
+        assert float(np.asarray(got)[0, 0]) == pytest.approx((-9999.0 + 1.0 + 2.0) / 3)
+
+    @requires_dask
+    def test_in_memory_matches_file_backed_packed(self, tmp_path):
+        """A CF-packed scene gives the same physical cube in-memory and file-backed.
+
+        Pins the physical-units/dtype parity: both paths unpack scale/offset to
+        float64 physical values, so the in-memory stack must equal the
+        file-backed one for a packed stack.
+        """
+        geo = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+        times = pd.date_range("2022-01-01", periods=2, freq="1D")
+        paths = []
+        scenes = []
+        for i in range(2):
+            raw = np.array([[100, 200], [300, 400]], dtype="int16") * (i + 1)
+            # The in-memory scene is truly memory-resident (from_array, no file);
+            # the file-backed collection reads the same packed raster from disk.
+            resident = Dataset.from_array(raw, geo_ref=geo)
+            resident.scale = [0.01]
+            scenes.append(resident)
+            p = str(tmp_path / f"p{i}.tif")
+            fds = Dataset.from_array(raw, geo_ref=geo, path=p)
+            fds.scale = [0.01]
+            fds.close()
+            paths.append(p)
+        mem = DatasetCollection(
+            scenes[0], time_length=2, datasets=scenes, time=list(times)
+        )
+        disk = DatasetCollection.from_files(paths)
+        want = np.asarray(disk.data.compute(), dtype=float)
+        got = np.asarray(mem.data.compute(), dtype=float)
+        np.testing.assert_allclose(got, want)
+        assert got.dtype == np.float64, "packed data unpacks to float64 physical"
+        assert float(got[0, 0, 0, 0]) == pytest.approx(1.0), "100 * 0.01 scale"
+
+    @requires_dask
+    def test_replicate_base_stacks_identical_frames(self):
+        """A replicate-base DatasetCollection(src, time_length=N>1) stacks N copies.
+
+        The legacy no-files/no-datasets scaffold replicates the template over
+        time (the `datasets` property fallback), and `.data` stacks those copies
+        -- consistent with `values`/`head`/`tail`, which already do. Pinned so the
+        N>1 behaviour is deliberate rather than accidental.
+        """
+        geo = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+        src = Dataset.from_array(
+            np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32"), geo_ref=geo
+        )
+        col = DatasetCollection(src, time_length=3)
+        cube = np.asarray(col.data.compute())
+        assert cube.shape == (3, 1, 2, 2)
+        assert np.all(cube == cube[0]), "replicate-base frames are identical"
+
+    @requires_dask
+    def test_mismatched_band_count_raises(self):
+        """A scene whose band count differs from the template raises AlignmentError."""
+        geo = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+        base = Dataset.from_array(np.zeros((2, 2), dtype="float32"), geo_ref=geo)
+        two_band = Dataset.from_array(np.ones((2, 2, 2), dtype="float32"), geo_ref=geo)
+        col = DatasetCollection(
+            base,
+            time_length=2,
+            datasets=[base, two_band],
+            time=list(pd.date_range("2022-01-01", periods=2)),
+        )
+        with pytest.raises(AlignmentError, match="shape"):
+            _ = col.data
