@@ -27,9 +27,9 @@ DOCTEST_MODULES = [
 def _restore_path():
     """Snapshot PATH around each doctest run.
 
-    The ``EnvironmentVariables.prepend`` example mutates ``os.environ['PATH']``
-    and restores it in its last line — but a failure earlier in the example
-    would leak the mutation into the rest of the test session.
+    Any doctest that mutates ``os.environ['PATH']`` (e.g. a GDAL-bootstrap example)
+    restores it in its last line — but a failure earlier in the example would leak the
+    mutation into the rest of the test session, so snapshot and restore it here.
     """
     original = os.environ.get("PATH", "")
     yield

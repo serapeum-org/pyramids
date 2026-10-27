@@ -110,10 +110,10 @@ class TestConfigMock(unittest.TestCase):
         ):
             result = self.config.dynamic_env_variables()
         self.assertEqual(
-            result, Path("C:/Python/site-packages/Library/Lib/gdalplugins")
+            result, Path("C:/Python/site-packages/Library/lib/gdalplugins")
         )
         path = Path(os.environ["GDAL_DRIVER_PATH"])
-        self.assertEqual(path, Path("C:/Python/site-packages/Library/Lib/gdalplugins"))
+        self.assertEqual(path, Path("C:/Python/site-packages/Library/lib/gdalplugins"))
 
     @patch("pathlib.Path.exists", side_effect=[True, False])
     def test_dynamic_env_variables_linux(self, mock_exists):
@@ -125,3 +125,103 @@ class TestConfigMock(unittest.TestCase):
         self.assertEqual(result, Path("/usr/local/lib/gdalplugins"))
         path = Path(os.environ["GDAL_DRIVER_PATH"])
         self.assertEqual(path, Path("/usr/local/lib/gdalplugins"))
+
+
+class TestExportGdalLibraryEnv:
+    """Direct tests for the shared GDAL env exporter both bootstrap branches call (#1325).
+
+    Each test replaces ``os.environ`` with an isolated dict (auto-restored by monkeypatch)
+    and shapes a temp directory like a conda-forge ``Library/`` tree, so the exporter is
+    exercised directly instead of only through the conda or win32 branch.
+    """
+
+    @staticmethod
+    def _make_library(root: Path, *, plugins: bool = True) -> Path:
+        """Build a conda-style ``Library/`` tree under root; return the ``Library`` dir.
+
+        Args:
+            root: Directory to create the tree in.
+            plugins: Whether to create the ``lib/gdalplugins`` directory.
+
+        Returns:
+            Path: The created ``Library`` directory.
+        """
+        lib = root / "Library"
+        if plugins:
+            (lib / "lib" / "gdalplugins").mkdir(parents=True)
+        (lib / "bin").mkdir(parents=True)
+        (lib / "share" / "gdal").mkdir(parents=True)
+        (lib / "share" / "proj").mkdir(parents=True)
+        return lib
+
+    def test_exports_all_four_from_a_library_tree(self, tmp_path, monkeypatch):
+        """A complete tree sets GDAL_DRIVER_PATH, prepends bin to PATH, sets GDAL_DATA/PROJ_LIB.
+
+        Test scenario:
+            A ``Library`` tree with all four sub-paths present is exported; the plugins dir
+            is returned and every env var points at the matching sub-path.
+        """
+        cfg = Config()
+        lib = self._make_library(tmp_path)
+        monkeypatch.setattr(os, "environ", {"PATH": "/pre-existing"})
+        result = cfg._export_gdal_library_env(lib)
+        assert result == lib / "lib" / "gdalplugins", (
+            f"unexpected plugins dir: {result}"
+        )
+        assert os.environ["GDAL_DRIVER_PATH"] == str(lib / "lib" / "gdalplugins")
+        assert os.environ["GDAL_DATA"] == str(lib / "share" / "gdal")
+        assert os.environ["PROJ_LIB"] == str(lib / "share" / "proj")
+        assert os.environ["PATH"].split(os.pathsep)[0] == str(lib / "bin"), (
+            f"bin not prepended to PATH: {os.environ['PATH']!r}"
+        )
+
+    def test_missing_plugins_returns_none_but_still_exports_present_dirs(
+        self, tmp_path, monkeypatch
+    ):
+        """No gdalplugins dir returns None, yet existing bin/share dirs still export.
+
+        Test scenario:
+            The unified helper attempts bin/GDAL_DATA/PROJ_LIB regardless of the plugins
+            dir (matching the conda branch), so an absent gdalplugins yields None but the
+            present share dirs are still set.
+        """
+        cfg = Config()
+        lib = self._make_library(tmp_path, plugins=False)
+        monkeypatch.setattr(os, "environ", {"PATH": ""})
+        result = cfg._export_gdal_library_env(lib)
+        assert result is None, f"expected None when plugins absent, got {result}"
+        assert "GDAL_DRIVER_PATH" not in os.environ, (
+            "driver path set without a plugins dir"
+        )
+        assert os.environ["GDAL_DATA"] == str(lib / "share" / "gdal")
+
+    def test_absent_library_is_a_no_op(self, tmp_path, monkeypatch):
+        """A non-existent Library root sets nothing and returns None.
+
+        Test scenario:
+            None of the four sub-paths exist, so PATH is untouched and no GDAL env var
+            is written.
+        """
+        cfg = Config()
+        monkeypatch.setattr(os, "environ", {"PATH": "/x"})
+        result = cfg._export_gdal_library_env(tmp_path / "Library")
+        assert result is None, f"expected None, got {result}"
+        assert "GDAL_DRIVER_PATH" not in os.environ, (
+            "driver path set for an absent tree"
+        )
+        assert os.environ["PATH"] == "/x", "PATH mutated when no bin dir exists"
+
+    def test_bin_is_not_prepended_twice(self, tmp_path, monkeypatch):
+        """The PATH-prepend dedup guard keeps bin on PATH exactly once.
+
+        Test scenario:
+            With bin already on PATH, the exporter must not add a second copy.
+        """
+        cfg = Config()
+        lib = self._make_library(tmp_path)
+        bin_str = str(lib / "bin")
+        monkeypatch.setattr(os, "environ", {"PATH": bin_str})
+        cfg._export_gdal_library_env(lib)
+        assert os.environ["PATH"].split(os.pathsep).count(bin_str) == 1, (
+            f"bin duplicated on PATH: {os.environ['PATH']!r}"
+        )
