@@ -506,3 +506,67 @@ class TestReduceTimeNoData:
         assert got[0, 0] != pytest.approx(20.0), "sentinel was wrongly skipped"
         assert got[0, 1] == pytest.approx(-9999.0), "all-sentinel pixel stays -9999"
         assert got[1, 0] == pytest.approx(4.0), "a NaN gap IS the skipped gap"
+
+
+class TestReduceTimeInMemory:
+    """#1349: reduce_time / .data work on a datasets=-backed (in-memory) collection."""
+
+    @pytest.fixture
+    def in_memory_scenes(self):
+        """Four in-memory 3x3 single-band scenes with constant values 0, 1, 2, 3."""
+        geo = GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326)
+        return [
+            Dataset.from_array(
+                np.full((3, 3), float(i), dtype="float32"),
+                no_data_value=_NODATA,
+                geo_ref=geo,
+            )
+            for i in range(4)
+        ]
+
+    def _in_memory(self, scenes, times):
+        return DatasetCollection(
+            scenes[0], time_length=4, datasets=scenes, time=list(times)
+        )
+
+    @requires_dask
+    def test_in_memory_reduce_does_not_raise(self, in_memory_scenes, daily_times):
+        """The exact issue #1349 scenario: a datasets=-backed reduce used to raise."""
+        col = self._in_memory(in_memory_scenes, daily_times)
+        windows = col.reduce_time(daily_times, freq="1MS", op="median")
+        assert len(windows) == 1, "the four January days collapse to one window"
+        assert float(windows[0][1].read_array()[0, 0]) == pytest.approx(1.5), (
+            "median of 0,1,2,3 is 1.5"
+        )
+
+    @requires_dask
+    def test_in_memory_data_is_the_time_cube(self, in_memory_scenes):
+        """.data stacks the resident scenes into the lazy (T, B, R, C) cube."""
+        col = self._in_memory(in_memory_scenes, pd.date_range("2022-01-01", periods=4))
+        cube = col.data
+        assert cube.shape == (4, 1, 3, 3)
+        assert np.asarray(cube[:, 0, 0, 0].compute()).tolist() == [0.0, 1.0, 2.0, 3.0]
+
+    @requires_dask
+    @pytest.mark.parametrize(
+        "op, kw",
+        [
+            ("mean", {}),
+            ("median", {}),
+            ("percentile", {"q": 75}),
+            ("mode", {}),
+            ("trend", {}),
+            ("sens_slope", {}),
+        ],
+    )
+    def test_in_memory_matches_file_backed(
+        self, in_memory_scenes, daily_files, daily_times, op, kw
+    ):
+        """Every op gives the same window as the equivalent file-backed collection."""
+        mem = self._in_memory(in_memory_scenes, daily_times)
+        disk = DatasetCollection.from_files(daily_files)
+        want = disk.reduce_time(daily_times, freq="1MS", op=op, **kw)[0][1].read_array()
+        got = mem.reduce_time(daily_times, freq="1MS", op=op, **kw)[0][1].read_array()
+        np.testing.assert_allclose(
+            np.asarray(got, dtype=float), np.asarray(want, dtype=float), equal_nan=True
+        )

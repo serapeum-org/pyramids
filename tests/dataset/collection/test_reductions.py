@@ -90,13 +90,18 @@ class TestSkipNaFalse:
         assert np.allclose(result_skipna, result_exact)
 
 
-class TestNoFilesRaises:
-    def test_reduction_without_files_raises(self):
-        arr = np.zeros((4, 5), dtype=np.float32)
+class TestInMemoryReduction:
+    def test_reduction_without_files_reduces_in_memory(self):
+        """#1349: a datasets=-backed (in-memory) collection reduces in memory.
+
+        Previously any reduction on a collection with no file list raised
+        ``RuntimeError`` ("file-backed"); it now stacks the resident datasets.
+        """
+        arr = np.full((4, 5), 7.0, dtype=np.float32)
         src = Dataset.from_array(
             arr,
             geo_ref=GeoReference(top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326),
         )
         collection = DatasetCollection(src, time_length=1)
-        with pytest.raises(RuntimeError, match="file-backed"):
-            collection.mean()
+        result = collection.mean()
+        np.testing.assert_allclose(result[0], arr)
