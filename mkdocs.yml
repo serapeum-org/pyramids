@@ -233,6 +233,7 @@ nav:
     - UTM helpers: reference/utm.md
     - Basemap: reference/basemap.md
     - Plot backends: reference/plot-backends.md
+    - Writing a plot backend: reference/writing-a-plot-backend.md
     - STAC:
       - Overview: reference/stac/index.md
       - Signers: reference/stac/signers.md
