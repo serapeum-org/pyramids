@@ -617,3 +617,63 @@ class TestReduceTimeInMemory:
         )
         with pytest.raises(AlignmentError, match="shape"):
             _ = col.data
+
+    @requires_dask
+    def test_in_memory_matches_file_backed_with_nodata(self, tmp_path):
+        """A -9999 sentinel cell reduces identically in-memory and file-backed.
+
+        Pins the no-data parity: the sentinel is live data on both paths (the
+        cube never masks it), so a future read_array default change that masked
+        it in one path only would diverge the two and fail here.
+        """
+        geo = GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326)
+        arrs = [np.full((3, 3), float(i), dtype="float32") for i in range(3)]
+        arrs[0][0, 0] = -9999.0
+        times = pd.date_range("2022-01-01", periods=3, freq="1D")
+        scenes = [
+            Dataset.from_array(a, no_data_value=-9999.0, geo_ref=geo) for a in arrs
+        ]
+        paths = []
+        for i, a in enumerate(arrs):
+            p = str(tmp_path / f"n{i}.tif")
+            Dataset.from_array(a, no_data_value=-9999.0, geo_ref=geo).to_file(p)
+            paths.append(p)
+        mem = DatasetCollection(
+            scenes[0], time_length=3, datasets=scenes, time=list(times)
+        )
+        disk = DatasetCollection.from_files(paths)
+        want = disk.reduce_time(times, freq="1MS", op="mean")[0][1].read_array()
+        got = mem.reduce_time(times, freq="1MS", op="mean")[0][1].read_array()
+        np.testing.assert_allclose(
+            np.asarray(got, dtype=float), np.asarray(want, dtype=float), equal_nan=True
+        )
+        assert float(np.asarray(got)[0, 0]) == pytest.approx((-9999.0 + 1.0 + 2.0) / 3)
+
+    @requires_dask
+    def test_in_memory_matches_file_backed_packed(self, tmp_path):
+        """A CF-packed scene gives the same physical cube in-memory and file-backed.
+
+        Pins the physical-units/dtype parity: both paths unpack scale/offset to
+        float64 physical values, so the in-memory stack must equal the
+        file-backed one for a packed stack.
+        """
+        geo = GeoReference(top_left_corner=(0.0, 2.0), cell_size=1.0, epsg=4326)
+        times = pd.date_range("2022-01-01", periods=2, freq="1D")
+        paths = []
+        scenes = []
+        for i in range(2):
+            raw = np.array([[100, 200], [300, 400]], dtype="int16") * (i + 1)
+            p = str(tmp_path / f"p{i}.tif")
+            fds = Dataset.from_array(raw, geo_ref=geo, path=p)
+            fds.scale = [0.01]
+            fds.close()
+            paths.append(p)
+            scenes.append(Dataset.read_file(p))
+        mem = DatasetCollection(
+            scenes[0], time_length=2, datasets=scenes, time=list(times)
+        )
+        disk = DatasetCollection.from_files(paths)
+        want = np.asarray(disk.data.compute(), dtype=float)
+        got = np.asarray(mem.data.compute(), dtype=float)
+        np.testing.assert_allclose(got, want)
+        assert got.dtype == want.dtype, "both paths unpack packed data to float64"
