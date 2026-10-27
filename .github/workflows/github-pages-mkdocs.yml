@@ -63,6 +63,7 @@ jobs:
             dataset/wms-wmts-readers.ipynb
             basemap/basemap-example.ipynb
             netcdf/ugrid/ugrid-mesh-exploration.ipynb
+            dataset/plotting-gallery.ipynb
           notebooks-continue-on-error: 'true'
 
   deploy-main:
@@ -95,6 +96,7 @@ jobs:
           dataset/wms-wmts-readers.ipynb
           basemap/basemap-example.ipynb
           netcdf/ugrid/ugrid-mesh-exploration.ipynb
+          dataset/plotting-gallery.ipynb
         notebooks-continue-on-error: 'true'
 
   deploy-release:
@@ -146,4 +148,5 @@ jobs:
           dataset/wms-wmts-readers.ipynb
           basemap/basemap-example.ipynb
           netcdf/ugrid/ugrid-mesh-exploration.ipynb
+          dataset/plotting-gallery.ipynb
         notebooks-continue-on-error: 'true'

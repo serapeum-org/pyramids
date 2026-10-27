@@ -270,13 +270,20 @@ class TestMergeMethod:
             )
         stripped_peak = sp[0]
 
-        # A strip reduction must peak far below a whole-union float64 pass
+        # A strip reduction must peak below a whole-union float64 pass
         # (rows * cols * float64 = ~16 MB); reading both sources whole would peak >= that.
+        #
+        # The strip reduction's own Python allocations are ~1 MB (a few 128-row strips plus the
+        # accumulator). The bound is the whole-union size, not half of it: on some GDAL builds the
+        # one-time read buffer of roughly a single source (~8 MB) lands inside the traced region
+        # despite the warming reads above (the same class of flake as #1047 / #1049, seen on
+        # macOS / py312). A tighter half-union bound tips over on that ~8 MB buffer even though the
+        # merge is still streaming, while a genuinely non-streaming pass that materialises the whole
+        # union still peaks at >= union_bytes.
         union_bytes = rows * cols * np.dtype("float64").itemsize
-        assert stripped_peak < union_bytes // 2, (
-            f"merge peaked at {stripped_peak / 1e6:.1f} MB, not far below the "
-            f"{union_bytes / 1e6:.0f} MB whole-union pass — it did not stay under a full "
-            "materialisation"
+        assert stripped_peak < union_bytes, (
+            f"merge peaked at {stripped_peak / 1e6:.1f} MB, not below the "
+            f"{union_bytes / 1e6:.0f} MB whole-union materialisation"
         )
 
     def test_default_method_is_last(self, overlapping_pair, tmp_path):

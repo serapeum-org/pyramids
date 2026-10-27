@@ -53,6 +53,12 @@ from pyramids.base._errors import (
     CRSError,
     InvalidGeometryError,
 )
+from pyramids.base._plot_backends import (
+    forward_kwargs,
+    is_colorbar_spec,
+    reject_mpl_only_params,
+    render_via_backend,
+)
 from pyramids.base.crs import _pyproj_crs_via_gdal, crs_from_user_input
 from pyramids.base.geodesy import _geodetic_frame
 from pyramids.base.geodesy import geodesic_distance as _geodesic_distance
@@ -2623,6 +2629,8 @@ class FeatureCollection(GeoDataFrame):
         color: ColorScaling | None = None,
         contour: Contour | None = None,
         classify: Classify | None = None,
+        *,
+        backend: str = "matplotlib",
         **kwargs: Any,
     ) -> Any:
         """Plot features, optionally on a web-tile basemap.
@@ -2645,7 +2653,16 @@ class FeatureCollection(GeoDataFrame):
             column: Column whose values drive the colour mapping. ``None``
                 renders a single flat colour.
             basemap: ``True`` for OpenStreetMap, or a provider name string.
-            engine: ``"geopandas"`` (default) or ``"cleopatra"``.
+            engine: ``"geopandas"`` (default) or ``"cleopatra"``. Applies only to
+                ``backend="matplotlib"``; a non-default ``engine`` with any other backend raises
+                a :class:`ValueError` rather than being silently ignored.
+            backend (str, optional): Renderer backend. ``"matplotlib"`` (default) draws
+                through ``engine`` (geopandas or cleopatra). Any other name (e.g.
+                ``"interactive"`` / ``"3d"`` / ``"web"``) is routed to a registered
+                ``pyramids.plot_backends`` plugin — in practice ``digitalearth`` — and returns
+                that backend's own object. The matplotlib-only params (a non-default ``engine``
+                and the ``color`` / ``contour`` / ``classify`` / ``points`` / ``ColorBar`` render
+                groups) then raise a :class:`ValueError` if set. Requires the backend's package.
             colorbar (bool or ColorBar, optional): Colour-bar spec, part of the
                 shared plot signature. On ``engine="geopandas"`` it toggles the
                 geopandas ``legend`` (a ``ColorBar`` object counts as "show"); on
@@ -2714,6 +2731,24 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
+        if backend != "matplotlib":
+            reject_mpl_only_params(
+                backend,
+                color=color,
+                contour=contour,
+                classify=classify,
+                points=points,
+                engine=None if engine == "geopandas" else engine,
+                colorbar=colorbar if is_colorbar_spec(colorbar) else None,
+            )
+            forwarded = forward_kwargs(
+                column=column,
+                basemap=basemap,
+                colorbar=None if is_colorbar_spec(colorbar) else colorbar,
+                title=title,
+                kind=None if kind == "auto" else kind,
+            )
+            return render_via_backend(self, backend, **forwarded, **kwargs)
         # ``points`` / ``kind`` are part of the shared raster-family plot signature
         # but have no meaning for vector geometry, so they are accepted and ignored.
         # ``colorbar`` / ``title`` map onto both back-ends; ``color`` / ``contour`` /
