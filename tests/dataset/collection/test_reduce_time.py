@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pyramids.base._errors import AlignmentError
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._reduce_ops import resolve_dask_op
@@ -594,4 +595,25 @@ class TestReduceTimeInMemory:
         src = Dataset.from_array(np.zeros((3, 3), dtype="float32"), geo_ref=geo)
         col = DatasetCollection(src, time_length=0, datasets=[])
         with pytest.raises(RuntimeError, match="no datasets"):
+            _ = col.data
+
+    @requires_dask
+    def test_mismatched_scene_shape_raises(self):
+        """A non-co-registered scene raises AlignmentError at .data, not a silent transpose.
+
+        A 3x2 scene against a 2x3 template has the same element count; the old
+        blind reshape silently transposed it into the cube. .data must reject it.
+        """
+        geo = GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326)
+        base = Dataset.from_array(np.zeros((2, 3), dtype="float32"), geo_ref=geo)
+        bad = Dataset.from_array(
+            np.arange(6, dtype="float32").reshape(3, 2), geo_ref=geo
+        )
+        col = DatasetCollection(
+            base,
+            time_length=2,
+            datasets=[base, bad],
+            time=list(pd.date_range("2022-01-01", periods=2)),
+        )
+        with pytest.raises(AlignmentError, match="shape"):
             _ = col.data

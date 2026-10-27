@@ -1865,6 +1865,9 @@ class DatasetCollection:
 
         Raises:
             RuntimeError: The collection has no timesteps to stack.
+            AlignmentError: A timestep's array shape does not match the
+                collection template `(band_count, rows, cols)` — the
+                `datasets=` scenes are not co-registered.
         """
         datasets = self.datasets
         if not datasets:
@@ -1872,14 +1875,22 @@ class DatasetCollection:
                 "DatasetCollection.data requires at least one timestep; this "
                 "collection holds no datasets."
             )
-        band_count, rows, cols = self._meta.shape
-        per_step = [
-            da.from_array(
-                np.asarray(ds.read_array()).reshape(band_count, rows, cols),
-                chunks=(band_count, rows, cols),
-            )
-            for ds in datasets
-        ]
+        expected = tuple(self._meta.shape)
+        per_step = []
+        for index, ds in enumerate(datasets):
+            arr = np.asarray(ds.read_array())
+            if arr.ndim == 2:
+                # A single-band read drops the band axis; restore it rather than
+                # blind-reshaping, so a transposed scene cannot be silently
+                # reinterpreted into the template shape.
+                arr = arr[np.newaxis, ...]
+            if arr.shape != expected:
+                raise AlignmentError(
+                    f"DatasetCollection.data: timestep {index} has shape "
+                    f"{arr.shape}, expected {expected} to match the collection "
+                    f"template; the datasets= scenes must be co-registered."
+                )
+            per_step.append(da.from_array(arr, chunks=expected))
         return da.stack(per_step, axis=0)
 
     @property
