@@ -570,3 +570,28 @@ class TestReduceTimeInMemory:
         np.testing.assert_allclose(
             np.asarray(got, dtype=float), np.asarray(want, dtype=float), equal_nan=True
         )
+
+    @requires_dask
+    def test_in_memory_multi_band_keeps_band_axis(self):
+        """A multi-band in-memory stack yields a (T, B, R, C) cube, band axis kept."""
+        geo = GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326)
+        scenes = [
+            Dataset.from_array(np.ones((2, 3, 3), dtype="float32") * v, geo_ref=geo)
+            for v in (1.0, 3.0)
+        ]
+        times = pd.date_range("2022-01-01", periods=2, freq="1D")
+        col = DatasetCollection(
+            scenes[0], time_length=2, datasets=scenes, time=list(times)
+        )
+        assert col.data.shape == (2, 2, 3, 3), "band axis must be preserved"
+        mean = col.reduce_time(times, freq="1MS", op="mean")[0][1].read_array()
+        np.testing.assert_allclose(np.asarray(mean), np.full((2, 3, 3), 2.0))
+
+    @requires_dask
+    def test_empty_in_memory_collection_raises(self):
+        """An in-memory collection with no timesteps raises a clear RuntimeError."""
+        geo = GeoReference(top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326)
+        src = Dataset.from_array(np.zeros((3, 3), dtype="float32"), geo_ref=geo)
+        col = DatasetCollection(src, time_length=0, datasets=[])
+        with pytest.raises(RuntimeError, match="no datasets"):
+            _ = col.data
