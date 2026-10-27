@@ -738,13 +738,17 @@ class Config:
 
         For a non-conda install that still carries a conda-forge GDAL laid out under
         ``site-packages/Library``, export its env vars through the shared
-        :meth:`_export_gdal_library_env` helper. Returns the last matching plugins dir.
+        :meth:`_export_gdal_library_env` helper. Only a tree that actually contains
+        ``lib/gdalplugins`` is exported, so a plugins-less ``Library`` is a no-op and
+        ``GDAL_DATA`` / ``PROJ_LIB`` can never be set from a different tree than
+        ``GDAL_DRIVER_PATH`` — matching the pre-consolidation behavior. Returns the last
+        matching plugins dir.
         """
         found: Path | None = None
         for site_path in site.getsitepackages():
-            path = self._export_gdal_library_env(Path(site_path) / "Library")
-            if path:
-                found = path
+            library_root = Path(site_path) / "Library"
+            if (library_root / "lib" / "gdalplugins").exists():
+                found = self._export_gdal_library_env(library_root)
         return found
 
     def _probe_posix_plugins(self) -> Path | None:

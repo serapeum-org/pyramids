@@ -269,3 +269,25 @@ class TestProbeWindowsPlugins:
         monkeypatch.setattr("site.getsitepackages", lambda: [str(root)])
         result = cfg._probe_windows_plugins()
         assert result is None, f"expected None when no Library is found, got {result}"
+
+    def test_library_without_plugins_exports_nothing(self, tmp_path, monkeypatch):
+        """A Library tree lacking gdalplugins is a probe no-op — no GDAL_DATA/PROJ_LIB/PATH write.
+
+        Test scenario:
+            A site-packages Library has bin/share dirs but no lib/gdalplugins. The probe must
+            skip it entirely (return None and leave GDAL_DATA/PROJ_LIB/PATH untouched), matching
+            the pre-consolidation win32 behavior that gated every side effect on the plugins dir
+            — so a plugins-less tree cannot split GDAL_DATA/PROJ_LIB away from GDAL_DRIVER_PATH.
+        """
+        root = tmp_path / "sp"
+        (root / "Library" / "bin").mkdir(parents=True)
+        (root / "Library" / "share" / "gdal").mkdir(parents=True)
+        (root / "Library" / "share" / "proj").mkdir(parents=True)
+        cfg = Config()
+        monkeypatch.setattr(os, "environ", {"PATH": "/pre"})
+        monkeypatch.setattr("site.getsitepackages", lambda: [str(root)])
+        result = cfg._probe_windows_plugins()
+        assert result is None, f"expected None for a plugins-less tree, got {result}"
+        assert "GDAL_DATA" not in os.environ, "GDAL_DATA set from a plugins-less tree"
+        assert "PROJ_LIB" not in os.environ, "PROJ_LIB set from a plugins-less tree"
+        assert os.environ["PATH"] == "/pre", "PATH mutated by a plugins-less tree"
