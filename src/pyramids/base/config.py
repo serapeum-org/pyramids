@@ -57,7 +57,6 @@ import os
 import site
 import sys
 import threading
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -486,228 +485,6 @@ class LoggerManager:
             gdal.SetErrorHandler(_gdal_error_handler)
 
 
-@dataclass
-class EnvironmentVariables:
-    """Utility helpers to inspect and modify PATH-related environment variables.
-
-    This small helper provides convenient accessors for the PATH string and its
-    components, as well as a prepend operation; combine with if_exists() to avoid
-    duplicates.
-
-    Examples:
-    - Create the helper and inspect PATH entries
-
-        ```python
-
-        >>> from pyramids.base.config import EnvironmentVariables
-        >>> env = EnvironmentVariables()
-        >>> isinstance(env.paths, list)
-        True
-
-        ```
-
-    See Also:
-        - Plugins: Uses EnvironmentVariables to adjust PATH when GDAL bins are found.
-    """
-
-    def __post_init__(self):
-        self.logger = logging.getLogger(__name__)
-
-    @property
-    def path(self) -> str:
-        """Return the raw PATH environment variable.
-
-        Returns:
-            str: The current value of the PATH environment variable, or an empty
-                string if not set.
-
-        Examples:
-        - Read PATH as a string
-
-            ```python
-            >>> from pyramids.base.config import EnvironmentVariables
-            >>> ev = EnvironmentVariables()
-            >>> isinstance(ev.path, str)
-            True
-
-            ```
-        """
-        return os.environ.get("PATH", "")
-
-    @property
-    def paths(self) -> list[str]:
-        """Return PATH components as a list, split by the OS separator.
-
-        Returns:
-            list[str]: A list of absolute/relative directories contained in PATH.
-
-        Examples:
-        - Split PATH into components
-
-            ```python
-            >>> from pyramids.base.config import EnvironmentVariables
-            >>> ev = EnvironmentVariables()
-            >>> isinstance(ev.paths, list)
-            True
-
-            ```
-        """
-        path = self.path
-        paths = path.split(os.pathsep) if path else []
-        return paths
-
-    def if_exists(self, path: str | Path) -> bool:
-        """Check whether a directory exists in PATH.
-
-        Args:
-            path (str | pathlib.Path): Directory to look for.
-
-        Returns:
-            bool: True if the directory is already present in PATH, False otherwise.
-
-        Examples:
-        - Check for a directory in PATH
-
-            ```python
-            >>> from pyramids.base.config import EnvironmentVariables
-            >>> env = EnvironmentVariables()
-            >>> env.if_exists("C:/") in (True, False)
-            True
-
-            ```
-        """
-        return str(path) in self.paths
-
-    def prepend(self, path: str | Path) -> None:
-        """Prepend a directory to PATH if not already present.
-
-        Args:
-            path (str | pathlib.Path): Directory to prepend to PATH.
-
-        Examples:
-            - Prepend a directory to PATH safely. The example uses a relative, colon-free
-              name so it prints identically on Windows and POSIX (on POSIX, a drive-style
-              path like ``C:/example/bin`` would be split at the colon by ``os.pathsep``):
-                ```python
-                >>> import os
-                >>> from pyramids.base.config import EnvironmentVariables
-                >>> env = EnvironmentVariables()
-                >>> original = env.path
-                >>> env.prepend("example-bin")
-                >>> print(env.paths[0])
-                example-bin
-                >>> os.environ["PATH"] = original  # restore
-
-                ```
-        """
-        p = str(path)
-        os.environ["PATH"] = p + (os.pathsep + self.path)
-        self.logger.debug(f"Prepended to PATH: {p}")
-
-
-@dataclass
-class Plugins:
-    """Discover and export GDAL-related paths within a Python site-packages tree.
-
-    Given a site-packages directory, this helper resolves conventional GDAL
-    locations used by Conda-forge (Library/Lib/gdalplugins, Library/bin, etc.)
-    and can export them into environment variables suitable for GDAL loading.
-
-    Args:
-        site_packages_path (str | pathlib.Path): Root path to a site-packages directory
-            (e.g., one of values from site.getsitepackages()).
-
-    Attributes:
-        plugins_path (pathlib.Path | None): Expected GDAL plugins directory.
-        bin_path (pathlib.Path | None): Expected DLL bin directory.
-        data_path (pathlib.Path | None): Expected GDAL data directory.
-        proj_path (pathlib.Path | None): Expected PROJ data directory.
-
-    Examples:
-        - Discover GDAL paths and export to the environment
-            ```python
-            >>> import site
-            >>> from pyramids.base.config import Plugins
-            >>> sp = next(iter(site.getsitepackages()), None)  # doctest: +SKIP
-            >>> if sp:  # doctest: +SKIP
-            ...     p = Plugins(site_packages_path=sp)  # doctest: +SKIP
-            ...     _ = p.check_path()  # doctest: +SKIP
-
-            ```
-
-    See Also:
-        - EnvironmentVariables: Used to manage PATH updates.
-        - Config.dynamic_env_variables: Uses this class to probe for GDAL on Windows.
-    """
-
-    site_packages_path: str | Path
-    plugins_path: Path = field(init=False)
-    bin_path: Path = field(init=False)
-    data_path: Path = field(init=False)
-    proj_path: Path = field(init=False)
-
-    def __post_init__(self):
-        """Initialize derived GDAL-related paths based on site_packages_path."""
-        self.logger = logging.getLogger(__name__)
-        self.plugins_path = Path(self.site_packages_path) / "Library/Lib/gdalplugins"
-        base_path = Path(self.site_packages_path) / "Library"
-        self.bin_path = base_path / "bin"
-        self.data_path = base_path / "share" / "gdal"
-        self.proj_path = base_path / "share" / "proj"
-
-    def check_path(self) -> Path | None:
-        """Probe known locations under site-packages and set GDAL env variables.
-
-        This method checks for the presence of the GDAL plugins folder and, if
-        found, sets the following environment variables where appropriate:
-        - GDAL_DRIVER_PATH
-        - Optionally prepends Library/bin to PATH (so GDAL plugin DLLs resolve)
-        - Optionally sets GDAL_DATA and PROJ_LIB if those directories exist
-
-        Returns:
-            pathlib.Path | None: The detected plugins_path if found, otherwise None.
-
-        Examples:
-            - Probe a site-packages tree and set environment variables
-                ```python
-                >>> import site
-                >>> from pyramids.base.config import Plugins
-                >>> sp = next(iter(site.getsitepackages()), None)  # doctest: +SKIP
-                >>> if sp:  # doctest: +SKIP
-                ...     p = Plugins(site_packages_path=sp)  # doctest: +SKIP
-                ...     _ = p.check_path()  # doctest: +SKIP
-
-                ```
-        """
-        if self.plugins_path.exists():
-            os.environ["GDAL_DRIVER_PATH"] = str(self.plugins_path)
-            self.logger.debug(f"GDAL_DRIVER_PATH set to: {self.plugins_path}")
-            if self.bin_path.exists():
-                env_vars = EnvironmentVariables()
-                bin_str = str(self.bin_path)
-
-                if not env_vars.if_exists(bin_str):
-                    env_vars.prepend(bin_str)
-
-            # Optionally set GDAL_DATA and PROJ_LIB
-            if self.data_path.exists() and os.environ.get("GDAL_DATA") != str(
-                self.data_path
-            ):
-                os.environ["GDAL_DATA"] = str(self.data_path)
-                self.logger.debug(f"GDAL_DATA set to: {self.data_path}")
-            if self.proj_path.exists() and os.environ.get("PROJ_LIB") != str(
-                self.proj_path
-            ):
-                os.environ["PROJ_LIB"] = str(self.proj_path)
-                self.logger.debug(f"PROJ_LIB set to: {self.proj_path}")
-
-            path = self.plugins_path
-        else:
-            path = None
-
-        return path
-
-
 class Config:
     """High-level configuration entry point for logging and GDAL environment.
 
@@ -890,11 +667,48 @@ class Config:
         else:
             self.logger.debug(f"{not_found_label} path not found at: {path}")
 
+    def _export_gdal_library_env(self, library_root: Path) -> Path | None:
+        """Export GDAL env vars from a conda-style ``Library`` tree; return its plugins dir.
+
+        One implementation of the four GDAL-bootstrap steps, shared by the Conda branch
+        (``CONDA_PREFIX/Library``) and the Windows site-packages probe (a ``Library`` tree
+        found inside ``site-packages``). Both layouts are identical under ``Library/``, so
+        only the root differs:
+
+        - set ``GDAL_DRIVER_PATH`` to ``lib/gdalplugins`` when it exists,
+        - prepend ``bin`` to ``PATH`` (deduped; fixes Windows error 126 loading plugins),
+        - set ``GDAL_DATA`` from ``share/gdal`` and ``PROJ_LIB`` from ``share/proj`` when present.
+
+        Args:
+            library_root (pathlib.Path): A conda-style ``Library`` directory.
+
+        Returns:
+            pathlib.Path | None: The ``lib/gdalplugins`` directory if it exists, else None.
+        """
+        gdal_plugins_path = library_root / "lib" / "gdalplugins"
+        plugins_exist = gdal_plugins_path.exists()
+        if plugins_exist:
+            os.environ["GDAL_DRIVER_PATH"] = str(gdal_plugins_path)
+            self.logger.debug(f"GDAL_DRIVER_PATH set to: {gdal_plugins_path}")
+        else:
+            self.logger.debug(
+                f"GDAL plugins path not found at: {gdal_plugins_path}. Please check your GDAL installation."
+            )
+
+        # Ensure dependent DLLs are on PATH (fixes error 126 on Windows when loading plugins like HDF5)
+        self._prepend_to_path(library_root / "bin")
+
+        # Optionally set GDAL_DATA and PROJ_LIB if available
+        self._set_env_path("GDAL_DATA", library_root / "share" / "gdal", "GDAL data")
+        self._set_env_path("PROJ_LIB", library_root / "share" / "proj", "PROJ lib")
+
+        return gdal_plugins_path if plugins_exist else None
+
     def set_env_conda(self) -> Path | None:
         """Set GDAL-related environment variables in a Conda environment.
 
-        This method looks up the active Conda environment (via CONDA_PREFIX) and
-        configures:
+        Looks up the active Conda environment (via CONDA_PREFIX) and configures, through
+        the shared :meth:`_export_gdal_library_env` helper:
         - GDAL_DRIVER_PATH (if Library/lib/gdalplugins exists)
         - PATH (prepends Library/bin so dependent DLLs can be found)
         - GDAL_DATA and PROJ_LIB (if their directories exist)
@@ -912,44 +726,29 @@ class Config:
                 ```
         """
         conda_prefix = os.getenv("CONDA_PREFIX")
-
         if not conda_prefix:
             self.logger.debug("CONDA_PREFIX is not set. Ensure Conda is activated.")
-            return None
-
-        conda_prefix_path = Path(conda_prefix)
-        gdal_plugins_path = conda_prefix_path / "Library" / "lib" / "gdalplugins"
-        library_bin_path = conda_prefix_path / "Library" / "bin"
-        gdal_data_path = conda_prefix_path / "Library" / "share" / "gdal"
-        proj_lib_path = conda_prefix_path / "Library" / "share" / "proj"
-
-        # Set GDAL plugins path
-        if gdal_plugins_path.exists():
-            os.environ["GDAL_DRIVER_PATH"] = str(gdal_plugins_path)
-            self.logger.debug(f"GDAL_DRIVER_PATH set to: {gdal_plugins_path}")
+            result = None
         else:
-            self.logger.debug(
-                f"GDAL plugins path not found at: {gdal_plugins_path}. Please check your GDAL installation."
-            )
+            result = self._export_gdal_library_env(Path(conda_prefix) / "Library")
+        return result
 
-        # Ensure dependent DLLs are on PATH (fixes error 126 on Windows when loading plugins like HDF5)
-        self._prepend_to_path(library_bin_path)
+    def _probe_windows_plugins(self) -> Path | None:
+        """Probe Python site-packages for a conda-style GDAL ``Library`` (Windows), last match wins.
 
-        # Optionally set GDAL_DATA and PROJ_LIB if available
-        self._set_env_path("GDAL_DATA", gdal_data_path, "GDAL data")
-        self._set_env_path("PROJ_LIB", proj_lib_path, "PROJ lib")
-
-        return gdal_plugins_path if gdal_plugins_path.exists() else None
-
-    @staticmethod
-    def _probe_windows_plugins() -> Path | None:
-        """Probe Python site-packages for a GDAL plugins dir (Windows), last match wins."""
+        For a non-conda install that still carries a conda-forge GDAL laid out under
+        ``site-packages/Library``, export its env vars through the shared
+        :meth:`_export_gdal_library_env` helper. Only a tree that actually contains
+        ``lib/gdalplugins`` is exported, so a plugins-less ``Library`` is a no-op and
+        ``GDAL_DATA`` / ``PROJ_LIB`` can never be set from a different tree than
+        ``GDAL_DRIVER_PATH`` — matching the pre-consolidation behavior. Returns the last
+        matching plugins dir.
+        """
         found: Path | None = None
         for site_path in site.getsitepackages():
-            plugins = Plugins(site_packages_path=site_path)
-            path = plugins.check_path()
-            if path:
-                found = path
+            library_root = Path(site_path) / "Library"
+            if (library_root / "lib" / "gdalplugins").exists():
+                found = self._export_gdal_library_env(library_root)
         return found
 
     def _probe_posix_plugins(self) -> Path | None:
@@ -968,7 +767,7 @@ class Config:
 
         The search proceeds in this order:
         - If inside Conda, use set_env_conda().
-        - On Windows, probe site.getsitepackages() using Plugins helper.
+        - On Windows, probe site.getsitepackages() for a conda-style GDAL Library.
         - On POSIX, probe common locations like /usr/local/lib/gdalplugins.
 
         Returns:
@@ -984,7 +783,7 @@ class Config:
                 ```
 
         See Also:
-            - Plugins: Windows helper for site-packages probing.
+            - Config._export_gdal_library_env: the shared four-step GDAL env exporter.
             - Config.set_env_conda: Conda-specific environment configuration.
         """
         # Check if we're in a Conda environment

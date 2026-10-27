@@ -101,19 +101,23 @@ class TestConfigMock(unittest.TestCase):
         self.assertIsNone(result)
         mock_exists.assert_called()
 
+    @patch.dict(os.environ, {}, clear=False)
     @patch("site.getsitepackages", return_value=["C:/Python/site-packages"])
     @patch("pathlib.Path.exists", return_value=True)
     def test_dynamic_env_variables_windows(self, mock_exists, mock_site):
+        # patch.dict snapshots os.environ so the probe's GDAL_DATA/PROJ_LIB/PATH
+        # writes (now unconditional with Path.exists mocked True) are rolled back
+        # and do not leak into later tests.
         with (
             patch("pyramids.base.config.Config.set_env_conda", return_value=None),
             patch("sys.platform", new="win32"),
         ):
             result = self.config.dynamic_env_variables()
         self.assertEqual(
-            result, Path("C:/Python/site-packages/Library/Lib/gdalplugins")
+            result, Path("C:/Python/site-packages/Library/lib/gdalplugins")
         )
         path = Path(os.environ["GDAL_DRIVER_PATH"])
-        self.assertEqual(path, Path("C:/Python/site-packages/Library/Lib/gdalplugins"))
+        self.assertEqual(path, Path("C:/Python/site-packages/Library/lib/gdalplugins"))
 
     @patch("pathlib.Path.exists", side_effect=[True, False])
     def test_dynamic_env_variables_linux(self, mock_exists):
@@ -125,3 +129,208 @@ class TestConfigMock(unittest.TestCase):
         self.assertEqual(result, Path("/usr/local/lib/gdalplugins"))
         path = Path(os.environ["GDAL_DRIVER_PATH"])
         self.assertEqual(path, Path("/usr/local/lib/gdalplugins"))
+
+
+class TestExportGdalLibraryEnv:
+    """Direct tests for the shared GDAL env exporter both bootstrap branches call (#1325).
+
+    Each test replaces ``os.environ`` with an isolated dict (auto-restored by monkeypatch)
+    and shapes a temp directory like a conda-forge ``Library/`` tree, so the exporter is
+    exercised directly instead of only through the conda or win32 branch.
+    """
+
+    @staticmethod
+    def _make_library(root: Path, *, plugins: bool = True) -> Path:
+        """Build a conda-style ``Library/`` tree under root; return the ``Library`` dir.
+
+        Args:
+            root: Directory to create the tree in.
+            plugins: Whether to create the ``lib/gdalplugins`` directory.
+
+        Returns:
+            Path: The created ``Library`` directory.
+        """
+        lib = root / "Library"
+        if plugins:
+            (lib / "lib" / "gdalplugins").mkdir(parents=True)
+        (lib / "bin").mkdir(parents=True)
+        (lib / "share" / "gdal").mkdir(parents=True)
+        (lib / "share" / "proj").mkdir(parents=True)
+        return lib
+
+    def test_exports_all_four_from_a_library_tree(self, tmp_path, monkeypatch):
+        """A complete tree sets GDAL_DRIVER_PATH, prepends bin to PATH, sets GDAL_DATA/PROJ_LIB.
+
+        Test scenario:
+            A ``Library`` tree with all four sub-paths present is exported; the plugins dir
+            is returned and every env var points at the matching sub-path.
+        """
+        cfg = Config()
+        lib = self._make_library(tmp_path)
+        monkeypatch.setattr(os, "environ", {"PATH": "/pre-existing"})
+        result = cfg._export_gdal_library_env(lib)
+        assert result == lib / "lib" / "gdalplugins", (
+            f"unexpected plugins dir: {result}"
+        )
+        assert os.environ["GDAL_DRIVER_PATH"] == str(lib / "lib" / "gdalplugins")
+        assert os.environ["GDAL_DATA"] == str(lib / "share" / "gdal")
+        assert os.environ["PROJ_LIB"] == str(lib / "share" / "proj")
+        assert os.environ["PATH"].split(os.pathsep)[0] == str(lib / "bin"), (
+            f"bin not prepended to PATH: {os.environ['PATH']!r}"
+        )
+
+    def test_missing_plugins_returns_none_but_still_exports_present_dirs(
+        self, tmp_path, monkeypatch
+    ):
+        """No gdalplugins dir returns None, yet existing bin/share dirs still export.
+
+        Test scenario:
+            The unified helper attempts bin/GDAL_DATA/PROJ_LIB regardless of the plugins
+            dir (matching the conda branch), so an absent gdalplugins yields None but the
+            present share dirs are still set.
+        """
+        cfg = Config()
+        lib = self._make_library(tmp_path, plugins=False)
+        monkeypatch.setattr(os, "environ", {"PATH": ""})
+        result = cfg._export_gdal_library_env(lib)
+        assert result is None, f"expected None when plugins absent, got {result}"
+        assert "GDAL_DRIVER_PATH" not in os.environ, (
+            "driver path set without a plugins dir"
+        )
+        assert os.environ["GDAL_DATA"] == str(lib / "share" / "gdal")
+
+    def test_absent_library_is_a_no_op(self, tmp_path, monkeypatch):
+        """A non-existent Library root sets nothing and returns None.
+
+        Test scenario:
+            None of the four sub-paths exist, so PATH is untouched and no GDAL env var
+            is written.
+        """
+        cfg = Config()
+        monkeypatch.setattr(os, "environ", {"PATH": "/x"})
+        result = cfg._export_gdal_library_env(tmp_path / "Library")
+        assert result is None, f"expected None, got {result}"
+        assert "GDAL_DRIVER_PATH" not in os.environ, (
+            "driver path set for an absent tree"
+        )
+        assert os.environ["PATH"] == "/x", "PATH mutated when no bin dir exists"
+
+    def test_bin_is_not_prepended_twice(self, tmp_path, monkeypatch):
+        """The PATH-prepend dedup guard keeps bin on PATH exactly once.
+
+        Test scenario:
+            With bin already on PATH, the exporter must not add a second copy.
+        """
+        cfg = Config()
+        lib = self._make_library(tmp_path)
+        bin_str = str(lib / "bin")
+        monkeypatch.setattr(os, "environ", {"PATH": bin_str})
+        cfg._export_gdal_library_env(lib)
+        assert os.environ["PATH"].split(os.pathsep).count(bin_str) == 1, (
+            f"bin duplicated on PATH: {os.environ['PATH']!r}"
+        )
+
+
+class TestProbeWindowsPlugins:
+    """Direct tests for the Windows site-packages probe (#1325)."""
+
+    @staticmethod
+    def _make_full_library(root: Path) -> Path:
+        """Create a root carrying a full ``Library/lib/gdalplugins`` + ``bin`` tree.
+
+        Args:
+            root: Directory to create the tree under.
+
+        Returns:
+            Path: The ``lib/gdalplugins`` directory inside the new tree.
+        """
+        plugins = root / "Library" / "lib" / "gdalplugins"
+        plugins.mkdir(parents=True)
+        (root / "Library" / "bin").mkdir(parents=True)
+        return plugins
+
+    def test_last_of_two_matching_roots_wins(self, tmp_path, monkeypatch):
+        """With two matching roots, the second (last) one's plugins dir wins.
+
+        Test scenario:
+            Both site-packages roots carry a full ``Library/lib/gdalplugins`` tree. The probe
+            must return the SECOND root's plugins dir and leave ``GDAL_DRIVER_PATH`` pointing at
+            it — so a first-wins or return-on-first-match regression is caught (the single-root
+            test cannot distinguish first-wins from last-wins).
+        """
+        first = tmp_path / "first"
+        second = tmp_path / "second"
+        self._make_full_library(first)
+        second_plugins = self._make_full_library(second)
+        cfg = Config()
+        monkeypatch.setattr(os, "environ", {"PATH": ""})
+        monkeypatch.setattr("site.getsitepackages", lambda: [str(first), str(second)])
+        result = cfg._probe_windows_plugins()
+        assert result == second_plugins, (
+            f"expected the second (last) root's plugins dir, got {result}"
+        )
+        assert os.environ["GDAL_DRIVER_PATH"] == str(second_plugins), (
+            f"GDAL_DRIVER_PATH did not follow last-wins: {os.environ.get('GDAL_DRIVER_PATH')}"
+        )
+
+    def test_last_matching_library_wins_and_empty_roots_are_skipped(
+        self, tmp_path, monkeypatch
+    ):
+        """Probing several site-packages picks the last with a Library tree; empty ones skip.
+
+        Test scenario:
+            Two site-packages roots are probed: the first has no ``Library`` (the exporter
+            returns None, so the per-root check is falsy and the loop continues), the second
+            carries a full ``Library`` tree. The probe returns the second root's gdalplugins
+            dir, exercising both arms of the per-root check and the last-match-wins loop.
+        """
+        empty_root = tmp_path / "a"
+        empty_root.mkdir()
+        full_root = tmp_path / "b"
+        plugins = full_root / "Library" / "lib" / "gdalplugins"
+        plugins.mkdir(parents=True)
+        (full_root / "Library" / "bin").mkdir(parents=True)
+        cfg = Config()
+        monkeypatch.setattr(os, "environ", {"PATH": ""})
+        monkeypatch.setattr(
+            "site.getsitepackages", lambda: [str(empty_root), str(full_root)]
+        )
+        result = cfg._probe_windows_plugins()
+        assert result == plugins, f"expected the last root's plugins dir, got {result}"
+
+    def test_no_library_anywhere_returns_none(self, tmp_path, monkeypatch):
+        """When no probed root has a Library tree, the probe returns None.
+
+        Test scenario:
+            Every site-packages root is empty, so the exporter returns None for each and the
+            probe reports no plugins dir found.
+        """
+        root = tmp_path / "empty"
+        root.mkdir()
+        cfg = Config()
+        monkeypatch.setattr(os, "environ", {"PATH": ""})
+        monkeypatch.setattr("site.getsitepackages", lambda: [str(root)])
+        result = cfg._probe_windows_plugins()
+        assert result is None, f"expected None when no Library is found, got {result}"
+
+    def test_library_without_plugins_exports_nothing(self, tmp_path, monkeypatch):
+        """A Library tree lacking gdalplugins is a probe no-op — no GDAL_DATA/PROJ_LIB/PATH write.
+
+        Test scenario:
+            A site-packages Library has bin/share dirs but no lib/gdalplugins. The probe must
+            skip it entirely (return None and leave GDAL_DATA/PROJ_LIB/PATH untouched), matching
+            the pre-consolidation win32 behavior that gated every side effect on the plugins dir
+            — so a plugins-less tree cannot split GDAL_DATA/PROJ_LIB away from GDAL_DRIVER_PATH.
+        """
+        root = tmp_path / "sp"
+        (root / "Library" / "bin").mkdir(parents=True)
+        (root / "Library" / "share" / "gdal").mkdir(parents=True)
+        (root / "Library" / "share" / "proj").mkdir(parents=True)
+        cfg = Config()
+        monkeypatch.setattr(os, "environ", {"PATH": "/pre"})
+        monkeypatch.setattr("site.getsitepackages", lambda: [str(root)])
+        result = cfg._probe_windows_plugins()
+        assert result is None, f"expected None for a plugins-less tree, got {result}"
+        assert "GDAL_DATA" not in os.environ, "GDAL_DATA set from a plugins-less tree"
+        assert "PROJ_LIB" not in os.environ, "PROJ_LIB set from a plugins-less tree"
+        assert os.environ["PATH"] == "/pre", "PATH mutated by a plugins-less tree"

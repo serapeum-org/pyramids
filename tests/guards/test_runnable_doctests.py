@@ -25,11 +25,12 @@ DOCTEST_MODULES = [
 
 @pytest.fixture(autouse=True)
 def _restore_path():
-    """Snapshot PATH around each doctest run.
+    """Snapshot and restore PATH around each doctest run — a forward-looking guard.
 
-    The ``EnvironmentVariables.prepend`` example mutates ``os.environ['PATH']``
-    and restores it in its last line — but a failure earlier in the example
-    would leak the mutation into the rest of the test session.
+    No doctest in ``DOCTEST_MODULES`` currently mutates ``os.environ['PATH']`` at runtime
+    (the config-bootstrap examples that touch the environment are all ``# doctest: +SKIP``).
+    This snapshot is kept as a safety net: if a future runnable example prepends to PATH, a
+    failure before its restore line cannot then leak the mutation into the rest of the session.
     """
     original = os.environ.get("PATH", "")
     yield
