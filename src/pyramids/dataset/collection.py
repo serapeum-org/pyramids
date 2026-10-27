@@ -1683,10 +1683,9 @@ class DatasetCollection:
 
         Raises:
             RuntimeError: The collection has no ``files`` list. This guards the
-                write/export methods (``to_zarr`` / ``to_kerchunk`` /
-                ``to_cog_stack``) that still need files; :attr:`data` itself no
-                longer uses it — since #1349 it also stacks an in-memory
-                (``datasets=``-backed) collection.
+                ``to_zarr`` / ``to_kerchunk`` export methods that still need
+                files; :attr:`data` itself no longer uses it — since #1349 it
+                also stacks an in-memory (``datasets=``-backed) collection.
         """
         if self._files is None or len(self._files) == 0:
             raise RuntimeError(
@@ -1749,9 +1748,9 @@ class DatasetCollection:
         (built with `datasets=`, or the legacy `DatasetCollection(src, time_length=N)`
         replicate-base form) is supported too (#1349): its resident per-timestep arrays
         are stacked directly over the time axis (see :meth:`_in_memory_cube`), so
-        `reduce_time` and the grouped reducers work without a file or Zarr store. Only
-        the export methods (`to_zarr` / `to_kerchunk` / `to_cog_stack`) still require a
-        file-backed collection.
+        `reduce_time` and the grouped reducers work without a file or Zarr store. The
+        `to_zarr` / `to_kerchunk` export methods still require a file-backed collection
+        (`to_cog_stack` does not — it iterates the per-timestep datasets).
 
         Returns:
             dask.array.Array: The lazy `(T, B, R, C)` cube.
@@ -1870,7 +1869,9 @@ class DatasetCollection:
 
         Returns:
             dask.array.Array: The lazy `(T, B, R, C)` cube over the resident
-            datasets, band axis always present even for a single-band stack.
+            datasets, band axis always present even for a single-band stack. Each
+            scene keeps its own physical dtype; a mixed-dtype stack takes the
+            dtype NumPy/dask promote the scenes to (as the file-backed path does).
 
         Raises:
             RuntimeError: The collection has no timesteps to stack.
