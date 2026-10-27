@@ -192,3 +192,6 @@ docs/examples/**/*.nc
 # source distfiles. Generated build caches, never sources.
 /.srcbuild-cache/
 /.srcbuild-distfiles/
+
+# pytest-benchmark autosaved runs
+.benchmarks/
