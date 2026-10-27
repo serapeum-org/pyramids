@@ -1682,9 +1682,11 @@ class DatasetCollection:
             type for the caller).
 
         Raises:
-            RuntimeError: The collection has no ``files`` list (a legacy in-memory
-                cube). The ``data`` property, which also accepts a Zarr-backed cube,
-                keeps its own broader guard.
+            RuntimeError: The collection has no ``files`` list. This guards the
+                write/export methods (``to_zarr`` / ``to_kerchunk`` /
+                ``to_cog_stack``) that still need files; :attr:`data` itself no
+                longer uses it — since #1349 it also stacks an in-memory
+                (``datasets=``-backed) collection.
         """
         if self._files is None or len(self._files) == 0:
             raise RuntimeError(
@@ -1743,10 +1745,13 @@ class DatasetCollection:
         (`mean`, `sum`, the grouped ones) answer in the same units as a read. The
         array is `float64` when any timestep is packed. The no-data sentinel is not
         masked here -- on a packed timestep it is transformed like every other cell. A
-        Zarr-backed cube is returned as the store holds it. A `datasets=`-backed
-        (in-memory) collection is supported too (#1349): its resident per-timestep
-        arrays are stacked directly over the time axis (see :meth:`_in_memory_cube`),
-        so `reduce_time` and the grouped reducers work without a file or Zarr store.
+        Zarr-backed cube is returned as the store holds it. An in-memory collection
+        (built with `datasets=`, or the legacy `DatasetCollection(src, time_length=N)`
+        replicate-base form) is supported too (#1349): its resident per-timestep arrays
+        are stacked directly over the time axis (see :meth:`_in_memory_cube`), so
+        `reduce_time` and the grouped reducers work without a file or Zarr store. Only
+        the export methods (`to_zarr` / `to_kerchunk` / `to_cog_stack`) still require a
+        file-backed collection.
 
         Returns:
             dask.array.Array: The lazy `(T, B, R, C)` cube.
@@ -1818,9 +1823,10 @@ class DatasetCollection:
             # lazily straight from the store — no per-file stacking.
             return da.from_zarr(self._zarr_store, component="data")
         if self._files is None or len(self._files) == 0:
-            # datasets=-backed (in-memory) collection (#1349): no store and no
-            # file list, but the per-timestep Datasets are resident — stack their
-            # physical arrays over the time axis instead of raising.
+            # In-memory collection (#1349): no store and no file list -- a
+            # datasets=-backed collection, or the legacy replicate-base
+            # DatasetCollection(src, time_length=N). The per-timestep Datasets
+            # are resident, so stack their physical arrays over time.
             return self._in_memory_cube(da)
         meta = self._meta
         # ARC-45: build each timestep as a spatially-tiled dask array (windowed reads
@@ -1848,13 +1854,16 @@ class DatasetCollection:
     def _in_memory_cube(self, da: Any) -> Any:
         """Stack the resident per-timestep datasets into the `(T, B, R, C)` cube.
 
-        The `datasets=`-backed (in-memory) path for :attr:`data` (#1349): a
-        collection constructed with in-memory per-timestep `Dataset`s — rather
-        than `from_files` / `from_zarr` — reads each one's physical array
-        (:meth:`Dataset.read_array`, unpacked, like the file-backed path) and
-        stacks it over the time axis, one chunk per timestep. This lets
-        :meth:`reduce_time` and the grouped reducers run on an in-memory stack
-        with no on-disk round-trip.
+        The in-memory path for :attr:`data` (#1349): a collection built with
+        in-memory per-timestep `Dataset`s (`datasets=`, or the legacy
+        replicate-base `DatasetCollection(src, time_length=N)`) — rather than
+        `from_files` / `from_zarr`. Each scene's physical array
+        (:meth:`Dataset.read_array`, unpacked, like the file-backed path) is read
+        **eagerly** and wrapped as one whole-scene chunk, then stacked over the
+        time axis; only the stack is lazy. So `reduce_time` and the grouped
+        reducers run on the resident stack with no on-disk round-trip for
+        genuinely in-memory scenes — a scene that is itself a file-backed
+        `Dataset` handle passed via `datasets=` is read from disk here.
 
         Args:
             da: The imported `dask.array` module (resolved by :attr:`data`).
