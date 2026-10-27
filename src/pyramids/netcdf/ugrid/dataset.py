@@ -40,7 +40,7 @@ from shapely.geometry import LineString, box
 
 from pyramids.base import _timeseries
 from pyramids.base._array_ops import array_equals, array_identical
-from pyramids.base._errors import AlignmentError, DriverNotExistError
+from pyramids.base._errors import AlignmentError, CRSError, DriverNotExistError
 from pyramids.base._plot_backends import (
     forward_kwargs,
     is_colorbar_spec,
@@ -64,7 +64,13 @@ from pyramids.base._reductions import (
 )
 from pyramids.base._summary import DEFAULT_METRICS, variable_summary
 from pyramids.base._utils import import_dask, require_optional
-from pyramids.base.crs import crs_from_user_input, crs_spec, sr_from_epsg
+from pyramids.base.crs import (
+    crs_from_user_input,
+    crs_spec,
+    epsg_from_user_input,
+    sr_from_epsg,
+    sr_from_wkt,
+)
 from pyramids.base.georeference import GeoReference
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import mesh_render as _mesh_render
@@ -1166,7 +1172,7 @@ class UgridDataset(_UgridFacades):
         mesh, data_variables = subset_by_bounds(self, xmin, ymin, xmax, ymax)
         return self._wrap_subset(mesh, data_variables)
 
-    def to_crs(self, to_epsg: int) -> UgridDataset:
+    def to_crs(self, to_epsg: int | str | Any) -> UgridDataset:
         """Reproject all node coordinates to a new CRS.
 
         Uses pyproj.Transformer to reproject node coordinates.
@@ -1174,7 +1180,13 @@ class UgridDataset(_UgridFacades):
         Data values are preserved — only coordinates change.
 
         Args:
-            to_epsg: Target EPSG code.
+            to_epsg: The target CRS, in any form `pyproj.CRS.from_user_input` accepts — an
+                EPSG reference number (`3857`), an authority string (`"EPSG:3857"`,
+                `"ESRI:54030"` for Robinson), a bare numeric string (`"3857"`), a PROJ4 or
+                WKT string, or a `pyproj.CRS`. This matches `Dataset.to_crs` and
+                `Spatial.to_crs`; a mesh is no longer the one layer that takes a bare code
+                only. A CRS without an EPSG code — most globe and custom projections — is now
+                a valid target.
 
         Returns:
             New UgridDataset with reprojected coordinates.
@@ -1182,6 +1194,43 @@ class UgridDataset(_UgridFacades):
         Raises:
             ValueError: The mesh declares neither an EPSG code nor a WKT, so there is no
                 source CRS to reproject from.
+            pyramids.base._errors.CRSError: The target CRS cannot be interpreted.
+
+        Examples:
+            - Reproject to an authority string, which used to be rejected (#1404):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> mesh = UgridDataset.from_arrays(
+                ...     node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+                ...     node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+                ...     face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+                ... )
+                >>> mesh.set_crs(epsg=4326)
+                >>> mesh.to_crs("EPSG:3857").epsg
+                3857
+                >>> mesh.to_crs(3857).epsg
+                3857
+
+                ```
+            - Reproject to a CRS that has no EPSG code (Robinson); the result keeps its WKT
+                and reports `epsg` as `None`:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf.ugrid import UgridDataset
+                >>> mesh = UgridDataset.from_arrays(
+                ...     node_x=np.array([0.0, 1.0, 1.0, 0.0]),
+                ...     node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+                ...     face_node_connectivity=np.array([[0, 1, 2], [0, 2, 3]]),
+                ... )
+                >>> mesh.set_crs(epsg=4326)
+                >>> robinson = mesh.to_crs("ESRI:54030")
+                >>> robinson.epsg is None
+                True
+                >>> "Robinson" in robinson.crs.name
+                True
+
+                ```
         """
         # The mesh may describe its CRS by WKT alone, with no EPSG code to
         # resolve; `crs_spec` returns whichever of the two is usable, so a
@@ -1193,14 +1242,16 @@ class UgridDataset(_UgridFacades):
                 "Set CRS before calling to_crs()."
             )
 
-        # Through `crs_from_user_input` so a mesh in a CRS whose code only GDAL's
-        # PROJ database carries still reprojects (issue #943). The source goes in
-        # as-is rather than as `EPSG:{...}`: `crs_spec` yields the mesh's WKT when
-        # there is no usable code, and prefixing that builds the nonsense
-        # `EPSG:PROJCS[...]`. The target is always a bare integer code.
+        # Both sides go through `crs_from_user_input` as-is, so a mesh in a CRS whose
+        # code only GDAL's PROJ database carries still reprojects (issue #943), and the
+        # target accepts the same range of inputs the source does. Prefixing `EPSG:` onto
+        # the target was the bug (#1404): it built the nonsense `EPSG:EPSG:3857` /
+        # `EPSG:+proj=robin` / `EPSG:PROJCS[...]` for anything other than a bare integer,
+        # the exact hazard the source comment above warns about.
+        target_crs = crs_from_user_input(to_epsg)
         transformer = Transformer.from_crs(
             crs_from_user_input(source_crs),
-            crs_from_user_input(f"EPSG:{to_epsg}"),
+            target_crs,
             always_xy=True,
         )
         new_node_x, new_node_y = transformer.transform(
@@ -1238,7 +1289,23 @@ class UgridDataset(_UgridFacades):
             edge_y=new_edge_y,
         )
 
-        srs = sr_from_epsg(to_epsg)
+        # The stored WKT comes from the resolved target. When the target carries an EPSG
+        # code, `sr_from_epsg` gives GDAL's authority WKT -- byte-for-byte what this method
+        # produced before #1404 for every coded target (keeping the child datum / spheroid /
+        # primem AUTHORITY nodes a WKT2->WKT1 round-trip drops, and, for a code only GDAL's
+        # PROJ database carries (#943), the sole place that code survives at all). The code
+        # is recovered with `epsg_from_user_input`, not `target_crs.to_epsg()`: pyproj's own
+        # `to_epsg()` returns None for those GDAL-only codes, and `epsg_from_user_input`
+        # verifies the candidate against the parsed definition (`IsSame`), so a near-match or
+        # a relabelled authority is refused rather than silently stored. A genuinely
+        # code-less CRS (Robinson, a PROJ4 string) raises `CRSError` there; its WKT comes
+        # from the already-resolved `target_crs`, not a second resolution of the input.
+        try:
+            target_epsg = epsg_from_user_input(to_epsg)
+        except CRSError:
+            srs = sr_from_wkt(target_crs.to_wkt())
+        else:
+            srs = sr_from_epsg(target_epsg)
         new_crs_wkt = srs.ExportToWkt()
 
         new_topo_info = None
