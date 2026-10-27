@@ -101,9 +101,13 @@ class TestConfigMock(unittest.TestCase):
         self.assertIsNone(result)
         mock_exists.assert_called()
 
+    @patch.dict(os.environ, {}, clear=False)
     @patch("site.getsitepackages", return_value=["C:/Python/site-packages"])
     @patch("pathlib.Path.exists", return_value=True)
     def test_dynamic_env_variables_windows(self, mock_exists, mock_site):
+        # patch.dict snapshots os.environ so the probe's GDAL_DATA/PROJ_LIB/PATH
+        # writes (now unconditional with Path.exists mocked True) are rolled back
+        # and do not leak into later tests.
         with (
             patch("pyramids.base.config.Config.set_env_conda", return_value=None),
             patch("sys.platform", new="win32"),
