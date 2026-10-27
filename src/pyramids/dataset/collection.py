@@ -1787,6 +1787,23 @@ class DatasetCollection:
                 [[1.5, 3.0], [4.5, 6.0]]
 
                 ```
+            - An in-memory (`datasets=`-backed) collection stacks its resident
+              scenes over time — no files or Zarr store needed (#1349):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, DatasetCollection, GeoReference
+                >>> geo = GeoReference(top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+                >>> scenes = [
+                ...     Dataset.from_array(np.full((2, 2), float(v)), geo_ref=geo)
+                ...     for v in (1, 2, 3)
+                ... ]
+                >>> col = DatasetCollection(scenes[0], time_length=3, datasets=scenes)
+                >>> col.data.shape
+                (3, 1, 2, 2)
+                >>> col.data[:, 0, 0, 0].compute().tolist()
+                [1.0, 2.0, 3.0]
+
+                ```
         """
         try:
             import dask.array as da
