@@ -1,6 +1,22 @@
 ﻿# Change log
 
 
+## 0.73.0 (2026-10-28)
+
+### Feat
+
+- **collection**: reduce an in-memory datasets=-backed DatasetCollection (#1412)
+- **plot**: make plot backends a first-class pyramids.plot_backends plugin (#1405)
+- **plot**: add a plot(backend=) plugin seam for non-matplotlib renderers (#1398)
+
+### Fix
+
+- **ugrid**: accept any CRS form as the to_crs target, not a bare EPSG code (#1406)
+
+### Refactor
+
+- **config**: consolidate GDAL-bootstrap env logic and retire EnvironmentVariables (#1413)
+
 ## 0.72.0 (2026-10-26)
 
 ### Feat
