@@ -51,7 +51,9 @@ def test_read_file_from_disk(benchmark, on_disk_tif: str):
 
 
 @pytest.mark.benchmark(group="raster-io")
-def test_write_geotiff(benchmark, float_array: np.ndarray, geo_ref: GeoReference, write_target):
+def test_write_geotiff(
+    benchmark, float_array: np.ndarray, geo_ref: GeoReference, write_target
+):
     """Write a 2048x2048 float32 array to a GeoTIFF on disk (overwritten each round)."""
     benchmark(
         lambda: Dataset.from_array(

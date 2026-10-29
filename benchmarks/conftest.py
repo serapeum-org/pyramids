@@ -70,7 +70,9 @@ def on_disk_tif(
 ) -> str:
     """Path to a GeoTIFF written once from ``float_array`` for read-from-disk benchmarks."""
     path = tmp_path_factory.mktemp("bench_io") / "raster.tif"
-    Dataset.from_array(float_array, geo_ref=geo_ref, no_data_value=-9999.0, path=str(path))
+    Dataset.from_array(
+        float_array, geo_ref=geo_ref, no_data_value=-9999.0, path=str(path)
+    )
     return str(path)
 
 
