@@ -36,9 +36,8 @@ jobs:
         environment: [py311, py312, py313, py314, py315]
 
     steps:
+      # No fetch-depth: the test suite reads the working tree, not git history.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: serapeum-org/github-actions/actions/python-setup/pixi@38c111084f99d5ff5f4a1e63bedce48fe33a10c0  # pixi/v1.2.1
@@ -97,9 +96,8 @@ jobs:
           - { name: netcdf_parquet, env: parquet,    dir: tests/netcdf/lazy/test_to_dask_dataframe.py }
 
     steps:
+      # No fetch-depth: the test suite reads the working tree, not git history.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: serapeum-org/github-actions/actions/python-setup/pixi@38c111084f99d5ff5f4a1e63bedce48fe33a10c0  # pixi/v1.2.1
