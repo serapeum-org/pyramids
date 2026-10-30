@@ -1,18 +1,21 @@
-"""Memory benchmark: prove the lazy/dask read path stays memory-bounded.
+"""Memory benchmark: prove the lazy/dask read is chunked for bounded streaming.
 
 Time benchmarks answer "is it fast?"; for a raster library "does it stay within memory?" matters
-just as much. This module reads a raster two ways and asserts the lazy path never has to
-materialize the whole array, using a deterministic structural proof (not a sampled RSS, which is
-noisy, and not ``tracemalloc``, which cannot see NumPy's ``PyDataMem`` array buffers at all):
+just as much. This module reads a raster two ways and verifies — deterministically, by inspecting
+the dask graph rather than by a sampled peak RSS (noisy) or ``tracemalloc`` (which cannot see
+NumPy's ``PyDataMem`` array buffers at all) — the **precondition** for memory-bounded streaming:
 
 * the chunked read is a dask array split into **more than one** partition, and its **largest
   possible chunk** (the product of the biggest chunk length on each axis) is a small fraction of
-  the full raster — so ``dask``'s tree reduction only ever holds a few chunks, never the whole
-  array;
-* the lazy reduction equals the eager one, so the chunked path is not just bounded but correct.
+  the full raster — so ``dask``'s tree reduction *can* process it a few chunks at a time rather
+  than materializing the whole array;
+* the lazy reduction equals the eager one, so the chunked path is not just bounded-capable but
+  correct.
 
-The lazy reduction is also timed via the ``benchmark`` fixture so it shows up in ``--benchmark-only``
-runs alongside the throughput benchmarks.
+This asserts the array is chunked into bounded pieces (the structural precondition), not that a
+particular scheduler's resident set stays below a hard byte limit — a true peak-RSS bound would
+need a real memory probe. The lazy reduction is also timed via the ``benchmark`` fixture so it
+shows up in ``--benchmark-only`` runs alongside the throughput benchmarks.
 """
 
 from __future__ import annotations
@@ -38,7 +41,7 @@ def _largest_chunk_nbytes(lazy: object) -> int:
 
 @pytest.mark.benchmark(group="memory")
 def test_lazy_read_is_memory_bounded(benchmark, on_disk_tif: str):
-    """A chunked dask read reduces without materializing the whole array."""
+    """A chunked dask read is split into bounded pieces — the precondition for streaming."""
     eager = Dataset.read_file(on_disk_tif).read_array()
     full_nbytes = int(eager.nbytes)
     # Match the lazy side exactly: both take the plain mean in float64, so the equality check
