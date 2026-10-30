@@ -41,7 +41,9 @@ def test_lazy_read_is_memory_bounded(benchmark, on_disk_tif: str):
     """A chunked dask read reduces without materializing the whole array."""
     eager = Dataset.read_file(on_disk_tif).read_array()
     full_nbytes = int(eager.nbytes)
-    eager_mean = float(np.nanmean(eager))
+    # Match the lazy side exactly: both take the plain mean in float64, so the equality check
+    # compares the same quantity (not nanmean-vs-mean) and is robust to float32 summation order.
+    eager_mean = float(eager.mean(dtype="float64"))
 
     lazy = Dataset.read_file(on_disk_tif).read_array(chunks=CHUNK)
     assert hasattr(lazy, "chunks"), "a chunked read_array must return a lazy dask array"
@@ -53,7 +55,10 @@ def test_lazy_read_is_memory_bounded(benchmark, on_disk_tif: str):
     )
 
     lazy_mean = float(
-        Dataset.read_file(on_disk_tif).read_array(chunks=CHUNK).mean().compute()
+        Dataset.read_file(on_disk_tif)
+        .read_array(chunks=CHUNK)
+        .mean(dtype="float64")
+        .compute()
     )
     assert lazy_mean == pytest.approx(eager_mean, rel=1e-5)
 
