@@ -125,6 +125,10 @@ dev = [
     "types-PyYAML>=6.0.0",
     "pytest-mock>=3.12.0",
     "pytest-timeout>=2.3.0",
+    # Micro-benchmark harness for the (non-CI) performance suite under benchmarks/.
+    # Provides the `benchmark` fixture + marker; only ever run via the `benchmark`
+    # pixi task, never by the main test tasks (benchmarks/ is outside testpaths).
+    "pytest-benchmark>=5.1.0",
     # Parallel test execution. The suite is ~10k tests and runs for about
     # twelve minutes serially; `-n auto` brings that down to a couple of
     # minutes on a multi-core machine. Opt-in -- only the `test-fast` task
@@ -390,6 +394,7 @@ publish-pypi = { cmd = "twine upload --non-interactive --repository pypi dist/*"
 cz-changelog = { cmd = "cz changelog", description = "Generate changelog using Commitizen" }
 cz-bump = { cmd = "cz bump", description = "Bump version using Commitizen" }
 mypy = { cmd = "mypy", description = "Run mypy type checking" }
+benchmark = { cmd = "pytest benchmarks --benchmark-only --benchmark-columns=min,median,mean,stddev,rounds", description = "Run the performance benchmarks (benchmarks/, excluded from the normal test tasks)" }
 
 # Declared as a sub-table so the lines fit the project's width; it must stay
 # after every inline entry above, since a sub-table header ends the parent.

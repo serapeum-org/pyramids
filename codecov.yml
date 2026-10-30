@@ -1,0 +1,25 @@
+# Codecov configuration.
+#
+# Coverage is aggregated across the tests.yml matrix: 15 main-package shards (3 OS x 5 Pythons)
+# plus 9 extras-package shards (3 OS x 3 extra groups) = 24 Codecov uploads. With no config,
+# Codecov scores the `project` status on whatever shards have arrived when it decides CI is done,
+# so a mid-flight evaluation — or a single superseded/cancelled shard — makes the aggregate look
+# lower than base and flips `codecov/project` red on PRs that changed no source at all. Waiting for
+# all 24 uploads before scoring removes that false negative; a real regression still trips the gate.
+codecov:
+  require_ci_to_pass: true
+  notify:
+    after_n_builds: 24
+    wait_for_ci: true
+
+coverage:
+  status:
+    project:
+      default:
+        # Absorb small, legitimate cross-platform coverage jitter (some code is OS/Python-gated),
+        # so a fraction-of-a-percent difference does not fail this advisory check; a genuine drop
+        # beyond the threshold still fails it.
+        threshold: 1%
+    patch:
+      default:
+        informational: false
