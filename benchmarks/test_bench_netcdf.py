@@ -1,9 +1,12 @@
 """Benchmarks for NetCDF multidim reads, selection, and eager-vs-lazy (dask) throughput.
 
 The headline metric the dask effort cares about is **eager vs lazy**: reading a whole variable
-into memory versus building a chunked dask array and reducing it. Both appear in the
+into memory directly versus building a chunked dask array and materializing the same whole
+variable. Both read the full variable (a clean read-vs-read comparison — the lazy case adds
+dask's chunk-assembly overhead, it does not do extra reduction work), and both appear in the
 ``netcdf-read`` group so a run compares them side by side; selection (``isel`` / ``sel`` /
-``subset``) is grouped separately.
+``subset``) is grouped separately. The memory-bounded streaming property of the lazy path is
+asserted separately in ``test_bench_memory.py``.
 
 The fixture builds a synthetic ``(time, lat, lon)`` NetCDF through ``NetCDF.from_xarray``, which
 writes via pyramids' own GDAL multidimensional writer — so no ``netCDF4`` / ``h5netcdf`` backend
@@ -49,13 +52,13 @@ def test_read_array_eager(benchmark, netcdf_path: str):
 
 @pytest.mark.benchmark(group="netcdf-read")
 def test_read_array_lazy(benchmark, netcdf_path: str):
-    """Build a chunked dask array and reduce it — the lazy, memory-bounded read path."""
+    """Build a chunked dask array and materialize the whole variable — read-vs-read with eager."""
 
-    def _lazy_reduce():
+    def _lazy_read():
         arr = NetCDF.read_file(netcdf_path).read_array(VARIABLE, chunks=128)
-        return arr.mean().compute()
+        return arr.compute()  # materialize the full variable, matching the eager read's work
 
-    benchmark(_lazy_reduce)
+    benchmark(_lazy_read)
 
 
 @pytest.mark.benchmark(group="netcdf-select")
