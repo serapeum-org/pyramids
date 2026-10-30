@@ -21,10 +21,12 @@ def test_from_array(benchmark, float_array: np.ndarray, geo_ref: GeoReference):
 
 
 @pytest.mark.benchmark(group="raster-io")
-def test_read_array_full(benchmark, in_memory_dataset: Dataset):
+def test_read_array_full(
+    benchmark, in_memory_dataset: Dataset, float_array: np.ndarray
+):
     """Read the whole band into a NumPy array (warm block cache)."""
     result = benchmark(in_memory_dataset.read_array)
-    assert result.shape == in_memory_dataset.read_array().shape
+    assert result.shape == float_array.shape
 
 
 @pytest.mark.benchmark(group="raster-io")
