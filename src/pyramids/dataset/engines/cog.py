@@ -764,6 +764,7 @@ class COG(_Engine["Dataset"]):
         *,
         dst_width: int | None = ...,
         dst_height: int | None = ...,
+        gsd: float | None = ...,
         bbox_crs: int | str | None = ...,
         resampling: str = ...,
         band: int | None = ...,
@@ -777,6 +778,7 @@ class COG(_Engine["Dataset"]):
         *,
         dst_width: int | None = ...,
         dst_height: int | None = ...,
+        gsd: float | None = ...,
         bbox_crs: int | str | None = ...,
         resampling: str = ...,
         band: int | None = ...,
@@ -790,6 +792,7 @@ class COG(_Engine["Dataset"]):
         *,
         dst_width: int | None = ...,
         dst_height: int | None = ...,
+        gsd: float | None = ...,
         bbox_crs: int | str | None = ...,
         resampling: str = ...,
         band: int | None = ...,
@@ -806,6 +809,7 @@ class COG(_Engine["Dataset"]):
         *,
         dst_width: int | None = None,
         dst_height: int | None = None,
+        gsd: float | None = None,
         bbox_crs: int | str | None = None,
         resampling: str = "bilinear",
         band: int | None = None,
@@ -832,6 +836,22 @@ class COG(_Engine["Dataset"]):
                 width (no decimation).
             dst_height: Output height in pixels. Defaults to the source window
                 height.
+            gsd: Target ground sample distance (output cell size) in `bbox_crs`
+                units — on a geographic CRS that is degrees, not metres — as a
+                convenience in place of `dst_width`/`dst_height`: the output size
+                is the bbox span divided by `gsd` (rounded to nearest, ties to
+                even per Python `round`, floored at 1 pixel), so GDAL serves the
+                overview matching that resolution. Mutually exclusive with
+                `dst_width`/`dst_height`; must be positive and finite. `None`
+                (default) sizes the output from those instead. The realised cell
+                size is **approximate**: the output covers the requested window
+                snapped outward to whole source pixels — on *each* edge (and,
+                when `bbox_crs` differs from the dataset CRS, reprojected first).
+                The snapped span can exceed the request by up to two source
+                pixels, so the effective resolution is coarser than `gsd` by that
+                much — negligible for a wide window, but approaching a factor of
+                two for one only a pixel or two across. Read at an explicit
+                `dst_width`/`dst_height` when you need an exact output grid.
             bbox_crs: CRS of `bbox`, reprojected to the dataset CRS when it
                 differs. Defaults to `None`, meaning the bbox is already in the
                 raster's own coordinates, so nothing is transformed.
@@ -875,8 +895,10 @@ class COG(_Engine["Dataset"]):
                 to transform into. Omit it to read in the raster's own
                 coordinates (ARC-26).
             TypeError: `resampling` is not a string.
-            ValueError: Unknown `resampling`, or `dst_width` / `dst_height` is
-                given as a non-positive pixel count.
+            ValueError: Unknown `resampling`; `dst_width` / `dst_height` given as
+                a non-positive pixel count; `gsd` given together with
+                `dst_width`/`dst_height`; or `gsd` is not a positive finite
+                number (0, negative, NaN, or infinite).
             OutOfBoundsError: The window does not intersect the raster at all.
 
         Note:
@@ -958,7 +980,21 @@ class COG(_Engine["Dataset"]):
                 (1.0, 1.3333333333333333, 0.0, 5.0, 0.0, -1.3333333333333333)
 
                 ```
+            - Match a target ground resolution over a window with `gsd=`, instead
+              of computing the output pixel size yourself:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> grid = Dataset.from_array(
+                ...     np.arange(64, dtype="float64").reshape(8, 8),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=3857),
+                ... )
+                >>> grid.read_part((0, 0, 8, 8), gsd=2.0).shape  # 8 units / 2.0 -> 4 px
+                (4, 4)
+
+                ```
         """
+        dst_width, dst_height = self._gsd_output_size(bbox, gsd, dst_width, dst_height)
         alg = _resolve_read_resampling(resampling)
         self._reject_nonpositive_output_sizes(dst_width, dst_height)
         # This serves a decimated window from the source; a NetCDF multidim view can't be window-read
@@ -1065,6 +1101,57 @@ class COG(_Engine["Dataset"]):
         # this arm.
         array = np.asarray(self._ds.io._apply_scale_offset(out, band))
         return (array, out_gt) if return_transform else array
+
+    @staticmethod
+    def _gsd_output_size(
+        bbox: tuple[float, float, float, float],
+        gsd: float | None,
+        dst_width: int | None,
+        dst_height: int | None,
+    ) -> tuple[int | None, int | None]:
+        """Resolve `dst_width`/`dst_height` from a target `gsd`, or pass them through.
+
+        When `gsd` is `None` the given `dst_width`/`dst_height` are returned
+        unchanged. Otherwise the output grid is sized from the bbox span divided
+        by `gsd` (floored at 1 pixel) — see :meth:`read_part` for the units and
+        the resolution-approximation note.
+
+        Args:
+            bbox: `(min_x, min_y, max_x, max_y)` window in the bbox CRS.
+            gsd: Target ground sample distance in bbox-CRS units, or `None`.
+            dst_width: Explicit output width, or `None`.
+            dst_height: Explicit output height, or `None`.
+
+        Returns:
+            The `(dst_width, dst_height)` to read with.
+
+        Raises:
+            ValueError: `gsd` is combined with `dst_width`/`dst_height`; `gsd` is
+                not a positive finite number; or `gsd` is so small the derived
+                output size is not finite.
+        """
+        if gsd is None:
+            return dst_width, dst_height
+        if dst_width is not None or dst_height is not None:
+            raise ValueError(
+                "read_part accepts either gsd or dst_width/dst_height, not both"
+            )
+        if not math.isfinite(gsd) or gsd <= 0:
+            raise ValueError(
+                f"gsd must be a positive, finite ground-sample-distance; got {gsd}"
+            )
+        # Size the output grid from the target ground resolution over the
+        # requested window (bbox units), so GDAL serves the matching overview.
+        width_f = abs(bbox[2] - bbox[0]) / gsd
+        height_f = abs(bbox[3] - bbox[1]) / gsd
+        # A gsd small enough to overflow the division would make round() raise a
+        # cryptic OverflowError; surface the documented ValueError instead.
+        if not (math.isfinite(width_f) and math.isfinite(height_f)):
+            raise ValueError(
+                f"gsd {gsd} is too small for the window; the derived output "
+                "size is not finite"
+            )
+        return max(1, round(width_f)), max(1, round(height_f))
 
     @staticmethod
     def _output_geotransform(
