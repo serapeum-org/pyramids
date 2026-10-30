@@ -25,6 +25,15 @@ TIME = 12
 SIZE = 512
 VARIABLE = "temperature"
 
+# The synthetic cube keeps an integer ``time`` coordinate (no CF ``units``) so that isel/sel/subset
+# select by plain index/label; GDAL's multidim reader then warns the axis is "not a Time or Vertical
+# dimension". The warning is benign — selection still resolves and every benchmark passes — so it is
+# silenced here to keep the benchmark output clean rather than adding a CF time unit that would make
+# label selection go through datetime decoding.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:dimension #0 .*is not a Time or Vertical dimension:RuntimeWarning"
+)
+
 
 @pytest.fixture(scope="session")
 def netcdf_path(tmp_path_factory) -> str:
