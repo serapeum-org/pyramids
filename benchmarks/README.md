@@ -37,15 +37,21 @@ Saved runs live under `.benchmarks/` (git-ignored).
 
 ## What is covered
 
-| Module | Operations |
-|---|---|
-| `test_bench_raster_io.py` | `from_array`; `read_array` (full/bbox/`out_shape`); `read_file`; write; COG write; COG decimated reads (`read_part`/`preview`/`point`/`read_tile`) vs full read |
-| `test_bench_spatial.py` | `crop`, `to_crs` (→ Web Mercator), `resample`, `align`, `warped_view` (lazy windowed read) |
-| `test_bench_vectorize.py` | `to_polygons`, `contour`, `sieve`, `proximity` |
-| `test_bench_collection.py` | `DatasetCollection`: `from_dataset`, `mean` (temporal), `apply`, `to_cog_stack`, `merge` (mosaic) |
-| `test_bench_netcdf.py` | NetCDF multidim `read_array` **eager vs lazy (dask)**, `isel`, `sel`, `subset` |
-| `test_bench_feature.py` | `FeatureCollection.fishnet`, rasterize (`Dataset.from_features`), `with_centroid`, `geodesic_area` |
-| `test_bench_memory.py` | asserts the lazy/dask read stays **memory-bounded** (chunk-structural + `tracemalloc`) |
+One module per subsystem (a list, not a table, so every line stays within the repo's 120-char limit):
+
+- **`test_bench_raster_io.py`** — `from_array`; `read_array` (full / bbox / `out_shape`); `read_file`; GeoTIFF
+  write; COG write; and COG decimated reads (`read_part` / `preview` / `point` / `read_tile`) vs a full read.
+- **`test_bench_spatial.py`** — `crop`, `to_crs` (→ Web Mercator), `resample`, `align`, and `warped_view`
+  (lazy windowed read).
+- **`test_bench_vectorize.py`** — `to_polygons`, `contour`, `sieve`, `proximity`.
+- **`test_bench_collection.py`** — `DatasetCollection`: `from_dataset`, `mean` (temporal reduction), `apply`,
+  `to_cog_stack`, `merge` (mosaic).
+- **`test_bench_netcdf.py`** — NetCDF multidim `read_array` **eager vs lazy (dask)**, `isel`, `sel`, `subset`.
+- **`test_bench_feature.py`** — `FeatureCollection.fishnet`, rasterize (`Dataset.from_features`),
+  `with_centroid`, `geodesic_area`.
+- **`test_bench_memory.py`** — asserts the lazy/dask read stays **memory-bounded** via a deterministic
+  structural check (dask array, > 1 partition, largest chunk ≪ full array) plus a lazy-equals-eager correctness
+  check.
 
 Every operation named in the tracking issue's hot-path table is covered. The COG and NetCDF read groups keep
 the full-resolution / eager read alongside the decimated / lazy one in the same comparison group, so a run shows
