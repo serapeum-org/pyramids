@@ -896,13 +896,13 @@ class TestReadPartGsd:
         with pytest.raises(ValueError, match="either gsd or dst_width"):
             ramp_4326.read_part((0.0, 9.0, 1.0, 10.0), gsd=0.05, dst_width=10)
 
-    @pytest.mark.parametrize("bad", [0.0, -0.01])
-    def test_non_positive_gsd_is_rejected(self, ramp_4326, bad):
-        """A non-positive gsd raises ValueError.
+    @pytest.mark.parametrize("bad", [0.0, -0.01, float("nan"), float("inf")])
+    def test_non_finite_or_non_positive_gsd_is_rejected(self, ramp_4326, bad):
+        """A non-positive or non-finite gsd raises the documented ValueError.
 
         Args:
             ramp_4326: 100x100 ramp fixture.
-            bad: A non-positive ground-sample-distance.
+            bad: A rejected ground-sample-distance (0, negative, NaN, or inf).
         """
         with pytest.raises(ValueError, match="gsd must be a positive"):
             ramp_4326.read_part((0.0, 9.0, 1.0, 10.0), gsd=bad)

@@ -890,7 +890,8 @@ class COG(_Engine["Dataset"]):
             TypeError: `resampling` is not a string.
             ValueError: Unknown `resampling`; `dst_width` / `dst_height` given as
                 a non-positive pixel count; `gsd` given together with
-                `dst_width`/`dst_height`; or `gsd` is not positive.
+                `dst_width`/`dst_height`; or `gsd` is not a positive finite
+                number (0, negative, NaN, or infinite).
             OutOfBoundsError: The window does not intersect the raster at all.
 
         Note:
@@ -991,9 +992,9 @@ class COG(_Engine["Dataset"]):
                 raise ValueError(
                     "read_part accepts either gsd or dst_width/dst_height, not both"
                 )
-            if gsd <= 0:
+            if not math.isfinite(gsd) or gsd <= 0:
                 raise ValueError(
-                    f"gsd must be a positive ground-sample-distance; got {gsd}"
+                    f"gsd must be a positive, finite ground-sample-distance; got {gsd}"
                 )
             # Size the output grid from the target ground resolution over the
             # requested window (bbox units), so GDAL serves the matching overview.
