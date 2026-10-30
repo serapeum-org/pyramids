@@ -1002,8 +1002,17 @@ class COG(_Engine["Dataset"]):
                 )
             # Size the output grid from the target ground resolution over the
             # requested window (bbox units), so GDAL serves the matching overview.
-            dst_width = max(1, round(abs(bbox[2] - bbox[0]) / gsd))
-            dst_height = max(1, round(abs(bbox[3] - bbox[1]) / gsd))
+            width_f = abs(bbox[2] - bbox[0]) / gsd
+            height_f = abs(bbox[3] - bbox[1]) / gsd
+            # A gsd small enough to overflow the division would make round() raise
+            # a cryptic OverflowError; surface the documented ValueError instead.
+            if not (math.isfinite(width_f) and math.isfinite(height_f)):
+                raise ValueError(
+                    f"gsd {gsd} is too small for the window; the derived output "
+                    "size is not finite"
+                )
+            dst_width = max(1, round(width_f))
+            dst_height = max(1, round(height_f))
         alg = _resolve_read_resampling(resampling)
         self._reject_nonpositive_output_sizes(dst_width, dst_height)
         # This serves a decimated window from the source; a NetCDF multidim view can't be window-read

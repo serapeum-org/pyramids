@@ -907,6 +907,15 @@ class TestReadPartGsd:
         with pytest.raises(ValueError, match="gsd must be a positive"):
             ramp_4326.read_part((0.0, 9.0, 1.0, 10.0), gsd=bad)
 
+    def test_subnormal_gsd_raises_valueerror_not_overflow(self, ramp_4326):
+        """A gsd so tiny the derived size overflows raises ValueError, not OverflowError.
+
+        Args:
+            ramp_4326: 100x100 ramp fixture.
+        """
+        with pytest.raises(ValueError, match="derived output size is not finite"):
+            ramp_4326.read_part((0.0, 9.0, 1.0, 10.0), gsd=5e-324)
+
     def test_coarse_gsd_floors_at_one_pixel(self, ramp_4326):
         """A gsd larger than the whole window still yields at least a 1x1 read.
 
