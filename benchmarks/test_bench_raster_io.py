@@ -117,12 +117,17 @@ def test_cog_point(benchmark, cog_on_disk: str):
 
 @pytest.mark.benchmark(group="raster-cog-read")
 def test_cog_read_tile(benchmark, cog_on_disk: str):
-    """Read a 256x256 Web-Mercator XYZ slippy-map tile from the COG."""
+    """Read a 256x256 Web-Mercator XYZ tile that falls wholly inside the raster's extent.
+
+    ``z=6, x=33, y=33`` covers ~lon 5.6-11.2, lat -5.6 to -11.2 — fully within the COG's
+    0-20.48 x -20.48-0 extent — so this times a representative decimated tile read, not a
+    whole-world tile the raster barely touches.
+    """
 
     def _read_tile():
         ds = Dataset.read_file(
             cog_on_disk
         )  # keep a strong ref: .cog holds only a weakref
-        return ds.cog.read_tile(0, 0, 0)
+        return ds.cog.read_tile(6, 33, 33)
 
     benchmark(_read_tile)

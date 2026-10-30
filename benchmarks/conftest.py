@@ -107,4 +107,11 @@ def cog_on_disk(
     src = Dataset.from_array(float_array, geo_ref=geo_ref, no_data_value=-9999.0)
     path = tmp_path_factory.mktemp("bench_cog") / "raster_cog.tif"
     src.to_cog(str(path))
+    probe = gdal.Open(str(path))
+    overview_count = probe.GetRasterBand(1).GetOverviewCount()
+    probe = None
+    assert overview_count > 0, (
+        "COG fixture has no overviews, so the decimated-read benchmarks would silently time a "
+        "full-resolution read mislabelled 'decimated'"
+    )
     return str(path)
