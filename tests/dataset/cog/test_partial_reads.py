@@ -915,3 +915,50 @@ class TestReadPartGsd:
         """
         arr = ramp_4326.read_part((0.0, 9.0, 1.0, 10.0), gsd=100.0)
         assert arr.shape == (1, 1), f"expected a 1x1 floor, got {arr.shape}"
+
+    def test_gsd_non_square_window_keeps_axis_order(self, ramp_4326):
+        """A rectangular window sizes width from x-span and height from y-span.
+
+        Args:
+            ramp_4326: 100x100 ramp fixture (native cell 0.01).
+        """
+        arr = ramp_4326.read_part((0.0, 9.0, 1.0, 9.5), gsd=0.05)
+        assert arr.shape == (10, 20), f"expected (rows=10, cols=20), got {arr.shape}"
+
+    def test_gsd_realised_resolution_is_approximate(self, ramp_4326):
+        """An off-grid window's realised cell size drifts from gsd within a pixel.
+
+        Args:
+            ramp_4326: 100x100 ramp fixture (native cell 0.01).
+        """
+        arr, gt = ramp_4326.read_part(
+            (0.005, 9.005, 0.245, 9.995), gsd=0.01, return_transform=True
+        )
+        assert arr.shape == (99, 24), f"unexpected shape {arr.shape}"
+        realised = gt[1]
+        assert realised != 0.01, "an off-grid window should drift from the gsd"
+        assert abs(realised - 0.01) < 0.01, (
+            f"drift must stay within one source pixel, got {realised}"
+        )
+
+    def test_gsd_partial_overlap_window_honours_output_size(self, ramp_4326):
+        """gsd sizes the output even when the window overruns the raster edge.
+
+        Args:
+            ramp_4326: 100x100 ramp fixture spanning x[0, 1], y[9, 10].
+        """
+        arr = ramp_4326.read_part((0.9, 9.0, 1.1, 10.0), gsd=0.01)
+        assert arr.shape == (100, 20), f"expected (100, 20), got {arr.shape}"
+
+    def test_gsd_cross_crs_sizes_from_bbox_units(self, ramp_4326):
+        """A gsd in a different bbox_crs sizes the output from that CRS's span.
+
+        Args:
+            ramp_4326: 100x100 ramp fixture on EPSG:4326.
+        """
+        arr = ramp_4326.read_part(
+            (10000.0, 1_010_000.0, 50000.0, 1_050_000.0), gsd=5000.0, bbox_crs=3857
+        )
+        assert arr.shape == (8, 8), (
+            f"expected (8, 8) from the 3857 span, got {arr.shape}"
+        )
