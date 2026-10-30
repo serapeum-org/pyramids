@@ -934,8 +934,8 @@ class TestReadPartGsd:
         arr = ramp_4326.read_part((0.0, 9.0, 1.0, 9.5), gsd=0.05)
         assert arr.shape == (10, 20), f"expected (rows=10, cols=20), got {arr.shape}"
 
-    def test_gsd_realised_resolution_is_approximate(self, ramp_4326):
-        """An off-grid window's realised cell size drifts from gsd within a pixel.
+    def test_gsd_realised_resolution_drifts_small_for_a_wide_window(self, ramp_4326):
+        """A wide off-grid window's realised cell size drifts only slightly from gsd.
 
         Args:
             ramp_4326: 100x100 ramp fixture (native cell 0.01).
@@ -945,10 +945,27 @@ class TestReadPartGsd:
         )
         assert arr.shape == (99, 24), f"unexpected shape {arr.shape}"
         realised = gt[1]
+        # Snapping drifts the realised cell off gsd; for this 24-px-wide window the
+        # drift is a small fraction of a native pixel (the worst case — a ~1-px
+        # window near 2x — is pinned by the next test).
         assert realised != 0.01, "an off-grid window should drift from the gsd"
         assert abs(realised - 0.01) < 0.01, (
-            f"drift must stay within one source pixel, got {realised}"
+            f"a wide window's drift is well under one native pixel, got {realised}"
         )
+
+    def test_gsd_tiny_window_drift_approaches_two_source_pixels(self, ramp_4326):
+        """A ~1px window's realised cell can reach ~2x gsd via double-sided snapping.
+
+        Args:
+            ramp_4326: 100x100 ramp fixture (native cell 0.01).
+        """
+        arr, gt = ramp_4326.read_part(
+            (0.009, 9.5, 0.031, 9.52), gsd=0.02, return_transform=True
+        )
+        assert arr.shape == (1, 1), f"expected a 1x1 read, got {arr.shape}"
+        # The 0.022 span snaps outward on both edges to 0.04 (4 native pixels), all
+        # in the single output cell — twice the requested gsd of 0.02.
+        assert gt[1] == pytest.approx(0.04), f"expected ~2x gsd drift, got {gt[1]}"
 
     def test_gsd_partial_overlap_window_honours_output_size(self, ramp_4326):
         """gsd sizes the output even when the window overruns the raster edge.
@@ -960,14 +977,16 @@ class TestReadPartGsd:
         assert arr.shape == (100, 20), f"expected (100, 20), got {arr.shape}"
 
     def test_gsd_cross_crs_sizes_from_bbox_units(self, ramp_4326):
-        """A gsd in a different bbox_crs sizes the output from that CRS's span.
+        """A gsd in a different bbox_crs sizes each axis from that CRS's span.
 
         Args:
             ramp_4326: 100x100 ramp fixture on EPSG:4326.
         """
+        # A deliberately non-square 3857 window (x span 40000, y span 20000) so the
+        # shape also pins axis mapping: x->width, y->height, in the bbox CRS.
         arr = ramp_4326.read_part(
-            (10000.0, 1_010_000.0, 50000.0, 1_050_000.0), gsd=5000.0, bbox_crs=3857
+            (10000.0, 1_010_000.0, 50000.0, 1_030_000.0), gsd=5000.0, bbox_crs=3857
         )
-        assert arr.shape == (8, 8), (
-            f"expected (8, 8) from the 3857 span, got {arr.shape}"
+        assert arr.shape == (4, 8), (
+            f"expected (rows=4, cols=8) from the 3857 span, got {arr.shape}"
         )
