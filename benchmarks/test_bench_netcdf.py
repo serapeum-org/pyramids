@@ -56,7 +56,9 @@ def test_read_array_lazy(benchmark, netcdf_path: str):
 
     def _lazy_read():
         arr = NetCDF.read_file(netcdf_path).read_array(VARIABLE, chunks=128)
-        return arr.compute()  # materialize the full variable, matching the eager read's work
+        return (
+            arr.compute()
+        )  # materialize the full variable, matching the eager read's work
 
     benchmark(_lazy_read)
 

@@ -52,7 +52,11 @@ def test_lazy_read_is_memory_bounded(benchmark, on_disk_tif: str):
         f"array {full_nbytes} — the read is not actually chunked"
     )
 
-    lazy_mean = float(Dataset.read_file(on_disk_tif).read_array(chunks=CHUNK).mean().compute())
+    lazy_mean = float(
+        Dataset.read_file(on_disk_tif).read_array(chunks=CHUNK).mean().compute()
+    )
     assert lazy_mean == pytest.approx(eager_mean, rel=1e-5)
 
-    benchmark(lambda: Dataset.read_file(on_disk_tif).read_array(chunks=CHUNK).mean().compute())
+    benchmark(
+        lambda: Dataset.read_file(on_disk_tif).read_array(chunks=CHUNK).mean().compute()
+    )
