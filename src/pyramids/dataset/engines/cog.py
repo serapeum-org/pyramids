@@ -836,15 +836,19 @@ class COG(_Engine["Dataset"]):
                 width (no decimation).
             dst_height: Output height in pixels. Defaults to the source window
                 height.
-            gsd: Target ground-sample-distance (output cell size) in `bbox_crs`
-                units, as a convenience in place of `dst_width`/`dst_height`:
-                the output size is derived as the bbox span divided by `gsd`
-                (rounded, floored at 1 pixel), so GDAL serves the matching
-                overview for that resolution. Mutually exclusive with
-                `dst_width`/`dst_height`. `None` (default) sizes the output from
-                those instead. The grid is sized from the *requested* bbox span;
-                when `bbox_crs` differs from the dataset CRS the realised cell
-                size is approximate (the window is reprojected before reading).
+            gsd: Target ground sample distance (output cell size) in `bbox_crs`
+                units — on a geographic CRS that is degrees, not metres — as a
+                convenience in place of `dst_width`/`dst_height`: the output size
+                is the bbox span divided by `gsd` (rounded, floored at 1 pixel),
+                so GDAL serves the overview matching that resolution. Mutually
+                exclusive with `dst_width`/`dst_height`; must be positive and
+                finite. `None` (default) sizes the output from those instead.
+                The realised cell size is **approximate**: the output covers the
+                requested window snapped outward to whole source pixels (and,
+                when `bbox_crs` differs from the dataset CRS, reprojected first),
+                so the effective resolution can differ from `gsd` by up to about
+                one source pixel across each span. Read at an explicit
+                `dst_width`/`dst_height` when you need an exact output grid.
             bbox_crs: CRS of `bbox`, reprojected to the dataset CRS when it
                 differs. Defaults to `None`, meaning the bbox is already in the
                 raster's own coordinates, so nothing is transformed.
