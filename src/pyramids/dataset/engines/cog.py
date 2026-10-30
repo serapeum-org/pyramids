@@ -764,6 +764,7 @@ class COG(_Engine["Dataset"]):
         *,
         dst_width: int | None = ...,
         dst_height: int | None = ...,
+        gsd: float | None = ...,
         bbox_crs: int | str | None = ...,
         resampling: str = ...,
         band: int | None = ...,
@@ -777,6 +778,7 @@ class COG(_Engine["Dataset"]):
         *,
         dst_width: int | None = ...,
         dst_height: int | None = ...,
+        gsd: float | None = ...,
         bbox_crs: int | str | None = ...,
         resampling: str = ...,
         band: int | None = ...,
@@ -790,6 +792,7 @@ class COG(_Engine["Dataset"]):
         *,
         dst_width: int | None = ...,
         dst_height: int | None = ...,
+        gsd: float | None = ...,
         bbox_crs: int | str | None = ...,
         resampling: str = ...,
         band: int | None = ...,
@@ -806,6 +809,7 @@ class COG(_Engine["Dataset"]):
         *,
         dst_width: int | None = None,
         dst_height: int | None = None,
+        gsd: float | None = None,
         bbox_crs: int | str | None = None,
         resampling: str = "bilinear",
         band: int | None = None,
@@ -832,6 +836,15 @@ class COG(_Engine["Dataset"]):
                 width (no decimation).
             dst_height: Output height in pixels. Defaults to the source window
                 height.
+            gsd: Target ground-sample-distance (output cell size) in `bbox_crs`
+                units, as a convenience in place of `dst_width`/`dst_height`:
+                the output size is derived as the bbox span divided by `gsd`
+                (rounded, floored at 1 pixel), so GDAL serves the matching
+                overview for that resolution. Mutually exclusive with
+                `dst_width`/`dst_height`. `None` (default) sizes the output from
+                those instead. The grid is sized from the *requested* bbox span;
+                when `bbox_crs` differs from the dataset CRS the realised cell
+                size is approximate (the window is reprojected before reading).
             bbox_crs: CRS of `bbox`, reprojected to the dataset CRS when it
                 differs. Defaults to `None`, meaning the bbox is already in the
                 raster's own coordinates, so nothing is transformed.
@@ -875,8 +888,9 @@ class COG(_Engine["Dataset"]):
                 to transform into. Omit it to read in the raster's own
                 coordinates (ARC-26).
             TypeError: `resampling` is not a string.
-            ValueError: Unknown `resampling`, or `dst_width` / `dst_height` is
-                given as a non-positive pixel count.
+            ValueError: Unknown `resampling`; `dst_width` / `dst_height` given as
+                a non-positive pixel count; `gsd` given together with
+                `dst_width`/`dst_height`; or `gsd` is not positive.
             OutOfBoundsError: The window does not intersect the raster at all.
 
         Note:
@@ -958,7 +972,33 @@ class COG(_Engine["Dataset"]):
                 (1.0, 1.3333333333333333, 0.0, 5.0, 0.0, -1.3333333333333333)
 
                 ```
+            - Match a target ground resolution over a window with `gsd=`, instead
+              of computing the output pixel size yourself:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, GeoReference
+                >>> grid = Dataset.from_array(
+                ...     np.arange(64, dtype="float64").reshape(8, 8),
+                ...     geo_ref=GeoReference(top_left_corner=(0, 8), cell_size=1.0, epsg=3857),
+                ... )
+                >>> grid.read_part((0, 0, 8, 8), gsd=2.0).shape  # 8 units / 2.0 -> 4 px
+                (4, 4)
+
+                ```
         """
+        if gsd is not None:
+            if dst_width is not None or dst_height is not None:
+                raise ValueError(
+                    "read_part accepts either gsd or dst_width/dst_height, not both"
+                )
+            if gsd <= 0:
+                raise ValueError(
+                    f"gsd must be a positive ground-sample-distance; got {gsd}"
+                )
+            # Size the output grid from the target ground resolution over the
+            # requested window (bbox units), so GDAL serves the matching overview.
+            dst_width = max(1, round(abs(bbox[2] - bbox[0]) / gsd))
+            dst_height = max(1, round(abs(bbox[3] - bbox[1]) / gsd))
         alg = _resolve_read_resampling(resampling)
         self._reject_nonpositive_output_sizes(dst_width, dst_height)
         # This serves a decimated window from the source; a NetCDF multidim view can't be window-read

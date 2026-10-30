@@ -862,3 +862,56 @@ class TestReadTile:
         assert tile.shape == (256, 256), f"edge tile must keep tilesize: {tile.shape}"
         assert (tile == -1.0).any(), "edge tile should have NoData-padded margin"
         assert np.isclose(tile, 1.0).any(), "edge tile should also contain real data"
+
+
+class TestReadPartGsd:
+    """`read_part(gsd=...)` sizes the output grid from a target ground resolution."""
+
+    def test_gsd_sets_output_size_from_bbox_span(self, ramp_4326):
+        """A gsd of 0.05 over the 1.0-wide ramp window yields a 20x20 read.
+
+        Args:
+            ramp_4326: 100x100 ramp fixture spanning (0, 9) to (1, 10).
+        """
+        arr = ramp_4326.read_part((0.0, 9.0, 1.0, 10.0), gsd=0.05)
+        assert arr.shape == (20, 20), f"expected 20x20 from gsd, got {arr.shape}"
+
+    def test_gsd_matches_equivalent_dst_size(self, ramp_4326):
+        """gsd and the equivalent dst_width/dst_height produce the same array.
+
+        Args:
+            ramp_4326: 100x100 ramp fixture.
+        """
+        bbox = (0.0, 9.0, 1.0, 10.0)
+        by_gsd = ramp_4326.read_part(bbox, gsd=0.05)
+        by_dst = ramp_4326.read_part(bbox, dst_width=20, dst_height=20)
+        assert np.array_equal(by_gsd, by_dst), "gsd must equal explicit dst_ sizing"
+
+    def test_gsd_with_dst_size_is_rejected(self, ramp_4326):
+        """Passing gsd together with dst_width/dst_height raises ValueError.
+
+        Args:
+            ramp_4326: 100x100 ramp fixture.
+        """
+        with pytest.raises(ValueError, match="either gsd or dst_width"):
+            ramp_4326.read_part((0.0, 9.0, 1.0, 10.0), gsd=0.05, dst_width=10)
+
+    @pytest.mark.parametrize("bad", [0.0, -0.01])
+    def test_non_positive_gsd_is_rejected(self, ramp_4326, bad):
+        """A non-positive gsd raises ValueError.
+
+        Args:
+            ramp_4326: 100x100 ramp fixture.
+            bad: A non-positive ground-sample-distance.
+        """
+        with pytest.raises(ValueError, match="gsd must be a positive"):
+            ramp_4326.read_part((0.0, 9.0, 1.0, 10.0), gsd=bad)
+
+    def test_coarse_gsd_floors_at_one_pixel(self, ramp_4326):
+        """A gsd larger than the whole window still yields at least a 1x1 read.
+
+        Args:
+            ramp_4326: 100x100 ramp fixture.
+        """
+        arr = ramp_4326.read_part((0.0, 9.0, 1.0, 10.0), gsd=100.0)
+        assert arr.shape == (1, 1), f"expected a 1x1 floor, got {arr.shape}"
