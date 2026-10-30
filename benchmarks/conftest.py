@@ -92,3 +92,19 @@ def classes_dataset(classes_array: np.ndarray, geo_ref: GeoReference) -> Dataset
 def write_target(tmp_path_factory) -> Path:
     """A reusable on-disk destination for the write benchmark (overwritten each round)."""
     return tmp_path_factory.mktemp("bench_write") / "out.tif"
+
+
+@pytest.fixture(scope="session")
+def cog_on_disk(
+    float_array: np.ndarray, geo_ref: GeoReference, tmp_path_factory
+) -> str:
+    """A Cloud Optimized GeoTIFF (with overviews) written once for the decimated-read benchmarks.
+
+    The COG driver builds internal overviews, so ``read_part`` / ``preview`` / ``point`` /
+    ``read_tile`` can serve a decimated request from a coarse level instead of the full raster —
+    the cloud-native partial-read pattern these benchmarks measure against a full read.
+    """
+    src = Dataset.from_array(float_array, geo_ref=geo_ref, no_data_value=-9999.0)
+    path = tmp_path_factory.mktemp("bench_cog") / "raster_cog.tif"
+    src.to_cog(str(path))
+    return str(path)

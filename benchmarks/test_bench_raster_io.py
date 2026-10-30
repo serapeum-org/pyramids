@@ -60,3 +60,69 @@ def test_write_geotiff(
             float_array, geo_ref=geo_ref, no_data_value=-9999.0, path=str(write_target)
         )
     )
+
+
+@pytest.mark.benchmark(group="raster-cog-write")
+def test_to_cog(benchmark, in_memory_dataset: Dataset, tmp_path):
+    """Write the raster as a Cloud Optimized GeoTIFF (tiling + overviews)."""
+    dst = tmp_path / "out_cog.tif"
+    benchmark(lambda: in_memory_dataset.to_cog(str(dst)))
+
+
+@pytest.mark.benchmark(group="raster-cog-read")
+def test_cog_full_read(benchmark, cog_on_disk: str):
+    """Baseline: reopen the COG and read the whole band at full resolution."""
+    benchmark(lambda: Dataset.read_file(cog_on_disk).read_array())
+
+
+@pytest.mark.benchmark(group="raster-cog-read")
+def test_cog_read_part_decimated(benchmark, cog_on_disk: str):
+    """Decimated geographic-window read served from the nearest overview."""
+    bbox = (0.0, -20.48, 20.48, 0.0)  # full extent of the 2048x2048 @ 0.01deg COG
+
+    def _read_part():
+        ds = Dataset.read_file(
+            cog_on_disk
+        )  # keep a strong ref: .cog holds only a weakref
+        return ds.cog.read_part(bbox, dst_width=512, dst_height=512, bbox_crs=4326)
+
+    benchmark(_read_part)
+
+
+@pytest.mark.benchmark(group="raster-cog-read")
+def test_cog_preview(benchmark, cog_on_disk: str):
+    """Whole-image thumbnail pulled from a coarse overview."""
+
+    def _preview():
+        ds = Dataset.read_file(
+            cog_on_disk
+        )  # keep a strong ref: .cog holds only a weakref
+        return ds.cog.preview(max_size=512)
+
+    benchmark(_preview)
+
+
+@pytest.mark.benchmark(group="raster-cog-read")
+def test_cog_point(benchmark, cog_on_disk: str):
+    """Sample a single pixel value at a coordinate."""
+
+    def _point():
+        ds = Dataset.read_file(
+            cog_on_disk
+        )  # keep a strong ref: .cog holds only a weakref
+        return ds.cog.point(10.0, -10.0, point_crs=4326)
+
+    benchmark(_point)
+
+
+@pytest.mark.benchmark(group="raster-cog-read")
+def test_cog_read_tile(benchmark, cog_on_disk: str):
+    """Read a 256x256 Web-Mercator XYZ slippy-map tile from the COG."""
+
+    def _read_tile():
+        ds = Dataset.read_file(
+            cog_on_disk
+        )  # keep a strong ref: .cog holds only a weakref
+        return ds.cog.read_tile(0, 0, 0)
+
+    benchmark(_read_tile)

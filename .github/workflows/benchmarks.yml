@@ -1,0 +1,55 @@
+name: Benchmarks - Nightly
+
+permissions:
+  contents: read
+
+# Performance benchmarks are not a build gate: shared GitHub runners are too noisy to compare
+# absolute milliseconds commit-to-commit (see benchmarks/README.md). They run on a nightly
+# schedule (and on demand) and store the raw ``--benchmark-json`` as an artifact, so throughput
+# and the eager-vs-lazy / full-vs-decimated gaps can be tracked over time or compared locally with
+# ``pytest-benchmark compare`` — rather than failing a PR on timing.
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: serapeum-org/github-actions/actions/python-setup/pixi@38c111084f99d5ff5f4a1e63bedce48fe33a10c0  # pixi/v1.2.1
+        with:
+          environments: dev
+          activate-environment: dev
+          cache: true
+          version: v0.73.0
+
+      - name: Run benchmarks and save results
+        # The ``benchmark`` task runs ``pytest benchmarks --benchmark-only``; extra args are
+        # forwarded to pytest-benchmark, so this also autosaves and writes the machine-readable
+        # JSON consumed by the artifact below.
+        run: >-
+          pixi run -e dev benchmark
+          --benchmark-autosave
+          --benchmark-json=benchmark-results.json
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchmark-results-${{ github.run_id }}
+          path: |
+            benchmark-results.json
+            .benchmarks/
+          if-no-files-found: warn
+          retention-days: 90

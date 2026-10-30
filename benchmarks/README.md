@@ -39,19 +39,27 @@ Saved runs live under `.benchmarks/` (git-ignored).
 
 | Module | Operations |
 |---|---|
-| `test_bench_raster_io.py` | `from_array`; `read_array` (full / bbox / `out_shape`); `read_file` from disk; GeoTIFF write |
-| `test_bench_spatial.py` | `crop` (bbox), `to_crs` (WGS84 → Web Mercator), `resample` (coarsen, bilinear) |
-| `test_bench_vectorize.py` | `to_polygons` on a class-label raster |
+| `test_bench_raster_io.py` | `from_array`; `read_array` (full/bbox/`out_shape`); `read_file`; write; COG write; COG decimated reads (`read_part`/`preview`/`point`/`read_tile`) vs full read |
+| `test_bench_spatial.py` | `crop`, `to_crs` (→ Web Mercator), `resample`, `align`, `warped_view` (lazy windowed read) |
+| `test_bench_vectorize.py` | `to_polygons`, `contour`, `sieve`, `proximity` |
+| `test_bench_collection.py` | `DatasetCollection`: `from_dataset`, `mean` (temporal), `apply`, `to_cog_stack`, `merge` (mosaic) |
+| `test_bench_netcdf.py` | NetCDF multidim `read_array` **eager vs lazy (dask)**, `isel`, `sel`, `subset` |
+| `test_bench_feature.py` | `FeatureCollection.fishnet`, rasterize (`Dataset.from_features`), `with_centroid`, `geodesic_area` |
+| `test_bench_memory.py` | asserts the lazy/dask read stays **memory-bounded** (chunk-structural + `tracemalloc`) |
 
-This is the first cut. The issue tracks the full target set (DatasetCollection reductions / `to_cog_stack`,
-NetCDF multidim + eager-vs-lazy, COG decimated reads, FeatureCollection rasterize) and a memory-benchmark layer.
+Every operation named in the tracking issue's hot-path table is covered. The COG and NetCDF read groups keep
+the full-resolution / eager read alongside the decimated / lazy one in the same comparison group, so a run shows
+the partial-read win directly.
 
 ## Methodology notes (so the numbers mean something)
 
 - **GDAL cache is pinned** (`GDAL_CACHEMAX` = 256 MB) for the session in `conftest.py`, so results do not
   drift with the ambient block-cache size.
 - **Data is synthetic**, built from a fixed seed at a representative size (2048×2048 float32 ≈ 16 MB), not the
-  tiny committed test fixtures (too small to measure) and not a committed multi-GB raster (repo bloat).
+  tiny committed test fixtures (too small to measure) and not a committed multi-GB raster (repo bloat). The COG
+  fixture writes a tiled raster with overviews so decimated reads can be served from a coarse level; the NetCDF
+  fixture is a synthetic `(time, lat, lon)` cube written through `NetCDF.from_xarray` (pyramids' own GDAL
+  multidim writer — no `netCDF4` / `h5netcdf` backend needed).
 - Read benchmarks reuse a **session-scoped** dataset, i.e. a **warm** GDAL block cache — a consistent regime.
   If you need cold-cache numbers, read a fresh file per round instead.
 - Cloud/COG reads are **network-bound**: measure bytes transferred / range-request count (GDAL `/vsicurl/`
@@ -59,6 +67,9 @@ NetCDF multidim + eager-vs-lazy, COG decimated reads, FeatureCollection rasteriz
 
 ## CI
 
-Shared CI runners are too noisy to gate a build on absolute milliseconds, so these do **not** run in the
-normal matrix. The intended route (CodSpeed for deterministic, instruction-counted PR comparisons, or a
-nightly job that stores `--benchmark-json`) is still an open decision — see the tracking issue.
+Shared CI runners are too noisy to gate a build on absolute milliseconds, so these do **not** run in the normal
+test matrix. Instead, `.github/workflows/benchmarks.yml` runs the suite **nightly** (and on `workflow_dispatch`)
+and uploads the raw `--benchmark-json` plus the `.benchmarks/` autosave as a 90-day artifact. That gives a
+history to track and a baseline to compare a branch against locally (see "Catching a regression" above) without
+failing a PR on timing noise. (A deterministic, instruction-counted route — CodSpeed — was considered; it was
+deferred because it needs an extra dev dependency and the CodSpeed GitHub app enabled on the repo.)
