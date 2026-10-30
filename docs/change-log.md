@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.74.0 (2026-10-30)
+
+### Feat
+
+- **cog**: add a gsd= ground-sample-distance option to read_part (#1421)
+
 ## 0.73.0 (2026-10-28)
 
 ### Feat
