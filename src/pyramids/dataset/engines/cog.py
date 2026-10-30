@@ -994,28 +994,7 @@ class COG(_Engine["Dataset"]):
 
                 ```
         """
-        if gsd is not None:
-            if dst_width is not None or dst_height is not None:
-                raise ValueError(
-                    "read_part accepts either gsd or dst_width/dst_height, not both"
-                )
-            if not math.isfinite(gsd) or gsd <= 0:
-                raise ValueError(
-                    f"gsd must be a positive, finite ground-sample-distance; got {gsd}"
-                )
-            # Size the output grid from the target ground resolution over the
-            # requested window (bbox units), so GDAL serves the matching overview.
-            width_f = abs(bbox[2] - bbox[0]) / gsd
-            height_f = abs(bbox[3] - bbox[1]) / gsd
-            # A gsd small enough to overflow the division would make round() raise
-            # a cryptic OverflowError; surface the documented ValueError instead.
-            if not (math.isfinite(width_f) and math.isfinite(height_f)):
-                raise ValueError(
-                    f"gsd {gsd} is too small for the window; the derived output "
-                    "size is not finite"
-                )
-            dst_width = max(1, round(width_f))
-            dst_height = max(1, round(height_f))
+        dst_width, dst_height = self._gsd_output_size(bbox, gsd, dst_width, dst_height)
         alg = _resolve_read_resampling(resampling)
         self._reject_nonpositive_output_sizes(dst_width, dst_height)
         # This serves a decimated window from the source; a NetCDF multidim view can't be window-read
@@ -1122,6 +1101,57 @@ class COG(_Engine["Dataset"]):
         # this arm.
         array = np.asarray(self._ds.io._apply_scale_offset(out, band))
         return (array, out_gt) if return_transform else array
+
+    @staticmethod
+    def _gsd_output_size(
+        bbox: tuple[float, float, float, float],
+        gsd: float | None,
+        dst_width: int | None,
+        dst_height: int | None,
+    ) -> tuple[int | None, int | None]:
+        """Resolve `dst_width`/`dst_height` from a target `gsd`, or pass them through.
+
+        When `gsd` is `None` the given `dst_width`/`dst_height` are returned
+        unchanged. Otherwise the output grid is sized from the bbox span divided
+        by `gsd` (floored at 1 pixel) — see :meth:`read_part` for the units and
+        the resolution-approximation note.
+
+        Args:
+            bbox: `(min_x, min_y, max_x, max_y)` window in the bbox CRS.
+            gsd: Target ground sample distance in bbox-CRS units, or `None`.
+            dst_width: Explicit output width, or `None`.
+            dst_height: Explicit output height, or `None`.
+
+        Returns:
+            The `(dst_width, dst_height)` to read with.
+
+        Raises:
+            ValueError: `gsd` is combined with `dst_width`/`dst_height`; `gsd` is
+                not a positive finite number; or `gsd` is so small the derived
+                output size is not finite.
+        """
+        if gsd is None:
+            return dst_width, dst_height
+        if dst_width is not None or dst_height is not None:
+            raise ValueError(
+                "read_part accepts either gsd or dst_width/dst_height, not both"
+            )
+        if not math.isfinite(gsd) or gsd <= 0:
+            raise ValueError(
+                f"gsd must be a positive, finite ground-sample-distance; got {gsd}"
+            )
+        # Size the output grid from the target ground resolution over the
+        # requested window (bbox units), so GDAL serves the matching overview.
+        width_f = abs(bbox[2] - bbox[0]) / gsd
+        height_f = abs(bbox[3] - bbox[1]) / gsd
+        # A gsd small enough to overflow the division would make round() raise a
+        # cryptic OverflowError; surface the documented ValueError instead.
+        if not (math.isfinite(width_f) and math.isfinite(height_f)):
+            raise ValueError(
+                f"gsd {gsd} is too small for the window; the derived output "
+                "size is not finite"
+            )
+        return max(1, round(width_f)), max(1, round(height_f))
 
     @staticmethod
     def _output_geotransform(
